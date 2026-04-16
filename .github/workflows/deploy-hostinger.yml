@@ -84,12 +84,12 @@ jobs:
 
       - name: Create deployment package
         run: |
-          tar -czf deploy.tar.gz \
+          tar --exclude='node_modules' -czf deploy.tar.gz \
             dist/ \
             package.json \
             package-lock.json \
-            ecosystem.config.js \
-            --exclude='node_modules'
+            ecosystem.config.js
+          ls -lh deploy.tar.gz
 
       - name: Upload package to server
         run: |
