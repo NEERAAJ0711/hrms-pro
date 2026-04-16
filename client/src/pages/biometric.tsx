@@ -37,7 +37,7 @@ export default function BiometricPage() {
   // Device Form State
   const [deviceName, setDeviceName] = useState("");
   const [deviceSerial, setDeviceSerial] = useState("");
-  const [deviceIp, setDeviceIp] = useState("");
+  const [deviceIp, setDeviceIp] = useState("31.97.207.109");
   const [devicePort, setDevicePort] = useState("8181");
 
   const { data: companies = [] } = useQuery<Company[]>({
@@ -115,7 +115,8 @@ export default function BiometricPage() {
       setDeviceDialogOpen(false);
       setDeviceName("");
       setDeviceSerial("");
-      setDeviceIp("");
+      setDeviceIp("31.97.207.109");
+      setDevicePort("8181");
     },
   });
 
