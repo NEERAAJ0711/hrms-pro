@@ -645,6 +645,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.delete("/api/biometric/devices/:id", requireAuth, requireRole("super_admin", "company_admin"), async (req, res) => {
+    try {
+      const ok = await storage.deleteBiometricDevice(req.params.id);
+      if (!ok) return res.status(404).json({ message: "Device not found" });
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ error: error?.message || "Failed to delete biometric device" });
+    }
+  });
+
   app.post("/api/biometric/devices/:id/test", requireAuth, async (req, res) => {
     try {
       const device = await storage.getBiometricDevice(req.params.id);
