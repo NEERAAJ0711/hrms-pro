@@ -99,7 +99,7 @@ jobs:
               -P ${{ secrets.HOSTINGER_PORT || 22 }} \
               -o StrictHostKeyChecking=no \
               deploy.tar.gz \
-              ${{ secrets.HOSTINGER_USERNAME }}@${{ secrets.HOSTINGER_HOST }}:/tmp/hrms-deploy.tar.gz
+              ${{ secrets.HOSTINGER_USERNAME }}@${{ secrets.HOSTINGER_HOST }}:/tmp/hrms-deploy-${{ github.run_id }}.tar.gz
 
       - name: Deploy on server
         env:
@@ -111,7 +111,7 @@ jobs:
               -p ${{ secrets.HOSTINGER_PORT || 22 }} \
               -o StrictHostKeyChecking=no \
               ${{ secrets.HOSTINGER_USERNAME }}@${{ secrets.HOSTINGER_HOST }} \
-              "DATABASE_URL='$DATABASE_URL' SESSION_SECRET='$SESSION_SECRET' JWT_SECRET='$JWT_SECRET' bash -s" << 'ENDSSH'
+              "DEPLOY_TAR='/tmp/hrms-deploy-${{ github.run_id }}.tar.gz' DATABASE_URL='$DATABASE_URL' SESSION_SECRET='$SESSION_SECRET' JWT_SECRET='$JWT_SECRET' bash -s" << 'ENDSSH'
 
             set -e
             APP_DIR="$HOME/hrms-pro"
@@ -129,9 +129,9 @@ jobs:
             mkdir -p "$APP_DIR"
             cd "$APP_DIR"
 
-            echo "▶ Extracting new build..."
-            tar -xzf /tmp/hrms-deploy.tar.gz -C "$APP_DIR"
-            rm /tmp/hrms-deploy.tar.gz
+            echo "▶ Extracting new build from $DEPLOY_TAR..."
+            tar -xzf "$DEPLOY_TAR" -C "$APP_DIR"
+            rm -f "$DEPLOY_TAR"
 
             echo "▶ Writing .env file..."
             {
