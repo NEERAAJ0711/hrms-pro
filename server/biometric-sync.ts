@@ -10,7 +10,9 @@ async function syncDevice(device: any) {
     
     await zkInstance.createSocket();
     const logs = await zkInstance.getAttendances();
-    const employees = await storage.getEmployeesByCompany(device.companyId);
+    const employees = device.companyId
+      ? await storage.getEmployeesByCompany(device.companyId)
+      : await storage.getAllEmployees();
     
     let inserted = 0;
 
@@ -31,12 +33,13 @@ async function syncDevice(device: any) {
 
         const punchTime = new Date(log.recordTime).toTimeString().split(' ')[0].substring(0, 5);
         const punchDate = new Date(log.recordTime).toISOString().split('T')[0];
-        
-        const existing = await storage.findDuplicatePunchLog(device.companyId, deviceEmployeeId, punchTime, punchDate);
+        const punchCompanyId = employee.companyId;
+
+        const existing = await storage.findDuplicatePunchLog(punchCompanyId, deviceEmployeeId, punchTime, punchDate);
         if (existing) continue;
 
         await storage.createBiometricPunchLog({
-          companyId: device.companyId,
+          companyId: punchCompanyId,
           employeeId: employee.id,
           deviceEmployeeId: deviceEmployeeId,
           punchTime,

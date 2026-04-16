@@ -708,7 +708,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       try {
         await zkInstance.createSocket();
         const logs = await zkInstance.getAttendances();
-        const employees = await storage.getEmployeesByCompany(device.companyId);
+        // If the device is not bound to a single company, look across all companies
+        const employees = device.companyId
+          ? await storage.getEmployeesByCompany(device.companyId)
+          : await storage.getAllEmployees();
         const results = { inserted: 0, duplicates: 0, unmapped: 0, errors: 0 };
 
         if (logs.data && Array.isArray(logs.data)) {
@@ -723,15 +726,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
             const punchTime = new Date(log.recordTime).toTimeString().split(' ')[0].substring(0, 5);
             const punchDate = new Date(log.recordTime).toISOString().split('T')[0];
-            
-            const existing = await storage.findDuplicatePunchLog(device.companyId, deviceEmployeeId, punchTime, punchDate);
+            const punchCompanyId = employee.companyId;
+
+            const existing = await storage.findDuplicatePunchLog(punchCompanyId, deviceEmployeeId, punchTime, punchDate);
             if (existing) {
               results.duplicates++;
               continue;
             }
 
             await storage.createBiometricPunchLog({
-              companyId: device.companyId,
+              companyId: punchCompanyId,
               employeeId: employee.id,
               deviceEmployeeId: deviceEmployeeId,
               punchTime,

@@ -225,13 +225,12 @@ export default function BiometricPage() {
   };
 
   const handleAddDevice = () => {
-    const companyId = isSuperAdmin ? syncCompanyId : (user?.companyId || "");
-    if (!companyId || !deviceName || !deviceSerial) {
+    if (!deviceName || !deviceSerial) {
       toast({ title: "Error", description: "Please fill all required fields", variant: "destructive" });
       return;
     }
     deviceMutation.mutate({
-      companyId,
+      companyId: null,
       name: deviceName,
       deviceSerial,
       ipAddress: deviceIp,
@@ -612,19 +611,6 @@ export default function BiometricPage() {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
-            {isSuperAdmin && (
-              <div>
-                <Label>Company</Label>
-                <Select value={syncCompanyId} onValueChange={setSyncCompanyId}>
-                  <SelectTrigger><SelectValue placeholder="Select company" /></SelectTrigger>
-                  <SelectContent>
-                    {companies.map(c => (
-                      <SelectItem key={c.id} value={c.id}>{c.companyName}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
             <div>
               <Label>Machine Name</Label>
               <Input 

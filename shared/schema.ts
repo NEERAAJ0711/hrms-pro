@@ -527,7 +527,7 @@ export type Holiday = typeof holidays.$inferSelect;
 // Biometric Devices table
 export const biometricDevices = pgTable("biometric_devices", {
   id: varchar("id", { length: 36 }).primaryKey(),
-  companyId: varchar("company_id", { length: 36 }).notNull(),
+  companyId: varchar("company_id", { length: 36 }),
   name: text("name").notNull(),
   deviceSerial: text("device_serial").notNull(),
   ipAddress: text("ip_address"),
