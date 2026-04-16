@@ -1,7 +1,7 @@
 import ZKLib from 'zkteco-js';
 import { storage } from "./storage";
 
-const SYNC_INTERVAL = 60000; // Poll every 1 minute
+const SYNC_INTERVAL = 5 * 60 * 1000; // Poll every 5 minutes
 
 async function syncDevice(device: any) {
   try {

@@ -28,10 +28,8 @@ export default function BiometricPage() {
   const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split("T")[0]);
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [pushDialogOpen, setPushDialogOpen] = useState(false);
-  const [syncDialogOpen, setSyncDialogOpen] = useState(false);
   const [deviceDialogOpen, setDeviceDialogOpen] = useState(false);
   const [pushData, setPushData] = useState("");
-  const [syncDate, setSyncDate] = useState(new Date().toISOString().split("T")[0]);
   const [syncCompanyId, setSyncCompanyId] = useState("");
   
   // Device Form State
@@ -82,25 +80,6 @@ export default function BiometricPage() {
     },
     onError: () => {
       toast({ title: "Error", description: "Failed to upload punch data", variant: "destructive" });
-    },
-  });
-
-  const syncMutation = useMutation({
-    mutationFn: async (data: { companyId: string; date: string }) => {
-      const res = await apiRequest("POST", "/api/biometric/sync", data);
-      return res.json();
-    },
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/biometric/logs"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/attendance"] });
-      toast({
-        title: "Sync Complete",
-        description: `Synced: ${data.results.synced}, Missing Punches: ${data.results.missingPunches}, Skipped: ${data.results.skipped}`,
-      });
-      setSyncDialogOpen(false);
-    },
-    onError: () => {
-      toast({ title: "Error", description: "Failed to sync biometric data", variant: "destructive" });
     },
   });
 
@@ -215,15 +194,6 @@ export default function BiometricPage() {
     }
   };
 
-  const handleSync = () => {
-    const companyId = isSuperAdmin ? syncCompanyId : (user?.companyId || "");
-    if (!companyId || !syncDate) {
-      toast({ title: "Error", description: "Please select company and date", variant: "destructive" });
-      return;
-    }
-    syncMutation.mutate({ companyId, date: syncDate });
-  };
-
   const handleAddDevice = () => {
     if (!deviceName || !deviceSerial) {
       toast({ title: "Error", description: "Please fill all required fields", variant: "destructive" });
@@ -262,17 +232,13 @@ export default function BiometricPage() {
             Biometric Integration
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Manage biometric device data, sync punch logs to attendance
+            Manage biometric devices — punch data is auto-pulled every 5 minutes
           </p>
         </div>
         <div className="flex gap-2">
           <Button variant="outline" onClick={() => setPushDialogOpen(true)}>
             <Upload className="h-4 w-4 mr-2" />
             Push Punch Data
-          </Button>
-          <Button onClick={() => { setSyncDate(selectedDate); setSyncCompanyId(effectiveCompanyId); setSyncDialogOpen(true); }}>
-            <RefreshCw className="h-4 w-4 mr-2" />
-            Sync to Attendance
           </Button>
         </div>
       </div>
@@ -560,42 +526,6 @@ export default function BiometricPage() {
             <Button variant="outline" onClick={() => setPushDialogOpen(false)}>Cancel</Button>
             <Button onClick={handlePushData} disabled={pushMutation.isPending}>
               {pushMutation.isPending ? "Uploading..." : "Upload"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={syncDialogOpen} onOpenChange={setSyncDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Sync to Attendance</DialogTitle>
-            <DialogDescription>
-              Process biometric punch logs and update attendance records. Uses First In, Last Out logic. Single punches will be flagged as missing.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            {isSuperAdmin && (
-              <div>
-                <Label>Company</Label>
-                <Select value={syncCompanyId} onValueChange={setSyncCompanyId}>
-                  <SelectTrigger><SelectValue placeholder="Select company" /></SelectTrigger>
-                  <SelectContent>
-                    {companies.map(c => (
-                      <SelectItem key={c.id} value={c.id}>{c.companyName}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-            <div>
-              <Label>Date</Label>
-              <Input type="date" value={syncDate} onChange={e => setSyncDate(e.target.value)} />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setSyncDialogOpen(false)}>Cancel</Button>
-            <Button onClick={handleSync} disabled={syncMutation.isPending}>
-              {syncMutation.isPending ? "Syncing..." : "Sync Now"}
             </Button>
           </DialogFooter>
         </DialogContent>
