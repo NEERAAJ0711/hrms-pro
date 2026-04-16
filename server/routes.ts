@@ -1,0 +1,3571 @@
+import type { Express, Request, Response, NextFunction } from "express";
+import { createServer, type Server } from "http";
+import { storage } from "./storage";
+import { registerMobileRoutes } from "./mobile-routes";
+import { registerComplianceRoutes } from "./compliance-routes";
+import { createNotification, createNotificationForMany } from "./notifications";
+import { addSSEClient, removeSSEClient } from "./sse";
+import { db } from "./db";
+import { notifications, profileUpdateRequests } from "../shared/schema";
+import { eq, and, desc, sql } from "drizzle-orm";
+import { 
+  insertUserSchema, 
+  insertCompanySchema, 
+  insertEmployeeSchema,
+  insertAttendanceSchema,
+  insertLeaveTypeSchema,
+  insertLeaveRequestSchema,
+  insertSalaryStructureSchema,
+  insertPayrollSchema,
+  insertSettingSchema,
+  insertMasterDepartmentSchema,
+  insertMasterDesignationSchema,
+  insertMasterLocationSchema,
+  insertEarningHeadSchema,
+  insertDeductionHeadSchema,
+  insertStatutorySettingsSchema,
+  insertTimeOfficePolicySchema,
+  insertFnfSettlementSchema,
+  insertHolidaySchema,
+  insertBiometricDeviceSchema,
+  insertJobPostingSchema,
+  insertJobApplicationSchema
+} from "@shared/schema";
+import { z } from "zod";
+import ZKLib from 'zkteco-js';
+import multer from 'multer';
+import * as XLSX from 'xlsx';
+import { randomUUID } from 'crypto';
+import * as fs from 'fs';
+import * as path from 'path';
+
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
+
+// Document disk storage (10 MB limit)
+const DOC_UPLOAD_DIR = path.join(process.cwd(), 'uploads', 'employee-docs');
+if (!fs.existsSync(DOC_UPLOAD_DIR)) fs.mkdirSync(DOC_UPLOAD_DIR, { recursive: true });
+const docStorage = multer.diskStorage({
+  destination: (_req, _file, cb) => cb(null, DOC_UPLOAD_DIR),
+  filename: (_req, file, cb) => {
+    const ext = path.extname(file.originalname);
+    cb(null, `${Date.now()}-${randomUUID().slice(0, 8)}${ext}`);
+  },
+});
+const docUpload = multer({ storage: docStorage, limits: { fileSize: 10 * 1024 * 1024 } });
+
+// Extend Express Request type for session
+declare module "express-session" {
+  interface SessionData {
+    userId?: string;
+  }
+}
+
+// Authentication middleware
+const requireAuth = async (req: Request, res: Response, next: NextFunction) => {
+  if (!req.session.userId) {
+    return res.status(401).json({ error: "Authentication required" });
+  }
+  const user = await storage.getUser(req.session.userId);
+  if (!user) {
+    return res.status(401).json({ error: "User not found" });
+  }
+  (req as any).user = user;
+  next();
+};
+
+// Role-based access middleware
+const requireRole = (...allowedRoles: string[]) => {
+  return async (req: Request, res: Response, next: NextFunction) => {
+    const user = (req as any).user;
+    if (!user) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+    if (!allowedRoles.includes(user.role)) {
+      return res.status(403).json({ error: "Access denied. Insufficient permissions." });
+    }
+    next();
+  };
+};
+
+// Module access middleware
+const MODULE_ACCESS: Record<string, string[]> = {
+  companies: ["super_admin"],
+  users: ["super_admin", "company_admin"],
+  employees: ["super_admin", "company_admin", "hr_admin", "manager"],
+  attendance: ["super_admin", "company_admin", "hr_admin", "manager", "employee"],
+  leave: ["super_admin", "company_admin", "hr_admin", "manager", "employee"],
+  payroll: ["super_admin", "company_admin", "hr_admin"],
+  settings: ["super_admin", "company_admin"],
+  masters: ["super_admin", "company_admin", "hr_admin"],
+};
+
+const requireModuleAccess = (module: string) => {
+  return async (req: Request, res: Response, next: NextFunction) => {
+    const user = (req as any).user;
+    if (!user) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+
+    // super_admin always has full access — skip all checks
+    if (user.role === "super_admin") return next();
+
+    // Check user-specific permission overrides first
+    try {
+      const userPerms = await storage.getUserPermissions(user.id);
+      const override = userPerms.find(p => p.module === module);
+      if (override) {
+        if (override.canAccess) return next();
+        return res.status(403).json({ error: `Access denied. You do not have access to the ${module} module.` });
+      }
+    } catch (_) { /* if DB fails, fall through to role check */ }
+
+    // Fall back to role-based access
+    const allowedRoles = MODULE_ACCESS[module] || [];
+    if (allowedRoles.includes(user.role)) {
+      return next();
+    }
+    
+    res.status(403).json({ error: `Access denied. You do not have access to the ${module} module.` });
+  };
+};
+
+export async function registerRoutes(app: Express): Promise<Server> {
+  const httpServer = createServer(app);
+
+  // Serve uploaded employee documents statically
+  app.use('/uploads', (await import('express')).default.static(path.join(process.cwd(), 'uploads')));
+
+  // Add OT columns to payroll table if they don't exist
+  await db.execute(sql`ALTER TABLE payroll ADD COLUMN IF NOT EXISTS ot_hours NUMERIC(6,2) DEFAULT 0`).catch(() => {});
+  await db.execute(sql`ALTER TABLE payroll ADD COLUMN IF NOT EXISTS ot_amount INTEGER DEFAULT 0`).catch(() => {});
+
+  // Create employee_documents table if not exists
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS employee_documents (
+      id          VARCHAR(36) PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      employee_id VARCHAR(36) NOT NULL,
+      company_id  VARCHAR(36) NOT NULL,
+      doc_type    TEXT        NOT NULL,
+      file_name   TEXT        NOT NULL,
+      file_path   TEXT        NOT NULL,
+      file_size   INTEGER,
+      mime_type   TEXT,
+      created_by  VARCHAR(36),
+      created_at  TEXT        NOT NULL,
+      updated_at  TEXT        NOT NULL
+    )
+  `).catch(() => {});
+
+  // Register mobile API routes
+  registerMobileRoutes(app);
+
+  // ===== Auth Routes (Basic) =====
+  app.post("/api/auth/login", async (req, res) => {
+    try {
+      const { username, password } = req.body;
+      const user = await storage.getUserByUsername(username);
+      if (!user || user.password !== password) {
+        return res.status(401).json({ message: "Invalid username or password" });
+      }
+      req.session.userId = user.id;
+      // Ensure we save the session before responding
+      req.session.save((err) => {
+        if (err) return res.status(500).json({ message: "Could not save session" });
+        res.json(user);
+      });
+    } catch (error) {
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.post("/api/auth/signup", async (req, res) => {
+    try {
+      const data = insertUserSchema.parse(req.body);
+      const existingUser = await storage.getUserByUsername(data.username);
+      if (existingUser) {
+        return res.status(400).json({ message: "Username already exists" });
+      }
+      const user = await storage.createUser(data);
+      req.session.userId = user.id;
+      res.status(201).json(user);
+    } catch (error) {
+      res.status(400).json({ message: "Invalid user data" });
+    }
+  });
+
+  app.post("/api/auth/logout", (req, res) => {
+    req.session.destroy((err) => {
+      if (err) return res.status(500).json({ message: "Could not log out" });
+      res.json({ success: true });
+    });
+  });
+
+  app.get("/api/auth/me", async (req, res) => {
+    try {
+      if (!req.session.userId) return res.status(401).json({ message: "Not logged in" });
+      const user = await storage.getUser(req.session.userId);
+      if (!user) return res.status(401).json({ message: "User not found" });
+      let companyName: string | null = null;
+      if (user.companyId) {
+        const company = await storage.getCompany(user.companyId);
+        companyName = company?.companyName || null;
+      }
+      res.json({ ...user, companyName });
+    } catch (error) {
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  // ===== Dashboard Routes =====
+  app.get("/api/dashboard/stats", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      let stats;
+      if (user.role === "super_admin") {
+        stats = await storage.getDashboardStats();
+      } else if (user.companyId) {
+        stats = await storage.getDashboardStatsByCompany(user.companyId);
+      } else {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      res.json(stats);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch dashboard stats" });
+    }
+  });
+
+  // ===== Company Routes =====
+  app.get("/api/companies", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      if (user.role === "super_admin") {
+        const companies = await storage.getAllCompanies();
+        res.json(companies);
+      } else if (user.role === "employee" && !user.companyId) {
+        const companies = await storage.getAllCompanies();
+        res.json(companies.map(c => ({ id: c.id, companyName: c.companyName, status: c.status })));
+      } else if (user.companyId) {
+        const company = await storage.getCompany(user.companyId);
+        res.json(company ? [company] : []);
+      } else {
+        res.json([]);
+      }
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch companies" });
+    }
+  });
+
+  app.post("/api/companies", requireAuth, requireRole("super_admin"), async (req, res) => {
+    try {
+      const data = insertCompanySchema.parse(req.body);
+      const company = await storage.createCompany(data);
+      res.status(201).json(company);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to create company" });
+    }
+  });
+
+  // ===== User Routes =====
+  app.get("/api/users", requireAuth, requireModuleAccess("users"), async (req, res) => {
+    try {
+      const user = (req as any).user;
+      let users;
+      if (user.role === "super_admin") {
+        users = await storage.getAllUsers();
+      } else if (user.companyId) {
+        users = (await storage.getAllUsers()).filter(u => u.companyId === user.companyId);
+      } else {
+        users = [];
+      }
+      const companyId = user.role === "super_admin" ? null : user.companyId;
+      const allEmployees = companyId
+        ? await storage.getEmployeesByCompany(companyId)
+        : await (async () => {
+            const companies = await storage.getAllCompanies();
+            const lists = await Promise.all(companies.map(c => storage.getEmployeesByCompany(c.id)));
+            return lists.flat();
+          })();
+      const empByUserId: Record<string, { firstName: string; lastName: string }> = {};
+      for (const emp of allEmployees) {
+        if (emp.userId) empByUserId[emp.userId] = { firstName: emp.firstName, lastName: emp.lastName };
+      }
+      const enriched = users.map(u => ({
+        ...u,
+        employeeName: empByUserId[u.id] ? `${empByUserId[u.id].firstName} ${empByUserId[u.id].lastName}`.trim() : null,
+      }));
+      res.json(enriched);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch users" });
+    }
+  });
+
+  app.post("/api/users", requireAuth, requireModuleAccess("users"), async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const data = insertUserSchema.parse(req.body);
+      if (user.role !== "super_admin") {
+        (data as any).companyId = user.companyId;
+        if ((data as any).role === "super_admin") {
+          return res.status(403).json({ error: "Only Super Admin can create Super Admin users." });
+        }
+      }
+      const existingByUsername = await storage.getUserByUsername(data.username);
+      if (existingByUsername) {
+        return res.status(400).json({ error: "Username already exists" });
+      }
+      const existingByEmail = await storage.getUserByEmail(data.email);
+      if (existingByEmail) {
+        return res.status(400).json({ error: "Email already exists" });
+      }
+      const newUser = await storage.createUser(data);
+      res.status(201).json(newUser);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to create user" });
+    }
+  });
+
+  app.patch("/api/users/:id", requireAuth, requireModuleAccess("users"), async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const targetUser = await storage.getUser(req.params.id);
+      if (!targetUser) return res.status(404).json({ error: "User not found" });
+      if (user.role !== "super_admin" && targetUser.companyId !== user.companyId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      if (req.body.role === "super_admin" && user.role !== "super_admin") {
+        return res.status(403).json({ error: "Only Super Admin can assign Super Admin role." });
+      }
+      const updated = await storage.updateUser(req.params.id, req.body);
+      res.json(updated);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update user" });
+    }
+  });
+
+  app.delete("/api/users/:id", requireAuth, requireModuleAccess("users"), async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const targetUser = await storage.getUser(req.params.id);
+      if (!targetUser) return res.status(404).json({ error: "User not found" });
+      if (user.role !== "super_admin" && targetUser.companyId !== user.companyId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      const success = await storage.deleteUser(req.params.id);
+      res.json({ success });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete user" });
+    }
+  });
+
+  // ===== User Permissions Routes =====
+  app.get("/api/users/:id/permissions", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const targetUser = await storage.getUser(req.params.id);
+      if (!targetUser) return res.status(404).json({ error: "User not found" });
+      if (user.role !== "super_admin" && user.role !== "company_admin") {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      if (user.role === "company_admin" && targetUser.companyId !== user.companyId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      const permissions = await storage.getUserPermissions(req.params.id);
+      res.json(permissions);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch permissions" });
+    }
+  });
+
+  app.put("/api/users/:id/permissions", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const targetUser = await storage.getUser(req.params.id);
+      if (!targetUser) return res.status(404).json({ error: "User not found" });
+      if (user.role !== "super_admin" && user.role !== "company_admin") {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      if (user.role === "company_admin" && targetUser.companyId !== user.companyId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      const { permissions } = req.body as { permissions: { module: string; canAccess: boolean }[] };
+      if (!Array.isArray(permissions)) return res.status(400).json({ error: "permissions must be an array" });
+      const result = await storage.setUserPermissions(req.params.id, permissions, user.id, targetUser.companyId);
+      res.json(result);
+    } catch (error) {
+      console.error("set permissions error:", error);
+      res.status(500).json({ error: "Failed to update permissions" });
+    }
+  });
+
+  // ===== Employee Routes =====
+  app.get("/api/employees/me", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const employee = await storage.getEmployeeByUserId(user.id);
+      if (!employee) return res.status(404).json({ error: "No employee record linked to your account" });
+      res.json(employee);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch employee profile" });
+    }
+  });
+
+  app.get("/api/employees", requireAuth, requireModuleAccess("employees"), async (req, res) => {
+    try {
+      const user = (req as any).user;
+      let employees;
+      if (user.role === "super_admin") {
+        employees = await storage.getAllEmployees();
+      } else if (user.companyId) {
+        employees = await storage.getEmployeesByCompany(user.companyId);
+      } else {
+        employees = [];
+      }
+      res.json(employees);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch employees" });
+    }
+  });
+
+  // ===== Employee Bulk Upload =====
+  app.get("/api/employees/bulk-template", requireAuth, requireModuleAccess("employees"), (req, res) => {
+    const templateData = [
+      {
+        "Employee Code": "EMP001",
+        "First Name": "John",
+        "Last Name": "Doe",
+        "Gender": "Male",
+        "Date of Birth": "1990-01-15",
+        "Mobile Number": "9876543210",
+        "Official Email": "john@company.com",
+        "Date of Joining": "2024-01-01",
+        "Department": "Engineering",
+        "Designation": "Software Engineer",
+        "Location": "Mumbai",
+        "Employment Type": "permanent",
+        "Gross Salary": 50000,
+        "Payment Mode": "bank",
+        "PF Applicable": "Yes",
+        "UAN": "",
+        "ESI Applicable": "No",
+        "ESI Number": "",
+        "PT State": "Maharashtra",
+        "LWF Applicable": "No",
+        "Bonus Applicable": "Yes",
+        "Bonus Paid Monthly": "No",
+        "Bank Account": "1234567890",
+        "IFSC": "SBIN0001234",
+        "PAN": "ABCDE1234F",
+        "Aadhaar": "123456789012",
+        "Biometric Device ID": "",
+      }
+    ];
+    const ws = XLSX.utils.json_to_sheet(templateData);
+    const colWidths = Object.keys(templateData[0]).map(k => ({ wch: Math.max(k.length + 2, 18) }));
+    ws['!cols'] = colWidths;
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Employees");
+    const buffer = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", "attachment; filename=employee_bulk_template.xlsx");
+    res.send(buffer);
+  });
+
+  app.post("/api/employees/bulk-upload", requireAuth, requireModuleAccess("employees"), upload.single("file"), async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const file = (req as any).file;
+      if (!file) return res.status(400).json({ error: "No file uploaded" });
+
+      const companyId = user.role === "super_admin" ? req.body.companyId : user.companyId;
+      if (!companyId) return res.status(400).json({ error: "Company ID is required" });
+
+      const company = await storage.getCompany(companyId);
+      if (!company) return res.status(400).json({ error: "Invalid company ID" });
+
+      const workbook = XLSX.read(file.buffer, { type: "buffer" });
+      const sheetName = workbook.SheetNames[0];
+      const sheet = workbook.Sheets[sheetName];
+      const rows: any[] = XLSX.utils.sheet_to_json(sheet);
+
+      if (rows.length === 0) return res.status(400).json({ error: "Excel file is empty" });
+
+      const results = { created: 0, skipped: 0, errors: [] as string[] };
+      const existingEmployees = await storage.getEmployeesByCompany(companyId);
+
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i];
+        const rowNum = i + 2;
+        try {
+          const employeeCode = String(row["Employee Code"] || "").trim();
+          const firstName = String(row["First Name"] || "").trim();
+          const lastName = String(row["Last Name"] || "").trim();
+          const dateOfJoining = String(row["Date of Joining"] || "").trim();
+
+          if (!employeeCode || !firstName || !lastName || !dateOfJoining) {
+            results.errors.push(`Row ${rowNum}: Missing required fields (Employee Code, First Name, Last Name, Date of Joining)`);
+            results.skipped++;
+            continue;
+          }
+
+          const duplicate = existingEmployees.find(e => e.employeeCode === employeeCode);
+          if (duplicate) {
+            results.errors.push(`Row ${rowNum}: Employee code '${employeeCode}' already exists`);
+            results.skipped++;
+            continue;
+          }
+
+          const aadhaar = String(row["Aadhaar"] || "").trim();
+          if (aadhaar) {
+            const aadhaarDup = existingEmployees.find(e => e.aadhaar === aadhaar);
+            if (aadhaarDup) {
+              results.errors.push(`Row ${rowNum}: Aadhaar '${aadhaar}' already registered to ${aadhaarDup.firstName} ${aadhaarDup.lastName}`);
+              results.skipped++;
+              continue;
+            }
+          }
+
+          const panVal = String(row["PAN"] || "").trim();
+          if (panVal) {
+            const panDup = existingEmployees.find(e => e.pan === panVal);
+            if (panDup) {
+              results.errors.push(`Row ${rowNum}: PAN '${panVal}' already registered to ${panDup.firstName} ${panDup.lastName}`);
+              results.skipped++;
+              continue;
+            }
+          }
+
+          const uanVal = String(row["UAN"] || "").trim();
+          if (uanVal) {
+            const uanDup = existingEmployees.find(e => e.uan === uanVal);
+            if (uanDup) {
+              results.errors.push(`Row ${rowNum}: UAN '${uanVal}' already registered to ${uanDup.firstName} ${uanDup.lastName}`);
+              results.skipped++;
+              continue;
+            }
+          }
+
+          const esiVal = String(row["ESI Number"] || "").trim();
+          if (esiVal) {
+            const esiDup = existingEmployees.find(e => e.esiNumber === esiVal);
+            if (esiDup) {
+              results.errors.push(`Row ${rowNum}: ESI Number '${esiVal}' already registered to ${esiDup.firstName} ${esiDup.lastName}`);
+              results.skipped++;
+              continue;
+            }
+          }
+
+          const bankVal = String(row["Bank Account"] || "").trim();
+          if (bankVal) {
+            const bankDup = existingEmployees.find(e => e.bankAccount === bankVal);
+            if (bankDup) {
+              results.errors.push(`Row ${rowNum}: Bank Account '${bankVal}' already registered to ${bankDup.firstName} ${bankDup.lastName}`);
+              results.skipped++;
+              continue;
+            }
+          }
+
+          const yesNo = (val: any) => String(val || "").toLowerCase() === "yes";
+
+          const empData = {
+            employeeCode,
+            companyId,
+            firstName,
+            lastName,
+            gender: String(row["Gender"] || "").trim() || null,
+            dateOfBirth: String(row["Date of Birth"] || "").trim() || null,
+            mobileNumber: String(row["Mobile Number"] || "").trim() || null,
+            officialEmail: String(row["Official Email"] || "").trim() || null,
+            dateOfJoining,
+            department: String(row["Department"] || "").trim() || null,
+            designation: String(row["Designation"] || "").trim() || null,
+            location: String(row["Location"] || "").trim() || null,
+            employmentType: String(row["Employment Type"] || "permanent").trim(),
+            grossSalary: row["Gross Salary"] ? Number(row["Gross Salary"]) : null,
+            paymentMode: String(row["Payment Mode"] || "").trim() || null,
+            pfApplicable: yesNo(row["PF Applicable"]),
+            uan: String(row["UAN"] || "").trim() || null,
+            esiApplicable: yesNo(row["ESI Applicable"]),
+            esiNumber: String(row["ESI Number"] || "").trim() || null,
+            ptState: String(row["PT State"] || "").trim() || null,
+            lwfApplicable: yesNo(row["LWF Applicable"]),
+            bonusApplicable: yesNo(row["Bonus Applicable"]),
+            bonusPaidMonthly: yesNo(row["Bonus Paid Monthly"]),
+            bankAccount: String(row["Bank Account"] || "").trim() || null,
+            ifsc: String(row["IFSC"] || "").trim() || null,
+            pan: String(row["PAN"] || "").trim() || null,
+            aadhaar: aadhaar || null,
+            biometricDeviceId: String(row["Biometric Device ID"] || "").trim() || null,
+            status: "active",
+          };
+
+          await storage.createEmployee(empData as any);
+          existingEmployees.push({ ...empData, id: "temp" } as any);
+          results.created++;
+        } catch (err: any) {
+          results.errors.push(`Row ${rowNum}: ${err.message || "Unknown error"}`);
+          results.skipped++;
+        }
+      }
+
+      res.json({
+        success: true,
+        message: `${results.created} employees created, ${results.skipped} skipped`,
+        ...results,
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: "Failed to process file: " + (error.message || "Unknown error") });
+    }
+  });
+
+  // ===== Biometric Routes =====
+  app.get("/api/biometric/devices", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      let devices;
+      if (user.role === "super_admin") {
+        devices = await storage.getAllBiometricDevices();
+      } else if (user.companyId) {
+        devices = await storage.getBiometricDevicesByCompany(user.companyId);
+      } else {
+        devices = [];
+      }
+      res.json(devices);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to get biometric devices" });
+    }
+  });
+
+  app.post("/api/biometric/devices", requireAuth, requireRole("super_admin", "company_admin"), async (req, res) => {
+    try {
+      const data = insertBiometricDeviceSchema.parse(req.body);
+      const device = await storage.createBiometricDevice(data);
+      res.status(201).json(device);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to create biometric device" });
+    }
+  });
+
+  app.post("/api/biometric/devices/:id/test", requireAuth, async (req, res) => {
+    try {
+      const device = await storage.getBiometricDevice(req.params.id);
+      if (!device) return res.status(404).json({ message: "Device not found" });
+      
+      console.log(`Testing connection to ${device.ipAddress}:${device.port}`);
+      
+      // Check if IP is local
+      const isLocalIp = device.ipAddress?.startsWith('192.168.') || 
+                        device.ipAddress?.startsWith('10.') || 
+                        device.ipAddress?.startsWith('172.');
+
+      if (isLocalIp && process.env.NODE_ENV === 'production') {
+        return res.status(400).json({
+          success: false,
+          status: "offline",
+          message: "Cloud servers cannot connect to local IP addresses (192.168.x.x) directly. Please use a public IP, Port Forwarding, or a VPN."
+        });
+      }
+
+      const zkInstance = new ZKLib(device.ipAddress || '127.0.0.1', device.port || 4370, 10000, 4000);
+      try {
+        await zkInstance.createSocket();
+        await storage.updateBiometricDevice(device.id, { 
+          status: "online",
+          lastSync: new Date().toISOString()
+        });
+        res.json({ success: true, status: "online" });
+      } catch (err: any) {
+        console.error(`Connection failed for ${device.ipAddress}:`, err.message || err);
+        await storage.updateBiometricDevice(device.id, { status: "offline" });
+        res.json({ 
+          success: false, 
+          status: "offline", 
+          message: err.message || "Connection timed out. Check your firewall or ADMS settings.",
+          technical: err.toString()
+        });
+      }
+    } catch (error: any) {
+      res.status(500).json({ message: "Failed to test connection", error: error.message });
+    }
+  });
+
+  app.post("/api/biometric/devices/:id/fetch", requireAuth, async (req, res) => {
+    try {
+      const device = await storage.getBiometricDevice(req.params.id);
+      if (!device) return res.status(404).json({ error: "Device not found" });
+      
+      const zkInstance = new ZKLib(device.ipAddress || '127.0.0.1', device.port || 4370, 10000, 4000);
+      
+      try {
+        await zkInstance.createSocket();
+        const logs = await zkInstance.getAttendances();
+        const employees = await storage.getEmployeesByCompany(device.companyId);
+        const results = { inserted: 0, duplicates: 0, unmapped: 0, errors: 0 };
+
+        if (logs.data && Array.isArray(logs.data)) {
+          for (const log of logs.data) {
+            const deviceEmployeeId = log.deviceUserId.toString();
+            const employee = employees.find(e => e.biometricDeviceId === deviceEmployeeId);
+            
+            if (!employee) {
+              results.unmapped++;
+              continue;
+            }
+
+            const punchTime = new Date(log.recordTime).toTimeString().split(' ')[0].substring(0, 5);
+            const punchDate = new Date(log.recordTime).toISOString().split('T')[0];
+            
+            const existing = await storage.findDuplicatePunchLog(device.companyId, deviceEmployeeId, punchTime, punchDate);
+            if (existing) {
+              results.duplicates++;
+              continue;
+            }
+
+            await storage.createBiometricPunchLog({
+              companyId: device.companyId,
+              employeeId: employee.id,
+              deviceEmployeeId: deviceEmployeeId,
+              punchTime,
+              punchDate,
+              punchType: log.eventType === 0 ? "in" : "out",
+              deviceId: device.id,
+              isProcessed: false,
+              isDuplicate: false,
+              missingPunch: false,
+              syncedAt: null,
+              createdAt: new Date().toISOString()
+            });
+            results.inserted++;
+          }
+        }
+
+        await storage.updateBiometricDevice(device.id, { 
+          status: "online",
+          lastSync: new Date().toISOString() 
+        });
+        
+        res.json({ success: true, message: "Logs fetched from machine", results });
+      } catch (err) {
+        await storage.updateBiometricDevice(device.id, { status: "offline" });
+        res.status(500).json({ error: "Could not connect to machine" });
+      }
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch data from machine" });
+    }
+  });
+
+  // ===== Biometric Punch Log Routes =====
+  app.get("/api/biometric/logs", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const { companyId, date, status } = req.query;
+      
+      let logs;
+      if (user.role === "super_admin") {
+        if (companyId) {
+          logs = await storage.getBiometricPunchLogsByCompany(companyId as string);
+        } else {
+          logs = await storage.getAllBiometricPunchLogs();
+        }
+      } else if (user.companyId) {
+        logs = await storage.getBiometricPunchLogsByCompany(user.companyId);
+      } else {
+        logs = [];
+      }
+
+      if (date) logs = logs.filter(l => l.punchDate === date);
+      res.json(logs);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch biometric logs" });
+    }
+  });
+
+  // ===== Job Posting Routes =====
+  app.get("/api/job-postings", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      let postings;
+      if (user.role === "super_admin") {
+        postings = await storage.getAllJobPostings();
+      } else if (user.role === "employee") {
+        if (user.companyId) {
+          postings = (await storage.getJobPostingsByCompany(user.companyId)).filter(p => p.status === "open");
+        } else {
+          postings = (await storage.getAllJobPostings()).filter(p => p.status === "open");
+        }
+      } else if (user.companyId) {
+        postings = await storage.getJobPostingsByCompany(user.companyId);
+      } else {
+        postings = [];
+      }
+      res.json(postings);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch job postings" });
+    }
+  });
+
+  app.get("/api/job-postings/:id", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const posting = await storage.getJobPosting(req.params.id);
+      if (!posting) return res.status(404).json({ error: "Job posting not found" });
+      if (user.role !== "super_admin" && posting.companyId !== user.companyId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      res.json(posting);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch job posting" });
+    }
+  });
+
+  app.post("/api/job-postings", requireAuth, requireRole("super_admin", "company_admin", "hr_admin", "recruiter"), async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const companyId = user.role === "super_admin" ? (req.body.companyId || user.companyId) : user.companyId;
+      if (!companyId) return res.status(400).json({ error: "No company assigned. Please assign a company to your account first." });
+      const { title, department, location, employmentType, description, requirements, salaryRange, vacancies, status, closingDate } = req.body;
+      if (!title || !description) return res.status(400).json({ error: "Title and Description are required." });
+      const posting = await storage.createJobPosting({
+        companyId,
+        title: String(title),
+        department: department ? String(department) : null,
+        location: location ? String(location) : null,
+        employmentType: employmentType ? String(employmentType) : "full_time",
+        description: String(description),
+        requirements: requirements ? String(requirements) : null,
+        salaryRange: salaryRange ? String(salaryRange) : null,
+        vacancies: vacancies ? Number(vacancies) : 1,
+        status: status ? String(status) : "draft",
+        postedBy: user.id,
+        postedAt: new Date().toISOString(),
+        closingDate: closingDate ? String(closingDate) : null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+      res.status(201).json(posting);
+    } catch (error) {
+      console.error("Create job posting error:", error);
+      res.status(500).json({ error: "Failed to create job posting" });
+    }
+  });
+
+  app.put("/api/job-postings/:id", requireAuth, requireRole("super_admin", "company_admin", "hr_admin", "recruiter"), async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const existing = await storage.getJobPosting(req.params.id);
+      if (!existing) return res.status(404).json({ error: "Job posting not found" });
+      if (user.role !== "super_admin" && existing.companyId !== user.companyId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      const posting = await storage.updateJobPosting(req.params.id, req.body);
+      res.json(posting);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update job posting" });
+    }
+  });
+
+  app.delete("/api/job-postings/:id", requireAuth, requireRole("super_admin", "company_admin", "hr_admin"), async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const existing = await storage.getJobPosting(req.params.id);
+      if (!existing) return res.status(404).json({ error: "Job posting not found" });
+      if (user.role !== "super_admin" && existing.companyId !== user.companyId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      const success = await storage.deleteJobPosting(req.params.id);
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete job posting" });
+    }
+  });
+
+  // ===== Job Application Routes =====
+  app.get("/api/job-applications", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const { jobPostingId } = req.query;
+      let applications;
+
+      if (user.role === "employee") {
+        const byUser = await storage.getJobApplicationsByUserId(user.id);
+        if (user.companyId) {
+          const employees = await storage.getEmployeesByCompany(user.companyId);
+          const myEmployee = employees.find(e => e.userId === user.id);
+          if (myEmployee) {
+            const byEmployee = await storage.getJobApplicationsByEmployee(myEmployee.id);
+            const ids = new Set(byUser.map(a => a.id));
+            applications = [...byUser, ...byEmployee.filter(a => !ids.has(a.id))];
+          } else {
+            applications = byUser;
+          }
+        } else {
+          applications = byUser;
+        }
+      } else if (user.role === "super_admin") {
+        if (jobPostingId) {
+          applications = await storage.getJobApplicationsByPosting(jobPostingId as string);
+        } else {
+          applications = await storage.getAllJobApplications();
+        }
+      } else if (user.companyId) {
+        if (jobPostingId) {
+          const posting = await storage.getJobPosting(jobPostingId as string);
+          if (posting && posting.companyId === user.companyId) {
+            applications = await storage.getJobApplicationsByPosting(jobPostingId as string);
+          } else {
+            applications = [];
+          }
+        } else {
+          applications = await storage.getJobApplicationsByCompany(user.companyId);
+        }
+      } else {
+        applications = [];
+      }
+      res.json(applications);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch job applications" });
+    }
+  });
+
+  app.post("/api/job-applications", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const posting = await storage.getJobPosting(req.body.jobPostingId);
+      if (!posting || posting.status !== "open") {
+        return res.status(400).json({ error: "Job posting is not accepting applications" });
+      }
+
+      let employeeId = null;
+      if (user.companyId) {
+        const employees = await storage.getEmployeesByCompany(user.companyId);
+        const myEmployee = employees.find(e => e.userId === user.id);
+        if (myEmployee) employeeId = myEmployee.id;
+      }
+
+      const existingApps = await storage.getJobApplicationsByPosting(posting.id);
+      const alreadyApplied = existingApps.find(a =>
+        a.applicantUserId === user.id || (employeeId && a.employeeId === employeeId)
+      );
+      if (alreadyApplied) {
+        return res.status(400).json({ error: "You have already applied for this position" });
+      }
+
+      const data = insertJobApplicationSchema.parse({
+        ...req.body,
+        companyId: posting.companyId,
+        applicantUserId: user.id,
+        employeeId,
+        applicantName: `${user.firstName || ""} ${user.lastName || ""}`.trim() || user.username,
+        applicantEmail: user.email,
+        applicantPhone: req.body.applicantPhone || null,
+        appliedAt: new Date().toISOString(),
+        createdAt: new Date().toISOString(),
+      });
+      const application = await storage.createJobApplication(data);
+      res.status(201).json(application);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to submit application" });
+    }
+  });
+
+  app.put("/api/job-applications/:id", requireAuth, requireRole("super_admin", "company_admin", "hr_admin", "recruiter"), async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const existing = await storage.getJobApplication(req.params.id);
+      if (!existing) return res.status(404).json({ error: "Application not found" });
+      if (user.role !== "super_admin" && existing.companyId !== user.companyId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      const updates = {
+        ...req.body,
+        reviewedBy: user.id,
+        reviewedAt: new Date().toISOString(),
+      };
+      const application = await storage.updateJobApplication(req.params.id, updates);
+      res.json(application);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update application" });
+    }
+  });
+
+  app.put("/api/job-applications/:id/respond", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const existing = await storage.getJobApplication(req.params.id);
+      if (!existing) return res.status(404).json({ error: "Application not found" });
+      if (existing.applicantUserId !== user.id) {
+        return res.status(403).json({ error: "You can only respond to your own applications" });
+      }
+      const { action, negotiationNote } = req.body;
+      if (!["accept", "negotiate", "reject", "withdraw"].includes(action)) {
+        return res.status(400).json({ error: "Invalid action. Use accept, negotiate, reject, or withdraw" });
+      }
+      const finalStatuses = ["offer_accepted", "offer_rejected", "hired", "rejected", "withdrawn"];
+      if (finalStatuses.includes(existing.status)) {
+        return res.status(400).json({ error: "This application is in a final state and cannot be modified" });
+      }
+      if (["accept", "negotiate", "reject"].includes(action) && existing.status !== "offered") {
+        return res.status(400).json({ error: "You can only respond to an active offer" });
+      }
+      let updates: any = {};
+      if (action === "accept") {
+        updates = { status: "offer_accepted", employeeResponse: "accepted" };
+      } else if (action === "negotiate") {
+        updates = { status: "offer_negotiated", employeeResponse: "negotiated", negotiationNote: negotiationNote || "" };
+      } else if (action === "reject") {
+        updates = { status: "offer_rejected", employeeResponse: "rejected", negotiationNote: negotiationNote || "" };
+      } else if (action === "withdraw") {
+        updates = { status: "withdrawn", employeeResponse: "withdrawn" };
+      }
+      const application = await storage.updateJobApplication(req.params.id, updates);
+      res.json(application);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to respond to application" });
+    }
+  });
+
+  app.delete("/api/job-applications/:id", requireAuth, requireRole("super_admin", "company_admin", "hr_admin"), async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const existing = await storage.getJobApplication(req.params.id);
+      if (!existing) return res.status(404).json({ error: "Application not found" });
+      if (user.role !== "super_admin" && existing.companyId !== user.companyId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      const success = await storage.deleteJobApplication(req.params.id);
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete application" });
+    }
+  });
+
+  // ===== Employee Duplicate Validation Helper =====
+  async function validateEmployeeDuplicates(data: any, companyId: string, excludeId?: string): Promise<string | null> {
+    const allEmployees = await storage.getEmployeesByCompany(companyId);
+    const others = excludeId ? allEmployees.filter(e => e.id !== excludeId) : allEmployees;
+
+    if (data.employeeCode) {
+      const dup = others.find(e => e.employeeCode === data.employeeCode);
+      if (dup) return `Employee Code '${data.employeeCode}' already exists for ${dup.firstName} ${dup.lastName}`;
+    }
+    if (data.aadhaar) {
+      const dup = others.find(e => e.aadhaar && e.aadhaar === data.aadhaar);
+      if (dup) return `Aadhaar '${data.aadhaar}' already registered to ${dup.firstName} ${dup.lastName} (${dup.employeeCode})`;
+    }
+    if (data.pan) {
+      const dup = others.find(e => e.pan && e.pan === data.pan);
+      if (dup) return `PAN '${data.pan}' already registered to ${dup.firstName} ${dup.lastName} (${dup.employeeCode})`;
+    }
+    if (data.uan) {
+      const dup = others.find(e => e.uan && e.uan === data.uan);
+      if (dup) return `UAN '${data.uan}' already registered to ${dup.firstName} ${dup.lastName} (${dup.employeeCode})`;
+    }
+    if (data.esiNumber) {
+      const dup = others.find(e => e.esiNumber && e.esiNumber === data.esiNumber);
+      if (dup) return `ESI Number '${data.esiNumber}' already registered to ${dup.firstName} ${dup.lastName} (${dup.employeeCode})`;
+    }
+    if (data.bankAccount) {
+      const dup = others.find(e => e.bankAccount && e.bankAccount === data.bankAccount);
+      if (dup) return `Bank Account '${data.bankAccount}' already registered to ${dup.firstName} ${dup.lastName} (${dup.employeeCode})`;
+    }
+    if (data.biometricDeviceId) {
+      const dup = others.find(e => e.biometricDeviceId && e.biometricDeviceId === data.biometricDeviceId);
+      if (dup) return `Biometric Device ID '${data.biometricDeviceId}' already assigned to ${dup.firstName} ${dup.lastName} (${dup.employeeCode})`;
+    }
+    if (data.mobileNumber) {
+      const digits = String(data.mobileNumber).replace(/\D/g, "");
+      if (digits.length !== 10) return `Mobile number must be exactly 10 digits`;
+      const dup = others.find(e => e.mobileNumber && e.mobileNumber.replace(/\D/g, "") === digits);
+      if (dup) return `Mobile number '${data.mobileNumber}' is already registered to ${dup.firstName} ${dup.lastName} (${dup.employeeCode})`;
+    }
+    return null;
+  }
+
+  // ===== Employee CRUD Routes =====
+  app.post("/api/employees", requireAuth, requireModuleAccess("employees"), async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const data = insertEmployeeSchema.parse(req.body);
+      if (user.role !== "super_admin") {
+        (data as any).companyId = user.companyId;
+      }
+      const companyId = (data as any).companyId;
+      if (companyId) {
+        const dupError = await validateEmployeeDuplicates(data, companyId);
+        if (dupError) return res.status(400).json({ error: dupError });
+      }
+      const employee = await storage.createEmployee(data);
+      res.status(201).json(employee);
+    } catch (error: any) {
+      res.status(400).json({ error: error?.message || "Failed to create employee" });
+    }
+  });
+
+  app.get("/api/employees/next-code", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const companyId = (req.query.companyId as string) || user.companyId;
+      if (!companyId) return res.json({ nextCode: "" });
+
+      const employees = await storage.getEmployeesByCompany(companyId);
+      if (employees.length === 0) return res.json({ nextCode: "" });
+
+      const prefixGroups: Record<string, { maxNum: number; padLen: number; code: string }> = {};
+      for (const emp of employees) {
+        const match = emp.employeeCode.match(/^([A-Za-z]*)(\d+)$/);
+        if (match) {
+          const prefix = match[1];
+          const num = parseInt(match[2], 10);
+          if (!prefixGroups[prefix] || num > prefixGroups[prefix].maxNum) {
+            prefixGroups[prefix] = { maxNum: num, padLen: match[2].length, code: emp.employeeCode };
+          }
+        }
+      }
+
+      const prefixes = Object.keys(prefixGroups);
+      if (prefixes.length === 0) return res.json({ nextCode: "", lastCode: employees[employees.length - 1]?.employeeCode });
+
+      let bestPrefix = prefixes[0];
+      for (const p of prefixes) {
+        if (prefixGroups[p].maxNum > prefixGroups[bestPrefix].maxNum) {
+          bestPrefix = p;
+        }
+      }
+
+      const best = prefixGroups[bestPrefix];
+      const nextNum = best.maxNum + 1;
+      const nextCode = bestPrefix + String(nextNum).padStart(best.padLen, "0");
+      res.json({ nextCode, lastCode: best.code });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to generate next code" });
+    }
+  });
+
+  app.get("/api/employees/:id", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const employee = await storage.getEmployee(req.params.id);
+      if (!employee) return res.status(404).json({ error: "Employee not found" });
+      if (user.role !== "super_admin" && employee.companyId !== user.companyId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      res.json(employee);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch employee" });
+    }
+  });
+
+  app.patch("/api/employees/:id", requireAuth, requireModuleAccess("employees"), async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const existing = await storage.getEmployee(req.params.id);
+      if (!existing) return res.status(404).json({ error: "Employee not found" });
+      if (user.role !== "super_admin" && existing.companyId !== user.companyId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      const dupError = await validateEmployeeDuplicates(req.body, existing.companyId, req.params.id);
+      if (dupError) return res.status(400).json({ error: dupError });
+      const updated = await storage.updateEmployee(req.params.id, req.body);
+      res.json(updated);
+    } catch (error: any) {
+      res.status(400).json({ error: error?.message || "Failed to update employee" });
+    }
+  });
+
+  app.delete("/api/employees/:id", requireAuth, requireModuleAccess("employees"), async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const existing = await storage.getEmployee(req.params.id);
+      if (!existing) return res.status(404).json({ error: "Employee not found" });
+      if (user.role !== "super_admin" && existing.companyId !== user.companyId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      const success = await storage.deleteEmployee(req.params.id);
+      res.json({ success });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete employee" });
+    }
+  });
+
+  // ===== Employee Exit & Reinstate Routes =====
+  app.post("/api/employees/:id/exit", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const existing = await storage.getEmployee(req.params.id);
+      if (!existing) return res.status(404).json({ error: "Employee not found" });
+      if (user.role !== "super_admin" && existing.companyId !== user.companyId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      const { exitDate, exitType, exitReason } = req.body;
+      const updated = await storage.updateEmployee(req.params.id, {
+        status: "inactive",
+        exitDate,
+        exitType,
+        exitReason,
+      });
+      res.json(updated);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to process employee exit" });
+    }
+  });
+
+  app.post("/api/employees/:id/reinstate", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const existing = await storage.getEmployee(req.params.id);
+      if (!existing) return res.status(404).json({ error: "Employee not found" });
+      if (user.role !== "super_admin" && existing.companyId !== user.companyId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      const updated = await storage.updateEmployee(req.params.id, {
+        status: "active",
+        exitDate: null as any,
+        exitType: null as any,
+        exitReason: null as any,
+      });
+      res.json(updated);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to reinstate employee" });
+    }
+  });
+
+  // ── Employee Document Upload ──────────────────────────────────────────────
+  app.get("/api/employees/:id/documents", requireAuth, async (req, res) => {
+    try {
+      const rows = await db.execute(sql`
+        SELECT id, doc_type, file_name, file_path, file_size, mime_type, created_at
+        FROM employee_documents
+        WHERE employee_id = ${req.params.id}
+        ORDER BY doc_type, created_at DESC
+      `);
+      return res.json(rows.rows);
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/employees/:id/documents", requireAuth, docUpload.single("file"), async (req, res) => {
+    try {
+      const file = req.file;
+      const { docType } = req.body;
+      if (!file || !docType) return res.status(400).json({ error: "File and docType required" });
+      const empRow = await db.execute(sql`SELECT company_id FROM employees WHERE id = ${req.params.id} LIMIT 1`);
+      const emp = empRow.rows[0] as any;
+      if (!emp) return res.status(404).json({ error: "Employee not found" });
+      const now = new Date().toISOString();
+      const id = randomUUID();
+      const filePath = `/uploads/employee-docs/${file.filename}`;
+      await db.execute(sql`
+        INSERT INTO employee_documents (id, employee_id, company_id, doc_type, file_name, file_path, file_size, mime_type, created_by, created_at, updated_at)
+        VALUES (${id}, ${req.params.id}, ${emp.company_id}, ${docType}, ${file.originalname}, ${filePath}, ${file.size}, ${file.mimetype}, ${(req.session as any).userId}, ${now}, ${now})
+      `);
+      return res.json({ id, docType, fileName: file.originalname, filePath, fileSize: file.size, mimeType: file.mimetype, createdAt: now });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.delete("/api/employees/:id/documents/:docId", requireAuth, async (req, res) => {
+    try {
+      const row = await db.execute(sql`SELECT file_path FROM employee_documents WHERE id = ${req.params.docId} AND employee_id = ${req.params.id} LIMIT 1`);
+      const doc = row.rows[0] as any;
+      if (!doc) return res.status(404).json({ error: "Document not found" });
+      const fullPath = path.join(process.cwd(), doc.file_path);
+      if (fs.existsSync(fullPath)) fs.unlinkSync(fullPath);
+      await db.execute(sql`DELETE FROM employee_documents WHERE id = ${req.params.docId}`);
+      return res.json({ ok: true });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/employees/:id/unlink-login", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const employee = await storage.getEmployee(req.params.id);
+      if (!employee) return res.status(404).json({ error: "Employee not found" });
+      if (user.role !== "super_admin" && employee.companyId !== user.companyId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      if (!employee.userId) return res.status(400).json({ error: "This employee has no linked login account." });
+      await storage.updateEmployee(employee.id, { userId: null as any });
+      res.json({ success: true, message: "Login account unlinked from employee." });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to unlink login" });
+    }
+  });
+
+  app.post("/api/employees/:id/create-login", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const employee = await storage.getEmployee(req.params.id);
+      if (!employee) return res.status(404).json({ error: "Employee not found" });
+      if (user.role !== "super_admin" && employee.companyId !== user.companyId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      if (employee.userId) {
+        return res.status(400).json({ error: "This employee already has a login account linked." });
+      }
+      const { username, password } = req.body;
+      if (!username || !password) return res.status(400).json({ error: "Username and password are required" });
+      const existingUser = await storage.getUserByUsername(username);
+      if (existingUser) return res.status(400).json({ error: "Username already taken" });
+      // Check if the employee's official email is already taken (e.g. they self-signed up)
+      // Fall back to a company-local address so we never violate the unique email constraint
+      let loginEmail = `${username}@company.local`;
+      if (employee.officialEmail) {
+        const emailTaken = await storage.getUserByEmail(employee.officialEmail);
+        if (!emailTaken) loginEmail = employee.officialEmail;
+      }
+      const newUser = await storage.createUser({
+        username,
+        password,
+        email: loginEmail,
+        firstName: employee.firstName,
+        lastName: employee.lastName,
+        role: "employee",
+        companyId: employee.companyId,
+        status: "active",
+      });
+      await storage.updateEmployee(employee.id, { userId: newUser.id });
+      res.json({ message: "Login created and linked successfully", userId: newUser.id, username: newUser.username });
+    } catch (error) {
+      console.error("create-login error:", error);
+      res.status(500).json({ error: "Failed to create login" });
+    }
+  });
+
+  // ===== Aadhaar Verification =====
+  app.post("/api/employees/verify-aadhaar", requireAuth, async (req, res) => {
+    try {
+      const { aadhaar, companyId } = req.body;
+      const allEmployees = await storage.getAllEmployees();
+      const matched = allEmployees.filter(e => e.aadhaar === aadhaar);
+
+      if (matched.length === 0) {
+        return res.json({ exists: false, status: "not_found", message: "No employee found with this Aadhaar number." });
+      }
+
+      const sameCompany = matched.find(e => e.companyId === companyId);
+      if (sameCompany) {
+        if (sameCompany.status === "active") {
+          return res.json({
+            exists: true,
+            status: "active_same_company",
+            message: `Employee ${sameCompany.firstName} ${sameCompany.lastName} (${sameCompany.employeeCode}) is already active in this company.`,
+            employee: sameCompany,
+          });
+        } else {
+          return res.json({
+            exists: true,
+            status: "exited_same_company",
+            message: `Employee ${sameCompany.firstName} ${sameCompany.lastName} (${sameCompany.employeeCode}) was previously in this company but has exited. You can reinstate them.`,
+            employee: sameCompany,
+          });
+        }
+      }
+
+      const otherCompanyEmp = matched[0];
+      return res.json({
+        exists: true,
+        status: "other_company",
+        message: "This Aadhaar is associated with an employee in another company. You may proceed to add them to your company.",
+        employeeInfo: {
+          firstName: otherCompanyEmp.firstName,
+          lastName: otherCompanyEmp.lastName,
+          gender: otherCompanyEmp.gender,
+          dateOfBirth: otherCompanyEmp.dateOfBirth,
+          mobileNumber: otherCompanyEmp.mobileNumber,
+          officialEmail: otherCompanyEmp.officialEmail,
+          pan: otherCompanyEmp.pan,
+          bankAccount: otherCompanyEmp.bankAccount,
+          ifsc: otherCompanyEmp.ifsc,
+        },
+      });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to verify Aadhaar" });
+    }
+  });
+
+  // ===== My Employee Route (for logged-in employee to get their own record) =====
+  app.get("/api/my-employee", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const employee = await storage.getEmployeeByUserId(user.id);
+      if (!employee) return res.status(404).json({ error: "Employee record not found" });
+      return res.json(employee);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch employee record" });
+    }
+  });
+
+  // ===== Candidate Self-Profile Routes =====
+  app.get("/api/my-profile", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const profile = await storage.getCandidateProfileByUserId(user.id);
+      if (profile) {
+        return res.json(profile);
+      }
+
+      // No candidate profile yet — try to pre-populate from employee record
+      const allEmployees = await storage.getAllEmployees();
+      const linked = allEmployees.find(
+        (e) =>
+          (e.officialEmail && user.email && e.officialEmail.toLowerCase() === user.email.toLowerCase()) ||
+          (e.userId && e.userId === user.id)
+      );
+
+      if (linked) {
+        return res.json({
+          _fromEmployee: true,
+          _employeeId: linked.id,
+          firstName: linked.firstName || "",
+          lastName: linked.lastName || "",
+          aadhaar: linked.aadhaar || "",
+          aadhaarPreVerified: !!(linked.aadhaar),
+          dateOfBirth: linked.dateOfBirth || "",
+          gender: linked.gender || "",
+          mobileNumber: linked.mobileNumber || "",
+          personalEmail: user.email || "",
+          fatherName: linked.fatherHusbandName || "",
+          address: linked.presentAddress || linked.address || "",
+          addressState: linked.presentState || linked.addressState || "",
+          addressDistrict: linked.presentDistrict || linked.addressDistrict || "",
+          addressPincode: linked.presentPincode || "",
+          permanentAddress: linked.permanentAddress || "",
+          permanentState: linked.permanentState || "",
+          permanentDistrict: linked.permanentDistrict || "",
+          permanentPincode: linked.permanentPincode || "",
+          pan: linked.pan || "",
+          bankAccount: linked.bankAccount || "",
+          ifsc: linked.ifsc || "",
+          bankName: "",
+          currentSalary: linked.grossSalary ? String(linked.grossSalary * 12) : "",
+          expectedSalary: "",
+          skills: "",
+        });
+      }
+
+      return res.json(null);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch profile" });
+    }
+  });
+
+  function validateVerhoeff(aadhaar: string): boolean {
+    const d = [
+      [0,1,2,3,4,5,6,7,8,9],[1,2,3,4,0,6,7,8,9,5],[2,3,4,0,1,7,8,9,5,6],[3,4,0,1,2,8,9,5,6,7],
+      [4,0,1,2,3,9,5,6,7,8],[5,9,8,7,6,0,4,3,2,1],[6,5,9,8,7,1,0,4,3,2],[7,6,5,9,8,2,1,0,4,3],
+      [8,7,6,5,9,3,2,1,0,4],[9,8,7,6,5,4,3,2,1,0]
+    ];
+    const p = [
+      [0,1,2,3,4,5,6,7,8,9],[1,5,7,6,2,8,3,0,9,4],[5,8,0,3,7,9,6,1,4,2],[8,9,1,6,0,4,3,5,2,7],
+      [9,4,5,3,1,2,6,8,7,0],[4,2,8,6,5,7,3,9,0,1],[2,7,9,3,8,0,6,4,1,5],[7,0,4,6,9,1,3,2,5,8]
+    ];
+    let c = 0;
+    const digits = aadhaar.split("").map(Number).reverse();
+    for (let i = 0; i < digits.length; i++) {
+      c = d[c][p[i % 8][digits[i]]];
+    }
+    return c === 0;
+  }
+
+  function serverValidateAadhaar(aadhaar: string): { valid: boolean; message: string } {
+    if (!aadhaar || !/^\d{12}$/.test(aadhaar)) return { valid: false, message: "Aadhaar must be exactly 12 digits" };
+    if (/^[01]/.test(aadhaar)) return { valid: false, message: "Aadhaar cannot start with 0 or 1" };
+    if (!validateVerhoeff(aadhaar)) return { valid: false, message: "Invalid Aadhaar number (checksum failed)" };
+    return { valid: true, message: "Valid" };
+  }
+
+  app.post("/api/my-profile/verify-aadhaar", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const { aadhaar } = req.body;
+      const validation = serverValidateAadhaar(aadhaar);
+      if (!validation.valid) {
+        return res.status(400).json({ error: validation.message });
+      }
+
+      const existingProfile = await storage.getCandidateProfileByAadhaar(aadhaar);
+      if (existingProfile && existingProfile.userId !== user.id) {
+        return res.json({ status: "active_exists", message: "This Aadhaar number is already registered with another account." });
+      }
+
+      const allEmployees = await storage.getAllEmployees();
+      const matched = allEmployees.find(e => e.aadhaar === aadhaar);
+      if (matched) {
+        return res.json({ status: "active_exists", message: `This Aadhaar is already registered to an employee (${matched.firstName} ${matched.lastName}).` });
+      }
+
+      return res.json({ status: "available", message: "Aadhaar number is valid and available." });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to verify Aadhaar" });
+    }
+  });
+
+  app.put("/api/my-profile", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const { firstName, lastName, aadhaar, dateOfBirth, gender, mobileNumber, personalEmail, fatherName,
+        address, addressState, addressDistrict, addressPincode,
+        pan, bankAccount, ifsc, bankName, currentSalary, expectedSalary, skills } = req.body;
+
+      const finalFirstName = (firstName || "").trim();
+      const finalLastName = (lastName || "").trim();
+
+      if (!finalFirstName) return res.status(400).json({ error: "Name is required" });
+
+      const allEmployees = await storage.getAllEmployees();
+      const linkedEmployee = allEmployees.find(
+        (e) => (e.officialEmail && user.email && e.officialEmail.toLowerCase() === user.email.toLowerCase()) ||
+          (e.userId && e.userId === user.id)
+      );
+      const isEmployeeAadhaar = linkedEmployee && linkedEmployee.aadhaar === aadhaar;
+
+      if (!isEmployeeAadhaar) {
+        const aadhaarValidation = serverValidateAadhaar(aadhaar);
+        if (!aadhaarValidation.valid) return res.status(400).json({ error: aadhaarValidation.message });
+      }
+
+      const permanentDistrictValue = req.body.permanentDistrict || "";
+      const isAdminRole = ["super_admin", "company_admin", "hr_admin"].includes(user.role || "");
+
+      // Employees: create a pending approval request instead of saving directly
+      if (!isAdminRole) {
+        // Cancel any existing pending request for this user
+        await db.update(profileUpdateRequests)
+          .set({ status: "cancelled" })
+          .where(and(
+            eq(profileUpdateRequests.userId, user.id),
+            eq(profileUpdateRequests.status, "pending")
+          ));
+
+        const requestPayload = {
+          firstName: finalFirstName, lastName: finalLastName, aadhaar,
+          dateOfBirth, gender, mobileNumber, personalEmail, fatherName,
+          address, addressState, addressDistrict, addressPincode,
+          permanentAddress: req.body.permanentAddress || "", permanentState: req.body.permanentState || "",
+          permanentDistrict: permanentDistrictValue, permanentPincode: req.body.permanentPincode || "",
+          pan, bankAccount, ifsc, bankName, currentSalary, expectedSalary, skills,
+        };
+
+        const [newRequest] = await db.insert(profileUpdateRequests).values({
+          id: randomUUID(),
+          userId: user.id,
+          companyId: user.companyId || null,
+          status: "pending",
+          requestData: JSON.stringify(requestPayload),
+          createdAt: new Date().toISOString(),
+        }).returning();
+
+        // Notify all admins/HR of the company
+        const allUsers = await storage.getAllUsers();
+        const adminIds = allUsers
+          .filter((u: any) => ["hr_admin", "company_admin", "super_admin"].includes(u.role || "") &&
+            (u.role === "super_admin" || u.companyId === user.companyId))
+          .map((u: any) => u.id)
+          .filter((id: string) => id !== user.id);
+
+        const empName = [finalFirstName, finalLastName].filter(Boolean).join(" ") || user.email || "An employee";
+        await createNotificationForMany(adminIds, {
+          companyId: user.companyId || undefined,
+          type: "profile_update_request",
+          title: "Profile Update Request",
+          message: `${empName} has submitted a profile update for review.`,
+          link: "/profile-requests",
+        });
+
+        return res.json({ pending: true, requestId: newRequest.id });
+      }
+
+      // Admin path: save directly
+      const existingProfile = await storage.getCandidateProfileByUserId(user.id);
+
+      if (existingProfile) {
+        const updated = await storage.updateCandidateProfile(existingProfile.id, {
+          firstName: finalFirstName, lastName: finalLastName,
+          dateOfBirth, gender, mobileNumber, personalEmail, fatherName,
+          address, addressState, addressDistrict, addressPincode,
+          permanentAddress: req.body.permanentAddress || "", permanentState: req.body.permanentState || "",
+          permanentDistrict: permanentDistrictValue, permanentPincode: req.body.permanentPincode || "",
+          pan, bankAccount, ifsc, bankName, currentSalary, expectedSalary, skills,
+          updatedAt: new Date().toISOString(),
+        });
+        await storage.updateUser(user.id, { firstName: finalFirstName, lastName: finalLastName });
+        return res.json(updated);
+      }
+
+      const aadhaarCheck = await storage.getCandidateProfileByAadhaar(aadhaar);
+      if (aadhaarCheck) return res.status(400).json({ error: "This Aadhaar number is already registered" });
+
+      const otherEmpMatch = allEmployees.find((e: any) => e.aadhaar === aadhaar && e !== linkedEmployee);
+      if (otherEmpMatch) {
+        return res.status(400).json({ error: `This Aadhaar is already registered to employee ${(otherEmpMatch as any).firstName} ${(otherEmpMatch as any).lastName}` });
+      }
+
+      const profile = await storage.createCandidateProfile({
+        userId: user.id,
+        firstName: finalFirstName, lastName: finalLastName, aadhaar,
+        dateOfBirth, gender, mobileNumber, personalEmail, fatherName,
+        address, addressState, addressDistrict, addressPincode,
+        permanentAddress: req.body.permanentAddress || "", permanentState: req.body.permanentState || "",
+        permanentDistrict: permanentDistrictValue, permanentPincode: req.body.permanentPincode || "",
+        pan, bankAccount, ifsc, bankName, currentSalary, expectedSalary, skills,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+      await storage.updateUser(user.id, { firstName: finalFirstName, lastName: finalLastName });
+      res.status(201).json(profile);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to save profile" });
+    }
+  });
+
+  // Check for the current user's pending profile update request
+  app.get("/api/my-profile/pending-request", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const rows = await db.select().from(profileUpdateRequests)
+        .where(and(
+          eq(profileUpdateRequests.userId, user.id),
+          eq(profileUpdateRequests.status, "pending")
+        ))
+        .orderBy(desc(profileUpdateRequests.createdAt))
+        .limit(1);
+      res.json(rows[0] || null);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch pending request" });
+    }
+  });
+
+  // Admin: List all profile update requests
+  app.get("/api/admin/profile-update-requests", requireAuth, requireRole("super_admin", "company_admin", "hr_admin"), async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const allRequests = await db.select().from(profileUpdateRequests)
+        .orderBy(desc(profileUpdateRequests.createdAt));
+
+      const filtered = user.role === "super_admin"
+        ? allRequests
+        : allRequests.filter((r: any) => r.companyId === user.companyId);
+
+      const allUsers = await storage.getAllUsers();
+      const userMap = new Map(allUsers.map((u: any) => [u.id, u]));
+
+      const enriched = await Promise.all(filtered.map(async (r: any) => {
+        const u: any = userMap.get(r.userId);
+        let reqData: any = {};
+        try { reqData = JSON.parse(r.requestData); } catch {}
+
+        // Fallback to requestData name if user account not found in users table
+        const nameFromReq = [reqData.firstName, reqData.lastName].filter(Boolean).join(" ");
+        const nameFromUser = u ? `${u.firstName || ""} ${u.lastName || ""}`.trim() : "";
+
+        // Fetch current saved candidate profile for diff display
+        const currentProfile = await storage.getCandidateProfileByUserId(r.userId);
+
+        return {
+          ...r,
+          userName: nameFromUser || nameFromReq || r.userId,
+          userEmail: u?.email || reqData.personalEmail || "",
+          currentData: currentProfile ? {
+            firstName: currentProfile.firstName || "",
+            lastName: currentProfile.lastName || "",
+            aadhaar: currentProfile.aadhaar || "",
+            dateOfBirth: currentProfile.dateOfBirth || "",
+            gender: currentProfile.gender || "",
+            mobileNumber: currentProfile.mobileNumber || "",
+            personalEmail: currentProfile.personalEmail || "",
+            fatherName: currentProfile.fatherName || "",
+            address: currentProfile.address || "",
+            addressState: currentProfile.addressState || "",
+            addressDistrict: currentProfile.addressDistrict || "",
+            addressPincode: currentProfile.addressPincode || "",
+            permanentAddress: (currentProfile as any).permanentAddress || "",
+            permanentState: (currentProfile as any).permanentState || "",
+            permanentDistrict: (currentProfile as any).permanentDistrict || "",
+            permanentPincode: (currentProfile as any).permanentPincode || "",
+            pan: currentProfile.pan || "",
+            bankAccount: currentProfile.bankAccount || "",
+            ifsc: currentProfile.ifsc || "",
+            bankName: currentProfile.bankName || "",
+            currentSalary: currentProfile.currentSalary || "",
+            expectedSalary: currentProfile.expectedSalary || "",
+            skills: currentProfile.skills || "",
+          } : null,
+        };
+      }));
+
+      res.json(enriched);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch profile update requests" });
+    }
+  });
+
+  // Admin: Approve a profile update request
+  app.post("/api/admin/profile-update-requests/:id/approve", requireAuth, requireRole("super_admin", "company_admin", "hr_admin"), async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const { id } = req.params;
+
+      const rows = await db.select().from(profileUpdateRequests)
+        .where(eq(profileUpdateRequests.id, id)).limit(1);
+      const request = rows[0];
+      if (!request) return res.status(404).json({ error: "Request not found" });
+      if (request.status !== "pending") return res.status(400).json({ error: "Request is no longer pending" });
+
+      const data = JSON.parse(request.requestData);
+      const existingProfile = await storage.getCandidateProfileByUserId(request.userId);
+
+      if (existingProfile) {
+        await storage.updateCandidateProfile(existingProfile.id, {
+          ...data,
+          updatedAt: new Date().toISOString(),
+        });
+      } else {
+        await storage.createCandidateProfile({
+          userId: request.userId,
+          ...data,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        });
+      }
+
+      if (data.firstName || data.lastName) {
+        await storage.updateUser(request.userId, {
+          firstName: data.firstName || "",
+          lastName: data.lastName || "",
+        });
+      }
+
+      await db.update(profileUpdateRequests).set({
+        status: "approved",
+        reviewedBy: user.id,
+        reviewedAt: new Date().toISOString(),
+      }).where(eq(profileUpdateRequests.id, id));
+
+      await createNotification({
+        userId: request.userId,
+        companyId: request.companyId,
+        type: "profile_update_approved",
+        title: "Profile Update Approved",
+        message: "Your profile change request has been approved by Admin. Your profile has been updated.",
+        link: "/my-profile",
+      });
+
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to approve request" });
+    }
+  });
+
+  // Admin: Reject a profile update request
+  app.post("/api/admin/profile-update-requests/:id/reject", requireAuth, requireRole("super_admin", "company_admin", "hr_admin"), async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const { id } = req.params;
+      const { adminNote } = req.body;
+
+      const rows = await db.select().from(profileUpdateRequests)
+        .where(eq(profileUpdateRequests.id, id)).limit(1);
+      const request = rows[0];
+      if (!request) return res.status(404).json({ error: "Request not found" });
+      if (request.status !== "pending") return res.status(400).json({ error: "Request is no longer pending" });
+
+      await db.update(profileUpdateRequests).set({
+        status: "rejected",
+        adminNote: adminNote || null,
+        reviewedBy: user.id,
+        reviewedAt: new Date().toISOString(),
+      }).where(eq(profileUpdateRequests.id, id));
+
+      await createNotification({
+        userId: request.userId,
+        companyId: request.companyId,
+        type: "profile_update_rejected",
+        title: "Profile Update Rejected",
+        message: adminNote
+          ? `Your profile change request has been rejected by Admin. Reason: ${adminNote}`
+          : "Your profile change request has been rejected by Admin.",
+        link: "/my-profile",
+      });
+
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to reject request" });
+    }
+  });
+
+  // ===== My Experiences (Web) =====
+  app.get("/api/my-experiences", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const profile = await storage.getCandidateProfileByUserId(user.id);
+      if (!profile) return res.json([]);
+      const experiences = await storage.getPreviousExperiencesByCandidate(profile.id);
+      res.json(experiences);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch experiences" });
+    }
+  });
+
+  app.post("/api/my-experiences", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const { organizationName, postHeld, dateOfJoining, dateOfLeaving, reasonOfLeaving, ctc, jobResponsibilities } = req.body;
+      if (!organizationName || !postHeld || !dateOfJoining || !dateOfLeaving) {
+        return res.status(400).json({ error: "Organization, post, joining and leaving dates are required" });
+      }
+      const profile = await storage.getCandidateProfileByUserId(user.id);
+      if (!profile) return res.status(400).json({ error: "Profile not found — please save your profile first" });
+      const exp = await storage.createPreviousExperience({
+        candidateProfileId: profile.id, employeeId: null,
+        organizationName, postHeld, dateOfJoining, dateOfLeaving,
+        reasonOfLeaving: reasonOfLeaving || "", ctc: ctc || "", jobResponsibilities: jobResponsibilities || "",
+        createdAt: new Date().toISOString(),
+      });
+      res.status(201).json(exp);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to save experience" });
+    }
+  });
+
+  app.delete("/api/my-experiences/:id", requireAuth, async (req, res) => {
+    try {
+      await storage.deletePreviousExperience(req.params.id);
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete experience" });
+    }
+  });
+
+  // ===== Attendance Routes =====
+  app.get("/api/attendance", requireAuth, requireModuleAccess("attendance"), async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const { employeeId, date, companyId } = req.query;
+      let records;
+
+      // Employees can only ever see their own attendance
+      if (user.role === "employee") {
+        const myEmployee = await storage.getEmployeeByUserId(user.id);
+        if (!myEmployee) return res.json([]);
+        records = await storage.getAttendanceByEmployee(myEmployee.id, date as string | undefined);
+      } else if (employeeId) {
+        records = await storage.getAttendanceByEmployee(employeeId as string, date as string | undefined);
+      } else if (user.role === "super_admin") {
+        if (companyId && date) {
+          records = await storage.getAttendanceByDate(companyId as string, date as string);
+        } else {
+          records = await storage.getAllAttendance();
+          if (companyId) records = records.filter((a: any) => a.companyId === companyId);
+        }
+      } else if (user.companyId) {
+        if (date) {
+          records = await storage.getAttendanceByDate(user.companyId, date as string);
+        } else {
+          records = (await storage.getAllAttendance()).filter((a: any) => a.companyId === user.companyId);
+        }
+      } else {
+        records = [];
+      }
+      res.json(records);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch attendance" });
+    }
+  });
+
+  app.post("/api/attendance", requireAuth, async (req, res) => {
+    try {
+      const data = insertAttendanceSchema.parse(req.body);
+      const record = await storage.createAttendance(data);
+      res.status(201).json(record);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to create attendance record" });
+    }
+  });
+
+  app.post("/api/attendance/quick-entry", requireAuth, async (req, res) => {
+    try {
+      const { employeeId, companyId, month, year, payDays, otHours } = req.body;
+      const employee = await storage.getEmployee(employeeId);
+      if (!employee) return res.status(404).json({ error: "Employee not found" });
+
+      const yearNum = parseInt(year);
+      const monthNum = parseInt(month);
+      const daysInMonth = new Date(yearNum, monthNum, 0).getDate();
+      const totalPayDays = parseInt(payDays);
+      const totalOtHours = parseFloat(otHours || "0");
+
+      const today = new Date();
+      const todayYear = today.getFullYear();
+      const todayMonth = today.getMonth() + 1;
+      const todayDay = today.getDate();
+      const isCurrentMonth = yearNum === todayYear && monthNum === todayMonth;
+      const isFutureMonth = yearNum > todayYear || (yearNum === todayYear && monthNum > todayMonth);
+
+      if (isFutureMonth) {
+        return res.status(400).json({ error: "Cannot create attendance for future months." });
+      }
+
+      const joiningDate = (employee as any).dateOfJoining;
+      let joiningDay = 1;
+      if (joiningDate) {
+        const jd = new Date(joiningDate);
+        const jYear = jd.getFullYear();
+        const jMonth = jd.getMonth() + 1;
+        if (jYear > yearNum || (jYear === yearNum && jMonth > monthNum)) {
+          return res.status(400).json({ error: `Employee joined on ${joiningDate}. Cannot create attendance before joining date.` });
+        }
+        if (jYear === yearNum && jMonth === monthNum) {
+          joiningDay = jd.getDate();
+        }
+      }
+
+      const exitDate = (employee as any).exitDate;
+      let lastActiveDay = daysInMonth;
+      if (exitDate) {
+        const ed = new Date(exitDate);
+        const eYear = ed.getFullYear();
+        const eMonth = ed.getMonth() + 1;
+        if (eYear < yearNum || (eYear === yearNum && eMonth < monthNum)) {
+          return res.status(400).json({ error: `Employee exited on ${exitDate}. Cannot create attendance after exit date.` });
+        }
+        if (eYear === yearNum && eMonth === monthNum) {
+          lastActiveDay = ed.getDate();
+        }
+      }
+
+      const maxAllowedDays = isCurrentMonth ? Math.min(todayDay, lastActiveDay) : lastActiveDay;
+
+      if (totalPayDays > maxAllowedDays) {
+        return res.status(400).json({ error: `Pay days (${totalPayDays}) cannot exceed ${maxAllowedDays} for ${isCurrentMonth ? "the current month (up to today)" : "this month"}.` });
+      }
+
+      if (totalPayDays > daysInMonth) {
+        return res.status(400).json({ error: `Pay days (${totalPayDays}) cannot exceed ${daysInMonth} days in this month.` });
+      }
+
+      const dayNameMap: Record<number, string> = { 0: "sunday", 1: "monday", 2: "tuesday", 3: "wednesday", 4: "thursday", 5: "friday", 6: "saturday" };
+
+      const policies = await storage.getTimeOfficePoliciesByCompany(companyId);
+      const activePolicies = policies.filter((p: any) => p.status === "active");
+      let policy: any = null;
+      if ((employee as any).timeOfficePolicyId) {
+        policy = activePolicies.find((p: any) => p.id === (employee as any).timeOfficePolicyId);
+      }
+      if (!policy) {
+        policy = activePolicies.find((p: any) => p.isDefault) || activePolicies[0];
+      }
+
+      const holidays = await storage.getHolidaysByCompany(companyId);
+      const holidayDates = new Set(holidays.map((h: any) => h.date));
+
+      const leaveRequests = await storage.getLeaveRequestsByEmployee(employeeId);
+      const approvedLeaves = leaveRequests.filter((lr: any) => lr.status === "approved");
+      const allLeaveTypes = await storage.getLeaveTypesByCompany(companyId);
+      const leaveTypeMap = new Map<string, string>();
+      for (const lt of allLeaveTypes) {
+        leaveTypeMap.set(lt.id, (lt as any).code || lt.name);
+      }
+      const leaveDatesMap = new Map<string, string>();
+      for (const lr of approvedLeaves) {
+        const leaveCode = leaveTypeMap.get((lr as any).leaveTypeId) || "L";
+        const start = new Date((lr as any).startDate);
+        const end = new Date((lr as any).endDate);
+        for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+          leaveDatesMap.set(d.toISOString().split("T")[0], leaveCode);
+        }
+      }
+      const leaveDatesSet = new Set(leaveDatesMap.keys());
+
+      const wosPerWeek = policy
+        ? (policy.weeklyOff1 ? 1 : 0) + (policy.weeklyOff2 ? 1 : 0)
+        : 2;
+
+      const dayTypes: { day: number; dateStr: string; isWeeklyOff: boolean; isHoliday: boolean; isLeave: boolean; leaveTypeCode: string; isFuture: boolean }[] = [];
+      for (let day = 1; day <= daysInMonth; day++) {
+        const dateStr = `${yearNum}-${String(monthNum).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+        const date = new Date(yearNum, monthNum - 1, day);
+        const dayName = dayNameMap[date.getDay()];
+        const isWeeklyOff = policy
+          ? (policy.weeklyOff1 === dayName || (policy.weeklyOff2 || "") === dayName)
+          : (date.getDay() === 0 || date.getDay() === 6);
+        const isHoliday = !isWeeklyOff && holidayDates.has(dateStr);
+        const isLeave = !isWeeklyOff && !isHoliday && leaveDatesSet.has(dateStr);
+        const leaveTypeCode = leaveDatesMap.get(dateStr) || "";
+        const isFuture = isCurrentMonth && day > todayDay;
+        const isBeforeJoining = day < joiningDay;
+        const isAfterExit = day > lastActiveDay;
+        const isIneligible = isFuture || isBeforeJoining || isAfterExit;
+        dayTypes.push({ day, dateStr, isWeeklyOff, isHoliday, isLeave, leaveTypeCode, isFuture: isIneligible });
+      }
+
+      const eligibleDays = dayTypes.filter(d => !d.isFuture);
+      const wosDaysInRange = eligibleDays.filter(d => d.isWeeklyOff);
+      const holidayDaysInRange = eligibleDays.filter(d => d.isHoliday);
+      const workingDaysInRange = eligibleDays.filter(d => !d.isWeeklyOff && !d.isHoliday && !d.isLeave);
+
+      const proportionalWOs = Math.round(totalPayDays * wosPerWeek / 7);
+      const proportionalHolidays = holidayDaysInRange.length > 0
+        ? Math.round(totalPayDays / eligibleDays.length * holidayDaysInRange.length)
+        : 0;
+      const requiredPresentDays = Math.max(0, totalPayDays - proportionalWOs - proportionalHolidays);
+
+      const presentDayIndices = new Set<number>();
+      if (requiredPresentDays > 0 && workingDaysInRange.length > 0) {
+        const shuffled = [...workingDaysInRange].sort(() => Math.random() - 0.5);
+        for (let i = 0; i < Math.min(requiredPresentDays, shuffled.length); i++) {
+          presentDayIndices.add(shuffled[i].day);
+        }
+      }
+
+      let created = 0;
+      let skipped = 0;
+      let presentDaysCreated = 0;
+      let woMarked = 0;
+      let holidayMarked = 0;
+
+      let leaveMarked = 0;
+
+      for (const dayInfo of eligibleDays) {
+        const { dateStr, isWeeklyOff, isHoliday, isLeave, leaveTypeCode } = dayInfo;
+        const existing = await storage.getAttendanceByEmployee(employeeId, dateStr);
+        if (existing.length > 0) {
+          skipped++;
+          continue;
+        }
+
+        let status: string;
+        if (isWeeklyOff) {
+          if (woMarked < proportionalWOs) {
+            status = "weekend";
+            woMarked++;
+          } else {
+            status = "absent";
+          }
+        } else if (isHoliday) {
+          if (holidayMarked < proportionalHolidays) {
+            status = "holiday";
+            holidayMarked++;
+          } else {
+            status = "absent";
+          }
+        } else if (isLeave) {
+          status = "on_leave";
+          leaveMarked++;
+        } else if (presentDayIndices.has(dayInfo.day)) {
+          status = "present";
+          presentDaysCreated++;
+        } else {
+          status = "absent";
+        }
+
+        const otForDay = status === "present" && totalOtHours > 0 && requiredPresentDays > 0
+          ? String(Math.round((totalOtHours / requiredPresentDays) * 100) / 100)
+          : "0";
+
+        let clockIn: string | null = null;
+        let clockOut: string | null = null;
+        let workHrs = "0";
+
+        if (status === "present") {
+          const dutyStart = policy?.dutyStartTime || "09:00";
+          const dutyEnd = policy?.dutyEndTime || "18:00";
+          const [startH, startM] = dutyStart.split(":").map(Number);
+          const [endH, endM] = dutyEnd.split(":").map(Number);
+
+          const inOffsetMin = Math.floor(Math.random() * 21) - 5;
+          const outOffsetMin = Math.floor(Math.random() * 21) - 5;
+
+          let inTotalMin = startH * 60 + startM + inOffsetMin;
+          let outTotalMin = endH * 60 + endM + outOffsetMin;
+
+          if (inTotalMin < 0) inTotalMin = 0;
+          if (outTotalMin <= inTotalMin) outTotalMin = inTotalMin + 480;
+
+          const inH = Math.floor(inTotalMin / 60);
+          const inM = inTotalMin % 60;
+          const outH = Math.floor(outTotalMin / 60);
+          const outM = outTotalMin % 60;
+
+          clockIn = `${String(inH).padStart(2, "0")}:${String(inM).padStart(2, "0")}`;
+          clockOut = `${String(outH).padStart(2, "0")}:${String(outM).padStart(2, "0")}`;
+
+          const diffMin = outTotalMin - inTotalMin;
+          const hrs = Math.floor(diffMin / 60);
+          const mins = diffMin % 60;
+          workHrs = `${String(hrs).padStart(2, "0")}:${String(mins).padStart(2, "0")}`;
+        } else if (status === "weekend" || status === "holiday") {
+          clockIn = "00:00";
+          clockOut = "00:00";
+          workHrs = "00:00";
+        }
+
+        await storage.createAttendance({
+          employeeId,
+          companyId,
+          date: dateStr,
+          status,
+          clockIn,
+          clockOut,
+          workHours: workHrs,
+          otHours: otForDay,
+          notes: isWeeklyOff ? "Weekly Off" : isHoliday ? "Holiday" : isLeave ? leaveTypeCode : null,
+          leaveTypeCode: isLeave ? leaveTypeCode : null,
+        });
+        created++;
+      }
+
+      res.json({ success: true, message: `Pay Days: ${totalPayDays} (${presentDaysCreated} Present + ${woMarked} Weekly Offs + ${holidayMarked} Holidays${leaveMarked > 0 ? ` + ${leaveMarked} Leave` : ""}). Created ${created} records (up to ${isCurrentMonth ? "today" : "month end"}), skipped ${skipped} existing.` });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to process quick entry" });
+    }
+  });
+
+  app.patch("/api/attendance/:id", requireAuth, requireRole("super_admin", "company_admin", "hr_admin"), async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const existing = await storage.getAttendance(req.params.id);
+      if (!existing) return res.status(404).json({ error: "Attendance record not found" });
+      if (user.role !== "super_admin" && existing.companyId !== user.companyId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      const updateData = { ...req.body };
+      const clockIn = updateData.clockIn || existing.clockIn;
+      const clockOut = updateData.clockOut || existing.clockOut;
+      const status = updateData.status || existing.status;
+
+      if (clockIn && clockOut && status === "present") {
+        const [inH, inM] = clockIn.split(":").map(Number);
+        const [outH, outM] = clockOut.split(":").map(Number);
+        const inTotalMin = inH * 60 + inM;
+        const outTotalMin = outH * 60 + outM;
+        const diffMin = outTotalMin > inTotalMin ? outTotalMin - inTotalMin : 0;
+        const hrs = Math.floor(diffMin / 60);
+        const mins = diffMin % 60;
+        updateData.workHours = `${String(hrs).padStart(2, "0")}:${String(mins).padStart(2, "0")}`;
+
+        const employee = await storage.getEmployee(existing.employeeId);
+        if (employee) {
+          const policies = await storage.getTimeOfficePoliciesByCompany(existing.companyId);
+          const activePolicies = policies.filter((p: any) => p.status === "active");
+          let policy: any = (employee as any).timeOfficePolicyId
+            ? activePolicies.find((p: any) => p.id === (employee as any).timeOfficePolicyId)
+            : null;
+          if (!policy) policy = activePolicies.find((p: any) => p.isDefault) || activePolicies[0];
+
+          if (policy) {
+            const [dutyEndH, dutyEndM] = (policy.dutyEndTime || "18:00").split(":").map(Number);
+            const dutyEndMin = dutyEndH * 60 + dutyEndM;
+            const [dutyStartH, dutyStartM] = (policy.dutyStartTime || "09:00").split(":").map(Number);
+            const dutyStartMin = dutyStartH * 60 + dutyStartM;
+            const normalDutyMin = dutyEndMin - dutyStartMin;
+
+            if (policy.otAllowed && diffMin > normalDutyMin) {
+              const otMin = diffMin - normalDutyMin;
+              const otHrs = Math.floor(otMin / 60);
+              const otMins = otMin % 60;
+              updateData.otHours = `${String(otHrs).padStart(2, "0")}:${String(otMins).padStart(2, "0")}`;
+            } else {
+              updateData.otHours = "0";
+            }
+          }
+        }
+      }
+
+      const updated = await storage.updateAttendance(req.params.id, updateData);
+      res.json(updated);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update attendance" });
+    }
+  });
+
+  app.delete("/api/attendance/:id", requireAuth, requireRole("super_admin", "company_admin", "hr_admin"), async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const existing = await storage.getAttendance(req.params.id);
+      if (!existing) return res.status(404).json({ error: "Attendance record not found" });
+      if (user.role !== "super_admin" && existing.companyId !== user.companyId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      await storage.deleteAttendance(req.params.id);
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete attendance record" });
+    }
+  });
+
+  // ===== Leave Types Routes =====
+  app.get("/api/leave-types", requireAuth, requireModuleAccess("leave"), async (req, res) => {
+    try {
+      const user = (req as any).user;
+      let leaveTypes;
+      if (user.role === "super_admin") {
+        leaveTypes = await storage.getAllLeaveTypes();
+      } else {
+        leaveTypes = await storage.getLeaveTypesByCompany(user.companyId);
+      }
+      res.json(leaveTypes);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch leave types" });
+    }
+  });
+
+  app.post("/api/leave-types", requireAuth, requireRole("super_admin", "company_admin", "hr_admin"), async (req, res) => {
+    try {
+      const data = insertLeaveTypeSchema.parse(req.body);
+      const leaveType = await storage.createLeaveType(data);
+      res.status(201).json(leaveType);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to create leave type" });
+    }
+  });
+
+  app.patch("/api/leave-types/:id", requireAuth, requireRole("super_admin", "company_admin", "hr_admin"), async (req, res) => {
+    try {
+      const updated = await storage.updateLeaveType(req.params.id, req.body);
+      if (!updated) return res.status(404).json({ error: "Leave type not found" });
+      res.json(updated);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update leave type" });
+    }
+  });
+
+  app.delete("/api/leave-types/:id", requireAuth, requireRole("super_admin", "company_admin", "hr_admin"), async (req, res) => {
+    try {
+      const success = await storage.deleteLeaveType(req.params.id);
+      if (!success) return res.status(404).json({ error: "Leave type not found" });
+      res.json({ success });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete leave type" });
+    }
+  });
+
+  // ===== Leave Requests Routes =====
+  app.get("/api/leave-requests", requireAuth, requireModuleAccess("leave"), async (req, res) => {
+    try {
+      const user = (req as any).user;
+      let requests;
+      if (user.role === "employee") {
+        const employees = user.companyId ? await storage.getEmployeesByCompany(user.companyId) : [];
+        const myEmployee = employees.find(e => e.userId === user.id);
+        if (myEmployee) {
+          requests = await storage.getLeaveRequestsByEmployee(myEmployee.id);
+        } else {
+          requests = [];
+        }
+      } else if (user.role === "super_admin") {
+        requests = await storage.getAllLeaveRequests();
+      } else if (user.companyId) {
+        requests = await storage.getLeaveRequestsByCompany(user.companyId);
+      } else {
+        requests = [];
+      }
+      res.json(requests);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch leave requests" });
+    }
+  });
+
+  app.post("/api/leave-requests", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const data = insertLeaveRequestSchema.parse(req.body);
+      const request = await storage.createLeaveRequest(data);
+      // Notify HR/admins about new leave request
+      try {
+        const companyUsers = await db.query.users.findMany({ where: (u: any, { eq: eqFn, inArray }: any) => inArray(u.role, ["hr_admin", "company_admin", "super_admin"]) });
+        const hrIds = companyUsers.filter((u: any) => u.role === "super_admin" || u.companyId === user.companyId).map((u: any) => u.id).filter((id: any) => id !== user.id);
+        const emp = await storage.getEmployeeByUserId(user.id);
+        const empName = emp ? `${emp.firstName} ${emp.lastName}` : user.username;
+        await createNotificationForMany(hrIds, { companyId: user.companyId, type: "leave_request", title: "New Leave Request", message: `${empName} has submitted a leave request.`, link: "/leave" });
+        // Also notify the employee themselves
+        await createNotification({ userId: user.id, companyId: user.companyId, type: "leave_submitted", title: "Leave Request Submitted", message: "Your leave request has been submitted and is awaiting approval.", link: "/leave" });
+      } catch {}
+      res.status(201).json(request);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to create leave request" });
+    }
+  });
+
+  app.patch("/api/leave-requests/:id", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const existing = await storage.getLeaveRequest(req.params.id);
+      if (!existing) return res.status(404).json({ error: "Leave request not found" });
+      if (user.role !== "super_admin" && existing.companyId !== user.companyId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      const updates = { ...req.body };
+      if (req.body.status === "approved" || req.body.status === "rejected") {
+        updates.approvedBy = user.id;
+        updates.approvedAt = updates.approvedAt || new Date().toISOString();
+      }
+      const updated = await storage.updateLeaveRequest(req.params.id, updates);
+      // Notify employee when leave is approved or rejected
+      if (req.body.status === "approved" || req.body.status === "rejected") {
+        try {
+          const empRecord = await storage.getEmployeeByUserId ? null : null; // fallback
+          // Find the user linked to the employee of this leave request
+          const leaveEmp = existing.employeeId ? await storage.getEmployee(existing.employeeId) : null;
+          if (leaveEmp) {
+            const empUsers = await db.query.users.findMany({ where: (u: any, { eq: eqFn }: any) => eqFn(u.id, leaveEmp.userId) });
+            const empUser = empUsers[0];
+            if (empUser) {
+              const statusLabel = req.body.status === "approved" ? "Approved ✓" : "Rejected ✗";
+              await createNotification({ userId: empUser.id, companyId: existing.companyId, type: `leave_${req.body.status}`, title: `Leave Request ${statusLabel}`, message: req.body.status === "approved" ? "Your leave request has been approved." : `Your leave request has been rejected. ${req.body.rejectionReason || ""}`, link: "/leave" });
+            }
+          }
+        } catch {}
+      }
+      res.json(updated);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update leave request" });
+    }
+  });
+
+  // ===== Salary Structure Bulk Upload Routes =====
+  app.get("/api/salary-structures/bulk-template", requireAuth, requireModuleAccess("payroll"), async (req, res) => {
+    const templateData = [
+      {
+        "Employee Code": "EMP001",
+        "Basic Salary": 20000,
+        "HRA": 8000,
+        "Conveyance": 1600,
+        "Medical Allowance": 1250,
+        "Special Allowance": 5000,
+        "Other Allowances": 0,
+        "Gross Salary": 35850,
+        "PF Employee": 1800,
+        "PF Employer": 1800,
+        "ESI": 0,
+        "Professional Tax": 200,
+        "LWF Employee": 0,
+        "TDS": 0,
+        "Other Deductions": 0,
+        "Net Salary": 33850,
+        "Effective From": "2026-01-01",
+      }
+    ];
+    const ws = XLSX.utils.json_to_sheet(templateData);
+    const colWidths = Object.keys(templateData[0]).map(k => ({ wch: Math.max(k.length + 2, 18) }));
+    ws['!cols'] = colWidths;
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "SalaryStructures");
+    const buffer = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", "attachment; filename=salary_structure_bulk_template.xlsx");
+    res.send(buffer);
+  });
+
+  app.post("/api/salary-structures/bulk-upload", requireAuth, requireModuleAccess("payroll"), upload.single("file"), async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const file = (req as any).file;
+      if (!file) return res.status(400).json({ error: "No file uploaded" });
+
+      const companyId = user.role === "super_admin" ? req.body.companyId : user.companyId;
+      if (!companyId) return res.status(400).json({ error: "Company ID is required" });
+
+      const company = await storage.getCompany(companyId);
+      if (!company) return res.status(400).json({ error: "Invalid company ID" });
+
+      const workbook = XLSX.read(file.buffer, { type: "buffer" });
+      const sheetName = workbook.SheetNames[0];
+      const sheet = workbook.Sheets[sheetName];
+      const rows: any[] = XLSX.utils.sheet_to_json(sheet);
+
+      if (rows.length === 0) return res.status(400).json({ error: "Excel file is empty" });
+
+      const results = { created: 0, updated: 0, skipped: 0, errors: [] as string[] };
+      const employees = await storage.getEmployeesByCompany(companyId);
+      const existingStructures = (await storage.getAllSalaryStructures()).filter(s => s.companyId === companyId);
+
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i];
+        const rowNum = i + 2;
+        try {
+          const employeeCode = String(row["Employee Code"] || "").trim();
+          const basicSalary = Number(row["Basic Salary"]);
+          const grossSalary = Number(row["Gross Salary"]);
+          const netSalary = Number(row["Net Salary"]);
+          const effectiveFrom = String(row["Effective From"] || "").trim();
+
+          if (!employeeCode) {
+            results.errors.push(`Row ${rowNum}: Missing Employee Code`);
+            results.skipped++;
+            continue;
+          }
+
+          if (isNaN(basicSalary) || basicSalary < 0) {
+            results.errors.push(`Row ${rowNum}: Invalid Basic Salary`);
+            results.skipped++;
+            continue;
+          }
+
+          if (isNaN(grossSalary) || grossSalary < 0) {
+            results.errors.push(`Row ${rowNum}: Invalid Gross Salary`);
+            results.skipped++;
+            continue;
+          }
+
+          if (isNaN(netSalary) || netSalary < 0) {
+            results.errors.push(`Row ${rowNum}: Invalid Net Salary`);
+            results.skipped++;
+            continue;
+          }
+
+          if (!effectiveFrom) {
+            results.errors.push(`Row ${rowNum}: Missing Effective From date`);
+            results.skipped++;
+            continue;
+          }
+
+          const employee = employees.find(e => e.employeeCode === employeeCode);
+          if (!employee) {
+            results.errors.push(`Row ${rowNum}: Employee code '${employeeCode}' not found in this company`);
+            results.skipped++;
+            continue;
+          }
+
+          const num = (val: any) => { const n = Number(val); return isNaN(n) ? 0 : n; };
+
+          const structureData = {
+            employeeId: employee.id,
+            companyId,
+            basicSalary,
+            hra: num(row["HRA"]),
+            conveyance: num(row["Conveyance"]),
+            medicalAllowance: num(row["Medical Allowance"]),
+            specialAllowance: num(row["Special Allowance"]),
+            otherAllowances: num(row["Other Allowances"]),
+            grossSalary,
+            pfEmployee: num(row["PF Employee"]),
+            pfEmployer: num(row["PF Employer"]),
+            esi: num(row["ESI"]),
+            professionalTax: num(row["Professional Tax"]),
+            lwfEmployee: num(row["LWF Employee"]),
+            tds: num(row["TDS"]),
+            otherDeductions: num(row["Other Deductions"]),
+            netSalary,
+            effectiveFrom,
+            status: "active",
+          };
+
+          const existingActive = existingStructures.find(
+            s => s.employeeId === employee.id && s.status === "active"
+          );
+
+          if (existingActive) {
+            // Update existing active structure in place
+            await storage.updateSalaryStructure(existingActive.id, structureData as any);
+            // Refresh the in-memory list
+            const idx = existingStructures.findIndex(s => s.id === existingActive.id);
+            if (idx >= 0) existingStructures[idx] = { ...existingActive, ...structureData } as any;
+            results.updated++;
+          } else {
+            const created = await storage.createSalaryStructure(structureData as any);
+            existingStructures.push(created);
+            results.created++;
+          }
+        } catch (err: any) {
+          results.errors.push(`Row ${rowNum}: ${err.message || "Unknown error"}`);
+          results.skipped++;
+        }
+      }
+
+      res.json(results);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message || "Failed to process bulk upload" });
+    }
+  });
+
+  // ===== Salary Structure Routes =====
+  app.get("/api/salary-structures", requireAuth, requireModuleAccess("payroll"), async (req, res) => {
+    try {
+      const user = (req as any).user;
+      let structures;
+      if (user.role === "super_admin") {
+        structures = await storage.getAllSalaryStructures();
+      } else if (user.companyId) {
+        structures = (await storage.getAllSalaryStructures()).filter(s => s.companyId === user.companyId);
+      } else {
+        structures = [];
+      }
+      res.json(structures);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch salary structures" });
+    }
+  });
+
+  app.post("/api/salary-structures", requireAuth, requireModuleAccess("payroll"), async (req, res) => {
+    try {
+      const data = insertSalaryStructureSchema.parse(req.body);
+      const structure = await storage.createSalaryStructure(data);
+      res.status(201).json(structure);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to create salary structure" });
+    }
+  });
+
+  app.patch("/api/salary-structures/:id", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const existing = await storage.getSalaryStructure(req.params.id);
+      if (!existing) return res.status(404).json({ error: "Salary structure not found" });
+      if (user.role !== "super_admin" && existing.companyId !== user.companyId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      const updated = await storage.updateSalaryStructure(req.params.id, req.body);
+      res.json(updated);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update salary structure" });
+    }
+  });
+
+  app.delete("/api/salary-structures/:id", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const existing = await storage.getSalaryStructure(req.params.id);
+      if (!existing) return res.status(404).json({ error: "Salary structure not found" });
+      if (user.role !== "super_admin" && existing.companyId !== user.companyId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      const success = await storage.deleteSalaryStructure(req.params.id);
+      res.json({ success });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete salary structure" });
+    }
+  });
+
+  // ===== Payroll Routes =====
+  app.get("/api/payroll", requireAuth, requireModuleAccess("payroll"), async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const { month, year, companyId } = req.query;
+      let records;
+
+      if (user.role === "super_admin") {
+        if (companyId && month && year) {
+          records = await storage.getPayrollByMonth(companyId as string, month as string, parseInt(year as string));
+        } else {
+          records = await storage.getAllPayroll();
+          if (companyId) records = records.filter(p => p.companyId === companyId);
+        }
+      } else if (user.companyId) {
+        if (month && year) {
+          records = await storage.getPayrollByMonth(user.companyId, month as string, parseInt(year as string));
+        } else {
+          records = (await storage.getAllPayroll()).filter(p => p.companyId === user.companyId);
+        }
+      } else {
+        records = [];
+      }
+      res.json(records);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch payroll" });
+    }
+  });
+
+  app.post("/api/payroll", requireAuth, requireModuleAccess("payroll"), async (req, res) => {
+    try {
+      const data = insertPayrollSchema.parse(req.body);
+
+      const employee = await storage.getEmployee(data.employeeId);
+      if (!employee) return res.status(404).json({ error: "Employee not found" });
+
+      const payrollMonth = parseInt(data.month);
+      const payrollYear = parseInt(data.year);
+      const payrollMonthStart = `${data.year}-${String(payrollMonth).padStart(2, "0")}-01`;
+      const payrollMonthEndDay = new Date(payrollYear, payrollMonth, 0).getDate();
+      const payrollMonthEnd = `${data.year}-${String(payrollMonth).padStart(2, "0")}-${String(payrollMonthEndDay).padStart(2, "0")}`;
+
+      const joiningDate = (employee as any).dateOfJoining;
+      if (joiningDate && joiningDate > payrollMonthEnd) {
+        return res.status(400).json({ error: `Employee joined on ${joiningDate}. Cannot generate payroll before joining date.` });
+      }
+
+      const exitDate = (employee as any).exitDate;
+      if (exitDate && exitDate < payrollMonthStart) {
+        return res.status(400).json({ error: `Employee exited on ${exitDate}. Cannot generate payroll after exit date.` });
+      }
+
+      const existing = await storage.getPayrollByEmployeeMonth(data.employeeId, data.month, data.year);
+      if (existing) {
+        if (existing.status === "paid") {
+          return res.status(400).json({ error: "Payroll already finalized (Paid) for this employee and month. Cannot regenerate." });
+        }
+        const updated = await storage.updatePayroll(existing.id, {
+          ...data,
+          generatedAt: data.generatedAt || new Date().toISOString(),
+        });
+        return res.json({ ...updated, generatedAt: data.generatedAt });
+      }
+      const record = await storage.createPayroll(data);
+      res.status(201).json(record);
+    } catch (error: any) {
+      if (error?.message?.includes("finalized") || error?.message?.includes("Paid")) {
+        return res.status(400).json({ error: error.message });
+      }
+      res.status(500).json({ error: error?.message || "Failed to create payroll record" });
+    }
+  });
+
+  app.patch("/api/payroll/:id", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const existing = await storage.getPayroll(req.params.id);
+      if (!existing) return res.status(404).json({ error: "Payroll record not found" });
+      if (user.role !== "super_admin" && existing.companyId !== user.companyId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      const updated = await storage.updatePayroll(req.params.id, req.body);
+
+      // When payroll is first finalized (processed or paid), deduct loan installments from remaining balance
+      // Only fires once: draft → processed, or draft → paid. NOT again for processed → paid.
+      const wasDraft = !["processed", "paid"].includes(existing.status);
+      const isNowFinalized = ["processed", "paid"].includes(req.body.status);
+      if (wasDraft && isNowFinalized) {
+        const MONTH_NAMES = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+        const monthNum = MONTH_NAMES.indexOf(existing.month) + 1;
+        if (monthNum > 0) {
+          const payrollYM = `${String(existing.year)}-${String(monthNum).padStart(2, "0")}`;
+          const loans = await storage.getLoanAdvancesByEmployee(existing.employeeId);
+          // Use the actual stored loanDeduction (which may be capped at net pay) — not the scheduled installment
+          // Distribute it proportionally across active loans for this month
+          const eligibleLoans = loans.filter(l =>
+            l.status === "active" &&
+            l.deductionStartMonth &&
+            l.deductionStartMonth <= payrollYM &&
+            Number(l.installmentAmount) > 0
+          );
+          const totalScheduled = eligibleLoans.reduce((s, l) => s + Number(l.installmentAmount), 0);
+          const totalActualDeduction = Number((updated as any).loanDeduction) || 0;
+          let remainingToApply = totalActualDeduction;
+          for (const loan of eligibleLoans) {
+            const installment = Number(loan.installmentAmount) || 0;
+            // Proportional share of the actual deduction (handles multiple loans)
+            const share = totalScheduled > 0 ? (installment / totalScheduled) : 1;
+            const actualDeduction = Math.min(installment, Math.round(totalActualDeduction * share));
+            const applied = Math.min(actualDeduction, remainingToApply);
+            if (applied <= 0) continue;
+            remainingToApply -= applied;
+            const newBalance = Math.max(0, (Number(loan.remainingBalance) || 0) - applied);
+            await storage.updateLoanAdvance(loan.id, {
+              remainingBalance: newBalance,
+              status: newBalance <= 0 ? "closed" : "active",
+              updatedAt: new Date().toISOString(),
+            });
+          }
+        }
+      }
+
+      // Notify employee when payslip is processed or paid
+      if (isNowFinalized) {
+        try {
+          const emp = await storage.getEmployee(existing.employeeId);
+          if (emp && (emp as any).userId) {
+            const label = req.body.status === "paid" ? "Salary Credited" : "Payslip Ready";
+            const msg = req.body.status === "paid"
+              ? `Your salary for ${existing.month} ${existing.year} has been credited. ₹${Number((updated as any).netPay || 0).toLocaleString("en-IN")}`
+              : `Your payslip for ${existing.month} ${existing.year} has been generated.`;
+            await createNotification({ userId: (emp as any).userId, companyId: existing.companyId, type: "payroll_" + req.body.status, title: label, message: msg, link: "/payroll" });
+          }
+        } catch {}
+      }
+      res.json(updated);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update payroll" });
+    }
+  });
+
+  app.delete("/api/payroll/:id", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const existing = await storage.getPayroll(req.params.id);
+      if (!existing) return res.status(404).json({ error: "Payroll record not found" });
+      if (user.role !== "super_admin" && existing.companyId !== user.companyId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      const success = await storage.deletePayroll(req.params.id);
+      res.json({ success });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete payroll" });
+    }
+  });
+
+  // ===== Settings Routes =====
+  app.get("/api/settings", requireAuth, requireModuleAccess("settings"), async (req, res) => {
+    try {
+      const user = (req as any).user;
+      let settings;
+      if (user.role === "super_admin") {
+        settings = await storage.getAllSettings();
+      } else if (user.companyId) {
+        settings = (await storage.getAllSettings()).filter(s => s.companyId === null || s.companyId === user.companyId);
+      } else {
+        settings = [];
+      }
+      res.json(settings);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch settings" });
+    }
+  });
+
+  app.post("/api/settings", requireAuth, requireModuleAccess("settings"), async (req, res) => {
+    try {
+      const data = insertSettingSchema.parse(req.body);
+      const existing = await storage.getSettingByKey(data.companyId || null, data.key);
+      if (existing) {
+        const updated = await storage.updateSetting(existing.id, data);
+        return res.json(updated);
+      }
+      const setting = await storage.createSetting(data);
+      res.status(201).json(setting);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to save setting" });
+    }
+  });
+
+  // ===== Statutory Settings Routes =====
+  app.get("/api/statutory-settings", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const { companyId } = req.query;
+      if (companyId) {
+        const settings = await storage.getStatutorySettingsByCompany(companyId as string);
+        return res.json(settings ? [settings] : []);
+      }
+      if (user.role === "super_admin") {
+        const allCompanies = await storage.getAllCompanies();
+        const results = [];
+        for (const company of allCompanies) {
+          const s = await storage.getStatutorySettingsByCompany(company.id);
+          if (s) results.push(s);
+        }
+        return res.json(results);
+      }
+      if (user.companyId) {
+        const settings = await storage.getStatutorySettingsByCompany(user.companyId);
+        return res.json(settings ? [settings] : []);
+      }
+      res.json([]);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch statutory settings" });
+    }
+  });
+
+  app.post("/api/statutory-settings", requireAuth, async (req, res) => {
+    try {
+      const data = insertStatutorySettingsSchema.parse(req.body);
+      const settings = await storage.createStatutorySettings(data);
+      res.status(201).json(settings);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to create statutory settings" });
+    }
+  });
+
+  app.patch("/api/statutory-settings/:id", requireAuth, async (req, res) => {
+    try {
+      const updated = await storage.updateStatutorySettings(req.params.id, req.body);
+      if (!updated) return res.status(404).json({ error: "Statutory settings not found" });
+      res.json(updated);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update statutory settings" });
+    }
+  });
+
+  // ===== Master Departments Routes =====
+  app.get("/api/master-departments", requireAuth, requireModuleAccess("masters"), async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const { companyId } = req.query;
+      if (companyId) {
+        const depts = await storage.getMasterDepartmentsByCompany(companyId as string);
+        return res.json(depts);
+      }
+      if (user.role === "super_admin") {
+        return res.json(await storage.getAllMasterDepartments());
+      }
+      if (user.companyId) {
+        return res.json(await storage.getMasterDepartmentsByCompany(user.companyId));
+      }
+      res.json([]);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch departments" });
+    }
+  });
+
+  app.post("/api/master-departments", requireAuth, async (req, res) => {
+    try {
+      const data = insertMasterDepartmentSchema.parse(req.body);
+      const dept = await storage.createMasterDepartment(data);
+      res.status(201).json(dept);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to create department" });
+    }
+  });
+
+  app.patch("/api/master-departments/:id", requireAuth, async (req, res) => {
+    try {
+      const updated = await storage.updateMasterDepartment(req.params.id, req.body);
+      if (!updated) return res.status(404).json({ error: "Department not found" });
+      res.json(updated);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update department" });
+    }
+  });
+
+  app.delete("/api/master-departments/:id", requireAuth, async (req, res) => {
+    try {
+      const success = await storage.deleteMasterDepartment(req.params.id);
+      if (!success) return res.status(404).json({ error: "Department not found" });
+      res.json({ success });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete department" });
+    }
+  });
+
+  // ===== Master Designations Routes =====
+  app.get("/api/master-designations", requireAuth, requireModuleAccess("masters"), async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const { companyId } = req.query;
+      if (companyId) {
+        return res.json(await storage.getMasterDesignationsByCompany(companyId as string));
+      }
+      if (user.role === "super_admin") {
+        return res.json(await storage.getAllMasterDesignations());
+      }
+      if (user.companyId) {
+        return res.json(await storage.getMasterDesignationsByCompany(user.companyId));
+      }
+      res.json([]);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch designations" });
+    }
+  });
+
+  app.post("/api/master-designations", requireAuth, async (req, res) => {
+    try {
+      const data = insertMasterDesignationSchema.parse(req.body);
+      const desg = await storage.createMasterDesignation(data);
+      res.status(201).json(desg);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to create designation" });
+    }
+  });
+
+  app.patch("/api/master-designations/:id", requireAuth, async (req, res) => {
+    try {
+      const updated = await storage.updateMasterDesignation(req.params.id, req.body);
+      if (!updated) return res.status(404).json({ error: "Designation not found" });
+      res.json(updated);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update designation" });
+    }
+  });
+
+  app.delete("/api/master-designations/:id", requireAuth, async (req, res) => {
+    try {
+      const success = await storage.deleteMasterDesignation(req.params.id);
+      if (!success) return res.status(404).json({ error: "Designation not found" });
+      res.json({ success });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete designation" });
+    }
+  });
+
+  // ===== Master Locations Routes =====
+  app.get("/api/master-locations", requireAuth, requireModuleAccess("masters"), async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const { companyId } = req.query;
+      if (companyId) {
+        return res.json(await storage.getMasterLocationsByCompany(companyId as string));
+      }
+      if (user.role === "super_admin") {
+        return res.json(await storage.getAllMasterLocations());
+      }
+      if (user.companyId) {
+        return res.json(await storage.getMasterLocationsByCompany(user.companyId));
+      }
+      res.json([]);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch locations" });
+    }
+  });
+
+  app.post("/api/master-locations", requireAuth, async (req, res) => {
+    try {
+      const data = insertMasterLocationSchema.parse(req.body);
+      const loc = await storage.createMasterLocation(data);
+      res.status(201).json(loc);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to create location" });
+    }
+  });
+
+  app.patch("/api/master-locations/:id", requireAuth, async (req, res) => {
+    try {
+      const updated = await storage.updateMasterLocation(req.params.id, req.body);
+      if (!updated) return res.status(404).json({ error: "Location not found" });
+      res.json(updated);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update location" });
+    }
+  });
+
+  app.delete("/api/master-locations/:id", requireAuth, async (req, res) => {
+    try {
+      const success = await storage.deleteMasterLocation(req.params.id);
+      if (!success) return res.status(404).json({ error: "Location not found" });
+      res.json({ success });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete location" });
+    }
+  });
+
+  // ===== Earning Heads Routes =====
+  app.get("/api/earning-heads", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const { companyId } = req.query;
+      if (companyId) {
+        return res.json(await storage.getEarningHeadsByCompany(companyId as string));
+      }
+      if (user.role === "super_admin") {
+        const allCompanies = await storage.getAllCompanies();
+        const results = [];
+        for (const c of allCompanies) {
+          const heads = await storage.getEarningHeadsByCompany(c.id);
+          results.push(...heads);
+        }
+        return res.json(results);
+      }
+      if (user.companyId) {
+        return res.json(await storage.getEarningHeadsByCompany(user.companyId));
+      }
+      res.json([]);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch earning heads" });
+    }
+  });
+
+  app.post("/api/earning-heads", requireAuth, async (req, res) => {
+    try {
+      const data = insertEarningHeadSchema.parse(req.body);
+      const head = await storage.createEarningHead(data);
+      res.status(201).json(head);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to create earning head" });
+    }
+  });
+
+  app.patch("/api/earning-heads/:id", requireAuth, async (req, res) => {
+    try {
+      const updated = await storage.updateEarningHead(req.params.id, req.body);
+      if (!updated) return res.status(404).json({ error: "Earning head not found" });
+      res.json(updated);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update earning head" });
+    }
+  });
+
+  app.delete("/api/earning-heads/:id", requireAuth, async (req, res) => {
+    try {
+      const success = await storage.deleteEarningHead(req.params.id);
+      if (!success) return res.status(404).json({ error: "Earning head not found" });
+      res.json({ success });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete earning head" });
+    }
+  });
+
+  // ===== Deduction Heads Routes =====
+  app.get("/api/deduction-heads", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const { companyId } = req.query;
+      if (companyId) {
+        return res.json(await storage.getDeductionHeadsByCompany(companyId as string));
+      }
+      if (user.role === "super_admin") {
+        const allCompanies = await storage.getAllCompanies();
+        const results = [];
+        for (const c of allCompanies) {
+          const heads = await storage.getDeductionHeadsByCompany(c.id);
+          results.push(...heads);
+        }
+        return res.json(results);
+      }
+      if (user.companyId) {
+        return res.json(await storage.getDeductionHeadsByCompany(user.companyId));
+      }
+      res.json([]);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch deduction heads" });
+    }
+  });
+
+  app.post("/api/deduction-heads", requireAuth, async (req, res) => {
+    try {
+      const data = insertDeductionHeadSchema.parse(req.body);
+      const head = await storage.createDeductionHead(data);
+      res.status(201).json(head);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to create deduction head" });
+    }
+  });
+
+  app.patch("/api/deduction-heads/:id", requireAuth, async (req, res) => {
+    try {
+      const updated = await storage.updateDeductionHead(req.params.id, req.body);
+      if (!updated) return res.status(404).json({ error: "Deduction head not found" });
+      res.json(updated);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update deduction head" });
+    }
+  });
+
+  app.delete("/api/deduction-heads/:id", requireAuth, async (req, res) => {
+    try {
+      const success = await storage.deleteDeductionHead(req.params.id);
+      if (!success) return res.status(404).json({ error: "Deduction head not found" });
+      res.json({ success });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete deduction head" });
+    }
+  });
+
+  // ===== Time Office Policies Routes =====
+  app.get("/api/time-office-policies", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const { companyId } = req.query;
+      if (companyId) {
+        return res.json(await storage.getTimeOfficePoliciesByCompany(companyId as string));
+      }
+      if (user.role === "super_admin") {
+        const allCompanies = await storage.getAllCompanies();
+        const results = [];
+        for (const c of allCompanies) {
+          const policies = await storage.getTimeOfficePoliciesByCompany(c.id);
+          results.push(...policies);
+        }
+        return res.json(results);
+      }
+      if (user.companyId) {
+        return res.json(await storage.getTimeOfficePoliciesByCompany(user.companyId));
+      }
+      res.json([]);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch time office policies" });
+    }
+  });
+
+  app.post("/api/time-office-policies", requireAuth, async (req, res) => {
+    try {
+      const body = { ...req.body };
+      if (body.weeklyOff2 === "" || body.weeklyOff2 === "__none__") body.weeklyOff2 = null;
+      const data = insertTimeOfficePolicySchema.parse(body);
+      const policy = await storage.createTimeOfficePolicy(data);
+      res.status(201).json(policy);
+    } catch (error: any) {
+      console.error("Time office policy create error:", error?.message || error);
+      res.status(500).json({ error: error?.message || "Failed to create time office policy" });
+    }
+  });
+
+  app.patch("/api/time-office-policies/:id", requireAuth, async (req, res) => {
+    try {
+      const body = { ...req.body };
+      if (body.weeklyOff2 === "" || body.weeklyOff2 === "__none__") body.weeklyOff2 = null;
+      const updated = await storage.updateTimeOfficePolicy(req.params.id, body);
+      if (!updated) return res.status(404).json({ error: "Time office policy not found" });
+      res.json(updated);
+    } catch (error: any) {
+      console.error("Time office policy update error:", error?.message || error);
+      res.status(500).json({ error: error?.message || "Failed to update time office policy" });
+    }
+  });
+
+  app.delete("/api/time-office-policies/:id", requireAuth, async (req, res) => {
+    try {
+      const success = await storage.deleteTimeOfficePolicy(req.params.id);
+      if (!success) return res.status(404).json({ error: "Time office policy not found" });
+      res.json({ success });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete time office policy" });
+    }
+  });
+
+  // ===== FnF Settlements Routes =====
+  app.get("/api/fnf-settlements", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const { companyId } = req.query;
+      if (companyId) {
+        return res.json(await storage.getFnfSettlementsByCompany(companyId as string));
+      }
+      if (user.role === "super_admin") {
+        return res.json(await storage.getAllFnfSettlements());
+      }
+      if (user.companyId) {
+        return res.json(await storage.getFnfSettlementsByCompany(user.companyId));
+      }
+      res.json([]);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch F&F settlements" });
+    }
+  });
+
+  app.post("/api/fnf-settlements", requireAuth, async (req, res) => {
+    try {
+      const data = insertFnfSettlementSchema.parse(req.body);
+      const settlement = await storage.createFnfSettlement(data);
+      res.status(201).json(settlement);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to create F&F settlement" });
+    }
+  });
+
+  app.patch("/api/fnf-settlements/:id", requireAuth, async (req, res) => {
+    try {
+      const updated = await storage.updateFnfSettlement(req.params.id, req.body);
+      if (!updated) return res.status(404).json({ error: "F&F settlement not found" });
+      res.json(updated);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update F&F settlement" });
+    }
+  });
+
+  app.delete("/api/fnf-settlements/:id", requireAuth, async (req, res) => {
+    try {
+      const success = await storage.deleteFnfSettlement(req.params.id);
+      if (!success) return res.status(404).json({ error: "F&F settlement not found" });
+      res.json({ success });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete F&F settlement" });
+    }
+  });
+
+  // ===== Holidays Routes =====
+  app.get("/api/holidays", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const { companyId } = req.query;
+      if (companyId) {
+        return res.json(await storage.getHolidaysByCompany(companyId as string));
+      }
+      if (user.role === "super_admin") {
+        return res.json(await storage.getAllHolidays());
+      }
+      if (user.companyId) {
+        return res.json(await storage.getHolidaysByCompany(user.companyId));
+      }
+      res.json([]);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch holidays" });
+    }
+  });
+
+  app.post("/api/holidays", requireAuth, async (req, res) => {
+    try {
+      const data = insertHolidaySchema.parse(req.body);
+      const holiday = await storage.createHoliday(data);
+      res.status(201).json(holiday);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to create holiday" });
+    }
+  });
+
+  app.patch("/api/holidays/:id", requireAuth, async (req, res) => {
+    try {
+      const updated = await storage.updateHoliday(req.params.id, req.body);
+      if (!updated) return res.status(404).json({ error: "Holiday not found" });
+      res.json(updated);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update holiday" });
+    }
+  });
+
+  app.delete("/api/holidays/:id", requireAuth, async (req, res) => {
+    try {
+      const success = await storage.deleteHoliday(req.params.id);
+      if (!success) return res.status(404).json({ error: "Holiday not found" });
+      res.json({ success });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete holiday" });
+    }
+  });
+
+  // ===== Company CRUD Additions =====
+  app.patch("/api/companies/:id", requireAuth, requireRole("super_admin", "company_admin"), async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const existing = await storage.getCompany(req.params.id);
+      if (!existing) return res.status(404).json({ error: "Company not found" });
+      if (user.role !== "super_admin" && existing.id !== user.companyId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      const updated = await storage.updateCompany(req.params.id, req.body);
+      res.json(updated);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update company" });
+    }
+  });
+
+  app.delete("/api/companies/:id", requireAuth, requireRole("super_admin"), async (req, res) => {
+    try {
+      const existing = await storage.getCompany(req.params.id);
+      if (!existing) return res.status(404).json({ error: "Company not found" });
+      const success = await storage.deleteCompany(req.params.id);
+      res.json({ success });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete company" });
+    }
+  });
+
+  // ─── Loan & Advance Routes ───────────────────────────────────────────────────
+
+  app.get("/api/loan-advances", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      let records;
+      if (user.role === "super_admin") {
+        const { companyId } = req.query;
+        if (companyId) {
+          records = await storage.getLoanAdvancesByCompany(companyId as string);
+        } else {
+          const companies = await storage.getAllCompanies();
+          const all = await Promise.all(companies.map(c => storage.getLoanAdvancesByCompany(c.id)));
+          records = all.flat();
+        }
+      } else if (["company_admin", "hr_admin", "manager"].includes(user.role)) {
+        if (!user.companyId) return res.json([]);
+        records = await storage.getLoanAdvancesByCompany(user.companyId);
+      } else {
+        const employee = await storage.getEmployeeByUserId(user.id);
+        if (!employee) return res.json([]);
+        records = await storage.getLoanAdvancesByEmployee(employee.id);
+      }
+      // Enrich with employee info
+      const enriched = await Promise.all((records || []).map(async (r) => {
+        const emp = await storage.getEmployee(r.employeeId);
+        return {
+          ...r,
+          employeeName: emp ? `${emp.firstName} ${emp.lastName}`.trim() : "Unknown",
+          employeeCode: emp?.employeeCode || "",
+        };
+      }));
+      res.json(enriched);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch loan/advance records" });
+    }
+  });
+
+  app.post("/api/loan-advances", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      let employeeId = req.body.employeeId;
+      let companyId = req.body.companyId;
+      // If employee role, force to their own record
+      if (user.role === "employee") {
+        const employee = await storage.getEmployeeByUserId(user.id);
+        if (!employee) return res.status(400).json({ error: "No employee record linked to your account" });
+        employeeId = employee.id;
+        companyId = employee.companyId;
+      }
+      if (!employeeId || !companyId) return res.status(400).json({ error: "employeeId and companyId are required" });
+      const now = new Date().toISOString();
+      const record = await storage.createLoanAdvance({
+        ...req.body,
+        employeeId,
+        companyId,
+        status: "pending",
+        requestDate: req.body.requestDate || now.split("T")[0],
+        createdAt: now,
+        updatedAt: now,
+      });
+      // Notify HR/admins about new loan/advance request
+      try {
+        const requestUser = (req as any).user;
+        const allUsers = await db.query.users.findMany({});
+        const hrIds = allUsers.filter((u: any) => ["hr_admin","company_admin","super_admin"].includes(u.role) && (u.role === "super_admin" || u.companyId === record.companyId)).map((u: any) => u.id).filter((id: any) => id !== requestUser.id);
+        const emp2 = await storage.getEmployee(record.employeeId);
+        const empName2 = emp2 ? `${emp2.firstName} ${emp2.lastName}` : requestUser.username;
+        const typeLabel = record.type === "loan" ? "Loan" : "Salary Advance";
+        await createNotificationForMany(hrIds, { companyId: record.companyId, type: "loan_request", title: `New ${typeLabel} Request`, message: `${empName2} has applied for a ${typeLabel.toLowerCase()} of ₹${Number(record.amount).toLocaleString("en-IN")}.`, link: "/loan-advances" });
+        await createNotification({ userId: requestUser.id, companyId: record.companyId, type: "loan_submitted", title: `${typeLabel} Request Submitted`, message: `Your ${typeLabel.toLowerCase()} request of ₹${Number(record.amount).toLocaleString("en-IN")} has been submitted.`, link: "/loan-advances" });
+      } catch {}
+      res.status(201).json(record);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to create loan/advance application" });
+    }
+  });
+
+  app.get("/api/loan-advances/:id", requireAuth, async (req, res) => {
+    try {
+      const record = await storage.getLoanAdvance(req.params.id);
+      if (!record) return res.status(404).json({ error: "Not found" });
+      res.json(record);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch record" });
+    }
+  });
+
+  app.patch("/api/loan-advances/:id", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const record = await storage.getLoanAdvance(req.params.id);
+      if (!record) return res.status(404).json({ error: "Not found" });
+      // Employee can only edit their own pending applications
+      if (user.role === "employee") {
+        const employee = await storage.getEmployeeByUserId(user.id);
+        if (!employee || employee.id !== record.employeeId) return res.status(403).json({ error: "Forbidden" });
+        if (record.status !== "pending") return res.status(400).json({ error: "Cannot edit a non-pending application" });
+      }
+      const updated = await storage.updateLoanAdvance(req.params.id, { ...req.body, updatedAt: new Date().toISOString() });
+      res.json(updated);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update loan/advance" });
+    }
+  });
+
+  app.post("/api/loan-advances/:id/approve", requireAuth, requireRole("super_admin", "company_admin", "hr_admin", "manager"), async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const record = await storage.getLoanAdvance(req.params.id);
+      if (!record) return res.status(404).json({ error: "Not found" });
+      if (record.status !== "pending") return res.status(400).json({ error: "Only pending applications can be approved" });
+      const { totalInstallments, installmentAmount, deductionStartMonth, remarks } = req.body;
+      if (!totalInstallments || !installmentAmount || !deductionStartMonth) {
+        return res.status(400).json({ error: "totalInstallments, installmentAmount, and deductionStartMonth are required" });
+      }
+      const now = new Date().toISOString();
+      const updated = await storage.updateLoanAdvance(req.params.id, {
+        status: "active",
+        approvedBy: user.id,
+        approvedAt: now,
+        totalInstallments: Number(totalInstallments),
+        installmentAmount: Number(installmentAmount),
+        remainingBalance: record.amount,
+        deductionStartMonth,
+        remarks: remarks || null,
+        updatedAt: now,
+      });
+      // Notify employee of approval
+      try {
+        const loanEmp = await storage.getEmployee(record.employeeId);
+        if (loanEmp && (loanEmp as any).userId) {
+          const typeLabel = record.type === "loan" ? "Loan" : "Salary Advance";
+          await createNotification({ userId: (loanEmp as any).userId, companyId: record.companyId, type: "loan_approved", title: `${typeLabel} Approved ✓`, message: `Your ${typeLabel.toLowerCase()} request of ₹${Number(record.amount).toLocaleString("en-IN")} has been approved. EMI: ₹${Number(installmentAmount).toLocaleString("en-IN")}/month.`, link: "/loan-advances" });
+        }
+      } catch {}
+      res.json(updated);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to approve loan/advance" });
+    }
+  });
+
+  app.post("/api/loan-advances/:id/reschedule", requireAuth, requireRole("super_admin", "company_admin", "hr_admin", "manager"), async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const record = await storage.getLoanAdvance(req.params.id);
+      if (!record) return res.status(404).json({ error: "Not found" });
+      if (record.status !== "active") return res.status(400).json({ error: "Only active loan/advance records can be rescheduled" });
+      const { totalInstallments, installmentAmount, deductionStartMonth, remarks } = req.body;
+      if (!totalInstallments || !installmentAmount || !deductionStartMonth) {
+        return res.status(400).json({ error: "totalInstallments, installmentAmount, and deductionStartMonth are required" });
+      }
+      if (Number(totalInstallments) < 1) return res.status(400).json({ error: "Must have at least 1 installment" });
+      if (Number(installmentAmount) < 1) return res.status(400).json({ error: "Installment amount must be at least ₹1" });
+      const now = new Date().toISOString();
+      const scheduleNote = remarks ? `[Rescheduled on ${now.slice(0,10)}: ${remarks}]` : `[Rescheduled on ${now.slice(0,10)}]`;
+      const existingRemarks = record.remarks ? `${record.remarks} | ${scheduleNote}` : scheduleNote;
+      const updated = await storage.updateLoanAdvance(req.params.id, {
+        totalInstallments: Number(totalInstallments),
+        installmentAmount: Number(installmentAmount),
+        deductionStartMonth,
+        remarks: existingRemarks,
+        updatedAt: now,
+      });
+      res.json(updated);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to reschedule loan/advance" });
+    }
+  });
+
+  // Recalculate remaining balance from actual processed/paid payroll deductions
+  app.post("/api/loan-advances/:id/recalculate-balance", requireAuth, requireRole("super_admin", "company_admin", "hr_admin", "manager"), async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const record = await storage.getLoanAdvance(req.params.id);
+      if (!record) return res.status(404).json({ error: "Not found" });
+      if (user.role !== "super_admin" && record.companyId !== user.companyId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      if (!record.deductionStartMonth) {
+        return res.status(400).json({ error: "Loan has no deduction start month set" });
+      }
+
+      // Get all processed/paid payrolls for this employee from deductionStartMonth onwards
+      const MONTH_NAMES = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+      const allPayrolls = await storage.getPayrollByEmployee(record.employeeId);
+      const paidPayrolls = allPayrolls.filter(p => {
+        if (!["processed", "paid"].includes(p.status)) return false;
+        const mIdx = MONTH_NAMES.indexOf(p.month);
+        if (mIdx < 0) return false;
+        const payrollYM = `${p.year}-${String(mIdx + 1).padStart(2, "0")}`;
+        return payrollYM >= record.deductionStartMonth!;
+      });
+
+      // Sum the actual loanDeduction amounts from those payrolls
+      const totalDeducted = paidPayrolls.reduce((sum, p) => sum + (Number((p as any).loanDeduction) || 0), 0);
+      const originalAmount = Number(record.amount) || 0;
+      const newBalance = Math.max(0, originalAmount - totalDeducted);
+      const newStatus = newBalance <= 0 ? "closed" : "active";
+
+      const updated = await storage.updateLoanAdvance(req.params.id, {
+        remainingBalance: newBalance,
+        status: newStatus,
+        updatedAt: new Date().toISOString(),
+      });
+      res.json({ ...updated, totalDeducted, paidMonths: paidPayrolls.length });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to recalculate balance" });
+    }
+  });
+
+  app.post("/api/loan-advances/:id/reject", requireAuth, requireRole("super_admin", "company_admin", "hr_admin", "manager"), async (req, res) => {
+    try {
+      const record = await storage.getLoanAdvance(req.params.id);
+      if (!record) return res.status(404).json({ error: "Not found" });
+      if (record.status !== "pending") return res.status(400).json({ error: "Only pending applications can be rejected" });
+      const updated = await storage.updateLoanAdvance(req.params.id, {
+        status: "rejected",
+        rejectionReason: req.body.rejectionReason || "No reason provided",
+        updatedAt: new Date().toISOString(),
+      });
+      // Notify employee of rejection
+      try {
+        const loanEmpR = await storage.getEmployee(record.employeeId);
+        if (loanEmpR && (loanEmpR as any).userId) {
+          const typeLabel = record.type === "loan" ? "Loan" : "Salary Advance";
+          await createNotification({ userId: (loanEmpR as any).userId, companyId: record.companyId, type: "loan_rejected", title: `${typeLabel} Rejected`, message: `Your ${typeLabel.toLowerCase()} request of ₹${Number(record.amount).toLocaleString("en-IN")} was rejected. Reason: ${req.body.rejectionReason || "No reason provided"}.`, link: "/loan-advances" });
+        }
+      } catch {}
+      res.json(updated);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to reject loan/advance" });
+    }
+  });
+
+  app.post("/api/loan-advances/:id/cancel", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const record = await storage.getLoanAdvance(req.params.id);
+      if (!record) return res.status(404).json({ error: "Not found" });
+      if (user.role === "employee") {
+        const employee = await storage.getEmployeeByUserId(user.id);
+        if (!employee || employee.id !== record.employeeId) return res.status(403).json({ error: "Forbidden" });
+      }
+      if (!["pending"].includes(record.status)) return res.status(400).json({ error: "Only pending applications can be cancelled" });
+      const updated = await storage.updateLoanAdvance(req.params.id, { status: "cancelled", updatedAt: new Date().toISOString() });
+      res.json(updated);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to cancel application" });
+    }
+  });
+
+  app.post("/api/loan-advances/:id/close", requireAuth, requireRole("super_admin", "company_admin", "hr_admin"), async (req, res) => {
+    try {
+      const record = await storage.getLoanAdvance(req.params.id);
+      if (!record) return res.status(404).json({ error: "Not found" });
+      const updated = await storage.updateLoanAdvance(req.params.id, { status: "closed", remainingBalance: 0, updatedAt: new Date().toISOString() });
+      res.json(updated);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to close loan/advance" });
+    }
+  });
+
+  // ===== Notification Routes =====
+  app.get("/api/notifications", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const rows = await db.select().from(notifications).where(eq(notifications.userId, user.id)).orderBy(desc(notifications.createdAt)).limit(50);
+      res.json(rows);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch notifications" });
+    }
+  });
+
+  app.get("/api/notifications/unread-count", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const rows = await db.select().from(notifications).where(and(eq(notifications.userId, user.id), eq(notifications.isRead, false)));
+      res.json({ count: rows.length });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch count" });
+    }
+  });
+
+  app.patch("/api/notifications/:id/read", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      await db.update(notifications).set({ isRead: true }).where(and(eq(notifications.id, req.params.id), eq(notifications.userId, user.id)));
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to mark notification as read" });
+    }
+  });
+
+  app.patch("/api/notifications/read-all", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      await db.update(notifications).set({ isRead: true }).where(eq(notifications.userId, user.id));
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to mark all as read" });
+    }
+  });
+
+  app.delete("/api/notifications/clear", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      await db.delete(notifications).where(eq(notifications.userId, user.id));
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to clear notifications" });
+    }
+  });
+
+  // SSE stream endpoint — real-time notification delivery
+  app.get("/api/notifications/stream", requireAuth, (req, res) => {
+    const user = (req as any).user;
+    res.writeHead(200, {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      "Connection": "keep-alive",
+      "X-Accel-Buffering": "no",
+    });
+    res.write(`data: ${JSON.stringify({ type: "connected" })}\n\n`);
+    addSSEClient(user.id, res);
+    const heartbeat = setInterval(() => {
+      try { res.write(`data: ${JSON.stringify({ type: "heartbeat" })}\n\n`); }
+      catch { clearInterval(heartbeat); }
+    }, 25000);
+    req.on("close", () => {
+      clearInterval(heartbeat);
+      removeSSEClient(user.id, res);
+    });
+  });
+
+  // Register compliance routes (completely separate module)
+  registerComplianceRoutes(app);
+
+  return httpServer;
+}
