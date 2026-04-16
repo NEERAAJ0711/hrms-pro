@@ -190,6 +190,13 @@ export default function BiometricPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/biometric/devices"] });
       toast({ title: "Success", description: "Device removed" });
     },
+    onError: (err: any) => {
+      toast({
+        title: "Delete failed",
+        description: err?.message || "Could not remove device",
+        variant: "destructive",
+      });
+    },
   });
 
   const handlePushData = () => {
