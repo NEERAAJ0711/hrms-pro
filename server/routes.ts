@@ -640,8 +640,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const data = insertBiometricDeviceSchema.parse(req.body);
       const device = await storage.createBiometricDevice(data);
       res.status(201).json(device);
-    } catch (error) {
-      res.status(500).json({ error: "Failed to create biometric device" });
+    } catch (error: any) {
+      console.error("[biometric/devices POST] error:", error);
+      res.status(500).json({ error: error?.message || "Failed to create biometric device", details: error?.errors });
     }
   });
 
