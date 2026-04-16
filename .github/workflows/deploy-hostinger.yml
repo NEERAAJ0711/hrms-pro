@@ -100,15 +100,23 @@ jobs:
               ${{ secrets.HOSTINGER_USERNAME }}@${{ secrets.HOSTINGER_HOST }}:/tmp/hrms-deploy.tar.gz
 
       - name: Deploy on server
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
         run: |
           ssh -i ~/.ssh/deploy_key \
               -p ${{ secrets.HOSTINGER_PORT || 22 }} \
               -o StrictHostKeyChecking=no \
-              ${{ secrets.HOSTINGER_USERNAME }}@${{ secrets.HOSTINGER_HOST }} << 'ENDSSH'
+              ${{ secrets.HOSTINGER_USERNAME }}@${{ secrets.HOSTINGER_HOST }} \
+              "DATABASE_URL='$DATABASE_URL' SESSION_SECRET='$SESSION_SECRET' JWT_SECRET='$JWT_SECRET' bash -s" << 'ENDSSH'
 
             set -e
-            APP_DIR="/var/www/hrms-pro"
-            BACKUP_DIR="/var/www/hrms-pro-backup-$(date +%Y%m%d%H%M%S)"
+            APP_DIR="$HOME/hrms-pro"
+            BACKUP_DIR="$HOME/hrms-pro-backup-$(date +%Y%m%d%H%M%S)"
+
+            echo "▶ Deploying as user: $(whoami)"
+            echo "▶ App directory: $APP_DIR"
 
             echo "▶ Backing up current deployment..."
             if [ -d "$APP_DIR" ]; then
@@ -123,15 +131,24 @@ jobs:
             tar -xzf /tmp/hrms-deploy.tar.gz -C "$APP_DIR"
             rm /tmp/hrms-deploy.tar.gz
 
+            echo "▶ Writing .env file..."
+            {
+              printf 'DATABASE_URL=%s\n' "$DATABASE_URL"
+              printf 'SESSION_SECRET=%s\n' "$SESSION_SECRET"
+              printf 'JWT_SECRET=%s\n' "$JWT_SECRET"
+              printf 'NODE_ENV=production\n'
+              printf 'PORT=5000\n'
+            } > "$APP_DIR/.env"
+            chmod 600 "$APP_DIR/.env"
+
             echo "▶ Installing production dependencies..."
+            export PATH="$HOME/.nvm/versions/node/$(ls -1 $HOME/.nvm/versions/node 2>/dev/null | tail -1)/bin:$PATH" || true
+            command -v npm || { echo "❌ npm not found. Please install Node.js on the VPS first (run hostinger-setup.sh)"; exit 1; }
             npm ci --omit=dev
 
-            echo "▶ Running database migrations..."
-            export DATABASE_URL="${DATABASE_URL}"
-            export NODE_ENV=production
-
             echo "▶ Restarting app with PM2..."
-            if pm2 list | grep -q "hrms-pro"; then
+            command -v pm2 || npm install -g pm2
+            if pm2 list 2>/dev/null | grep -q "hrms-pro"; then
               pm2 reload hrms-pro --update-env
             else
               pm2 start ecosystem.config.js
@@ -139,7 +156,7 @@ jobs:
             pm2 save
 
             echo "▶ Cleaning old backups (keeping last 3)..."
-            ls -dt /var/www/hrms-pro-backup-* 2>/dev/null | tail -n +4 | xargs rm -rf
+            ls -dt $HOME/hrms-pro-backup-* 2>/dev/null | tail -n +4 | xargs rm -rf 2>/dev/null || true
 
             echo "✅ Deployment complete!"
           ENDSSH
