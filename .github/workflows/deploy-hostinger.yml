@@ -88,7 +88,9 @@ jobs:
             dist/ \
             package.json \
             package-lock.json \
-            ecosystem.config.cjs
+            ecosystem.config.cjs \
+            migrations/ \
+            scripts/
           ls -lh deploy.tar.gz
 
       - name: Upload package to server
@@ -145,6 +147,9 @@ jobs:
             export PATH="$HOME/.nvm/versions/node/$(ls -1 $HOME/.nvm/versions/node 2>/dev/null | tail -1)/bin:$PATH" || true
             command -v npm || { echo "❌ npm not found. Please install Node.js on the VPS first (run hostinger-setup.sh)"; exit 1; }
             npm ci --omit=dev
+
+            echo "▶ Running database migrations..."
+            DATABASE_URL="$DATABASE_URL" node scripts/run-migrations.cjs
 
             echo "▶ Restarting app with PM2..."
             command -v pm2 || npm install -g pm2
