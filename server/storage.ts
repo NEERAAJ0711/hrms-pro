@@ -1373,7 +1373,7 @@ export class MemStorage implements IStorage {
       lastSync: null,
       createdAt: new Date().toISOString(),
       ipAddress: insertDevice.ipAddress || null,
-      port: insertDevice.port ?? 4370,
+      port: insertDevice.port ?? 8181,
     };
     this.biometricDevicesMap.set(id, device);
     return device;

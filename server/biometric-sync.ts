@@ -6,7 +6,7 @@ const SYNC_INTERVAL = 60000; // Poll every 1 minute
 async function syncDevice(device: any) {
   try {
     console.log(`[BiometricSync] Starting auto-sync for ${device.name} (${device.ipAddress})`);
-    const zkInstance = new ZKLib(device.ipAddress || '127.0.0.1', device.port || 4370, 10000, 4000);
+    const zkInstance = new ZKLib(device.ipAddress || '127.0.0.1', device.port || 8181, 10000, 4000);
     
     await zkInstance.createSocket();
     const logs = await zkInstance.getAttendances();

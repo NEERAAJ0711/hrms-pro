@@ -675,7 +675,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      const zkInstance = new ZKLib(device.ipAddress || '127.0.0.1', device.port || 4370, 10000, 4000);
+      const zkInstance = new ZKLib(device.ipAddress || '127.0.0.1', device.port || 8181, 10000, 4000);
       try {
         await zkInstance.createSocket();
         await storage.updateBiometricDevice(device.id, { 
@@ -703,7 +703,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const device = await storage.getBiometricDevice(req.params.id);
       if (!device) return res.status(404).json({ error: "Device not found" });
       
-      const zkInstance = new ZKLib(device.ipAddress || '127.0.0.1', device.port || 4370, 10000, 4000);
+      const zkInstance = new ZKLib(device.ipAddress || '127.0.0.1', device.port || 8181, 10000, 4000);
       
       try {
         await zkInstance.createSocket();

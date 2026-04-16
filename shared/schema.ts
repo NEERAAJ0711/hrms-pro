@@ -531,7 +531,7 @@ export const biometricDevices = pgTable("biometric_devices", {
   name: text("name").notNull(),
   deviceSerial: text("device_serial").notNull(),
   ipAddress: text("ip_address"),
-  port: integer("port").default(4370),
+  port: integer("port").default(8181),
   status: text("status").notNull().default("offline"), // online, offline
   lastSync: text("last_sync"),
   createdAt: text("created_at"),

@@ -38,7 +38,7 @@ export default function BiometricPage() {
   const [deviceName, setDeviceName] = useState("");
   const [deviceSerial, setDeviceSerial] = useState("");
   const [deviceIp, setDeviceIp] = useState("");
-  const [devicePort, setDevicePort] = useState("4370");
+  const [devicePort, setDevicePort] = useState("8181");
 
   const { data: companies = [] } = useQuery<Company[]>({
     queryKey: ["/api/companies"],
