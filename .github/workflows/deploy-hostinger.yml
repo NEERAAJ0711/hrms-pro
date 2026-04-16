@@ -88,7 +88,7 @@ jobs:
             dist/ \
             package.json \
             package-lock.json \
-            ecosystem.config.js
+            ecosystem.config.cjs
           ls -lh deploy.tar.gz
 
       - name: Upload package to server
@@ -151,7 +151,7 @@ jobs:
             if pm2 list 2>/dev/null | grep -q "hrms-pro"; then
               pm2 reload hrms-pro --update-env
             else
-              pm2 start ecosystem.config.js
+              pm2 start ecosystem.config.cjs
             fi
             pm2 save
 
