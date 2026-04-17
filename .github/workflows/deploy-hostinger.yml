@@ -80,7 +80,19 @@ jobs:
           mkdir -p ~/.ssh
           echo "${{ secrets.HOSTINGER_SSH_KEY }}" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -p ${{ secrets.HOSTINGER_PORT || 22 }} ${{ secrets.HOSTINGER_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
+          # ssh-keyscan can transiently fail on Hostinger (rate limit / fail2ban).
+          # That's OK — actual ssh/scp commands below use StrictHostKeyChecking=no,
+          # so a failed keyscan should never abort the deploy. Retry a few times
+          # then continue regardless.
+          for attempt in 1 2 3; do
+            if ssh-keyscan -T 10 -p ${{ secrets.HOSTINGER_PORT || 22 }} ${{ secrets.HOSTINGER_HOST }} >> ~/.ssh/known_hosts 2>/tmp/keyscan.err; then
+              echo "ssh-keyscan succeeded on attempt $attempt"
+              break
+            fi
+            echo "ssh-keyscan attempt $attempt failed:"; cat /tmp/keyscan.err || true
+            sleep 5
+          done
+          true
 
       - name: Create deployment package
         run: |
