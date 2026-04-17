@@ -1374,6 +1374,12 @@ export class MemStorage implements IStorage {
       createdAt: new Date().toISOString(),
       ipAddress: insertDevice.ipAddress || null,
       port: insertDevice.port ?? 8181,
+      lastPushAt: insertDevice.lastPushAt ?? null,
+      lastPushIp: insertDevice.lastPushIp ?? null,
+      firmwareVersion: insertDevice.firmwareVersion ?? null,
+      pushTotal: insertDevice.pushTotal ?? 0,
+      pushToken: insertDevice.pushToken ?? null,
+      allowedIpCidr: insertDevice.allowedIpCidr ?? null,
     };
     this.biometricDevicesMap.set(id, device);
     return device;

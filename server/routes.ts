@@ -80,6 +80,41 @@ function isPrivateOrUnsafeIp(ip: string): boolean {
   return false;
 }
 
+// Per-device ADMS auth: a device must have either a shared secret or a
+// pinned source CIDR. Validates the values here so bad input is rejected
+// at admin time rather than silently locking the device out at push time.
+function validateBiometricDeviceAuth(pushToken: unknown, allowedIpCidr: unknown): string | null {
+  const tok = pushToken == null ? "" : String(pushToken).trim();
+  const cidr = allowedIpCidr == null ? "" : String(allowedIpCidr).trim();
+  if (!tok && !cidr) {
+    return "Device must have either pushToken (shared secret) or allowedIpCidr (pinned source IP/CIDR) so ADMS pushes can be authenticated.";
+  }
+  if (tok && tok.length < 12) {
+    return "pushToken must be at least 12 characters";
+  }
+  if (cidr) {
+    for (const piece of cidr.split(",").map((s) => s.trim()).filter(Boolean)) {
+      const [base, bitsStr] = piece.includes("/") ? piece.split("/") : [piece, "32"];
+      if (net.isIP(base) === 0) {
+        return `allowedIpCidr entry "${piece}" is not a valid IP literal`;
+      }
+      if (net.isIP(base) === 4) {
+        const bits = Number(bitsStr);
+        if (!Number.isInteger(bits) || bits < 0 || bits > 32) {
+          return `allowedIpCidr entry "${piece}" has an invalid prefix length (expected 0-32)`;
+        }
+      } else {
+        // IPv6 — we only support exact-match literals on the push side, so
+        // refuse a prefix here to avoid false confidence.
+        if (piece.includes("/") && bitsStr !== "128") {
+          return `allowedIpCidr entry "${piece}" uses IPv6 prefix; only /128 (exact match) is supported`;
+        }
+      }
+    }
+  }
+  return null;
+}
+
 function validateBiometricNetwork(ip: unknown, port: unknown): string | null {
   if (ip != null && ip !== "") {
     if (typeof ip !== "string") return "ipAddress must be a string";
@@ -250,6 +285,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
   `).catch((err) => {
     console.error("[migrations] biometric_punch_logs_dedup_unique failed:", err);
   });
+
+  // Mirror of migrations/007: per-device ADMS auth (shared secret OR pinned
+  // source CIDR). Backfills existing devices to their last-seen push IP so
+  // the deployed device keeps working without manual reconfiguration.
+  await db.execute(sql`
+    ALTER TABLE biometric_devices ADD COLUMN IF NOT EXISTS push_token text;
+  `).catch((err) => console.error("[migrations] add push_token failed:", err));
+  await db.execute(sql`
+    ALTER TABLE biometric_devices ADD COLUMN IF NOT EXISTS allowed_ip_cidr text;
+  `).catch((err) => console.error("[migrations] add allowed_ip_cidr failed:", err));
+  await db.execute(sql`
+    UPDATE biometric_devices
+       SET allowed_ip_cidr = last_push_ip || '/32'
+     WHERE allowed_ip_cidr IS NULL
+       AND push_token IS NULL
+       AND last_push_ip IS NOT NULL
+       AND last_push_ip <> '';
+  `).catch((err) => console.error("[migrations] backfill allowed_ip_cidr failed:", err));
 
   // Create employee_documents table if not exists
   await db.execute(sql`
@@ -772,6 +825,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (netError) {
         return res.status(400).json({ error: netError });
       }
+      // Anti-spoof: a device must be bound to either a shared secret or a
+      // pinned source CIDR. Otherwise anyone who learns the serial number
+      // could fabricate ADMS pushes against /iclock/cdata.
+      const authError = validateBiometricDeviceAuth((data as any).pushToken, (data as any).allowedIpCidr);
+      if (authError) {
+        return res.status(400).json({ error: authError });
+      }
       const device = await storage.createBiometricDevice(data);
       res.status(201).json(device);
     } catch (error: any) {
@@ -788,7 +848,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (user.role !== "super_admin" && device.companyId !== user.companyId) {
         return res.status(403).json({ error: "Access denied. You can only edit devices that belong to your company." });
       }
-      const { name, code, deviceSerial, ipAddress, port, status, companyId } = req.body || {};
+      const { name, code, deviceSerial, ipAddress, port, status, companyId, pushToken, allowedIpCidr } = req.body || {};
       const patch: Record<string, any> = {};
       if (name !== undefined) patch.name = name;
       if (code !== undefined) patch.code = code === "" ? null : String(code).trim();
@@ -798,6 +858,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (status !== undefined) patch.status = status;
       // Only super_admin may move a device across companies (or to "shared").
       if (companyId !== undefined && user.role === "super_admin") patch.companyId = companyId;
+      if (pushToken !== undefined) patch.pushToken = pushToken === "" ? null : pushToken;
+      if (allowedIpCidr !== undefined) patch.allowedIpCidr = allowedIpCidr === "" ? null : allowedIpCidr;
 
       // SSRF guard: validate any new ipAddress/port the same way create does.
       const nextIp = patch.ipAddress !== undefined ? patch.ipAddress : device.ipAddress;
@@ -805,6 +867,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const netError = validateBiometricNetwork(nextIp, nextPort);
       if (netError) {
         return res.status(400).json({ error: netError });
+      }
+      // Anti-spoof: after this patch the device must still have at least
+      // one of pushToken / allowedIpCidr set, and any provided values must
+      // parse cleanly.
+      const nextToken = patch.pushToken !== undefined ? patch.pushToken : (device as any).pushToken;
+      const nextCidr  = patch.allowedIpCidr !== undefined ? patch.allowedIpCidr : (device as any).allowedIpCidr;
+      const authError = validateBiometricDeviceAuth(nextToken, nextCidr);
+      if (authError) {
+        return res.status(400).json({ error: authError });
       }
 
       const updated = await storage.updateBiometricDevice(req.params.id, patch as any);

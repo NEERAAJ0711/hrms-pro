@@ -38,6 +38,8 @@ export default function BiometricPage() {
   const [deviceSerial, setDeviceSerial] = useState("");
   const [deviceIp, setDeviceIp] = useState("31.97.207.109");
   const [devicePort, setDevicePort] = useState("8181");
+  const [devicePushToken, setDevicePushToken] = useState("");
+  const [deviceAllowedCidr, setDeviceAllowedCidr] = useState("");
 
   // "View Users on Machine" dialog state
   const [usersDialogDevice, setUsersDialogDevice] = useState<any | null>(null);
@@ -109,6 +111,15 @@ export default function BiometricPage() {
       setDeviceSerial("");
       setDeviceIp("31.97.207.109");
       setDevicePort("8181");
+      setDevicePushToken("");
+      setDeviceAllowedCidr("");
+    },
+    onError: (err: any) => {
+      toast({
+        title: "Failed to add device",
+        description: err?.message || "Could not add device",
+        variant: "destructive",
+      });
     },
   });
 
@@ -212,6 +223,14 @@ export default function BiometricPage() {
       toast({ title: "Error", description: "Please fill all required fields", variant: "destructive" });
       return;
     }
+    if (!devicePushToken.trim() && !deviceAllowedCidr.trim()) {
+      toast({
+        title: "Authentication required",
+        description: "Set a push token (shared secret) or pinned source IP/CIDR so spoofed pushes are rejected.",
+        variant: "destructive",
+      });
+      return;
+    }
     deviceMutation.mutate({
       companyId: null,
       name: deviceName,
@@ -219,6 +238,8 @@ export default function BiometricPage() {
       deviceSerial,
       ipAddress: deviceIp,
       port: parseInt(devicePort),
+      pushToken: devicePushToken.trim() || null,
+      allowedIpCidr: deviceAllowedCidr.trim() || null,
     });
   };
 
@@ -623,6 +644,30 @@ export default function BiometricPage() {
                 <Input 
                   value={devicePort} 
                   onChange={e => setDevicePort(e.target.value)} 
+                />
+              </div>
+            </div>
+            <div className="border-t pt-3 space-y-3">
+              <p className="text-xs text-muted-foreground">
+                Provide at least one of the following so the server can tell real pushes from spoofed ones.
+              </p>
+              <div>
+                <Label>Pinned Source IP / CIDR</Label>
+                <Input
+                  value={deviceAllowedCidr}
+                  onChange={e => setDeviceAllowedCidr(e.target.value)}
+                  placeholder="e.g. 31.97.207.109/32"
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  Pushes from any other source IP will be rejected. Comma-separate multiple ranges.
+                </p>
+              </div>
+              <div>
+                <Label>Push Token (shared secret)</Label>
+                <Input
+                  value={devicePushToken}
+                  onChange={e => setDevicePushToken(e.target.value)}
+                  placeholder="Min 12 chars; sent as ?token=… or X-Device-Token header"
                 />
               </div>
             </div>

@@ -1,5 +1,6 @@
 import type { Express, Request, Response } from "express";
 import { storage } from "./storage";
+import { timingSafeEqual } from "crypto";
 
 /**
  * ZKTeco "Push SDK" / ADMS protocol handler.
@@ -41,9 +42,117 @@ import { storage } from "./storage";
 
 const NEW_LINE = "\r\n";
 
+// Source IP for ADMS auth. We deliberately do NOT parse the raw
+// X-Forwarded-For header here — a spoofer could trivially forge it and
+// satisfy the pinned-CIDR check without holding the device's token.
+// Express's req.ip already returns the right thing when `trust proxy` is
+// configured (one hop, set in server/index.ts), so the proxy chain is
+// honoured but client-supplied XFF is ignored. Fall back to the raw
+// socket peer if req.ip is somehow unavailable.
 function clientIp(req: Request): string {
-  const fwd = (req.headers["x-forwarded-for"] as string) || "";
-  return (fwd.split(",")[0] || req.socket.remoteAddress || "").trim();
+  return ((req.ip || req.socket.remoteAddress || "") as string).trim();
+}
+
+// Normalise IPv4-mapped IPv6 (::ffff:1.2.3.4) down to the bare IPv4 literal
+// so CIDR comparisons against pinned IPv4 ranges work the way operators expect.
+function normaliseIp(ip: string): string {
+  if (!ip) return ip;
+  const m = ip.toLowerCase().match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
+  return m ? m[1] : ip;
+}
+
+function ipv4ToInt(ip: string): number | null {
+  const parts = ip.split(".");
+  if (parts.length !== 4) return null;
+  let acc = 0;
+  for (const p of parts) {
+    const n = Number(p);
+    if (!Number.isInteger(n) || n < 0 || n > 255) return null;
+    acc = (acc * 256) + n;
+  }
+  return acc >>> 0;
+}
+
+// Match a client IP against an allow-list spec. Spec may be a single CIDR
+// ("1.2.3.4/24"), a bare IPv4 literal (treated as /32), or a comma-separated
+// list of either. IPv6 is supported only as exact-match literals.
+function ipMatchesSpec(rawIp: string, spec: string): boolean {
+  const ip = normaliseIp(rawIp || "");
+  if (!ip || !spec) return false;
+  for (const piece of spec.split(",").map((s) => s.trim()).filter(Boolean)) {
+    if (piece.includes("/")) {
+      const [base, bitsStr] = piece.split("/");
+      const bits = Number(bitsStr);
+      // IPv6 /128 is just exact-match on the literal — supported via the
+      // string-equality path. Any other IPv6 prefix isn't supported (the
+      // admin-time validator rejects it before it ever reaches us).
+      if (ipv4ToInt(base) == null) {
+        if (bits === 128 && base.toLowerCase() === ip.toLowerCase()) return true;
+        continue;
+      }
+      if (!Number.isInteger(bits) || bits < 0 || bits > 32) continue;
+      const ipInt = ipv4ToInt(ip);
+      const baseInt = ipv4ToInt(base);
+      if (ipInt == null || baseInt == null) continue;
+      if (bits === 0) return true;
+      const mask = bits === 32 ? 0xffffffff : (~((1 << (32 - bits)) - 1)) >>> 0;
+      if ((ipInt & mask) === (baseInt & mask)) return true;
+    } else {
+      if (piece === ip) return true;
+      const a = ipv4ToInt(ip);
+      const b = ipv4ToInt(piece);
+      if (a != null && b != null && a === b) return true;
+    }
+  }
+  return false;
+}
+
+function safeStrEq(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  try {
+    return timingSafeEqual(Buffer.from(a), Buffer.from(b));
+  } catch {
+    return false;
+  }
+}
+
+function extractToken(req: Request): string {
+  const q = req.query as Record<string, unknown>;
+  const fromQuery = String(q.token || q.auth || q.Token || "").trim();
+  if (fromQuery) return fromQuery;
+  const xHeader = String(req.headers["x-device-token"] || "").trim();
+  if (xHeader) return xHeader;
+  const authz = String(req.headers["authorization"] || "").trim();
+  if (authz) {
+    const m = authz.match(/^Bearer\s+(.+)$/i);
+    if (m) return m[1].trim();
+    return authz;
+  }
+  return "";
+}
+
+// Returns null on success, or a short reason string (for logs) on failure.
+// A device must satisfy at least one configured auth mechanism. If neither
+// pushToken nor allowedIpCidr is configured we fail closed — better to drop
+// the push and have an admin notice than to keep accepting spoofable data.
+function authenticateDevice(req: Request, device: any, ip: string): string | null {
+  const token = (device.pushToken || "").trim();
+  const cidr = (device.allowedIpCidr || "").trim();
+  if (!token && !cidr) {
+    return "device has no pushToken or allowedIpCidr configured";
+  }
+  if (token) {
+    const provided = extractToken(req);
+    if (provided && safeStrEq(provided, token)) return null;
+  }
+  if (cidr) {
+    if (ipMatchesSpec(ip, cidr)) return null;
+  }
+  return token && cidr
+    ? "neither token nor source IP matched"
+    : token
+      ? "token missing or wrong"
+      : "source IP not in allow-list";
 }
 
 async function findDeviceBySerial(serial: string) {
@@ -199,6 +308,12 @@ export function registerAdmsRoutes(app: Express) {
       return res.type("text/plain").send("OK");
     }
 
+    const authErr = authenticateDevice(req, device, ip);
+    if (authErr) {
+      console.warn(`[ADMS] REJECT GET cdata SN=${sn} ip=${ip} reason="${authErr}"`);
+      return res.status(401).type("text/plain").send("ERROR: unauthorized");
+    }
+
     const fw = String(req.query.pushver || req.query.PushVersion || "").trim();
     await touchDevice(device.id, ip, { firmwareVersion: fw || undefined });
 
@@ -237,6 +352,14 @@ export function registerAdmsRoutes(app: Express) {
       return res.type("text/plain").send("OK");
     }
 
+    const authErr = authenticateDevice(req, device, ip);
+    if (authErr) {
+      console.warn(`[ADMS] REJECT POST cdata SN=${sn} ip=${ip} table=${table} reason="${authErr}"`);
+      // 401 makes the spoofer's request fail loudly while the real device
+      // (which matches token/CIDR) keeps working unaffected.
+      return res.status(401).type("text/plain").send("ERROR: unauthorized");
+    }
+
     const body = typeof req.body === "string" ? req.body : "";
     if (table === "ATTLOG") {
       const r = await processAttlog(device, body);
@@ -266,7 +389,14 @@ export function registerAdmsRoutes(app: Express) {
     const ip = clientIp(req);
     if (sn) {
       const device = await findDeviceBySerial(sn);
-      if (device) await touchDevice(device.id, ip);
+      if (device) {
+        const authErr = authenticateDevice(req, device, ip);
+        if (authErr) {
+          console.warn(`[ADMS] REJECT GET getrequest SN=${sn} ip=${ip} reason="${authErr}"`);
+          return res.status(401).type("text/plain").send("ERROR: unauthorized");
+        }
+        await touchDevice(device.id, ip);
+      }
     }
     res.type("text/plain").send("OK");
   });
@@ -277,7 +407,14 @@ export function registerAdmsRoutes(app: Express) {
     const ip = clientIp(req);
     if (sn) {
       const device = await findDeviceBySerial(sn);
-      if (device) await touchDevice(device.id, ip);
+      if (device) {
+        const authErr = authenticateDevice(req, device, ip);
+        if (authErr) {
+          console.warn(`[ADMS] REJECT POST devicecmd SN=${sn} ip=${ip} reason="${authErr}"`);
+          return res.status(401).type("text/plain").send("ERROR: unauthorized");
+        }
+        await touchDevice(device.id, ip);
+      }
     }
     res.type("text/plain").send("OK");
   });

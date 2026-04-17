@@ -545,6 +545,13 @@ export const biometricDevices = pgTable("biometric_devices", {
   lastPushIp: text("last_push_ip"),
   firmwareVersion: text("firmware_version"),
   pushTotal: integer("push_total").notNull().default(0),
+  // Authentication for ADMS pushes. A device must match at least one of:
+  //   - pushToken: shared secret sent as ?token=, ?auth=, Authorization: Bearer,
+  //                or X-Device-Token header
+  //   - allowedIpCidr: source IP must fall inside this CIDR (e.g. 1.2.3.4/32)
+  // If both are null the device cannot push (fail-closed).
+  pushToken: text("push_token"),
+  allowedIpCidr: text("allowed_ip_cidr"),
 });
 
 export const insertBiometricDeviceSchema = createInsertSchema(biometricDevices).omit({ id: true });
