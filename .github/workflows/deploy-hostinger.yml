@@ -196,16 +196,23 @@ jobs:
 
             echo "▶ Verifying server bundle was picked up..."
             sleep 4
-            for i in 1 2 3 4 5 6 7 8; do
+            UP=0
+            for i in 1 2 3 4 5 6 7 8 9 10; do
               if curl -fsS "http://127.0.0.1:$APP_PORT/api/version" > /tmp/ver.json 2>/dev/null; then
                 echo "✅ Server is up on port $APP_PORT. Live commit:"
                 cat /tmp/ver.json
                 echo
+                UP=1
                 break
               fi
-              echo "  waiting for server on $APP_PORT... ($i/8)"
+              echo "  waiting for server on $APP_PORT... ($i/10)"
               sleep 3
             done
+            if [ "$UP" != "1" ]; then
+              echo "❌ Server failed to come up on port $APP_PORT — recent PM2 logs:"
+              pm2 logs hrms-pro --lines 60 --nostream || true
+              exit 1
+            fi
 
             echo "▶ Cleaning old backups (keeping last 3)..."
             ls -dt $HOME/hrms-pro-backup-* 2>/dev/null | tail -n +4 | xargs rm -rf 2>/dev/null || true
