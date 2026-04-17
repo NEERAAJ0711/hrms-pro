@@ -71,8 +71,17 @@ export default function BiometricPage() {
   // well above the server's 12-char minimum.
   const generateToken = (setter: (v: string) => void) => {
     const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+    const cryptoApi: Crypto | undefined = globalThis.crypto;
+    if (!cryptoApi || typeof cryptoApi.getRandomValues !== "function") {
+      toast({
+        title: "Cannot generate token",
+        description: "Secure random generator is unavailable in this browser.",
+        variant: "destructive",
+      });
+      return;
+    }
     const bytes = new Uint8Array(32);
-    (window.crypto || (window as any).msCrypto).getRandomValues(bytes);
+    cryptoApi.getRandomValues(bytes);
     let out = "";
     for (let i = 0; i < bytes.length; i++) out += alphabet[bytes[i] % alphabet.length];
     setter(out);
@@ -314,10 +323,20 @@ export default function BiometricPage() {
       toast({ title: "Error", description: "Please fill all required fields", variant: "destructive" });
       return;
     }
-    if (!devicePushToken.trim() && !deviceAllowedCidr.trim()) {
+    const tokenTrim = devicePushToken.trim();
+    const cidrTrim = deviceAllowedCidr.trim();
+    if (!tokenTrim && !cidrTrim) {
       toast({
         title: "Authentication required",
         description: "Set a push token (shared secret) or pinned source IP/CIDR so spoofed pushes are rejected.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (tokenTrim && tokenTrim.length < 12) {
+      toast({
+        title: "Push token too short",
+        description: "Use at least 12 characters. A long random token is best.",
         variant: "destructive",
       });
       return;
