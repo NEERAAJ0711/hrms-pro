@@ -761,7 +761,11 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getBiometricDevicesByCompany(companyId: string): Promise<BiometricDevice[]> {
-    return await db.select().from(biometricDevices).where(eq(biometricDevices.companyId, companyId));
+    // Include shared devices (companyId IS NULL) — those serve every company
+    return await db
+      .select()
+      .from(biometricDevices)
+      .where(or(eq(biometricDevices.companyId, companyId), isNull(biometricDevices.companyId)));
   }
 
   async createBiometricDevice(device: InsertBiometricDevice): Promise<BiometricDevice> {

@@ -637,7 +637,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/biometric/devices", requireAuth, requireRole("super_admin", "company_admin"), async (req, res) => {
     try {
+      const user = (req as any).user;
       const data = insertBiometricDeviceSchema.parse(req.body);
+      // Only super_admin can create shared devices (companyId = null).
+      // Company admins are forced to scope new devices to their own company.
+      if (user.role !== "super_admin") {
+        if (data.companyId == null || data.companyId !== user.companyId) {
+          (data as any).companyId = user.companyId;
+        }
+      }
       const device = await storage.createBiometricDevice(data);
       res.status(201).json(device);
     } catch (error: any) {
@@ -648,6 +656,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/biometric/devices/:id", requireAuth, requireRole("super_admin", "company_admin"), async (req, res) => {
     try {
+      const user = (req as any).user;
+      const device = await storage.getBiometricDevice(req.params.id);
+      if (!device) return res.status(404).json({ message: "Device not found" });
+      // Only super_admin can remove shared devices or devices in another company
+      if (user.role !== "super_admin" && device.companyId !== user.companyId) {
+        return res.status(403).json({ error: "Access denied. You can only delete devices that belong to your company." });
+      }
       const ok = await storage.deleteBiometricDevice(req.params.id);
       if (!ok) return res.status(404).json({ message: "Device not found" });
       res.json({ success: true });
@@ -656,10 +671,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/biometric/devices/:id/test", requireAuth, async (req, res) => {
+  app.post("/api/biometric/devices/:id/test", requireAuth, requireRole("super_admin", "company_admin"), async (req, res) => {
     try {
+      const user = (req as any).user;
       const device = await storage.getBiometricDevice(req.params.id);
       if (!device) return res.status(404).json({ message: "Device not found" });
+      if (user.role !== "super_admin" && device.companyId && device.companyId !== user.companyId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
       
       console.log(`Testing connection to ${device.ipAddress}:${device.port}`);
       
@@ -677,8 +696,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const zkInstance = new ZKLib(device.ipAddress || '127.0.0.1', device.port || 8181, 10000, 4000);
+      let connected = false;
       try {
         await zkInstance.createSocket();
+        connected = true;
         await storage.updateBiometricDevice(device.id, { 
           status: "online",
           lastSync: new Date().toISOString()
@@ -693,21 +714,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
           message: err.message || "Connection timed out. Check your firewall or ADMS settings.",
           technical: err.toString()
         });
+      } finally {
+        if (connected) {
+          try { await zkInstance.disconnect(); } catch (_) { /* ignore */ }
+        }
       }
     } catch (error: any) {
       res.status(500).json({ message: "Failed to test connection", error: error.message });
     }
   });
 
-  app.post("/api/biometric/devices/:id/fetch", requireAuth, async (req, res) => {
+  app.post("/api/biometric/devices/:id/fetch", requireAuth, requireRole("super_admin", "company_admin"), async (req, res) => {
     try {
+      const user = (req as any).user;
       const device = await storage.getBiometricDevice(req.params.id);
       if (!device) return res.status(404).json({ error: "Device not found" });
+      if (user.role !== "super_admin" && device.companyId && device.companyId !== user.companyId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
       
       const zkInstance = new ZKLib(device.ipAddress || '127.0.0.1', device.port || 8181, 10000, 4000);
-      
+      let connected = false;
       try {
         await zkInstance.createSocket();
+        connected = true;
         const logs = await zkInstance.getAttendances();
         // If the device is not bound to a single company, look across all companies
         const employees = device.companyId
@@ -759,12 +789,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
         
         res.json({ success: true, message: "Logs fetched from machine", results });
-      } catch (err) {
+      } catch (err: any) {
+        console.error(`[biometric/devices/:id/fetch] error:`, err?.message || err);
         await storage.updateBiometricDevice(device.id, { status: "offline" });
-        res.status(500).json({ error: "Could not connect to machine" });
+        res.status(500).json({ error: err?.message || "Could not connect to machine" });
+      } finally {
+        if (connected) {
+          try { await zkInstance.disconnect(); } catch (_) { /* ignore */ }
+        }
       }
-    } catch (error) {
-      res.status(500).json({ error: "Failed to fetch data from machine" });
+    } catch (error: any) {
+      console.error(`[biometric/devices/:id/fetch] outer error:`, error);
+      res.status(500).json({ error: error?.message || "Failed to fetch data from machine" });
     }
   });
 

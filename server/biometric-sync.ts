@@ -4,11 +4,12 @@ import { storage } from "./storage";
 const SYNC_INTERVAL = 5 * 60 * 1000; // Poll every 5 minutes
 
 async function syncDevice(device: any) {
+  const zkInstance = new ZKLib(device.ipAddress || '127.0.0.1', device.port || 8181, 10000, 4000);
+  let connected = false;
   try {
     console.log(`[BiometricSync] Starting auto-sync for ${device.name} (${device.ipAddress})`);
-    const zkInstance = new ZKLib(device.ipAddress || '127.0.0.1', device.port || 8181, 10000, 4000);
-    
     await zkInstance.createSocket();
+    connected = true;
     const logs = await zkInstance.getAttendances();
     const employees = device.companyId
       ? await storage.getEmployeesByCompany(device.companyId)
@@ -62,10 +63,13 @@ async function syncDevice(device: any) {
     });
     
     console.log(`[BiometricSync] Auto-sync complete for ${device.name}. Imported ${inserted} logs.`);
-    await zkInstance.disconnect();
   } catch (err: any) {
     console.error(`[BiometricSync] Auto-sync failed for ${device.name}:`, err.message || err);
     await storage.updateBiometricDevice(device.id, { status: "offline" });
+  } finally {
+    if (connected) {
+      try { await zkInstance.disconnect(); } catch (_) { /* ignore */ }
+    }
   }
 }
 
