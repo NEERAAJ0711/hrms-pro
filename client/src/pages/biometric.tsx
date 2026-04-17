@@ -12,6 +12,16 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -44,6 +54,9 @@ export default function BiometricPage() {
 
   // "View Users on Machine" dialog state
   const [usersDialogDevice, setUsersDialogDevice] = useState<any | null>(null);
+
+  // "Delete Device" confirmation state
+  const [deviceToDelete, setDeviceToDelete] = useState<any | null>(null);
 
   // "Edit Device" dialog state — same shape as the Add form, plus the device id.
   const [editDevice, setEditDevice] = useState<any | null>(null);
@@ -710,7 +723,9 @@ export default function BiometricPage() {
                               variant="ghost" 
                               size="icon"
                               className="text-red-600"
-                              onClick={() => deleteDeviceMutation.mutate(device.id)}
+                              onClick={() => setDeviceToDelete(device)}
+                              data-testid={`button-delete-device-${device.id}`}
+                              title="Delete device"
                             >
                               <Trash2 className="h-4 w-4" />
                             </Button>
@@ -1061,6 +1076,34 @@ export default function BiometricPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={!!deviceToDelete} onOpenChange={(open) => { if (!open) setDeviceToDelete(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete biometric device?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete <strong>{deviceToDelete?.name || "this device"}</strong>
+              {deviceToDelete?.code ? ` (${deviceToDelete.code})` : ""}. Punches from this machine
+              will stop being accepted until it's re-added.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-delete-device">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 hover:bg-red-700 text-white"
+              data-testid="button-confirm-delete-device"
+              onClick={() => {
+                if (deviceToDelete) {
+                  deleteDeviceMutation.mutate(deviceToDelete.id);
+                  setDeviceToDelete(null);
+                }
+              }}
+            >
+              Delete device
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
