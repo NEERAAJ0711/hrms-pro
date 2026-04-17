@@ -118,8 +118,12 @@ function validateBiometricDeviceAuth(pushToken: unknown, allowedIpCidr: unknown)
 function validateBiometricNetwork(ip: unknown, port: unknown): string | null {
   if (ip != null && ip !== "") {
     if (typeof ip !== "string") return "ipAddress must be a string";
-    if (net.isIP(ip) === 0) return "ipAddress must be a valid IPv4 or IPv6 literal";
-    if (!BIOMETRIC_ALLOW_PRIVATE_IPS && isPrivateOrUnsafeIp(ip)) {
+    // Allow either an IP literal or a DNS hostname — devices behind a
+    // reverse proxy (e.g. hrms.workseazy.in:443) need to use the hostname.
+    if (net.isIP(ip) === 0) {
+      const isHostname = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/i.test(ip);
+      if (!isHostname) return "ipAddress must be a valid IPv4/IPv6 literal or DNS hostname";
+    } else if (!BIOMETRIC_ALLOW_PRIVATE_IPS && isPrivateOrUnsafeIp(ip)) {
       return "ipAddress points at a private, loopback, link-local, or reserved range and is not allowed";
     }
   }
@@ -1047,8 +1051,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // reality even when nobody clicks the button.
       await storage.updateBiometricDevice(device.id, { status: isOnline ? "online" : "offline" } as any);
 
-      const advertisedHost = process.env.ADMS_PUBLIC_HOST || device.ipAddress || "31.97.207.109";
-      const advertisedPort = process.env.ADMS_PUBLIC_PORT || String(device.port || 8181);
+      const advertisedHost = process.env.ADMS_PUBLIC_HOST || device.ipAddress || "hrms.workseazy.in";
+      const advertisedPort = process.env.ADMS_PUBLIC_PORT || String(device.port || 443);
 
       if (isOnline) {
         return res.json({

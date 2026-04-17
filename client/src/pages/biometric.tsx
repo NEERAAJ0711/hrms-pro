@@ -47,8 +47,8 @@ export default function BiometricPage() {
   const [deviceName, setDeviceName] = useState("");
   const [deviceCode, setDeviceCode] = useState("");
   const [deviceSerial, setDeviceSerial] = useState("");
-  const [deviceIp, setDeviceIp] = useState("31.97.207.109");
-  const [devicePort, setDevicePort] = useState("8181");
+  const [deviceIp, setDeviceIp] = useState("hrms.workseazy.in");
+  const [devicePort, setDevicePort] = useState("443");
   const [devicePushToken, setDevicePushToken] = useState("");
   const [deviceAllowedCidr, setDeviceAllowedCidr] = useState("");
 
@@ -165,8 +165,8 @@ export default function BiometricPage() {
       setDeviceName("");
       setDeviceCode("");
       setDeviceSerial("");
-      setDeviceIp("31.97.207.109");
-      setDevicePort("8181");
+      setDeviceIp("hrms.workseazy.in");
+      setDevicePort("443");
       setDevicePushToken("");
       setDeviceAllowedCidr("");
     },
