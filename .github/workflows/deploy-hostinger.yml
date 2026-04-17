@@ -155,14 +155,26 @@ jobs:
             echo "▶ Running database migrations..."
             DATABASE_URL="$DATABASE_URL" node scripts/run-migrations.cjs
 
-            echo "▶ Restarting app with PM2..."
+            echo "▶ Restarting app with PM2 (full stop+start to force code reload)..."
             command -v pm2 || npm install -g pm2
-            if pm2 list 2>/dev/null | grep -q "hrms-pro"; then
-              pm2 reload hrms-pro --update-env
-            else
-              pm2 start ecosystem.config.cjs
-            fi
+            # Hard-delete + start guarantees PM2 re-reads dist/index.cjs from disk.
+            # `pm2 reload` in cluster mode sometimes keeps stale code cached, which
+            # caused new server routes to silently not appear after deploy.
+            pm2 delete hrms-pro 2>/dev/null || true
+            pm2 start ecosystem.config.cjs --update-env
             pm2 save
+
+            echo "▶ Verifying server bundle was picked up..."
+            sleep 3
+            for i in 1 2 3 4 5; do
+              if curl -fsS http://127.0.0.1:5000/api/version > /tmp/ver.json 2>/dev/null; then
+                echo "✅ Server is up. Live commit:"
+                cat /tmp/ver.json
+                break
+              fi
+              echo "  waiting for server... ($i/5)"
+              sleep 3
+            done
 
             echo "▶ Cleaning old backups (keeping last 3)..."
             ls -dt $HOME/hrms-pro-backup-* 2>/dev/null | tail -n +4 | xargs rm -rf 2>/dev/null || true
