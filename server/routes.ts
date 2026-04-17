@@ -1119,6 +1119,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Ask the device to push its full enrolled-user list. The device runs the
+  // command on its next /iclock/getrequest poll (a few seconds) and replies
+  // with USER records over /iclock/cdata?table=USERINFO, which our existing
+  // ADMS handler upserts into biometric_device_users.
+  app.post("/api/biometric/devices/:id/sync-users", requireAuth, requireRole("super_admin", "company_admin"), async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const device = await storage.getBiometricDevice(req.params.id);
+      if (!device) return res.status(404).json({ error: "Device not found" });
+      if (user.role !== "super_admin" && device.companyId && device.companyId !== user.companyId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      const { enqueueDeviceCommand } = await import("./adms");
+      enqueueDeviceCommand(device.id, "DATA QUERY USERINFO");
+      res.json({
+        success: true,
+        message: "Sync requested. The device will push its user list on its next check-in (usually within 30 seconds). Refresh the View Users dialog after a minute.",
+      });
+    } catch (error: any) {
+      console.error(`[biometric/devices/:id/sync-users] error:`, error);
+      res.status(500).json({ error: String(error?.message || "Failed to queue sync") });
+    }
+  });
+
   // ===== Biometric Punch Log Routes =====
   app.get("/api/biometric/logs", requireAuth, async (req, res) => {
     try {

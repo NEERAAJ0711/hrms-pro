@@ -44,6 +44,26 @@ import { sql } from "drizzle-orm";
 
 const NEW_LINE = "\r\n";
 
+// In-memory command queue per device. ZK ADMS lets the server reply to a
+// device poll with C:<id>:<command> lines; the device executes and reports
+// back via /iclock/devicecmd. Volatile memory is fine here — if the server
+// restarts the admin just clicks "Sync Users" again.
+const pendingCommands: Map<string, string[]> = new Map();
+let nextCmdId = Date.now();
+
+export function enqueueDeviceCommand(deviceId: string, cmd: string): void {
+  const list = pendingCommands.get(deviceId) || [];
+  list.push(cmd);
+  pendingCommands.set(deviceId, list);
+}
+
+function drainCommands(deviceId: string): string[] {
+  const list = pendingCommands.get(deviceId);
+  if (!list || list.length === 0) return [];
+  pendingCommands.delete(deviceId);
+  return list;
+}
+
 // Source IP for ADMS auth. We deliberately do NOT parse the raw
 // X-Forwarded-For header here — a spoofer could trivially forge it and
 // satisfy the pinned-CIDR check without holding the device's token.
@@ -481,6 +501,12 @@ export function registerAdmsRoutes(app: Express) {
           return res.status(401).type("text/plain").send("ERROR: unauthorized");
         }
         await touchDevice(device.id, ip);
+        const cmds = drainCommands(device.id);
+        if (cmds.length > 0) {
+          const lines = cmds.map((c) => `C:${++nextCmdId}:${c}`);
+          console.log(`[ADMS] DELIVER cmds=${cmds.length} SN=${sn}: ${cmds.join(" | ")}`);
+          return res.type("text/plain").send(lines.join(NEW_LINE));
+        }
       }
     }
     res.type("text/plain").send("OK");

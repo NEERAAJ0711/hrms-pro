@@ -299,6 +299,31 @@ export default function BiometricPage() {
     },
   });
 
+  const syncUsersMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await apiRequest("POST", `/api/biometric/devices/${id}/sync-users`, {});
+      return res.json();
+    },
+    onSuccess: (data) => {
+      toast({
+        title: "Sync requested",
+        description: typeof data?.message === "string"
+          ? data.message
+          : "Device will push its user list shortly.",
+      });
+      setTimeout(() => {
+        queryClient.invalidateQueries({ queryKey: ["/api/biometric/devices"] });
+      }, 60_000);
+    },
+    onError: (err: any) => {
+      toast({
+        title: "Sync failed",
+        description: err?.message || "Could not request user sync",
+        variant: "destructive",
+      });
+    },
+  });
+
   const deleteDeviceMutation = useMutation({
     mutationFn: async (id: string) => {
       await apiRequest("DELETE", `/api/biometric/devices/${id}`);
@@ -692,6 +717,17 @@ export default function BiometricPage() {
                             >
                               <Users className="h-4 w-4 mr-2" />
                               View Users
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => syncUsersMutation.mutate(device.id)}
+                              disabled={syncUsersMutation.isPending}
+                              data-testid={`button-sync-users-${device.id}`}
+                              title="Ask the device to push every enrolled user"
+                            >
+                              <RefreshCw className="h-4 w-4 mr-2" />
+                              Sync Users
                             </Button>
                             <Button
                               variant="outline"
