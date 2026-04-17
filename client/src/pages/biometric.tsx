@@ -858,11 +858,24 @@ export default function BiometricPage() {
               </div>
               <div>
                 <Label>Push Token (shared secret)</Label>
-                <Input
-                  value={devicePushToken}
-                  onChange={e => setDevicePushToken(e.target.value)}
-                  placeholder="Min 12 chars; sent as ?token=… or X-Device-Token header"
-                />
+                <div className="flex gap-2">
+                  <Input
+                    value={devicePushToken}
+                    onChange={e => setDevicePushToken(e.target.value)}
+                    placeholder="Min 12 chars; sent as ?token=… or X-Device-Token header"
+                    data-testid="input-add-device-token"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => generateToken(setDevicePushToken)}
+                    data-testid="button-add-generate-token"
+                    title="Generate a strong random token"
+                  >
+                    <KeyRound className="h-4 w-4 mr-1" />
+                    Generate
+                  </Button>
+                </div>
               </div>
             </div>
           </div>
