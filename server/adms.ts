@@ -51,8 +51,17 @@ const NEW_LINE = "\r\n";
 const pendingCommands: Map<string, string[]> = new Map();
 let nextCmdId = Date.now();
 
+const MAX_QUEUE_PER_DEVICE = 8;
+
 export function enqueueDeviceCommand(deviceId: string, cmd: string): void {
   const list = pendingCommands.get(deviceId) || [];
+  // Skip if the same command is already pending — repeated clicks while the
+  // device is offline shouldn't pile up duplicate work.
+  if (list.includes(cmd)) return;
+  if (list.length >= MAX_QUEUE_PER_DEVICE) {
+    console.warn(`[ADMS] queue full for device=${deviceId}, dropping cmd: ${cmd}`);
+    return;
+  }
   list.push(cmd);
   pendingCommands.set(deviceId, list);
 }
