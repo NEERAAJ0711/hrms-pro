@@ -10,6 +10,12 @@ on:
         required: false
         default: "Manual trigger"
 
+# Serialize deploys so two simultaneous runs can't both mutate
+# $HOME/hrms-pro / PM2 / .hrms-pro.port and produce a non-deterministic state.
+concurrency:
+  group: hostinger-prod-deploy
+  cancel-in-progress: false
+
 jobs:
   build-and-test:
     name: Build & Validate
@@ -196,7 +202,13 @@ jobs:
               PERSISTED_PORT=$(cat "$HOME/.hrms-pro.port" 2>/dev/null | tr -dc '0-9')
             fi
             APP_PORT="${DETECTED_PORT:-${PERSISTED_PORT:-8080}}"
-            echo "$APP_PORT" > "$HOME/.hrms-pro.port"
+            # Sanity check the candidate port before using it.
+            case "$APP_PORT" in
+              ''|*[!0-9]*)  echo "❌ Invalid APP_PORT='$APP_PORT' — refusing to deploy"; exit 1 ;;
+            esac
+            if [ "$APP_PORT" -lt 1 ] || [ "$APP_PORT" -gt 65535 ]; then
+              echo "❌ APP_PORT=$APP_PORT out of range — refusing to deploy"; exit 1
+            fi
             echo "▶ Will run hrms-pro on port: $APP_PORT (detected=$DETECTED_PORT, persisted=$PERSISTED_PORT)"
 
             # Append PORT override to .env so the new process picks the right one
@@ -231,6 +243,10 @@ jobs:
               pm2 logs hrms-pro --lines 60 --nostream || true
               exit 1
             fi
+
+            # Only persist the port AFTER a successful health check, so a bad
+            # detection never gets locked in for future deploys.
+            echo "$APP_PORT" > "$HOME/.hrms-pro.port"
 
             echo "▶ Cleaning old backups (keeping last 3)..."
             ls -dt $HOME/hrms-pro-backup-* 2>/dev/null | tail -n +4 | xargs rm -rf 2>/dev/null || true
