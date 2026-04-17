@@ -148,22 +148,95 @@ jobs:
               deploy.tar.gz \
               ${{ secrets.HOSTINGER_USERNAME }}@${{ secrets.HOSTINGER_HOST }}:/tmp/hrms-deploy-${{ github.run_id }}.tar.gz
 
-      - name: Deploy on server
+      - name: Build env payload
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           GIT_COMMIT: ${{ github.sha }}
           BUILD_TIME: ${{ github.event.head_commit.timestamp }}
           SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
           JWT_SECRET: ${{ secrets.JWT_SECRET }}
+        shell: bash
+        run: |
+          umask 077
+          # Use bash's built-in %q to produce shell-safe quoted assignments.
+          # printf "%q" handles arbitrary bytes — single quotes, double quotes,
+          # $, backticks, backslashes, spaces, and newlines (emitted as $'...')
+          # — so `. ENV_FILE` on the server is safe for any secret value.
+          {
+            printf 'DATABASE_URL=%q\n'   "$DATABASE_URL"
+            printf 'SESSION_SECRET=%q\n' "$SESSION_SECRET"
+            printf 'JWT_SECRET=%q\n'     "$JWT_SECRET"
+            printf 'GIT_COMMIT=%q\n'     "${GIT_COMMIT:-unknown}"
+            printf 'BUILD_TIME=%q\n'     "${BUILD_TIME:-unknown}"
+          } > deploy.env
+
+          # Round-trip sanity check: source the file in a clean subshell and
+          # confirm every value matches the original. This catches any quoting
+          # regression before we ship the payload to the server. Originals are
+          # captured into shell variables (not argv) so secrets never appear in
+          # the runner's process list.
+          (
+            ORIG_DATABASE_URL="$DATABASE_URL"
+            ORIG_SESSION_SECRET="$SESSION_SECRET"
+            ORIG_JWT_SECRET="$JWT_SECRET"
+            ORIG_GIT_COMMIT="${GIT_COMMIT:-unknown}"
+            ORIG_BUILD_TIME="${BUILD_TIME:-unknown}"
+            unset DATABASE_URL SESSION_SECRET JWT_SECRET GIT_COMMIT BUILD_TIME
+            set -a
+            . ./deploy.env
+            set +a
+            [ "$DATABASE_URL"   = "$ORIG_DATABASE_URL"   ] || { echo "❌ DATABASE_URL round-trip failed"; exit 1; }
+            [ "$SESSION_SECRET" = "$ORIG_SESSION_SECRET" ] || { echo "❌ SESSION_SECRET round-trip failed"; exit 1; }
+            [ "$JWT_SECRET"     = "$ORIG_JWT_SECRET"     ] || { echo "❌ JWT_SECRET round-trip failed"; exit 1; }
+            [ "$GIT_COMMIT"     = "$ORIG_GIT_COMMIT"     ] || { echo "❌ GIT_COMMIT round-trip failed"; exit 1; }
+            [ "$BUILD_TIME"     = "$ORIG_BUILD_TIME"     ] || { echo "❌ BUILD_TIME round-trip failed"; exit 1; }
+          )
+
+          base64 -w0 deploy.env > deploy.env.b64
+          rm -f deploy.env
+
+      - name: Upload env payload to server
+        run: |
+          # Pin host-key verification for the secret payload upload — the
+          # earlier ssh-keyscan step has populated ~/.ssh/known_hosts, so a
+          # MITM/host-impersonation cannot capture the encoded secrets.
+          scp -i ~/.ssh/deploy_key \
+              -P ${{ secrets.HOSTINGER_PORT || 22 }} \
+              -o StrictHostKeyChecking=yes \
+              -o UserKnownHostsFile=~/.ssh/known_hosts \
+              deploy.env.b64 \
+              ${{ secrets.HOSTINGER_USERNAME }}@${{ secrets.HOSTINGER_HOST }}:/tmp/hrms-deploy-env-${{ github.run_id }}.b64
+          rm -f deploy.env.b64
+
+      - name: Deploy on server
         run: |
           ssh -i ~/.ssh/deploy_key \
               -p ${{ secrets.HOSTINGER_PORT || 22 }} \
               -o StrictHostKeyChecking=yes \
               -o UserKnownHostsFile=~/.ssh/known_hosts \
               ${{ secrets.HOSTINGER_USERNAME }}@${{ secrets.HOSTINGER_HOST }} \
-              "DEPLOY_TAR='/tmp/hrms-deploy-${{ github.run_id }}.tar.gz' DATABASE_URL='$DATABASE_URL' SESSION_SECRET='$SESSION_SECRET' JWT_SECRET='$JWT_SECRET' GIT_COMMIT='$GIT_COMMIT' BUILD_TIME='$BUILD_TIME' bash -s" << 'ENDSSH'
+              "DEPLOY_TAR='/tmp/hrms-deploy-${{ github.run_id }}.tar.gz' ENV_PAYLOAD='/tmp/hrms-deploy-env-${{ github.run_id }}.b64' bash -s" << 'ENDSSH'
 
             set -e
+
+            # Decode the base64-encoded env payload into a private temp file,
+            # source it into this shell, then wipe both the encoded payload and
+            # the decoded file. Secrets are never interpolated into argv, so
+            # unusual characters (quotes, $, backticks, newlines) are safe.
+            ENV_FILE="$(mktemp)"
+            chmod 600 "$ENV_FILE"
+            trap 'rm -f "$ENV_PAYLOAD" "$ENV_FILE"' EXIT
+            if [ ! -f "$ENV_PAYLOAD" ]; then
+              echo "❌ Env payload missing at $ENV_PAYLOAD"; exit 1
+            fi
+            base64 -d "$ENV_PAYLOAD" > "$ENV_FILE"
+            rm -f "$ENV_PAYLOAD"
+            set -a
+            . "$ENV_FILE"
+            set +a
+            rm -f "$ENV_FILE"
+            trap - EXIT
+
             APP_DIR="$HOME/hrms-pro"
             BACKUP_DIR="$HOME/hrms-pro-backup-$(date +%Y%m%d%H%M%S)"
 
