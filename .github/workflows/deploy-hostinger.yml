@@ -125,7 +125,7 @@ jobs:
               -p ${{ secrets.HOSTINGER_PORT || 22 }} \
               -o StrictHostKeyChecking=no \
               ${{ secrets.HOSTINGER_USERNAME }}@${{ secrets.HOSTINGER_HOST }} \
-              "DEPLOY_TAR='/tmp/hrms-deploy-${{ github.run_id }}.tar.gz' DATABASE_URL='$DATABASE_URL' SESSION_SECRET='$SESSION_SECRET' JWT_SECRET='$JWT_SECRET' bash -s" << 'ENDSSH'
+              "DEPLOY_TAR='/tmp/hrms-deploy-${{ github.run_id }}.tar.gz' DATABASE_URL='$DATABASE_URL' SESSION_SECRET='$SESSION_SECRET' JWT_SECRET='$JWT_SECRET' GIT_COMMIT='$GIT_COMMIT' BUILD_TIME='$BUILD_TIME' bash -s" << 'ENDSSH'
 
             set -e
             APP_DIR="$HOME/hrms-pro"
