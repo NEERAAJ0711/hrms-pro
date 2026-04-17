@@ -1,0 +1,29 @@
+name: One-shot — capture Hostinger host key
+
+on:
+  workflow_dispatch:
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    steps:
+      - name: ssh-keyscan VPS
+        env:
+          HOSTINGER_HOST: ${{ secrets.HOSTINGER_HOST }}
+          HOSTINGER_PORT: ${{ secrets.HOSTINGER_PORT }}
+        run: |
+          PORT="${HOSTINGER_PORT:-22}"
+          echo "Scanning ${HOSTINGER_HOST}:${PORT}..."
+          ssh-keyscan -T 10 -p "$PORT" -t rsa,ecdsa,ed25519 "$HOSTINGER_HOST" > host_key.txt 2> keyscan.err
+          echo "----- BEGIN HOST KEY -----"
+          cat host_key.txt
+          echo "----- END HOST KEY -----"
+          echo "Lines: $(wc -l < host_key.txt)"
+          if ! [ -s host_key.txt ]; then
+            echo "Errors:"; cat keyscan.err; exit 1
+          fi
+      - uses: actions/upload-artifact@v5
+        with:
+          name: host-key
+          path: host_key.txt
+          retention-days: 1
