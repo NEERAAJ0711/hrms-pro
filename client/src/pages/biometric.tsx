@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { 
   Fingerprint, Upload, RefreshCw, AlertTriangle, CheckCircle, 
-  Clock, XCircle, Settings, Plus, Trash2, Signal, SignalLow, Download 
+  Clock, XCircle, Settings, Plus, Trash2, Signal, SignalLow, Download, Users
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -34,9 +34,21 @@ export default function BiometricPage() {
   
   // Device Form State
   const [deviceName, setDeviceName] = useState("");
+  const [deviceCode, setDeviceCode] = useState("");
   const [deviceSerial, setDeviceSerial] = useState("");
   const [deviceIp, setDeviceIp] = useState("31.97.207.109");
   const [devicePort, setDevicePort] = useState("8181");
+
+  // "View Users on Machine" dialog state
+  const [usersDialogDevice, setUsersDialogDevice] = useState<any | null>(null);
+  const { data: deviceUsers, isLoading: usersLoading } = useQuery<any>({
+    queryKey: ["/api/biometric/devices", usersDialogDevice?.id, "users"],
+    enabled: !!usersDialogDevice?.id,
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/biometric/devices/${usersDialogDevice.id}/users`);
+      return res.json();
+    },
+  });
 
   const { data: companies = [] } = useQuery<Company[]>({
     queryKey: ["/api/companies"],
@@ -93,6 +105,7 @@ export default function BiometricPage() {
       toast({ title: "Success", description: "Biometric device added successfully" });
       setDeviceDialogOpen(false);
       setDeviceName("");
+      setDeviceCode("");
       setDeviceSerial("");
       setDeviceIp("31.97.207.109");
       setDevicePort("8181");
@@ -202,9 +215,10 @@ export default function BiometricPage() {
     deviceMutation.mutate({
       companyId: null,
       name: deviceName,
+      code: deviceCode.trim() || null,
       deviceSerial,
       ipAddress: deviceIp,
-      port: parseInt(devicePort)
+      port: parseInt(devicePort),
     });
   };
 
@@ -413,6 +427,7 @@ export default function BiometricPage() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Machine Name</TableHead>
+                    <TableHead>Code</TableHead>
                     <TableHead>Serial Number</TableHead>
                     <TableHead>ADMS Server</TableHead>
                     <TableHead>Status</TableHead>
@@ -431,6 +446,13 @@ export default function BiometricPage() {
                     devices.map((device: any) => (
                       <TableRow key={device.id}>
                         <TableCell className="font-medium">{device.name}</TableCell>
+                        <TableCell>
+                          {device.code ? (
+                            <Badge variant="outline" className="font-mono">{device.code}</Badge>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
                         <TableCell className="font-mono text-xs">{device.deviceSerial}</TableCell>
                         <TableCell className="text-xs">{device.ipAddress || "-"}:{device.port}</TableCell>
                         <TableCell>
@@ -458,6 +480,15 @@ export default function BiometricPage() {
                         </TableCell>
                         <TableCell className="text-right">
                           <div className="flex justify-end gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setUsersDialogDevice(device)}
+                              data-testid={`button-view-users-${device.id}`}
+                            >
+                              <Users className="h-4 w-4 mr-2" />
+                              View Users
+                            </Button>
                             <Button
                               variant="outline"
                               size="sm"
@@ -550,18 +581,32 @@ export default function BiometricPage() {
           <div className="space-y-4">
             <div>
               <Label>Machine Name</Label>
-              <Input 
-                value={deviceName} 
-                onChange={e => setDeviceName(e.target.value)} 
+              <Input
+                value={deviceName}
+                onChange={e => setDeviceName(e.target.value)}
                 placeholder="Front Gate Machine"
+                data-testid="input-device-name"
               />
             </div>
             <div>
+              <Label>Machine Code (optional)</Label>
+              <Input
+                value={deviceCode}
+                onChange={e => setDeviceCode(e.target.value)}
+                placeholder="M1, GATE-A, etc."
+                data-testid="input-device-code"
+              />
+              <p className="text-xs text-muted-foreground mt-1">
+                Short ID used when assigning employees to this machine.
+              </p>
+            </div>
+            <div>
               <Label>Device Serial / ID</Label>
-              <Input 
-                value={deviceSerial} 
-                onChange={e => setDeviceSerial(e.target.value)} 
+              <Input
+                value={deviceSerial}
+                onChange={e => setDeviceSerial(e.target.value)}
                 placeholder="SN12345678"
+                data-testid="input-device-serial"
               />
             </div>
             <div className="grid grid-cols-3 gap-2">
@@ -587,6 +632,75 @@ export default function BiometricPage() {
             <Button onClick={handleAddDevice} disabled={deviceMutation.isPending}>
               {deviceMutation.isPending ? "Adding..." : "Add Machine"}
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Users on this machine */}
+      <Dialog
+        open={!!usersDialogDevice}
+        onOpenChange={(open) => { if (!open) setUsersDialogDevice(null); }}
+      >
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>
+              Users on {usersDialogDevice?.name}
+              {usersDialogDevice?.code ? (
+                <Badge variant="outline" className="ml-2 font-mono">{usersDialogDevice.code}</Badge>
+              ) : null}
+            </DialogTitle>
+            <DialogDescription>
+              Employees who have punched on this machine, derived from stored
+              punch logs. The Device ID is the PIN the machine uses for that
+              employee — assign it on the Employees page to map punches.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="max-h-[60vh] overflow-auto">
+            {usersLoading ? (
+              <div className="p-6 text-center text-muted-foreground">Loading users...</div>
+            ) : !deviceUsers || deviceUsers.users?.length === 0 ? (
+              <div className="p-6 text-center text-muted-foreground">
+                No punches recorded on this machine yet. Once the device pushes
+                a punch, the user will appear here.
+              </div>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Device ID</TableHead>
+                    <TableHead>Employee</TableHead>
+                    <TableHead className="text-right">Punches</TableHead>
+                    <TableHead>Last Seen</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {deviceUsers.users.map((u: any) => (
+                    <TableRow key={u.deviceEmployeeId}>
+                      <TableCell className="font-mono text-xs">{u.deviceEmployeeId}</TableCell>
+                      <TableCell>
+                        {u.matched ? (
+                          <span>
+                            {u.firstName} {u.lastName}
+                            {u.hrEmployeeCode ? (
+                              <span className="ml-1 text-xs text-muted-foreground">({u.hrEmployeeCode})</span>
+                            ) : null}
+                          </span>
+                        ) : (
+                          <Badge variant="secondary">Unmapped</Badge>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right">{u.punchCount}</TableCell>
+                      <TableCell className="text-xs text-muted-foreground">
+                        {u.lastSeenAt || "—"}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setUsersDialogDevice(null)}>Close</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

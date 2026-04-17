@@ -529,6 +529,11 @@ export const biometricDevices = pgTable("biometric_devices", {
   id: varchar("id", { length: 36 }).primaryKey(),
   companyId: varchar("company_id", { length: 36 }),
   name: text("name").notNull(),
+  // Short, human-friendly machine code shown to admins and used when
+  // assigning an employee to a specific machine (e.g. "M1", "GATE-A").
+  // Kept separate from the manufacturer serial so admins can rename
+  // without affecting device identity.
+  code: text("code"),
   deviceSerial: text("device_serial").notNull(),
   ipAddress: text("ip_address"),
   port: integer("port").default(8181),

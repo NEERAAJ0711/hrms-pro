@@ -210,6 +210,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   await db.execute(sql`ALTER TABLE payroll ADD COLUMN IF NOT EXISTS ot_hours NUMERIC(6,2) DEFAULT 0`).catch(() => {});
   await db.execute(sql`ALTER TABLE payroll ADD COLUMN IF NOT EXISTS ot_amount INTEGER DEFAULT 0`).catch(() => {});
 
+  // Mirror of migrations/007: short, friendly machine code shown in the
+  // device list and used when assigning an employee to a specific machine.
+  await db.execute(sql`ALTER TABLE biometric_devices ADD COLUMN IF NOT EXISTS code TEXT`).catch(() => {});
+
   // Mirror of migrations/006: prevent duplicate biometric punches at the
   // DB level so two concurrent ADMS pushes can't sneak past the
   // application-level dedupe check.
@@ -784,9 +788,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (user.role !== "super_admin" && device.companyId !== user.companyId) {
         return res.status(403).json({ error: "Access denied. You can only edit devices that belong to your company." });
       }
-      const { name, deviceSerial, ipAddress, port, status, companyId } = req.body || {};
+      const { name, code, deviceSerial, ipAddress, port, status, companyId } = req.body || {};
       const patch: Record<string, any> = {};
       if (name !== undefined) patch.name = name;
+      if (code !== undefined) patch.code = code === "" ? null : String(code).trim();
       if (deviceSerial !== undefined) patch.deviceSerial = deviceSerial;
       if (ipAddress !== undefined) patch.ipAddress = ipAddress;
       if (port !== undefined) patch.port = port == null || port === "" ? null : Number(port);
@@ -825,6 +830,62 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ success: true });
     } catch (error: any) {
       res.status(500).json({ error: error?.message || "Failed to delete biometric device" });
+    }
+  });
+
+  // List the employees seen on this machine, derived from the punch log
+  // history. Each row is one device-side employee ID (the PIN the machine
+  // uses) with the matched system employee (if any) and how many punches
+  // we've recorded for that user on this machine.
+  app.get("/api/biometric/devices/:id/users", requireAuth, requireRole("super_admin", "company_admin"), async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const device = await storage.getBiometricDevice(req.params.id);
+      if (!device) return res.status(404).json({ error: "Device not found" });
+      if (user.role !== "super_admin" && device.companyId && device.companyId !== user.companyId) {
+        return res.status(403).json({ error: "Access denied. You can only view devices that belong to your company." });
+      }
+      const rows = await db.execute(sql`
+        SELECT
+          l.device_employee_id           AS device_employee_id,
+          MAX(l.employee_id)             AS employee_id,
+          COUNT(*)::int                  AS punch_count,
+          MAX(l.punch_date || ' ' || l.punch_time) AS last_seen_at,
+          e.first_name                   AS first_name,
+          e.last_name                    AS last_name,
+          e.employee_code                AS hr_employee_code,
+          e.official_email               AS email
+        FROM biometric_punch_logs l
+        LEFT JOIN employees e ON e.id = l.employee_id
+        WHERE l.device_id = ${req.params.id}
+        GROUP BY l.device_employee_id, e.first_name, e.last_name, e.employee_code, e.official_email
+        ORDER BY MAX(l.punch_date || ' ' || l.punch_time) DESC NULLS LAST
+        LIMIT 1000
+      `);
+      const users = (rows.rows as any[]).map((r) => ({
+        deviceEmployeeId: r.device_employee_id,
+        employeeId: r.employee_id || null,
+        firstName: r.first_name || null,
+        lastName: r.last_name || null,
+        hrEmployeeCode: r.hr_employee_code || null,
+        email: r.email || null,
+        punchCount: Number(r.punch_count) || 0,
+        lastSeenAt: r.last_seen_at || null,
+        matched: !!r.employee_id,
+      }));
+      res.json({
+        device: {
+          id: device.id,
+          name: device.name,
+          code: (device as any).code || null,
+          deviceSerial: device.deviceSerial,
+        },
+        total: users.length,
+        users,
+      });
+    } catch (error: any) {
+      console.error("[biometric/devices/:id/users] error:", error);
+      res.status(500).json({ error: error?.message || "Failed to load device users" });
     }
   });
 
