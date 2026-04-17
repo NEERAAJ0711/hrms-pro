@@ -200,6 +200,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
   });
 
+  app.get("/api/version", (_req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    res.json({
+      commit: process.env.GIT_COMMIT || "unknown",
+      builtAt: process.env.BUILD_TIME || new Date().toISOString(),
+      node: process.version,
+    });
+  });
+
   app.get("/api/auth/me", async (req, res) => {
     try {
       if (!req.session.userId) return res.status(401).json({ message: "Not logged in" });

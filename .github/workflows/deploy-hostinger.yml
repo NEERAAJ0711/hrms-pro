@@ -104,6 +104,8 @@ jobs:
       - name: Deploy on server
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          GIT_COMMIT: ${{ github.sha }}
+          BUILD_TIME: ${{ github.event.head_commit.timestamp }}
           SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
           JWT_SECRET: ${{ secrets.JWT_SECRET }}
         run: |
@@ -140,6 +142,8 @@ jobs:
               printf 'JWT_SECRET=%s\n' "$JWT_SECRET"
               printf 'NODE_ENV=production\n'
               printf 'PORT=5000\n'
+              printf 'GIT_COMMIT=%s\n' "${GIT_COMMIT:-unknown}"
+              printf 'BUILD_TIME=%s\n' "${BUILD_TIME:-unknown}"
             } > "$APP_DIR/.env"
             chmod 600 "$APP_DIR/.env"
 
