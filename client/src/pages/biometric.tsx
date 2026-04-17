@@ -106,23 +106,24 @@ export default function BiometricPage() {
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/biometric/devices"] });
+      const messageText =
+        typeof data?.message === "string"
+          ? data.message
+          : data?.message
+            ? JSON.stringify(data.message)
+            : data.success
+              ? "Device is online."
+              : "No recent push from this device.";
       if (data.success) {
         toast({
-          title: "Connection Successful",
-          description: "The biometric device is online and reachable.",
+          title: "Device Online",
+          description: messageText,
         });
       } else {
         toast({
           variant: "destructive",
-          title: "Connection Failed",
-          description: (
-            <div className="space-y-2">
-              <p>{data.message}</p>
-              {data.technical && (
-                <p className="text-xs opacity-70 font-mono">Error: {data.technical}</p>
-              )}
-            </div>
-          ),
+          title: "Device Offline",
+          description: messageText,
         });
       }
     },
@@ -130,7 +131,7 @@ export default function BiometricPage() {
       toast({
         variant: "destructive",
         title: "Error",
-        description: error.message || "Failed to test connection",
+        description: typeof error?.message === "string" ? error.message : "Failed to check device status",
       });
     },
   });
@@ -143,22 +144,21 @@ export default function BiometricPage() {
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/biometric/devices"] });
       queryClient.invalidateQueries({ queryKey: ["/api/biometric/logs"] });
-      
-      if (data.results.inserted === 0 && data.results.duplicates === 0) {
-        toast({ 
-          title: "No Data Found", 
-          description: data.message || "No new punch logs were found on the machine. Ensure employees have 'Biometric Device ID' set in their profiles.",
-          variant: "default"
-        });
-      } else {
-        toast({ 
-          title: "Success", 
-          description: `Imported ${data.results.inserted} new logs from machine. ${data.results.duplicates} duplicates skipped.` 
-        });
-      }
+      const messageText =
+        typeof data?.message === "string"
+          ? data.message
+          : "Refreshed punch logs.";
+      toast({
+        title: "Logs Refreshed",
+        description: messageText,
+      });
     },
     onError: (error: any) => {
-      toast({ title: "Error", description: error.message || "Failed to fetch logs", variant: "destructive" });
+      toast({
+        title: "Error",
+        description: typeof error?.message === "string" ? error.message : "Failed to refresh logs",
+        variant: "destructive",
+      });
     },
   });
 
@@ -414,9 +414,9 @@ export default function BiometricPage() {
                   <TableRow>
                     <TableHead>Machine Name</TableHead>
                     <TableHead>Serial Number</TableHead>
-                    <TableHead>IP Address</TableHead>
+                    <TableHead>ADMS Server</TableHead>
                     <TableHead>Status</TableHead>
-                    <TableHead>Last Sync</TableHead>
+                    <TableHead>Last Push</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -428,13 +428,13 @@ export default function BiometricPage() {
                       </TableCell>
                     </TableRow>
                   ) : (
-                    devices.map((device) => (
+                    devices.map((device: any) => (
                       <TableRow key={device.id}>
                         <TableCell className="font-medium">{device.name}</TableCell>
-                        <TableCell>{device.deviceSerial}</TableCell>
-                        <TableCell>{device.ipAddress || "-"}:{device.port}</TableCell>
+                        <TableCell className="font-mono text-xs">{device.deviceSerial}</TableCell>
+                        <TableCell className="text-xs">{device.ipAddress || "-"}:{device.port}</TableCell>
                         <TableCell>
-                          <Badge 
+                          <Badge
                             variant={device.status === "online" ? "default" : "secondary"}
                             className={device.status === "online" ? "bg-green-100 text-green-800 hover:bg-green-100" : ""}
                           >
@@ -447,26 +447,33 @@ export default function BiometricPage() {
                           </Badge>
                         </TableCell>
                         <TableCell className="text-xs text-muted-foreground">
-                          {device.lastSync ? new Date(device.lastSync).toLocaleString() : "Never"}
+                          {device.lastPushAt
+                            ? new Date(device.lastPushAt).toLocaleString()
+                            : device.lastSync
+                              ? new Date(device.lastSync).toLocaleString()
+                              : "Never"}
+                          {device.pushTotal ? (
+                            <span className="ml-1 opacity-60">({device.pushTotal} punches)</span>
+                          ) : null}
                         </TableCell>
                         <TableCell className="text-right">
                           <div className="flex justify-end gap-2">
-                            <Button 
-                              variant="outline" 
+                            <Button
+                              variant="outline"
                               size="sm"
                               onClick={() => fetchLogsMutation.mutate(device.id)}
-                              disabled={fetchLogsMutation.isPending || device.status !== "online"}
+                              disabled={fetchLogsMutation.isPending}
                             >
                               <Download className="h-4 w-4 mr-2" />
-                              Fetch Logs
+                              Refresh
                             </Button>
-                            <Button 
-                              variant="secondary" 
+                            <Button
+                              variant="secondary"
                               size="sm"
                               onClick={() => testConnectionMutation.mutate(device.id)}
                               disabled={testConnectionMutation.isPending}
                             >
-                              Test Connection
+                              Check Status
                             </Button>
                             <Button 
                               variant="ghost" 

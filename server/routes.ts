@@ -33,6 +33,7 @@ import {
 } from "@shared/schema";
 import { z } from "zod";
 import ZKLib from 'zkteco-js';
+import { registerAdmsRoutes } from './adms';
 import multer from 'multer';
 import * as XLSX from 'xlsx';
 import { randomUUID } from 'crypto';
@@ -129,11 +130,23 @@ const requireModuleAccess = (module: string) => {
   };
 };
 
+function formatAge(ms: number): string {
+  if (ms < 60_000) return `${Math.max(1, Math.round(ms / 1000))}s`;
+  if (ms < 3_600_000) return `${Math.round(ms / 60_000)}m`;
+  if (ms < 86_400_000) return `${Math.round(ms / 3_600_000)}h`;
+  return `${Math.round(ms / 86_400_000)}d`;
+}
+
 export async function registerRoutes(app: Express): Promise<Server> {
   const httpServer = createServer(app);
 
   // Serve uploaded employee documents statically
   app.use('/uploads', (await import('express')).default.static(path.join(process.cwd(), 'uploads')));
+
+  // ZKTeco ADMS push endpoints (/iclock/...) — devices behind NAT phone home
+  // here over HTTP. These are intentionally unauthenticated at the session
+  // layer; identity is the device serial number sent in the query string.
+  registerAdmsRoutes(app);
 
   // Add OT columns to payroll table if they don't exist
   await db.execute(sql`ALTER TABLE payroll ADD COLUMN IF NOT EXISTS ot_hours NUMERIC(6,2) DEFAULT 0`).catch(() => {});
@@ -680,6 +693,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // "Check Status" — replaces the old outbound ZK socket test, which never
+  // worked once the device was placed in ADMS push mode (the device doesn't
+  // accept inbound connections). We now report the *push* health: have we
+  // received a push from this device's serial recently?
   app.post("/api/biometric/devices/:id/test", requireAuth, requireRole("super_admin", "company_admin"), async (req, res) => {
     try {
       const user = (req as any).user;
@@ -688,51 +705,52 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (user.role !== "super_admin" && device.companyId && device.companyId !== user.companyId) {
         return res.status(403).json({ message: "Access denied" });
       }
-      
-      console.log(`Testing connection to ${device.ipAddress}:${device.port}`);
-      
-      // Check if IP is local
-      const isLocalIp = device.ipAddress?.startsWith('192.168.') || 
-                        device.ipAddress?.startsWith('10.') || 
-                        device.ipAddress?.startsWith('172.');
 
-      if (isLocalIp && process.env.NODE_ENV === 'production') {
-        return res.status(400).json({
-          success: false,
-          status: "offline",
-          message: "Cloud servers cannot connect to local IP addresses (192.168.x.x) directly. Please use a public IP, Port Forwarding, or a VPN."
-        });
-      }
+      const lastPush = device.lastPushAt ? new Date(device.lastPushAt) : null;
+      const ageMs = lastPush ? Date.now() - lastPush.getTime() : null;
+      // 15 minutes covers the typical ADMS heartbeat (usually <= 1 min) and
+      // the worst-case TransInterval our handshake sends back (every 1 min).
+      const ONLINE_WINDOW_MS = 15 * 60 * 1000;
+      const isOnline = ageMs !== null && ageMs <= ONLINE_WINDOW_MS;
 
-      const zkInstance = new ZKLib(device.ipAddress || '127.0.0.1', device.port || 8181, 10000, 4000);
-      let connected = false;
-      try {
-        await zkInstance.createSocket();
-        connected = true;
-        await storage.updateBiometricDevice(device.id, { 
+      // Persist the derived state so the badge in the device list reflects
+      // reality even when nobody clicks the button.
+      await storage.updateBiometricDevice(device.id, { status: isOnline ? "online" : "offline" } as any);
+
+      const advertisedHost = process.env.ADMS_PUBLIC_HOST || device.ipAddress || "31.97.207.109";
+      const advertisedPort = process.env.ADMS_PUBLIC_PORT || String(device.port || 8181);
+
+      if (isOnline) {
+        return res.json({
+          success: true,
           status: "online",
-          lastSync: new Date().toISOString()
+          message: `Last push received ${formatAge(ageMs!)} ago from ${device.lastPushIp || "device"}.`,
+          lastPushAt: device.lastPushAt,
+          pushTotal: device.pushTotal || 0,
+          firmwareVersion: device.firmwareVersion || null,
         });
-        res.json({ success: true, status: "online" });
-      } catch (err: any) {
-        console.error(`Connection failed for ${device.ipAddress}:`, err.message || err);
-        await storage.updateBiometricDevice(device.id, { status: "offline" });
-        res.json({ 
-          success: false, 
-          status: "offline", 
-          message: err.message || "Connection timed out. Check your firewall or ADMS settings.",
-          technical: err.toString()
-        });
-      } finally {
-        if (connected) {
-          try { await zkInstance.disconnect(); } catch (_) { /* ignore */ }
-        }
       }
+
+      const message = lastPush
+        ? `No data from this device in ${formatAge(ageMs!)}. Confirm the device is powered on and that its Cloud Server Settings still point to ${advertisedHost}:${advertisedPort} with serial ${device.deviceSerial}.`
+        : `This device has never reached the server. On the device, set Server Mode = ADMS, Server Address = ${advertisedHost}, Server Port = ${advertisedPort}, and confirm the serial number matches ${device.deviceSerial}.`;
+
+      return res.json({
+        success: false,
+        status: "offline",
+        message,
+        lastPushAt: device.lastPushAt,
+        firmwareVersion: device.firmwareVersion || null,
+      });
     } catch (error: any) {
-      res.status(500).json({ message: "Failed to test connection", error: error.message });
+      console.error("[biometric/devices/:id/test] error:", error);
+      res.status(500).json({ message: "Failed to check status", error: String(error?.message || error) });
     }
   });
 
+  // "View Logs" — there is nothing to fetch outbound any more. The device
+  // pushes records to /iclock/cdata; this endpoint just reports what we
+  // already have for that device, so the user gets feedback when they click.
   app.post("/api/biometric/devices/:id/fetch", requireAuth, requireRole("super_admin", "company_admin"), async (req, res) => {
     try {
       const user = (req as any).user;
@@ -741,75 +759,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (user.role !== "super_admin" && device.companyId && device.companyId !== user.companyId) {
         return res.status(403).json({ error: "Access denied" });
       }
-      
-      const zkInstance = new ZKLib(device.ipAddress || '127.0.0.1', device.port || 8181, 10000, 4000);
-      let connected = false;
-      try {
-        await zkInstance.createSocket();
-        connected = true;
-        const logs = await zkInstance.getAttendances();
-        // If the device is not bound to a single company, look across all companies
-        const employees = device.companyId
-          ? await storage.getEmployeesByCompany(device.companyId)
-          : await storage.getAllEmployees();
-        const results = { inserted: 0, duplicates: 0, unmapped: 0, errors: 0 };
 
-        if (logs.data && Array.isArray(logs.data)) {
-          for (const log of logs.data) {
-            const deviceEmployeeId = log.deviceUserId.toString();
-            const employee = employees.find(e => e.biometricDeviceId === deviceEmployeeId);
-            
-            if (!employee) {
-              results.unmapped++;
-              continue;
-            }
+      const allLogs = device.companyId
+        ? await storage.getBiometricPunchLogsByCompany(device.companyId)
+        : await storage.getAllBiometricPunchLogs();
+      const fromThisDevice = allLogs.filter((l: any) => l.deviceId === device.id);
+      const today = new Date().toISOString().split("T")[0];
+      const todayCount = fromThisDevice.filter((l: any) => l.punchDate === today).length;
 
-            const punchTime = new Date(log.recordTime).toTimeString().split(' ')[0].substring(0, 5);
-            const punchDate = new Date(log.recordTime).toISOString().split('T')[0];
-            const punchCompanyId = employee.companyId;
+      const message = device.lastPushAt
+        ? `Showing ${fromThisDevice.length} stored punches (${todayCount} today). The device pushes new data automatically — no manual sync needed.`
+        : `No data has ever been received from this device. Check the device's Cloud Server Settings.`;
 
-            const existing = await storage.findDuplicatePunchLog(punchCompanyId, deviceEmployeeId, punchTime, punchDate);
-            if (existing) {
-              results.duplicates++;
-              continue;
-            }
-
-            await storage.createBiometricPunchLog({
-              companyId: punchCompanyId,
-              employeeId: employee.id,
-              deviceEmployeeId: deviceEmployeeId,
-              punchTime,
-              punchDate,
-              punchType: log.eventType === 0 ? "in" : "out",
-              deviceId: device.id,
-              isProcessed: false,
-              isDuplicate: false,
-              missingPunch: false,
-              syncedAt: null,
-              createdAt: new Date().toISOString()
-            });
-            results.inserted++;
-          }
-        }
-
-        await storage.updateBiometricDevice(device.id, { 
-          status: "online",
-          lastSync: new Date().toISOString() 
-        });
-        
-        res.json({ success: true, message: "Logs fetched from machine", results });
-      } catch (err: any) {
-        console.error(`[biometric/devices/:id/fetch] error:`, err?.message || err);
-        await storage.updateBiometricDevice(device.id, { status: "offline" });
-        res.status(500).json({ error: err?.message || "Could not connect to machine" });
-      } finally {
-        if (connected) {
-          try { await zkInstance.disconnect(); } catch (_) { /* ignore */ }
-        }
-      }
+      res.json({
+        success: true,
+        message,
+        results: {
+          inserted: 0,
+          duplicates: 0,
+          unmapped: fromThisDevice.filter((l: any) => !l.employeeId).length,
+          errors: 0,
+          stored: fromThisDevice.length,
+          today: todayCount,
+        },
+      });
     } catch (error: any) {
-      console.error(`[biometric/devices/:id/fetch] outer error:`, error);
-      res.status(500).json({ error: error?.message || "Failed to fetch data from machine" });
+      console.error(`[biometric/devices/:id/fetch] error:`, error);
+      res.status(500).json({ error: String(error?.message || "Failed to read stored logs") });
     }
   });
 

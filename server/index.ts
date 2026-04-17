@@ -21,6 +21,14 @@ declare module "http" {
   }
 }
 
+// Biometric devices in ADMS push mode send tab-separated payloads with a
+// non-JSON content type. Mount a text parser scoped to /iclock so those
+// requests reach the handlers as a plain string instead of an empty body.
+app.use(
+  "/iclock",
+  express.text({ type: "*/*", limit: "5mb" }),
+);
+
 app.use(
   express.json({
     verify: (req, _res, buf) => {

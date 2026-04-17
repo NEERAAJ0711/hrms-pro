@@ -535,6 +535,11 @@ export const biometricDevices = pgTable("biometric_devices", {
   status: text("status").notNull().default("offline"), // online, offline
   lastSync: text("last_sync"),
   createdAt: text("created_at"),
+  // ADMS push-mode tracking — populated when the device phones home over HTTP
+  lastPushAt: text("last_push_at"),
+  lastPushIp: text("last_push_ip"),
+  firmwareVersion: text("firmware_version"),
+  pushTotal: integer("push_total").notNull().default(0),
 });
 
 export const insertBiometricDeviceSchema = createInsertSchema(biometricDevices).omit({ id: true });
