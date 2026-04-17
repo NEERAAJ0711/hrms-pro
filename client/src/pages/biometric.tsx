@@ -705,15 +705,17 @@ export default function BiometricPage() {
               <div className="p-6 text-center text-muted-foreground">Loading users...</div>
             ) : !deviceUsers || deviceUsers.users?.length === 0 ? (
               <div className="p-6 text-center text-muted-foreground">
-                No punches recorded on this machine yet. Once the device pushes
-                a punch, the user will appear here.
+                No users enrolled on this machine yet. Users appear here once
+                the device pushes its enrollment list or someone punches.
               </div>
             ) : (
               <Table>
                 <TableHeader>
                   <TableRow>
                     <TableHead>Device ID</TableHead>
-                    <TableHead>Employee</TableHead>
+                    <TableHead>Name on Device</TableHead>
+                    <TableHead>HR Employee</TableHead>
+                    <TableHead>Status</TableHead>
                     <TableHead className="text-right">Punches</TableHead>
                     <TableHead>Last Seen</TableHead>
                   </TableRow>
@@ -722,6 +724,12 @@ export default function BiometricPage() {
                   {deviceUsers.users.map((u: any) => (
                     <TableRow key={u.deviceEmployeeId}>
                       <TableCell className="font-mono text-xs">{u.deviceEmployeeId}</TableCell>
+                      <TableCell className="text-sm">
+                        {u.deviceName || <span className="text-muted-foreground">—</span>}
+                        {u.privilege && u.privilege !== "0" ? (
+                          <Badge variant="outline" className="ml-2 text-[10px]">Admin</Badge>
+                        ) : null}
+                      </TableCell>
                       <TableCell>
                         {u.matched ? (
                           <span>
@@ -732,6 +740,13 @@ export default function BiometricPage() {
                           </span>
                         ) : (
                           <Badge variant="secondary">Unmapped</Badge>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        {u.enrolled ? (
+                          <Badge variant="default" className="bg-green-600 hover:bg-green-600">Enrolled</Badge>
+                        ) : (
+                          <Badge variant="outline">Punch only</Badge>
                         )}
                       </TableCell>
                       <TableCell className="text-right">{u.punchCount}</TableCell>

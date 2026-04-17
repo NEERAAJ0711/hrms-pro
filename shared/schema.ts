@@ -579,6 +579,24 @@ export const insertBiometricPunchLogSchema = createInsertSchema(biometricPunchLo
 export type InsertBiometricPunchLog = z.infer<typeof insertBiometricPunchLogSchema>;
 export type BiometricPunchLog = typeof biometricPunchLogs.$inferSelect;
 
+// Users enrolled on a biometric device. Populated from USERINFO/USER records
+// pushed by the device (ADMS protocol). Lets us show the full enrolled list
+// even for employees who haven't punched yet.
+export const biometricDeviceUsers = pgTable("biometric_device_users", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  deviceId: varchar("device_id", { length: 36 }).notNull(),
+  deviceEmployeeId: text("device_employee_id").notNull(),
+  name: text("name"),
+  privilege: text("privilege"),
+  card: text("card"),
+  passwordSet: boolean("password_set").default(false),
+  fingerprintCount: integer("fingerprint_count").default(0),
+  firstSeenAt: text("first_seen_at"),
+  lastSeenAt: text("last_seen_at"),
+});
+
+export type BiometricDeviceUser = typeof biometricDeviceUsers.$inferSelect;
+
 // Job Posting statuses
 export const jobPostingStatuses = ["draft", "open", "closed", "on_hold"] as const;
 export type JobPostingStatus = typeof jobPostingStatuses[number];

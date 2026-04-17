@@ -304,6 +304,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
        AND last_push_ip <> '';
   `).catch((err) => console.error("[migrations] backfill allowed_ip_cidr failed:", err));
 
+  // Mirror of migrations/008: per-device enrolled-user roster, populated
+  // from USERINFO/USER records pushed via ADMS. Powers the View Users
+  // dialog so even employees who haven't punched yet appear.
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS biometric_device_users (
+      id                 VARCHAR(36) PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      device_id          VARCHAR(36) NOT NULL,
+      device_employee_id TEXT        NOT NULL,
+      name               TEXT,
+      privilege          TEXT,
+      card               TEXT,
+      password_set       BOOLEAN     DEFAULT false,
+      fingerprint_count  INTEGER     DEFAULT 0,
+      first_seen_at      TEXT,
+      last_seen_at       TEXT
+    )
+  `).catch((err) => console.error("[migrations] create biometric_device_users failed:", err));
+  await db.execute(sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS biometric_device_users_unique
+      ON biometric_device_users (device_id, device_employee_id)
+  `).catch((err) => console.error("[migrations] biometric_device_users_unique failed:", err));
+
   // Create employee_documents table if not exists
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS employee_documents (
@@ -916,22 +938,58 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (user.role !== "super_admin" && device.companyId && device.companyId !== user.companyId) {
         return res.status(403).json({ error: "Access denied. You can only view devices that belong to your company." });
       }
+      // Build a roster of every PIN known on this machine, from two sources:
+      //   1. biometric_device_users — users the device has pushed via
+      //      USERINFO/USER (i.e. actually enrolled on the machine).
+      //   2. biometric_punch_logs   — anyone who has punched here, in case
+      //      a USERINFO push was missed or the firmware doesn't send one.
+      // Then we LEFT JOIN employees to attach the matched HR employee.
       const rows = await db.execute(sql`
+        WITH pin_union AS (
+          SELECT device_employee_id FROM biometric_device_users
+            WHERE device_id = ${req.params.id}
+          UNION
+          SELECT DISTINCT device_employee_id FROM biometric_punch_logs
+            WHERE device_id = ${req.params.id}
+        ),
+        punch_agg AS (
+          SELECT
+            device_employee_id,
+            COUNT(*)::int                              AS punch_count,
+            MAX(punch_date || ' ' || punch_time)       AS last_punch_at,
+            MAX(employee_id)                           AS employee_id
+          FROM biometric_punch_logs
+          WHERE device_id = ${req.params.id}
+          GROUP BY device_employee_id
+        )
         SELECT
-          l.device_employee_id           AS device_employee_id,
-          MAX(l.employee_id)             AS employee_id,
-          COUNT(*)::int                  AS punch_count,
-          MAX(l.punch_date || ' ' || l.punch_time) AS last_seen_at,
-          e.first_name                   AS first_name,
-          e.last_name                    AS last_name,
-          e.employee_code                AS hr_employee_code,
-          e.official_email               AS email
-        FROM biometric_punch_logs l
-        LEFT JOIN employees e ON e.id = l.employee_id
-        WHERE l.device_id = ${req.params.id}
-        GROUP BY l.device_employee_id, e.first_name, e.last_name, e.employee_code, e.official_email
-        ORDER BY MAX(l.punch_date || ' ' || l.punch_time) DESC NULLS LAST
-        LIMIT 1000
+          p.device_employee_id                         AS device_employee_id,
+          du.name                                      AS device_name,
+          du.privilege                                 AS device_privilege,
+          du.card                                      AS device_card,
+          du.last_seen_at                              AS enrolled_last_seen_at,
+          (du.device_employee_id IS NOT NULL)          AS enrolled,
+          pa.punch_count                               AS punch_count,
+          pa.last_punch_at                             AS last_punch_at,
+          COALESCE(emap.id, pa.employee_id)            AS employee_id,
+          COALESCE(emap.first_name, e.first_name)      AS first_name,
+          COALESCE(emap.last_name,  e.last_name)       AS last_name,
+          COALESCE(emap.employee_code, e.employee_code)   AS hr_employee_code,
+          COALESCE(emap.official_email, e.official_email) AS email
+        FROM pin_union p
+        LEFT JOIN biometric_device_users du
+          ON du.device_id = ${req.params.id}
+         AND du.device_employee_id = p.device_employee_id
+        LEFT JOIN punch_agg pa
+          ON pa.device_employee_id = p.device_employee_id
+        LEFT JOIN employees emap
+          ON emap.biometric_device_id = p.device_employee_id
+        LEFT JOIN employees e
+          ON e.id = pa.employee_id
+        ORDER BY (du.device_employee_id IS NOT NULL) DESC,
+                 pa.last_punch_at DESC NULLS LAST,
+                 p.device_employee_id ASC
+        LIMIT 2000
       `);
       const users = (rows.rows as any[]).map((r) => ({
         deviceEmployeeId: r.device_employee_id,
@@ -940,8 +998,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         lastName: r.last_name || null,
         hrEmployeeCode: r.hr_employee_code || null,
         email: r.email || null,
+        deviceName: r.device_name || null,
+        privilege: r.device_privilege || null,
+        card: r.device_card || null,
+        enrolled: !!r.enrolled,
+        enrolledLastSeenAt: r.enrolled_last_seen_at || null,
         punchCount: Number(r.punch_count) || 0,
-        lastSeenAt: r.last_seen_at || null,
+        lastSeenAt: r.last_punch_at || r.enrolled_last_seen_at || null,
         matched: !!r.employee_id,
       }));
       res.json({

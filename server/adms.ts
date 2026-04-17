@@ -1,6 +1,8 @@
 import type { Express, Request, Response } from "express";
 import { storage } from "./storage";
 import { timingSafeEqual } from "crypto";
+import { db } from "./db";
+import { sql } from "drizzle-orm";
 
 /**
  * ZKTeco "Push SDK" / ADMS protocol handler.
@@ -213,6 +215,80 @@ function splitTimestamp(ts: string): { punchDate: string; punchTime: string } | 
   return { punchDate: m[1], punchTime: `${m[2]}:${m[3]}` };
 }
 
+// Parse a USERINFO/USER row pushed by the device. ZKTeco firmwares typically
+// emit lines that look like:
+//   USER PIN=123\tName=Alice\tPri=0\tPasswd=\tCard=\tGrp=1\tTZ=...\tVerify=0
+// Some firmwares omit the leading "USER " token (table=USERINFO) and just
+// send the tab-separated key=value pairs. We accept both shapes.
+function parseUserRecord(line: string): Record<string, string> | null {
+  let s = (line || "").trim();
+  if (!s) return null;
+  // Strip leading "USER " or "OPLOG\tUSER\t" prefixes if present.
+  s = s.replace(/^(?:OPLOG\s+)?USER\s+/i, "");
+  const out: Record<string, string> = {};
+  for (const part of s.split(/\t+/)) {
+    const eq = part.indexOf("=");
+    if (eq <= 0) continue;
+    const k = part.slice(0, eq).trim();
+    const v = part.slice(eq + 1).trim();
+    if (k) out[k] = v;
+  }
+  // Must at least have a PIN to be useful.
+  return out.PIN || out.Pin || out.pin ? out : null;
+}
+
+// Persist enrolled-user records pushed by the device (USERINFO table or
+// USER rows inside OPERLOG). Idempotent: an upsert keyed on (device_id, pin)
+// keeps name/privilege/card current and bumps last_seen_at on every push.
+async function processUserRecords(
+  device: any,
+  body: string,
+): Promise<{ upserted: number; bad: number }> {
+  const out = { upserted: 0, bad: 0 };
+  const lines = (body || "").split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  const now = new Date().toISOString();
+  for (const line of lines) {
+    // In OPERLOG payloads only USER rows are user enrollments — skip the rest.
+    if (/^(?:OPLOG\s+)?USER\b/i.test(line) || !/^\w+\b/.test(line)) {
+      // proceed
+    } else if (!/PIN=/i.test(line)) {
+      continue;
+    }
+    const rec = parseUserRecord(line);
+    if (!rec) {
+      out.bad++;
+      continue;
+    }
+    const pin = String(rec.PIN || rec.Pin || rec.pin || "").trim();
+    if (!pin) { out.bad++; continue; }
+    const name = (rec.Name || rec.NAME || rec.name || "").trim() || null;
+    const pri  = (rec.Pri  || rec.Privilege || "").trim() || null;
+    const card = (rec.Card || rec.CARD || "").trim() || null;
+    const passwordSet = !!(rec.Passwd || rec.Password || rec.PWD);
+    try {
+      await db.execute(sql`
+        INSERT INTO biometric_device_users
+          (device_id, device_employee_id, name, privilege, card,
+           password_set, fingerprint_count, first_seen_at, last_seen_at)
+        VALUES
+          (${device.id}, ${pin}, ${name}, ${pri}, ${card},
+           ${passwordSet}, 0, ${now}, ${now})
+        ON CONFLICT (device_id, device_employee_id) DO UPDATE
+          SET name          = COALESCE(EXCLUDED.name, biometric_device_users.name),
+              privilege     = COALESCE(EXCLUDED.privilege, biometric_device_users.privilege),
+              card          = COALESCE(EXCLUDED.card, biometric_device_users.card),
+              password_set  = EXCLUDED.password_set OR biometric_device_users.password_set,
+              last_seen_at  = EXCLUDED.last_seen_at
+      `);
+      out.upserted++;
+    } catch (err) {
+      console.error("[ADMS] upsert USER row failed:", err);
+      out.bad++;
+    }
+  }
+  return out;
+}
+
 async function processAttlog(
   device: any,
   body: string,
@@ -370,9 +446,18 @@ export function registerAdmsRoutes(app: Express) {
       console.log(
         `[ADMS] POST ATTLOG SN=${sn} ip=${ip} inserted=${r.inserted} dups=${r.duplicates} unmapped=${r.unmapped} bad=${r.bad}`,
       );
+    } else if (table === "OPERLOG" || table === "USERINFO" || table === "USER") {
+      // OPERLOG carries USER enrollments mixed with other op events; USERINFO
+      // is a USER-only push. We persist USER rows so the View Users dialog
+      // can show every enrolled employee, not just those who've punched.
+      const r = await processUserRecords(device, body);
+      await touchDevice(device.id, ip);
+      console.log(
+        `[ADMS] POST ${table} SN=${sn} ip=${ip} users_upserted=${r.upserted} bad=${r.bad}`,
+      );
     } else {
-      // OPERLOG / USERINFO / FINGERTMP / ATTPHOTO etc — acknowledge so the
-      // device clears its queue. We don't store user/fingerprint blobs.
+      // FINGERTMP / ATTPHOTO etc — acknowledge so the device clears its
+      // queue. We don't store fingerprint or face template blobs.
       await touchDevice(device.id, ip);
       console.log(`[ADMS] POST ${table} SN=${sn} ip=${ip} bytes=${body.length}`);
     }
