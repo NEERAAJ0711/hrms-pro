@@ -2,7 +2,8 @@ import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { 
   Fingerprint, Upload, RefreshCw, AlertTriangle, CheckCircle, 
-  Clock, XCircle, Settings, Plus, Trash2, Signal, SignalLow, Download, Users
+  Clock, XCircle, Settings, Plus, Trash2, Signal, SignalLow, Download, Users,
+  ShieldAlert, ShieldCheck
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -444,6 +445,37 @@ export default function BiometricPage() {
               </Button>
             </CardHeader>
             <CardContent>
+              {(() => {
+                const unauth = devices.filter(
+                  (d: any) => !d.pushToken && !d.allowedIpCidr,
+                );
+                if (unauth.length === 0) return null;
+                return (
+                  <div
+                    className="mb-4 flex items-start gap-3 rounded-md border border-yellow-300 bg-yellow-50 p-3 text-sm text-yellow-900 dark:border-yellow-800 dark:bg-yellow-950 dark:text-yellow-200"
+                    data-testid="banner-devices-missing-auth"
+                  >
+                    <ShieldAlert className="h-5 w-5 mt-0.5 shrink-0" />
+                    <div className="space-y-1">
+                      <p className="font-medium">
+                        {unauth.length === 1
+                          ? "1 device has no anti-spoofing setup"
+                          : `${unauth.length} devices have no anti-spoofing setup`}
+                        : {unauth.map((d: any) => d.name).join(", ")}
+                      </p>
+                      <p className="text-xs">
+                        These devices have no push token and no pinned source
+                        IP/CIDR, so their pushes will start failing with 401
+                        once the new check rolls out. Set either a push token
+                        (shared secret) or a pinned source IP/CIDR on each
+                        device — until an edit flow is available, remove the
+                        device and re-add it with one of those values filled
+                        in.
+                      </p>
+                    </div>
+                  </div>
+                );
+              })()}
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -451,6 +483,7 @@ export default function BiometricPage() {
                     <TableHead>Code</TableHead>
                     <TableHead>Serial Number</TableHead>
                     <TableHead>ADMS Server</TableHead>
+                    <TableHead>Authentication</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Last Push</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
@@ -459,7 +492,7 @@ export default function BiometricPage() {
                 <TableBody>
                   {devices.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                      <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
                         No biometric machines linked.
                       </TableCell>
                     </TableRow>
@@ -476,6 +509,36 @@ export default function BiometricPage() {
                         </TableCell>
                         <TableCell className="font-mono text-xs">{device.deviceSerial}</TableCell>
                         <TableCell className="text-xs">{device.ipAddress || "-"}:{device.port}</TableCell>
+                        <TableCell>
+                          {device.allowedIpCidr ? (
+                            <Badge
+                              variant="outline"
+                              className="text-xs gap-1 border-green-300 text-green-800 dark:border-green-800 dark:text-green-300"
+                              data-testid={`auth-status-${device.id}`}
+                            >
+                              <ShieldCheck className="h-3 w-3" />
+                              IP-pinned ({device.allowedIpCidr})
+                            </Badge>
+                          ) : device.pushToken ? (
+                            <Badge
+                              variant="outline"
+                              className="text-xs gap-1 border-green-300 text-green-800 dark:border-green-800 dark:text-green-300"
+                              data-testid={`auth-status-${device.id}`}
+                            >
+                              <ShieldCheck className="h-3 w-3" />
+                              Token set
+                            </Badge>
+                          ) : (
+                            <Badge
+                              variant="destructive"
+                              className="text-xs gap-1"
+                              data-testid={`auth-status-${device.id}`}
+                            >
+                              <ShieldAlert className="h-3 w-3" />
+                              Not configured
+                            </Badge>
+                          )}
+                        </TableCell>
                         <TableCell>
                           <Badge
                             variant={device.status === "online" ? "default" : "secondary"}
