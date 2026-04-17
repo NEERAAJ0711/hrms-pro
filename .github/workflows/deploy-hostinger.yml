@@ -177,9 +177,15 @@ jobs:
               echo "▶ No legacy 'payroll' process found"
             fi
 
-            # Fall back to 5000 if we couldn't detect anything
-            APP_PORT="${DETECTED_PORT:-5000}"
-            echo "▶ Will run hrms-pro on port: $APP_PORT"
+            # Try detected port first, then any persisted port from previous
+            # successful deploys, then the known nginx target for this VPS (8080).
+            PERSISTED_PORT=""
+            if [ -f "$HOME/.hrms-pro.port" ]; then
+              PERSISTED_PORT=$(cat "$HOME/.hrms-pro.port" 2>/dev/null | tr -dc '0-9')
+            fi
+            APP_PORT="${DETECTED_PORT:-${PERSISTED_PORT:-8080}}"
+            echo "$APP_PORT" > "$HOME/.hrms-pro.port"
+            echo "▶ Will run hrms-pro on port: $APP_PORT (detected=$DETECTED_PORT, persisted=$PERSISTED_PORT)"
 
             # Append PORT override to .env so the new process picks the right one
             sed -i '/^PORT=/d' "$APP_DIR/.env"
