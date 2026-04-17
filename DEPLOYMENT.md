@@ -55,6 +55,7 @@ Add these secrets:
 | `HOSTINGER_HOST` | Your VPS IP address (e.g. `123.45.67.89`) |
 | `HOSTINGER_USERNAME` | `root` (or your SSH user) |
 | `HOSTINGER_SSH_KEY` | Your **private** SSH key (contents of `~/.ssh/id_rsa`) |
+| `HOSTINGER_HOST_KEY` | Your VPS **public host key** for strict host checking (see below) |
 | `HOSTINGER_PORT` | `22` |
 | `DATABASE_URL` | From the setup script output |
 | `SESSION_SECRET` | Any 32+ char random string |
@@ -72,6 +73,19 @@ ssh-copy-id -i ~/.ssh/hrms_deploy.pub root@YOUR_VPS_IP
 # Add PRIVATE key to GitHub Secrets (HOSTINGER_SSH_KEY)
 cat ~/.ssh/hrms_deploy
 ```
+
+### How to capture your VPS host key (`HOSTINGER_HOST_KEY`):
+
+The deploy refuses to run without this secret — it's what stops a man-in-the-middle from impersonating your VPS and stealing the SSH key, DB URL, and session/JWT secrets every deploy.
+
+```bash
+# On your LOCAL machine (or anywhere you trust the network path to the VPS)
+ssh-keyscan -p 22 YOUR_VPS_IP
+```
+
+Copy the output (one or more lines starting with the host, then a key type like `ssh-ed25519` or `ssh-rsa`, then the key blob) and paste it as the `HOSTINGER_HOST_KEY` secret. Multiple lines are fine — every line is pinned.
+
+Verify the fingerprint matches what you see when you SSH into the VPS directly (`ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` on the server) before saving the secret.
 
 ---
 

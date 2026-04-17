@@ -82,23 +82,51 @@ jobs:
           path: dist/
 
       - name: Setup SSH key
+        env:
+          HOSTINGER_HOST_KEY: ${{ secrets.HOSTINGER_HOST_KEY }}
+          HOSTINGER_HOST: ${{ secrets.HOSTINGER_HOST }}
+          HOSTINGER_PORT: ${{ secrets.HOSTINGER_PORT }}
         run: |
           mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
           echo "${{ secrets.HOSTINGER_SSH_KEY }}" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-          # ssh-keyscan can transiently fail on Hostinger (rate limit / fail2ban).
-          # That's OK — actual ssh/scp commands below use StrictHostKeyChecking=no,
-          # so a failed keyscan should never abort the deploy. Retry a few times
-          # then continue regardless.
-          for attempt in 1 2 3; do
-            if ssh-keyscan -T 10 -p ${{ secrets.HOSTINGER_PORT || 22 }} ${{ secrets.HOSTINGER_HOST }} >> ~/.ssh/known_hosts 2>/tmp/keyscan.err; then
-              echo "ssh-keyscan succeeded on attempt $attempt"
-              break
+
+          # Pin the Hostinger VPS host key. We refuse to deploy without it —
+          # falling back to ssh-keyscan or StrictHostKeyChecking=no would
+          # leave a man-in-the-middle window every deploy.
+          if [ -z "$HOSTINGER_HOST_KEY" ]; then
+            echo "❌ HOSTINGER_HOST_KEY secret is not set. Aborting deploy to avoid MITM risk."
+            echo "   Capture the VPS host key once (e.g. 'ssh-keyscan -p <port> <host>')"
+            echo "   verify it out-of-band, and store it as the HOSTINGER_HOST_KEY repo secret."
+            exit 1
+          fi
+
+          PORT="${HOSTINGER_PORT:-22}"
+          KNOWN_HOSTS=~/.ssh/known_hosts
+          : > "$KNOWN_HOSTS"
+
+          # Each line of the secret is one host key entry. Rewrite the host
+          # field so it matches both the bare host and the [host]:port form
+          # ssh uses for non-default ports.
+          while IFS= read -r line; do
+            [ -z "$line" ] && continue
+            case "$line" in \#*) continue ;; esac
+            rest=$(echo "$line" | awk '{ $1=""; sub(/^ /,""); print }')
+            if [ "$PORT" = "22" ]; then
+              printf '%s %s\n' "$HOSTINGER_HOST" "$rest" >> "$KNOWN_HOSTS"
+            else
+              printf '[%s]:%s %s\n' "$HOSTINGER_HOST" "$PORT" "$rest" >> "$KNOWN_HOSTS"
             fi
-            echo "ssh-keyscan attempt $attempt failed:"; cat /tmp/keyscan.err || true
-            sleep 5
-          done
-          true
+          done <<< "$HOSTINGER_HOST_KEY"
+
+          chmod 600 "$KNOWN_HOSTS"
+
+          if ! [ -s "$KNOWN_HOSTS" ]; then
+            echo "❌ HOSTINGER_HOST_KEY did not yield any usable known_hosts entries."
+            exit 1
+          fi
+          echo "✅ Pinned $(wc -l < "$KNOWN_HOSTS") host key entry(ies) for $HOSTINGER_HOST:$PORT"
 
       - name: Create deployment package
         run: |
@@ -115,7 +143,8 @@ jobs:
         run: |
           scp -i ~/.ssh/deploy_key \
               -P ${{ secrets.HOSTINGER_PORT || 22 }} \
-              -o StrictHostKeyChecking=no \
+              -o StrictHostKeyChecking=yes \
+              -o UserKnownHostsFile=~/.ssh/known_hosts \
               deploy.tar.gz \
               ${{ secrets.HOSTINGER_USERNAME }}@${{ secrets.HOSTINGER_HOST }}:/tmp/hrms-deploy-${{ github.run_id }}.tar.gz
 
@@ -129,7 +158,8 @@ jobs:
         run: |
           ssh -i ~/.ssh/deploy_key \
               -p ${{ secrets.HOSTINGER_PORT || 22 }} \
-              -o StrictHostKeyChecking=no \
+              -o StrictHostKeyChecking=yes \
+              -o UserKnownHostsFile=~/.ssh/known_hosts \
               ${{ secrets.HOSTINGER_USERNAME }}@${{ secrets.HOSTINGER_HOST }} \
               "DEPLOY_TAR='/tmp/hrms-deploy-${{ github.run_id }}.tar.gz' DATABASE_URL='$DATABASE_URL' SESSION_SECRET='$SESSION_SECRET' JWT_SECRET='$JWT_SECRET' GIT_COMMIT='$GIT_COMMIT' BUILD_TIME='$BUILD_TIME' bash -s" << 'ENDSSH'
 
