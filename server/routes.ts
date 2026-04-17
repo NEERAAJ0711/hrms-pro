@@ -39,6 +39,64 @@ import * as XLSX from 'xlsx';
 import { randomUUID } from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as net from 'net';
+
+// --- Biometric device network allow-list (SSRF guard) ---
+// Devices live on the public internet at fixed addresses, so we refuse to
+// store an IP that points back into our own infrastructure (loopback,
+// private RFC1918/RFC4193, link-local, multicast, broadcast). We also
+// pin the port to a small set of known biometric ports unless an operator
+// explicitly broadens it via env. The currently-deployed device at
+// 31.97.207.109:8181 must keep working, so 8181 is in the default list.
+const DEFAULT_ALLOWED_BIOMETRIC_PORTS = [80, 443, 4370, 8080, 8181];
+const EXTRA_ALLOWED_BIOMETRIC_PORTS = (process.env.BIOMETRIC_ALLOWED_PORTS || "")
+  .split(",").map(s => Number(s.trim())).filter(n => Number.isInteger(n) && n > 0 && n < 65536);
+const ALLOWED_BIOMETRIC_PORTS = new Set<number>([...DEFAULT_ALLOWED_BIOMETRIC_PORTS, ...EXTRA_ALLOWED_BIOMETRIC_PORTS]);
+const BIOMETRIC_ALLOW_PRIVATE_IPS = process.env.BIOMETRIC_ALLOW_PRIVATE_IPS === "1";
+
+function isPrivateOrUnsafeIp(ip: string): boolean {
+  const v = net.isIP(ip);
+  if (v === 0) return true; // not even an IP literal — reject
+  if (v === 4) {
+    const [a, b] = ip.split(".").map(Number);
+    if (a === 10) return true;                         // 10.0.0.0/8
+    if (a === 127) return true;                        // loopback
+    if (a === 169 && b === 254) return true;           // link-local
+    if (a === 172 && b >= 16 && b <= 31) return true;  // 172.16.0.0/12
+    if (a === 192 && b === 168) return true;           // 192.168.0.0/16
+    if (a === 100 && b >= 64 && b <= 127) return true; // CGNAT 100.64.0.0/10
+    if (a >= 224) return true;                         // multicast / reserved
+    if (a === 0) return true;                          // 0.0.0.0/8
+    return false;
+  }
+  // IPv6
+  const lower = ip.toLowerCase();
+  if (lower === "::1" || lower === "::") return true;
+  if (lower.startsWith("fe80:") || lower.startsWith("fc") || lower.startsWith("fd")) return true;
+  if (lower.startsWith("ff")) return true; // multicast
+  // IPv4-mapped IPv6 (::ffff:a.b.c.d)
+  const mapped = lower.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
+  if (mapped) return isPrivateOrUnsafeIp(mapped[1]);
+  return false;
+}
+
+function validateBiometricNetwork(ip: unknown, port: unknown): string | null {
+  if (ip != null && ip !== "") {
+    if (typeof ip !== "string") return "ipAddress must be a string";
+    if (net.isIP(ip) === 0) return "ipAddress must be a valid IPv4 or IPv6 literal";
+    if (!BIOMETRIC_ALLOW_PRIVATE_IPS && isPrivateOrUnsafeIp(ip)) {
+      return "ipAddress points at a private, loopback, link-local, or reserved range and is not allowed";
+    }
+  }
+  if (port != null && port !== "") {
+    const p = Number(port);
+    if (!Number.isInteger(p) || p <= 0 || p > 65535) return "port must be an integer between 1 and 65535";
+    if (!ALLOWED_BIOMETRIC_PORTS.has(p)) {
+      return `port ${p} is not in the allow-list (${Array.from(ALLOWED_BIOMETRIC_PORTS).sort((a,b)=>a-b).join(", ")})`;
+    }
+  }
+  return null;
+}
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
 
@@ -151,6 +209,43 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Add OT columns to payroll table if they don't exist
   await db.execute(sql`ALTER TABLE payroll ADD COLUMN IF NOT EXISTS ot_hours NUMERIC(6,2) DEFAULT 0`).catch(() => {});
   await db.execute(sql`ALTER TABLE payroll ADD COLUMN IF NOT EXISTS ot_amount INTEGER DEFAULT 0`).catch(() => {});
+
+  // Mirror of migrations/006: prevent duplicate biometric punches at the
+  // DB level so two concurrent ADMS pushes can't sneak past the
+  // application-level dedupe check.
+  await db.execute(sql`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_indexes
+        WHERE indexname = 'biometric_punch_logs_dedup_unique'
+      ) THEN
+        DELETE FROM biometric_punch_logs a
+        USING biometric_punch_logs b
+        WHERE a.ctid < b.ctid
+          AND a.company_id          = b.company_id
+          AND COALESCE(a.device_id, '')   = COALESCE(b.device_id, '')
+          AND COALESCE(a.employee_id, '') = COALESCE(b.employee_id, '')
+          AND a.device_employee_id  = b.device_employee_id
+          AND a.punch_date          = b.punch_date
+          AND a.punch_time          = b.punch_time
+          AND COALESCE(a.punch_type, '')  = COALESCE(b.punch_type, '');
+
+        CREATE UNIQUE INDEX biometric_punch_logs_dedup_unique
+          ON biometric_punch_logs (
+            company_id,
+            (COALESCE(device_id, '')),
+            (COALESCE(employee_id, '')),
+            device_employee_id,
+            punch_date,
+            punch_time,
+            (COALESCE(punch_type, ''))
+          );
+      END IF;
+    END $$;
+  `).catch((err) => {
+    console.error("[migrations] biometric_punch_logs_dedup_unique failed:", err);
+  });
 
   // Create employee_documents table if not exists
   await db.execute(sql`
@@ -668,11 +763,51 @@ export async function registerRoutes(app: Express): Promise<Server> {
           (data as any).companyId = user.companyId;
         }
       }
+      // SSRF guard: an admin cannot point the server at internal hosts.
+      const netError = validateBiometricNetwork((data as any).ipAddress, (data as any).port);
+      if (netError) {
+        return res.status(400).json({ error: netError });
+      }
       const device = await storage.createBiometricDevice(data);
       res.status(201).json(device);
     } catch (error: any) {
       console.error("[biometric/devices POST] error:", error);
       res.status(500).json({ error: error?.message || "Failed to create biometric device", details: error?.errors });
+    }
+  });
+
+  app.patch("/api/biometric/devices/:id", requireAuth, requireRole("super_admin", "company_admin"), async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const device = await storage.getBiometricDevice(req.params.id);
+      if (!device) return res.status(404).json({ error: "Device not found" });
+      if (user.role !== "super_admin" && device.companyId !== user.companyId) {
+        return res.status(403).json({ error: "Access denied. You can only edit devices that belong to your company." });
+      }
+      const { name, deviceSerial, ipAddress, port, status, companyId } = req.body || {};
+      const patch: Record<string, any> = {};
+      if (name !== undefined) patch.name = name;
+      if (deviceSerial !== undefined) patch.deviceSerial = deviceSerial;
+      if (ipAddress !== undefined) patch.ipAddress = ipAddress;
+      if (port !== undefined) patch.port = port == null || port === "" ? null : Number(port);
+      if (status !== undefined) patch.status = status;
+      // Only super_admin may move a device across companies (or to "shared").
+      if (companyId !== undefined && user.role === "super_admin") patch.companyId = companyId;
+
+      // SSRF guard: validate any new ipAddress/port the same way create does.
+      const nextIp = patch.ipAddress !== undefined ? patch.ipAddress : device.ipAddress;
+      const nextPort = patch.port !== undefined ? patch.port : device.port;
+      const netError = validateBiometricNetwork(nextIp, nextPort);
+      if (netError) {
+        return res.status(400).json({ error: netError });
+      }
+
+      const updated = await storage.updateBiometricDevice(req.params.id, patch as any);
+      if (!updated) return res.status(404).json({ error: "Device not found" });
+      res.json(updated);
+    } catch (error: any) {
+      console.error("[biometric/devices PATCH] error:", error);
+      res.status(500).json({ error: error?.message || "Failed to update biometric device" });
     }
   });
 
