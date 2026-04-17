@@ -3,7 +3,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { 
   Fingerprint, Upload, RefreshCw, AlertTriangle, CheckCircle, 
   Clock, XCircle, Settings, Plus, Trash2, Signal, SignalLow, Download, Users,
-  ShieldAlert, ShieldCheck
+  ShieldAlert, ShieldCheck, Pencil, KeyRound
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -44,6 +44,39 @@ export default function BiometricPage() {
 
   // "View Users on Machine" dialog state
   const [usersDialogDevice, setUsersDialogDevice] = useState<any | null>(null);
+
+  // "Edit Device" dialog state — same shape as the Add form, plus the device id.
+  const [editDevice, setEditDevice] = useState<any | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editCode, setEditCode] = useState("");
+  const [editSerial, setEditSerial] = useState("");
+  const [editIp, setEditIp] = useState("");
+  const [editPort, setEditPort] = useState("");
+  const [editPushToken, setEditPushToken] = useState("");
+  const [editAllowedCidr, setEditAllowedCidr] = useState("");
+
+  const openEditDialog = (d: any) => {
+    setEditDevice(d);
+    setEditName(d.name || "");
+    setEditCode(d.code || "");
+    setEditSerial(d.deviceSerial || "");
+    setEditIp(d.ipAddress || "");
+    setEditPort(d.port != null ? String(d.port) : "");
+    setEditPushToken(d.pushToken || "");
+    setEditAllowedCidr(d.allowedIpCidr || "");
+  };
+
+  // Generate a strong random push token. 32 chars from a URL-safe alphabet
+  // gives ~190 bits of entropy — plenty for an HMAC-style shared secret and
+  // well above the server's 12-char minimum.
+  const generateToken = (setter: (v: string) => void) => {
+    const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+    const bytes = new Uint8Array(32);
+    (window.crypto || (window as any).msCrypto).getRandomValues(bytes);
+    let out = "";
+    for (let i = 0; i < bytes.length; i++) out += alphabet[bytes[i] % alphabet.length];
+    setter(out);
+  };
   const { data: deviceUsers, isLoading: usersLoading } = useQuery<any>({
     queryKey: ["/api/biometric/devices", usersDialogDevice?.id, "users"],
     enabled: !!usersDialogDevice?.id,
@@ -123,6 +156,63 @@ export default function BiometricPage() {
       });
     },
   });
+
+  const editDeviceMutation = useMutation({
+    mutationFn: async ({ id, patch }: { id: string; patch: any }) => {
+      const res = await apiRequest("PATCH", `/api/biometric/devices/${id}`, patch);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/biometric/devices"] });
+      toast({ title: "Device updated", description: "Changes saved." });
+      setEditDevice(null);
+    },
+    onError: (err: any) => {
+      toast({
+        title: "Failed to update device",
+        description: err?.message || "Could not save changes",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleSaveEdit = () => {
+    if (!editDevice) return;
+    if (!editName.trim() || !editSerial.trim()) {
+      toast({ title: "Error", description: "Name and serial number are required", variant: "destructive" });
+      return;
+    }
+    const tokenTrim = editPushToken.trim();
+    const cidrTrim = editAllowedCidr.trim();
+    if (!tokenTrim && !cidrTrim) {
+      toast({
+        title: "Authentication required",
+        description: "Set a push token (shared secret) or pinned source IP/CIDR so spoofed pushes are rejected.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (tokenTrim && tokenTrim.length < 12) {
+      toast({
+        title: "Push token too short",
+        description: "Use at least 12 characters. Click Generate for a strong random one.",
+        variant: "destructive",
+      });
+      return;
+    }
+    editDeviceMutation.mutate({
+      id: editDevice.id,
+      patch: {
+        name: editName.trim(),
+        code: editCode.trim() || null,
+        deviceSerial: editSerial.trim(),
+        ipAddress: editIp.trim() || null,
+        port: editPort === "" ? null : Number(editPort),
+        pushToken: tokenTrim || null,
+        allowedIpCidr: cidrTrim || null,
+      },
+    });
+  };
 
   const testConnectionMutation = useMutation({
     mutationFn: async (id: string) => {
@@ -466,11 +556,9 @@ export default function BiometricPage() {
                       <p className="text-xs">
                         These devices have no push token and no pinned source
                         IP/CIDR, so their pushes will start failing with 401
-                        once the new check rolls out. Set either a push token
-                        (shared secret) or a pinned source IP/CIDR on each
-                        device — until an edit flow is available, remove the
-                        device and re-add it with one of those values filled
-                        in.
+                        once the new check rolls out. Click the pencil icon
+                        next to each device to set a push token (shared
+                        secret) or a pinned source IP/CIDR.
                       </p>
                     </div>
                   </div>
@@ -589,6 +677,15 @@ export default function BiometricPage() {
                               disabled={testConnectionMutation.isPending}
                             >
                               Check Status
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => openEditDialog(device)}
+                              data-testid={`button-edit-device-${device.id}`}
+                              title="Edit device"
+                            >
+                              <Pencil className="h-4 w-4" />
                             </Button>
                             <Button 
                               variant="ghost" 
@@ -739,6 +836,124 @@ export default function BiometricPage() {
             <Button variant="outline" onClick={() => setDeviceDialogOpen(false)}>Cancel</Button>
             <Button onClick={handleAddDevice} disabled={deviceMutation.isPending}>
               {deviceMutation.isPending ? "Adding..." : "Add Machine"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Device */}
+      <Dialog
+        open={!!editDevice}
+        onOpenChange={(open) => { if (!open) setEditDevice(null); }}
+      >
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Edit Device</DialogTitle>
+            <DialogDescription>
+              Update the device details. To rotate a leaked push token,
+              click Generate and save the new token to the device.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div>
+              <Label>Machine Name</Label>
+              <Input
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                data-testid="input-edit-device-name"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Machine Code (optional)</Label>
+                <Input
+                  value={editCode}
+                  onChange={(e) => setEditCode(e.target.value)}
+                  placeholder="M1, GATE-A…"
+                  data-testid="input-edit-device-code"
+                />
+              </div>
+              <div>
+                <Label>Serial Number</Label>
+                <Input
+                  value={editSerial}
+                  onChange={(e) => setEditSerial(e.target.value)}
+                  data-testid="input-edit-device-serial"
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>IP Address</Label>
+                <Input
+                  value={editIp}
+                  onChange={(e) => setEditIp(e.target.value)}
+                  data-testid="input-edit-device-ip"
+                />
+              </div>
+              <div>
+                <Label>Port</Label>
+                <Input
+                  value={editPort}
+                  onChange={(e) => setEditPort(e.target.value)}
+                  data-testid="input-edit-device-port"
+                />
+              </div>
+            </div>
+            <div className="rounded-md border p-3 space-y-3">
+              <p className="text-xs font-medium">
+                Anti-spoofing — set at least one
+              </p>
+              <div>
+                <Label>Push Token (shared secret)</Label>
+                <div className="flex gap-2">
+                  <Input
+                    value={editPushToken}
+                    onChange={(e) => setEditPushToken(e.target.value)}
+                    placeholder="At least 12 characters"
+                    className="font-mono text-xs"
+                    data-testid="input-edit-device-token"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => generateToken(setEditPushToken)}
+                    data-testid="button-edit-generate-token"
+                    title="Generate a strong random token"
+                  >
+                    <KeyRound className="h-4 w-4 mr-1" />
+                    Generate
+                  </Button>
+                </div>
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  After saving, configure the same token on the device's
+                  ADMS / Cloud Server settings (e.g. as ?token=…).
+                </p>
+              </div>
+              <div>
+                <Label>Allowed Source IP / CIDR</Label>
+                <Input
+                  value={editAllowedCidr}
+                  onChange={(e) => setEditAllowedCidr(e.target.value)}
+                  placeholder="e.g. 31.97.207.109 or 31.97.207.0/24"
+                  className="font-mono text-xs"
+                  data-testid="input-edit-device-cidr"
+                />
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  Pushes from any other source address will be rejected
+                  with 401.
+                </p>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditDevice(null)}>Cancel</Button>
+            <Button
+              onClick={handleSaveEdit}
+              disabled={editDeviceMutation.isPending}
+              data-testid="button-save-edit-device"
+            >
+              {editDeviceMutation.isPending ? "Saving…" : "Save Changes"}
             </Button>
           </DialogFooter>
         </DialogContent>
