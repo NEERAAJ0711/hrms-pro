@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { format } from "date-fns";
-import { DollarSign, Plus, FileText, Users, Calculator, Download, Building2, Edit, Trash2, CheckCircle, Upload, FileSpreadsheet, Loader2, Eye } from "lucide-react";
+import { DollarSign, Plus, FileText, Users, Calculator, Download, Building2, Edit, Trash2, CheckCircle, Upload, FileSpreadsheet, Loader2, Eye, AlertTriangle, ShieldCheck } from "lucide-react";
 import { SearchableEmployeeSelect } from "@/components/searchable-employee-select";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -196,6 +196,11 @@ export default function PayrollPage() {
   }, [isSuperAdmin, user?.companyId]);
 
   const watchCompanyId = form.watch("companyId");
+  const watchEmployeeId = form.watch("employeeId");
+  const watchGrossSalary = form.watch("grossSalary");
+
+  const dialogWageGrade = watchEmployeeId ? getEmployeeWageGrade(watchEmployeeId) : undefined;
+  const isGrossCompliantWithMinWage = !dialogWageGrade || watchGrossSalary >= (dialogWageGrade.minimumWage ?? 0);
 
   const { data: statutoryData } = useQuery<StatutorySettings | StatutorySettings[]>({
     queryKey: ["/api/statutory-settings", watchCompanyId],
@@ -936,6 +941,36 @@ export default function PayrollPage() {
                   />
                 </div>
 
+                {dialogWageGrade && (
+                  <div className={`flex items-start gap-3 rounded-lg border px-4 py-3 text-sm ${isGrossCompliantWithMinWage ? "border-green-200 bg-green-50 dark:border-green-800 dark:bg-green-950" : "border-amber-300 bg-amber-50 dark:border-amber-700 dark:bg-amber-950"}`}>
+                    {isGrossCompliantWithMinWage ? (
+                      <ShieldCheck className="h-5 w-5 mt-0.5 shrink-0 text-green-600 dark:text-green-400" />
+                    ) : (
+                      <AlertTriangle className="h-5 w-5 mt-0.5 shrink-0 text-amber-600 dark:text-amber-400" />
+                    )}
+                    <div className="flex-1">
+                      <p className={`font-medium ${isGrossCompliantWithMinWage ? "text-green-800 dark:text-green-300" : "text-amber-800 dark:text-amber-300"}`}>
+                        {isGrossCompliantWithMinWage ? "Minimum Wage Compliant" : "Below Minimum Wage"}
+                      </p>
+                      <p className={`mt-0.5 ${isGrossCompliantWithMinWage ? "text-green-700 dark:text-green-400" : "text-amber-700 dark:text-amber-400"}`}>
+                        Wage Grade: <strong>{dialogWageGrade.name}</strong> — Minimum Wage:{" "}
+                        <strong>
+                          {new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(dialogWageGrade.minimumWage)}
+                          {dialogWageGrade.period ? `/${dialogWageGrade.period}` : "/month"}
+                        </strong>
+                        {!isGrossCompliantWithMinWage && (
+                          <span className="block mt-0.5">
+                            Shortfall:{" "}
+                            <strong>
+                              {new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(dialogWageGrade.minimumWage - watchGrossSalary)}
+                            </strong>
+                          </span>
+                        )}
+                      </p>
+                    </div>
+                  </div>
+                )}
+
                 <div className="border-t pt-4">
                   <h4 className="font-medium mb-3">Earnings</h4>
                   <div className="grid grid-cols-3 gap-4">
@@ -1349,11 +1384,15 @@ export default function PayrollPage() {
                       <TableHead className="text-right">Deductions</TableHead>
                       <TableHead className="text-right">Net</TableHead>
                       <TableHead>Effective</TableHead>
+                      <TableHead>Min. Wage</TableHead>
                       <TableHead>Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredStructures.map((structure, idx) => (
+                    {filteredStructures.map((structure, idx) => {
+                      const structureWageGrade = getEmployeeWageGrade(structure.employeeId);
+                      const structureMinWageCompliant = !structureWageGrade || structure.grossSalary >= (structureWageGrade.minimumWage ?? 0);
+                      return (
                       <TableRow key={structure.id} data-testid={`row-structure-${structure.id}`}>
                         <TableCell className="text-center text-muted-foreground font-medium text-sm">{idx + 1}</TableCell>
                         <TableCell className="font-medium">{getEmployeeName(structure.employeeId)}</TableCell>
@@ -1365,6 +1404,19 @@ export default function PayrollPage() {
                         </TableCell>
                         <TableCell className="text-right font-bold">{formatCurrency(structure.netSalary)}</TableCell>
                         <TableCell>{format(new Date(structure.effectiveFrom), "MMM d, yyyy")}</TableCell>
+                        <TableCell>
+                          {structureWageGrade ? (
+                            <div className="flex flex-col gap-1">
+                              <span className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full w-fit ${structureMinWageCompliant ? "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300" : "bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300"}`}>
+                                {structureMinWageCompliant ? <ShieldCheck className="h-3 w-3" /> : <AlertTriangle className="h-3 w-3" />}
+                                {structureMinWageCompliant ? "Compliant" : "Below Min"}
+                              </span>
+                              <span className="text-xs text-muted-foreground">{structureWageGrade.name}: {formatCurrency(structureWageGrade.minimumWage)}</span>
+                            </div>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">No grade</span>
+                          )}
+                        </TableCell>
                         <TableCell>
                           <div className="flex items-center gap-1">
                             <Button variant="ghost" size="icon" onClick={() => handleEditStructure(structure)}>
@@ -1390,7 +1442,8 @@ export default function PayrollPage() {
                           </div>
                         </TableCell>
                       </TableRow>
-                    ))}
+                    );
+                    })}
                   </TableBody>
                 </Table>
               )}
