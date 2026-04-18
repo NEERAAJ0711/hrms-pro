@@ -414,12 +414,13 @@ export default function AddEmployee() {
     });
   }
 
-  // Filter master data by selected company
-  const filteredDepartments = masterDepartments.filter(d => d.companyId === selectedCompanyId);
-  const filteredDesignations = masterDesignations.filter(d => d.companyId === selectedCompanyId);
-  const filteredLocations = masterLocations.filter(l => l.companyId === selectedCompanyId);
-  const filteredPolicies = timeOfficePolicies.filter(p => p.companyId === selectedCompanyId && p.status === "active");
-  const filteredWageGrades = wageGrades.filter(g => g.companyId === selectedCompanyId && g.status === "active");
+  // Filter master data by selected company — use existingEmployee.companyId as fallback during editing
+  const effectiveCompanyId = selectedCompanyId || (isEditing ? existingEmployee?.companyId : "") || "";
+  const filteredDepartments = masterDepartments.filter(d => d.companyId === effectiveCompanyId);
+  const filteredDesignations = masterDesignations.filter(d => d.companyId === effectiveCompanyId);
+  const filteredLocations = masterLocations.filter(l => l.companyId === effectiveCompanyId);
+  const filteredPolicies = timeOfficePolicies.filter(p => p.companyId === effectiveCompanyId && p.status === "active");
+  const filteredWageGrades = wageGrades.filter(g => g.companyId === effectiveCompanyId && g.status === "active");
 
   const autoCreateSalaryStructure = async (emp: any, gradeId: string) => {
     const grade = wageGrades.find(g => g.id === gradeId && g.status === "active");
