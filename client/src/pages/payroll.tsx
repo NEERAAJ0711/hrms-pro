@@ -620,9 +620,8 @@ export default function PayrollPage() {
 
         if (settings?.pfEnabled && emp.pfApplicable) {
           const pfWageCeiling = Number(settings.pfWageCeiling) || 15000;
-          // "actual" = PF on full contracted basic (not prorated by attendance)
-          const pfWage = pfType === "actual" ? structure.basicSalary : basicSalary;
-          const pfBase = Math.min(pfWage, pfWageCeiling);
+          // Always deduct PF on earned/prorated basic salary (actual wages paid for the period)
+          const pfBase = Math.min(basicSalary, pfWageCeiling);
           pfEmployee = Math.round(pfBase * (Number(settings.pfEmployeePercent) || 12) / 100);
         }
 
