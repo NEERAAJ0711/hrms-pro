@@ -3336,6 +3336,45 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!canTouchWageGrade(user, data.companyId)) {
         return res.status(403).json({ error: "Forbidden" });
       }
+
+      if (data.effectiveFrom && data.name && data.state) {
+        const existing = await storage.getWageGradesByCompany(data.companyId);
+        const sameGrades = existing
+          .filter(g => g.name === data.name && g.state === data.state && g.effectiveFrom)
+          .sort((a, b) => (b.effectiveFrom ?? "").localeCompare(a.effectiveFrom ?? ""));
+
+        if (sameGrades.length > 0) {
+          const latest = sameGrades[0];
+
+          // Reject exact duplicate date
+          if (latest.effectiveFrom === data.effectiveFrom) {
+            return res.status(400).json({
+              error: `A "${data.name}" grade for ${data.state} already exists with effective date ${data.effectiveFrom}. Choose a different date.`,
+            });
+          }
+
+          // Enforce minimum 1-month gap
+          const latestDate = new Date(latest.effectiveFrom!);
+          const newDate = new Date(data.effectiveFrom);
+          const minAllowed = new Date(latestDate);
+          minAllowed.setMonth(minAllowed.getMonth() + 1);
+
+          if (newDate < minAllowed) {
+            return res.status(400).json({
+              error: `Minimum 1-month gap required. The previous "${data.name}" (${data.state}) entry is effective from ${latest.effectiveFrom}. New entry must be effective from ${minAllowed.toISOString().slice(0, 10)} or later.`,
+            });
+          }
+
+          // Auto-close previous active grade: effectiveTo = new date - 1 day
+          const closingDate = new Date(newDate);
+          closingDate.setDate(closingDate.getDate() - 1);
+          await storage.updateWageGrade(latest.id, {
+            effectiveTo: closingDate.toISOString().slice(0, 10),
+            status: "closed",
+          });
+        }
+      }
+
       const grade = await storage.createWageGrade(data);
       res.status(201).json(grade);
     } catch (error) {

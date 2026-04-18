@@ -2876,6 +2876,13 @@ function WageGradesManager({ companyId }: { companyId: string }) {
     queryClient.invalidateQueries({ predicate: (q) => (q.queryKey[0] as string)?.includes("/api/wage-grades") });
   };
 
+  const parseApiError = (error: Error): string => {
+    try {
+      const json = JSON.parse(error.message.replace(/^\d+: /, ""));
+      return json.error || json.message || error.message;
+    } catch { return error.message; }
+  };
+
   const createMutation = useMutation({
     mutationFn: (data: any) => apiRequest("POST", "/api/wage-grades", { ...data, companyId }),
     onSuccess: () => {
@@ -2884,7 +2891,7 @@ function WageGradesManager({ companyId }: { companyId: string }) {
       setDialogOpen(false);
       resetForm();
     },
-    onError: (error: Error) => toast({ title: "Error", description: error.message, variant: "destructive" }),
+    onError: (error: Error) => toast({ title: "Cannot create wage grade", description: parseApiError(error), variant: "destructive" }),
   });
 
   const updateMutation = useMutation({
@@ -3028,20 +3035,31 @@ function WageGradesManager({ companyId }: { companyId: string }) {
                 <TableHead>State</TableHead>
                 <TableHead>Minimum Wage (INR)</TableHead>
                 <TableHead>Effective From</TableHead>
+                <TableHead>Effective To</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead className="w-32">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {grades.map((g) => (
-                <TableRow key={g.id} data-testid={`row-wage-grade-${g.id}`}>
+              {[...grades].sort((a, b) => {
+                const nameCmp = a.name.localeCompare(b.name);
+                if (nameCmp !== 0) return nameCmp;
+                return (b.effectiveFrom ?? "").localeCompare(a.effectiveFrom ?? "");
+              }).map((g) => (
+                <TableRow key={g.id} data-testid={`row-wage-grade-${g.id}`} className={g.status === "closed" ? "opacity-60" : ""}>
                   <TableCell className="font-medium">{g.name}</TableCell>
                   <TableCell>{g.state || "—"}</TableCell>
                   <TableCell>₹{g.minimumWage.toLocaleString("en-IN")}</TableCell>
                   <TableCell>{g.effectiveFrom || "—"}</TableCell>
-                  <TableCell><Badge variant={g.status === "active" ? "default" : "secondary"}>{g.status}</Badge></TableCell>
+                  <TableCell>{g.effectiveTo || <span className="text-muted-foreground text-xs">Ongoing</span>}</TableCell>
                   <TableCell>
-                    <Button variant="ghost" size="icon" onClick={() => openEdit(g)} data-testid={`button-edit-wage-grade-${g.id}`}><Pencil className="h-4 w-4" /></Button>
+                    <Badge variant={g.status === "active" ? "default" : "secondary"}
+                      className={g.status === "closed" ? "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400" : ""}>
+                      {g.status}
+                    </Badge>
+                  </TableCell>
+                  <TableCell>
+                    <Button variant="ghost" size="icon" onClick={() => openEdit(g)} disabled={g.status === "closed"} data-testid={`button-edit-wage-grade-${g.id}`}><Pencil className="h-4 w-4" /></Button>
                     <Button variant="ghost" size="icon" onClick={() => { if (confirm(`Delete wage grade "${g.name}"?`)) deleteMutation.mutate(g.id); }} data-testid={`button-delete-wage-grade-${g.id}`}><Trash2 className="h-4 w-4" /></Button>
                   </TableCell>
                 </TableRow>
