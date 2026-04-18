@@ -1012,6 +1012,7 @@ export class MemStorage implements IStorage {
       code: insertGrade.code ?? null,
       description: insertGrade.description ?? null,
       period: insertGrade.period ?? null,
+      effectiveFrom: insertGrade.effectiveFrom ?? null,
       status: insertGrade.status ?? "active",
     };
     this.wageGradesMap.set(id, grade);

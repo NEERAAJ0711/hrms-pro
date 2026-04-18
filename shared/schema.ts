@@ -168,6 +168,7 @@ export const wageGrades = pgTable("wage_grades", {
   code: text("code"),
   minimumWage: integer("minimum_wage").notNull(),
   period: text("period"),
+  effectiveFrom: text("effective_from"),
   description: text("description"),
   status: text("status").notNull().default("active"),
 });
