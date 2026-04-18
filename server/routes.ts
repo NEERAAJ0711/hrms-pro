@@ -2454,8 +2454,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let presentDaysCreated = 0;
       let woMarked = 0;
       let holidayMarked = 0;
-
       let leaveMarked = 0;
+
+      // Pre-sort present day indices to know which is last — for exact OT distribution
+      const sortedPresentDays = Array.from(presentDayIndices).sort((a, b) => a - b);
+      const lastPresentDay = sortedPresentDays.length > 0 ? sortedPresentDays[sortedPresentDays.length - 1] : -1;
+      const perDayOt = requiredPresentDays > 0
+        ? Math.round((totalOtHours / requiredPresentDays) * 100) / 100
+        : 0;
+      let distributedOtSoFar = 0;
 
       for (const dayInfo of eligibleDays) {
         const { dateStr, isWeeklyOff, isHoliday, isLeave, leaveTypeCode } = dayInfo;
@@ -2490,9 +2497,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
           status = "absent";
         }
 
-        const otForDay = status === "present" && totalOtHours > 0 && requiredPresentDays > 0
-          ? String(Math.round((totalOtHours / requiredPresentDays) * 100) / 100)
-          : "0";
+        // OT distribution: give all days perDayOt, last present day gets exact remainder
+        let otForDay = "0";
+        if (status === "present" && totalOtHours > 0 && requiredPresentDays > 0) {
+          if (dayInfo.day === lastPresentDay) {
+            const remainder = Math.round((totalOtHours - distributedOtSoFar) * 100) / 100;
+            otForDay = String(Math.max(0, remainder));
+          } else {
+            otForDay = String(perDayOt);
+            distributedOtSoFar = Math.round((distributedOtSoFar + perDayOt) * 100) / 100;
+          }
+        }
 
         let clockIn: string | null = null;
         let clockOut: string | null = null;
