@@ -20,7 +20,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import type { Payroll, SalaryStructure, Employee, Company, StatutorySettings, Attendance } from "@shared/schema";
+import type { Payroll, SalaryStructure, Employee, Company, StatutorySettings, Attendance, WageGrade } from "@shared/schema";
 import FnfSettlementPage from "@/pages/fnf-settlement";
 
 const salaryStructureSchema = z.object({
@@ -141,6 +141,20 @@ export default function PayrollPage() {
   const { data: salaryStructures = [], isLoading: isLoadingStructures } = useQuery<SalaryStructure[]>({
     queryKey: ["/api/salary-structures"],
   });
+
+  const { data: wageGrades = [] } = useQuery<WageGrade[]>({
+    queryKey: ["/api/wage-grades"],
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/wage-grades");
+      return res.json();
+    },
+  });
+
+  const getEmployeeWageGrade = (employeeId: string): WageGrade | undefined => {
+    const emp = employees.find(e => e.id === employeeId);
+    if (!emp?.wageGradeId) return undefined;
+    return wageGrades.find(g => g.id === emp.wageGradeId && g.status === "active");
+  };
 
   const { data: payrollRecords = [], isLoading: isLoadingPayroll } = useQuery<Payroll[]>({
     queryKey: ["/api/payroll"],
