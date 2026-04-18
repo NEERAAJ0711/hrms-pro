@@ -48,7 +48,7 @@ export default function BiometricPage() {
   const [deviceCode, setDeviceCode] = useState("");
   const [deviceSerial, setDeviceSerial] = useState("");
   const [deviceIp, setDeviceIp] = useState("hrms.workseazy.in");
-  const [devicePort, setDevicePort] = useState("443");
+  const [devicePort, setDevicePort] = useState("8181");
   const [devicePushToken, setDevicePushToken] = useState("");
   const [deviceAllowedCidr, setDeviceAllowedCidr] = useState("");
 
@@ -166,7 +166,7 @@ export default function BiometricPage() {
       setDeviceCode("");
       setDeviceSerial("");
       setDeviceIp("hrms.workseazy.in");
-      setDevicePort("443");
+      setDevicePort("8181");
       setDevicePushToken("");
       setDeviceAllowedCidr("");
     },
@@ -579,7 +579,37 @@ export default function BiometricPage() {
           </Card>
         </TabsContent>
 
-        <TabsContent value="devices" className="mt-4">
+        <TabsContent value="devices" className="mt-4 space-y-4">
+          {/* ADMS Server Setup Instructions */}
+          <Card className="border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm text-blue-900 dark:text-blue-200 flex items-center gap-2">
+                <Signal className="h-4 w-4" />
+                ZKTeco ADMS Device Configuration
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="text-xs text-blue-800 dark:text-blue-300 space-y-2">
+              <p>
+                Configure each ZKTeco device to push attendance to this server. On the device touchscreen go to:
+                <span className="font-medium"> Menu → Communication → Cloud Server Settings (ADMS)</span>
+              </p>
+              <div className="grid grid-cols-2 gap-x-6 gap-y-1 font-mono bg-white dark:bg-blue-900 rounded p-2 border border-blue-200 dark:border-blue-700">
+                <span className="font-sans font-medium not-italic">Server Address</span>
+                <span>hrms.workseazy.in</span>
+                <span className="font-sans font-medium not-italic">Server Port</span>
+                <span className="font-bold text-blue-700 dark:text-blue-300">8181</span>
+                <span className="font-sans font-medium not-italic">Protocol</span>
+                <span>HTTP</span>
+                <span className="font-sans font-medium not-italic">Push Interval</span>
+                <span>1 minute</span>
+              </div>
+              <p className="text-[11px] opacity-75">
+                The device will POST attendance records to <span className="font-mono">http://hrms.workseazy.in:8181/iclock/cdata</span>.
+                Port 8181 is the ZKTeco ADMS default — no firmware change needed on most models.
+              </p>
+            </CardContent>
+          </Card>
+
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
               <div>

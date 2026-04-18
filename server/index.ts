@@ -4,6 +4,7 @@ import connectPgSimple from "connect-pg-simple";
 import pg from "pg";
 import { registerRoutes } from "./routes";
 import { setupBiometricSync } from "./biometric-sync";
+import { startAdmsServer } from "./adms-server";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 
@@ -108,6 +109,7 @@ app.use((req, res, next) => {
 
   const httpServer = await registerRoutes(app);
   setupBiometricSync();
+  startAdmsServer();
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
