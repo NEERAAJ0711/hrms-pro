@@ -47,7 +47,7 @@ export default function BiometricPage() {
   const [deviceName, setDeviceName] = useState("");
   const [deviceCode, setDeviceCode] = useState("");
   const [deviceSerial, setDeviceSerial] = useState("");
-  const [deviceIp, setDeviceIp] = useState("hrms.workseazy.in");
+  const [deviceIp, setDeviceIp] = useState("31.97.207.109");
   const [devicePort, setDevicePort] = useState("8181");
   const [devicePushToken, setDevicePushToken] = useState("");
   const [deviceAllowedCidr, setDeviceAllowedCidr] = useState("");
@@ -165,7 +165,7 @@ export default function BiometricPage() {
       setDeviceName("");
       setDeviceCode("");
       setDeviceSerial("");
-      setDeviceIp("hrms.workseazy.in");
+      setDeviceIp("31.97.207.109");
       setDevicePort("8181");
       setDevicePushToken("");
       setDeviceAllowedCidr("");
@@ -595,7 +595,7 @@ export default function BiometricPage() {
               </p>
               <div className="grid grid-cols-2 gap-x-6 gap-y-1 font-mono bg-white dark:bg-blue-900 rounded p-2 border border-blue-200 dark:border-blue-700">
                 <span className="font-sans font-medium not-italic">Server Address</span>
-                <span>hrms.workseazy.in</span>
+                <span className="font-bold text-blue-700 dark:text-blue-300">31.97.207.109</span>
                 <span className="font-sans font-medium not-italic">Server Port</span>
                 <span className="font-bold text-blue-700 dark:text-blue-300">8181</span>
                 <span className="font-sans font-medium not-italic">Protocol</span>
@@ -604,7 +604,7 @@ export default function BiometricPage() {
                 <span>1 minute</span>
               </div>
               <p className="text-[11px] opacity-75">
-                The device will POST attendance records to <span className="font-mono">http://hrms.workseazy.in:8181/iclock/cdata</span>.
+                The device will POST attendance records to <span className="font-mono">http://31.97.207.109:8181/iclock/cdata</span>.
                 Port 8181 is the ZKTeco ADMS default — no firmware change needed on most models.
               </p>
             </CardContent>

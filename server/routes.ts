@@ -1086,8 +1086,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // reality even when nobody clicks the button.
       await storage.updateBiometricDevice(device.id, { status: isOnline ? "online" : "offline" } as any);
 
-      const advertisedHost = process.env.ADMS_PUBLIC_HOST || device.ipAddress || "hrms.workseazy.in";
-      const advertisedPort = process.env.ADMS_PUBLIC_PORT || String(device.port || 443);
+      const advertisedHost = process.env.ADMS_PUBLIC_HOST || device.ipAddress || "31.97.207.109";
+      const advertisedPort = process.env.ADMS_PUBLIC_PORT || String(device.port || 8181);
 
       if (isOnline) {
         return res.json({
