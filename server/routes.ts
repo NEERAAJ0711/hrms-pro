@@ -2443,14 +2443,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ? Math.round(totalPayDays / eligibleDays.length * holidayDaysInRange.length)
         : 0;
 
-      // ── Exact formula (no rounding approximation) ──────────────────────────
-      // Step 1: Presents needed = payDays minus WOs and holidays.
-      //   Assume ALL WO days could be earned (maxWODays) for the initial calculation,
-      //   then cap by available working days.
-      // Step 2: WOs = payDays - actualPresents - holidays (capped by actual WO days in range).
-      // This guarantees: presents + WOs + holidays = payDays  ✓
-      const presentsTarget = Math.max(0, totalPayDays - maxWODays - proportionalHolidays);
-      const requiredPresentDays = Math.min(presentsTarget, maxWorkingDays);
+      // ── Proportional WO formula (consistent with attendance display) ──────
+      // earnedWOs = round(presents × wosPerWeek / workingDaysPerWeek)
+      // Solve for presents from payDays:  presents ≈ payDays × workingDaysPerWeek / 7
+      // Then WOs = payDays - presents - holidays (capped at actual WO days in range).
+      const workingDaysPerWeek = Math.max(1, 7 - wosPerWeek);
+      const presentsTarget = Math.round((totalPayDays - proportionalHolidays) * workingDaysPerWeek / 7);
+      const requiredPresentDays = Math.min(Math.max(0, presentsTarget), maxWorkingDays);
       const proportionalWOs = Math.min(
         Math.max(0, totalPayDays - requiredPresentDays - proportionalHolidays),
         maxWODays

@@ -508,9 +508,10 @@ export default function PayrollPage() {
         return name === policy.weeklyOff1 || name === policy.weeklyOff2;
       };
 
-      // Compute earned computed WO days for a given employee in a given month.
-      // Rule: group month into Sun–Sat weeks; if presents in week ≥ 3, grant all
-      // computed WO days in that week (no stored record, not in future).
+      // Compute earned WO days for a given employee in a given month.
+      // Formula: earnedWOs = round(presentTotal × wosPerWeek / workingDaysPerWeek)
+      // Applies only to WO days with NO stored record (manual day-by-day attendance).
+      // Any stored record on a WO day (weekend or absent) is respected as-is.
       const computeEarnedWOs = (emp: any, periodAtt: any[], year: number, monthIdx: number): number => {
         const policy = getPolicyForEmployee(emp);
         if (!policy) return 0;
@@ -518,46 +519,29 @@ export default function PayrollPage() {
         const today = new Date();
         today.setHours(23, 59, 59, 999);
 
-        // Build Sun–Sat week groups for days in this month
-        const weekMap = new Map<string, Date[]>();
+        const wosPerWeek = (policy.weeklyOff1 ? 1 : 0) + (policy.weeklyOff2 ? 1 : 0);
+        const workingDaysPerWeek = Math.max(1, 7 - wosPerWeek);
+
+        // Count stored presents
+        const storedPresents = periodAtt.filter((a: any) => a.status === "present").length;
+        const storedHalfDays = periodAtt.filter((a: any) => a.status === "half_day").length;
+        const presentTotal = storedPresents + storedHalfDays * 0.5;
+
+        // Count WO days with no stored record (past dates only)
+        let unrecordedWoDays = 0;
         for (let d = 1; d <= daysCount; d++) {
           const date = new Date(year, monthIdx, d);
-          const weekStart = new Date(date);
-          weekStart.setDate(date.getDate() - date.getDay()); // go to Sunday
-          const key = weekStart.toISOString().slice(0, 10);
-          if (!weekMap.has(key)) weekMap.set(key, []);
-          weekMap.get(key)!.push(date);
+          if (date > today) break;
+          const dateStr = date.toISOString().slice(0, 10);
+          const storedRecord = periodAtt.find((a: any) => a.date === dateStr);
+          if (!storedRecord && isDayWeeklyOff(policy, date)) unrecordedWoDays++;
         }
 
-        let earnedWOs = 0;
-        for (const weekDays of weekMap.values()) {
-          let presentsInWeek = 0;
-          const computedWoDays: Date[] = [];
+        if (unrecordedWoDays === 0) return 0;
 
-          for (const day of weekDays) {
-            const dateStr = day.toISOString().slice(0, 10);
-            const storedRecord = periodAtt.find((a: any) => a.date === dateStr);
-            const isWO = isDayWeeklyOff(policy, day);
-
-            if (isWO) {
-              // Only count as computed WO if there is NO stored record at all.
-              // A stored "absent" on a WO day means it was explicitly not earned — respect it.
-              if (!storedRecord && day <= today) {
-                computedWoDays.push(day);
-              }
-            } else {
-              if (storedRecord) {
-                if (storedRecord.status === "present") presentsInWeek += 1;
-                else if (storedRecord.status === "half_day") presentsInWeek += 0.5;
-              }
-            }
-          }
-
-          if (presentsInWeek >= 3) {
-            earnedWOs += computedWoDays.length;
-          }
-        }
-        return earnedWOs;
+        // Proportional WOs capped at unrecorded WO days
+        const earned = Math.round(presentTotal * wosPerWeek / workingDaysPerWeek);
+        return Math.min(Math.max(0, earned), unrecordedWoDays);
       };
 
       // Fetch compliance setup to get pf_type and esic_type per employee

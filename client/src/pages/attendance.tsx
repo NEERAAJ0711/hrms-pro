@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
-import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, parseISO, startOfWeek, addDays } from "date-fns";
+import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, parseISO } from "date-fns";
 import { Calendar, Clock, Plus, CheckCircle, XCircle, AlertCircle, Users, Zap, Eye, Pencil, Trash2, Download, Search } from "lucide-react";
 import * as XLSX from "xlsx";
 import { SearchableEmployeeSelect } from "@/components/searchable-employee-select";
@@ -392,41 +392,26 @@ export default function AttendancePage() {
 
     const presentTotal = presentDays + halfDays * 0.5;
 
-    // ── Phase 2: computed weekly offs via per-week grouping ──────────────────
-    // Group month days into Sun–Sat weeks.
-    // For each week: if presents (present + half_day + approved leave) ≥ 3,
-    // grant ALL computed WO days (no stored record, not in future) in that week.
-    // < 3 presents in the week → 0 computed WOs for that week.
-    const weekMap = new Map<string, Date[]>();
-    for (const day of daysInMonth) {
-      const key = format(startOfWeek(day, { weekStartsOn: 0 }), "yyyy-MM-dd");
-      if (!weekMap.has(key)) weekMap.set(key, []);
-      weekMap.get(key)!.push(day);
-    }
+    // ── Phase 2: computed WOs proportional to present days ───────────────────
+    // Formula: earnedWOs = round(presentTotal × wosPerWeek / workingDaysPerWeek)
+    // Applies only to WO days with NO stored record (manual day-by-day entry).
+    // Any WO day already stored (as "weekend" or "absent") is not re-evaluated.
+    const empPolicy = getEmployeePolicy(employee);
+    if (empPolicy) {
+      const wosPerWeek = (empPolicy.weeklyOff1 ? 1 : 0) + ((empPolicy.weeklyOff2 || "") ? 1 : 0);
+      const workingDaysPerWeek = Math.max(1, 7 - wosPerWeek);
 
-    for (const weekDays of weekMap.values()) {
-      let presentsInWeek = 0;
-      const computedWoDays: Date[] = [];
-
-      for (const day of weekDays) {
+      let unrecordedWoDays = 0;
+      for (const day of daysInMonth) {
+        if (day > today) break;
         const record = getAttendanceForDay(employee.id, day);
-        const isWeekend = isWeeklyOffForEmployee(employee, day);
-        const onLeave = !record && isOnApprovedLeave(employee.id, day);
-
-        if (isWeekend) {
-          if (!record && day <= today) computedWoDays.push(day);
-        } else {
-          if (record && (record.status === "present" || record.status === "half_day")) {
-            presentsInWeek += record.status === "half_day" ? 0.5 : 1;
-          } else if (onLeave) {
-            presentsInWeek += 1;
-          }
-        }
+        if (!record && isWeeklyOffForEmployee(employee, day)) unrecordedWoDays++;
       }
 
-      // Grant all computed WO days for this week if threshold met
-      if (presentsInWeek >= 3) {
-        weeklyOff += computedWoDays.length;
+      if (unrecordedWoDays > 0) {
+        const totalEarned = Math.round(presentTotal * wosPerWeek / workingDaysPerWeek);
+        const additionalWOs = Math.min(Math.max(0, totalEarned - weeklyOff), unrecordedWoDays);
+        weeklyOff += additionalWOs;
       }
     }
 
@@ -521,32 +506,36 @@ export default function AttendancePage() {
   > = (() => {
     if (!selectedEmpObj || employeeAttendance.length === 0) return [];
 
-    // Determine which weeks earned computed WOs (threshold ≥ 3)
+    // Determine which WO days are earned using proportional formula
     const earnedWoDates = new Set<string>();
     const today2 = new Date();
     today2.setHours(23, 59, 59, 999);
-    const weekMap2 = new Map<string, Date[]>();
+
+    const detailPolicy = getEmployeePolicy(selectedEmpObj);
+    const detailWosPerWeek = detailPolicy
+      ? (detailPolicy.weeklyOff1 ? 1 : 0) + ((detailPolicy.weeklyOff2 || "") ? 1 : 0)
+      : 2;
+    const detailWorkingDaysPerWeek = Math.max(1, 7 - detailWosPerWeek);
+
+    // Collect unrecorded WO days (no stored record, past only)
+    const unrecordedWoDays: Date[] = [];
     for (const day of daysInMonth) {
-      const key = format(startOfWeek(day, { weekStartsOn: 0 }), "yyyy-MM-dd");
-      if (!weekMap2.has(key)) weekMap2.set(key, []);
-      weekMap2.get(key)!.push(day);
+      if (day > today2) break;
+      const stored = employeeAttendance.find(r => r.date === format(day, "yyyy-MM-dd"));
+      if (!stored && isWeeklyOffForEmployee(selectedEmpObj, day)) unrecordedWoDays.push(day);
     }
-    for (const weekDays of weekMap2.values()) {
-      let presentsInWeek = 0;
-      const woDays: Date[] = [];
-      for (const day of weekDays) {
-        const stored = employeeAttendance.find(r => r.date === format(day, "yyyy-MM-dd"));
-        const isWeekend = isWeeklyOffForEmployee(selectedEmpObj, day);
-        if (isWeekend) {
-          if (!stored && day <= today2) woDays.push(day);
-        } else {
-          if (stored && (stored.status === "present" || stored.status === "half_day")) {
-            presentsInWeek += stored.status === "half_day" ? 0.5 : 1;
-          }
-        }
-      }
-      if (presentsInWeek >= 3) {
-        woDays.forEach(d => earnedWoDates.add(format(d, "yyyy-MM-dd")));
+
+    if (unrecordedWoDays.length > 0) {
+      const storedPresents = employeeAttendance.filter(r => r.status === "present").length;
+      const storedHalfDays = employeeAttendance.filter(r => r.status === "half_day").length;
+      const presentTotal = storedPresents + storedHalfDays * 0.5;
+      const storedWOs = employeeAttendance.filter(r => r.status === "weekend").length;
+
+      const totalEarned = Math.round(presentTotal * detailWosPerWeek / detailWorkingDaysPerWeek);
+      const additionalWOs = Math.min(Math.max(0, totalEarned - storedWOs), unrecordedWoDays.length);
+      // Mark the first N chronological unrecorded WO days as earned
+      for (let i = 0; i < additionalWOs; i++) {
+        earnedWoDates.add(format(unrecordedWoDays[i], "yyyy-MM-dd"));
       }
     }
 
