@@ -930,6 +930,15 @@ export default function PayrollPage() {
                           value={field.value}
                           onValueChange={(value) => {
                             field.onChange(value);
+                            if (!editingStructureId) {
+                              const grade = wageGrades.find(g => {
+                                const emp = employees.find(e => e.id === value);
+                                return emp?.wageGradeId && g.id === emp.wageGradeId && g.status === "active";
+                              });
+                              if (grade) {
+                                form.setValue("basicSalary", grade.minimumWage, { shouldDirty: true, shouldValidate: true });
+                              }
+                            }
                             calculateSalary();
                           }}
                           placeholder="Search by name or ID..."
