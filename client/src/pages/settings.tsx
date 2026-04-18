@@ -2849,7 +2849,7 @@ function WageGradesManager({ companyId }: { companyId: string }) {
   const { toast } = useToast();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<WageGrade | null>(null);
-  const [formData, setFormData] = useState({ name: "", code: "", minimumWage: "", description: "" });
+  const [formData, setFormData] = useState({ name: "", code: "", minimumWage: "", period: "", description: "" });
 
   const { data: grades = [], isLoading } = useQuery<WageGrade[]>({
     queryKey: [`/api/wage-grades?companyId=${companyId}`],
@@ -2897,12 +2897,12 @@ function WageGradesManager({ companyId }: { companyId: string }) {
   });
 
   const resetForm = () => {
-    setFormData({ name: "", code: "", minimumWage: "", description: "" });
+    setFormData({ name: "", code: "", minimumWage: "", period: "", description: "" });
     setEditingItem(null);
   };
 
   const handleSubmit = () => {
-    const wage = parseInt(formData.minimumWage, 10);
+    const wage = parseInt(formData.minimumWage || "0", 10);
     if (!formData.name.trim()) {
       toast({ title: "Name is required", variant: "destructive" });
       return;
@@ -2915,6 +2915,7 @@ function WageGradesManager({ companyId }: { companyId: string }) {
       name: formData.name.trim(),
       code: formData.code.trim() || undefined,
       minimumWage: wage,
+      period: formData.period || undefined,
       description: formData.description.trim() || undefined,
     };
     if (editingItem) {
@@ -2930,6 +2931,7 @@ function WageGradesManager({ companyId }: { companyId: string }) {
       name: g.name,
       code: g.code || "",
       minimumWage: String(g.minimumWage),
+      period: g.period || "",
       description: g.description || "",
     });
     setDialogOpen(true);
@@ -2960,9 +2962,27 @@ function WageGradesManager({ companyId }: { companyId: string }) {
                 <Label>Code</Label>
                 <Input value={formData.code} onChange={(e) => setFormData({ ...formData, code: e.target.value })} placeholder="e.g. SK" data-testid="input-wage-grade-code" />
               </div>
-              <div>
-                <Label>Minimum Wage (INR / month) *</Label>
-                <Input type="number" min="0" value={formData.minimumWage} onChange={(e) => setFormData({ ...formData, minimumWage: e.target.value })} placeholder="e.g. 18000" data-testid="input-wage-grade-min" />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label>Minimum Wage (INR)</Label>
+                  <Input type="number" min="0" value={formData.minimumWage} onChange={(e) => setFormData({ ...formData, minimumWage: e.target.value })} placeholder="e.g. 18000" data-testid="input-wage-grade-min" />
+                </div>
+                <div>
+                  <Label>Period</Label>
+                  <Select value={formData.period || "__none__"} onValueChange={(v) => setFormData({ ...formData, period: v === "__none__" ? "" : v })}>
+                    <SelectTrigger data-testid="select-wage-grade-period">
+                      <SelectValue placeholder="Select period" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">Not set</SelectItem>
+                      <SelectItem value="hourly">Hourly</SelectItem>
+                      <SelectItem value="daily">Daily</SelectItem>
+                      <SelectItem value="weekly">Weekly</SelectItem>
+                      <SelectItem value="monthly">Monthly</SelectItem>
+                      <SelectItem value="yearly">Yearly</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
               <div>
                 <Label>Description</Label>
@@ -2990,6 +3010,7 @@ function WageGradesManager({ companyId }: { companyId: string }) {
                 <TableHead>Name</TableHead>
                 <TableHead>Code</TableHead>
                 <TableHead>Minimum Wage (INR)</TableHead>
+                <TableHead>Period</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead className="w-32">Actions</TableHead>
               </TableRow>
@@ -2999,7 +3020,8 @@ function WageGradesManager({ companyId }: { companyId: string }) {
                 <TableRow key={g.id} data-testid={`row-wage-grade-${g.id}`}>
                   <TableCell className="font-medium">{g.name}</TableCell>
                   <TableCell>{g.code || "—"}</TableCell>
-                  <TableCell>{g.minimumWage.toLocaleString("en-IN")}</TableCell>
+                  <TableCell>{g.minimumWage > 0 ? g.minimumWage.toLocaleString("en-IN") : "—"}</TableCell>
+                  <TableCell>{g.period ? g.period.charAt(0).toUpperCase() + g.period.slice(1) : "—"}</TableCell>
                   <TableCell><Badge variant={g.status === "active" ? "default" : "secondary"}>{g.status}</Badge></TableCell>
                   <TableCell>
                     <Button variant="ghost" size="icon" onClick={() => openEdit(g)} data-testid={`button-edit-wage-grade-${g.id}`}><Pencil className="h-4 w-4" /></Button>

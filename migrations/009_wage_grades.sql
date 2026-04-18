@@ -13,3 +13,5 @@ CREATE TABLE IF NOT EXISTS wage_grades (
 CREATE INDEX IF NOT EXISTS wage_grades_company_idx ON wage_grades (company_id);
 
 ALTER TABLE employees ADD COLUMN IF NOT EXISTS wage_grade_id VARCHAR(36);
+
+ALTER TABLE wage_grades ADD COLUMN IF NOT EXISTS period TEXT;

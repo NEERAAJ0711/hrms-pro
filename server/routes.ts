@@ -349,6 +349,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   await db.execute(sql`
     ALTER TABLE employees ADD COLUMN IF NOT EXISTS wage_grade_id VARCHAR(36)
   `).catch((err) => console.error("[migrations] add employees.wage_grade_id failed:", err));
+  await db.execute(sql`
+    ALTER TABLE wage_grades ADD COLUMN IF NOT EXISTS period TEXT
+  `).catch((err) => console.error("[migrations] add wage_grades.period failed:", err));
 
   // Create employee_documents table if not exists
   await db.execute(sql`
