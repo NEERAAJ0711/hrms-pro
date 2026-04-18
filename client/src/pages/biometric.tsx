@@ -3,7 +3,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { 
   Fingerprint, Upload, RefreshCw, AlertTriangle, CheckCircle, 
   Clock, XCircle, Settings, Plus, Trash2, Signal, SignalLow, Download, Users,
-  ShieldAlert, ShieldCheck, Pencil, KeyRound
+  ShieldAlert, ShieldCheck, Pencil, KeyRound, Activity, UserCheck
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -705,12 +706,13 @@ export default function BiometricPage() {
                             </Badge>
                           ) : (
                             <Badge
-                              variant="destructive"
-                              className="text-xs gap-1"
+                              variant="outline"
+                              className="text-xs gap-1 border-amber-400 text-amber-700 dark:border-amber-600 dark:text-amber-400"
                               data-testid={`auth-status-${device.id}`}
+                              title="No pushToken or IP CIDR set — device is in open (unauthenticated) mode. Add a Push Token to secure it."
                             >
                               <ShieldAlert className="h-3 w-3" />
-                              Not configured
+                              Open mode
                             </Badge>
                           )}
                         </TableCell>
@@ -738,64 +740,92 @@ export default function BiometricPage() {
                           ) : null}
                         </TableCell>
                         <TableCell className="text-right">
-                          <div className="flex justify-end gap-2">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => setUsersDialogDevice(device)}
-                              data-testid={`button-view-users-${device.id}`}
-                            >
-                              <Users className="h-4 w-4 mr-2" />
-                              View Users
-                            </Button>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => syncUsersMutation.mutate(device.id)}
-                              disabled={syncUsersMutation.isPending}
-                              data-testid={`button-sync-users-${device.id}`}
-                              title="Ask the device to push every enrolled user"
-                            >
-                              <RefreshCw className="h-4 w-4 mr-2" />
-                              Sync Users
-                            </Button>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => fetchLogsMutation.mutate(device.id)}
-                              disabled={fetchLogsMutation.isPending}
-                            >
-                              <Download className="h-4 w-4 mr-2" />
-                              Refresh
-                            </Button>
-                            <Button
-                              variant="secondary"
-                              size="sm"
-                              onClick={() => testConnectionMutation.mutate(device.id)}
-                              disabled={testConnectionMutation.isPending}
-                            >
-                              Check Status
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => openEditDialog(device)}
-                              data-testid={`button-edit-device-${device.id}`}
-                              title="Edit device"
-                            >
-                              <Pencil className="h-4 w-4" />
-                            </Button>
-                            <Button 
-                              variant="ghost" 
-                              size="icon"
-                              className="text-red-600"
-                              onClick={() => setDeviceToDelete(device)}
-                              data-testid={`button-delete-device-${device.id}`}
-                              title="Delete device"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </div>
+                          <TooltipProvider delayDuration={200}>
+                            <div className="flex justify-end gap-1">
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    variant="outline"
+                                    size="icon"
+                                    onClick={() => setUsersDialogDevice(device)}
+                                    data-testid={`button-view-users-${device.id}`}
+                                  >
+                                    <UserCheck className="h-4 w-4" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>View enrolled users</TooltipContent>
+                              </Tooltip>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    variant="outline"
+                                    size="icon"
+                                    onClick={() => syncUsersMutation.mutate(device.id)}
+                                    disabled={syncUsersMutation.isPending}
+                                    data-testid={`button-sync-users-${device.id}`}
+                                  >
+                                    <RefreshCw className={`h-4 w-4 ${syncUsersMutation.isPending ? "animate-spin" : ""}`} />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>Sync users from device</TooltipContent>
+                              </Tooltip>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    variant="outline"
+                                    size="icon"
+                                    onClick={() => fetchLogsMutation.mutate(device.id)}
+                                    disabled={fetchLogsMutation.isPending}
+                                    data-testid={`button-refresh-logs-${device.id}`}
+                                  >
+                                    <Download className="h-4 w-4" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>Refresh punch logs</TooltipContent>
+                              </Tooltip>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    variant="outline"
+                                    size="icon"
+                                    onClick={() => testConnectionMutation.mutate(device.id)}
+                                    disabled={testConnectionMutation.isPending}
+                                    data-testid={`button-check-status-${device.id}`}
+                                  >
+                                    <Activity className="h-4 w-4" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>Check device status</TooltipContent>
+                              </Tooltip>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() => openEditDialog(device)}
+                                    data-testid={`button-edit-device-${device.id}`}
+                                  >
+                                    <Pencil className="h-4 w-4" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>Edit device</TooltipContent>
+                              </Tooltip>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button 
+                                    variant="ghost" 
+                                    size="icon"
+                                    className="text-red-600 hover:text-red-700"
+                                    onClick={() => setDeviceToDelete(device)}
+                                    data-testid={`button-delete-device-${device.id}`}
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>Delete device</TooltipContent>
+                              </Tooltip>
+                            </div>
+                          </TooltipProvider>
                         </TableCell>
                       </TableRow>
                     ))

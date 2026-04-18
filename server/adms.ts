@@ -163,14 +163,20 @@ function extractToken(req: Request): string {
 }
 
 // Returns null on success, or a short reason string (for logs) on failure.
-// A device must satisfy at least one configured auth mechanism. If neither
-// pushToken nor allowedIpCidr is configured we fail closed — better to drop
-// the push and have an admin notice than to keep accepting spoofable data.
+// If NEITHER pushToken NOR allowedIpCidr is configured the device runs in
+// "open" mode — any source IP is accepted. This is the right default for
+// most ZKTeco deployments where the device is behind NAT and has no fixed IP.
+// Admins can tighten security by adding a pushToken or IP CIDR at any time.
 function authenticateDevice(req: Request, device: any, ip: string): string | null {
   const token = (device.pushToken || "").trim();
   const cidr = (device.allowedIpCidr || "").trim();
   if (!token && !cidr) {
-    return "device has no pushToken or allowedIpCidr configured";
+    // No auth configured → trust-all (open) mode.
+    console.warn(
+      `[ADMS] WARN: device SN=${device.deviceSerial} has no pushToken or allowedIpCidr — ` +
+      `accepting push from ${ip} in open mode. Set a pushToken to secure this device.`,
+    );
+    return null;
   }
   if (token) {
     const provided = extractToken(req);
