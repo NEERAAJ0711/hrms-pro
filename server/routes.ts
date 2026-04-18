@@ -2435,11 +2435,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const holidayDaysInRange = eligibleDays.filter(d => d.isHoliday);
       const workingDaysInRange = eligibleDays.filter(d => !d.isWeeklyOff && !d.isHoliday && !d.isLeave);
 
-      const proportionalWOs = Math.round(totalPayDays * wosPerWeek / 7);
+      const maxWODays = wosDaysInRange.length;         // actual WO days available in range
+      const maxWorkingDays = workingDaysInRange.length; // actual working days available
+
+      // Scale holidays proportionally but keep them optional (0 if no holidays)
       const proportionalHolidays = holidayDaysInRange.length > 0
         ? Math.round(totalPayDays / eligibleDays.length * holidayDaysInRange.length)
         : 0;
-      const requiredPresentDays = Math.max(0, totalPayDays - proportionalWOs - proportionalHolidays);
+
+      // ── Exact formula (no rounding approximation) ──────────────────────────
+      // Step 1: Presents needed = payDays minus WOs and holidays.
+      //   Assume ALL WO days could be earned (maxWODays) for the initial calculation,
+      //   then cap by available working days.
+      // Step 2: WOs = payDays - actualPresents - holidays (capped by actual WO days in range).
+      // This guarantees: presents + WOs + holidays = payDays  ✓
+      const presentsTarget = Math.max(0, totalPayDays - maxWODays - proportionalHolidays);
+      const requiredPresentDays = Math.min(presentsTarget, maxWorkingDays);
+      const proportionalWOs = Math.min(
+        Math.max(0, totalPayDays - requiredPresentDays - proportionalHolidays),
+        maxWODays
+      );
 
       const presentDayIndices = new Set<number>();
       if (requiredPresentDays > 0 && workingDaysInRange.length > 0) {

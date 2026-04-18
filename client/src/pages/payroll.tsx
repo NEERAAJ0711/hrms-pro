@@ -540,8 +540,9 @@ export default function PayrollPage() {
             const isWO = isDayWeeklyOff(policy, day);
 
             if (isWO) {
-              // Only count as computed WO if no stored "weekend" record exists
-              if ((!storedRecord || storedRecord.status !== "weekend") && day <= today) {
+              // Only count as computed WO if there is NO stored record at all.
+              // A stored "absent" on a WO day means it was explicitly not earned — respect it.
+              if (!storedRecord && day <= today) {
                 computedWoDays.push(day);
               }
             } else {
