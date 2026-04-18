@@ -927,8 +927,9 @@ export default function AddEmployee() {
                               {filteredWageGrades.length > 0 ? (
                                 filteredWageGrades.map((grade) => (
                                   <SelectItem key={grade.id} value={grade.id}>
-                                    {grade.name} — ₹{grade.minimumWage.toLocaleString("en-IN")}
-                                    {grade.effectiveFrom ? ` (from ${grade.effectiveFrom})` : ""}
+                                    {grade.name}
+                                    {grade.state ? ` (${grade.state})` : ""} — ₹{grade.minimumWage.toLocaleString("en-IN")}
+                                    {grade.effectiveFrom ? ` from ${grade.effectiveFrom}` : ""}
                                   </SelectItem>
                                 ))
                               ) : (

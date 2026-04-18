@@ -2849,8 +2849,18 @@ function WageGradesManager({ companyId }: { companyId: string }) {
   const { toast } = useToast();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<WageGrade | null>(null);
-  const [formData, setFormData] = useState({ name: "", minimumWage: "", effectiveFrom: "" });
+  const [formData, setFormData] = useState({ name: "", state: "", minimumWage: "", effectiveFrom: "" });
   const GRADE_OPTIONS = ["Unskilled", "Semi-Skilled", "Skilled", "Highly-Skilled"] as const;
+  const STATE_OPTIONS = [
+    "Andhra Pradesh", "Arunachal Pradesh", "Assam", "Bihar", "Chhattisgarh",
+    "Goa", "Gujarat", "Haryana", "Himachal Pradesh", "Jharkhand",
+    "Karnataka", "Kerala", "Madhya Pradesh", "Maharashtra", "Manipur",
+    "Meghalaya", "Mizoram", "Nagaland", "Odisha", "Punjab",
+    "Rajasthan", "Sikkim", "Tamil Nadu", "Telangana", "Tripura",
+    "Uttar Pradesh", "Uttarakhand", "West Bengal",
+    "Delhi", "Jammu & Kashmir", "Ladakh", "Puducherry",
+    "Chandigarh", "Andaman & Nicobar", "Dadra & Nagar Haveli", "Lakshadweep"
+  ];
 
   const { data: grades = [], isLoading } = useQuery<WageGrade[]>({
     queryKey: [`/api/wage-grades?companyId=${companyId}`],
@@ -2898,7 +2908,7 @@ function WageGradesManager({ companyId }: { companyId: string }) {
   });
 
   const resetForm = () => {
-    setFormData({ name: "", minimumWage: "", effectiveFrom: "" });
+    setFormData({ name: "", state: "", minimumWage: "", effectiveFrom: "" });
     setEditingItem(null);
   };
 
@@ -2906,6 +2916,10 @@ function WageGradesManager({ companyId }: { companyId: string }) {
     const wage = parseInt(formData.minimumWage, 10);
     if (!formData.name) {
       toast({ title: "Please select a grade", variant: "destructive" });
+      return;
+    }
+    if (!formData.state) {
+      toast({ title: "Please select a state", variant: "destructive" });
       return;
     }
     if (!Number.isFinite(wage) || wage <= 0) {
@@ -2918,6 +2932,7 @@ function WageGradesManager({ companyId }: { companyId: string }) {
     }
     const payload = {
       name: formData.name,
+      state: formData.state,
       minimumWage: wage,
       effectiveFrom: formData.effectiveFrom,
     };
@@ -2932,6 +2947,7 @@ function WageGradesManager({ companyId }: { companyId: string }) {
     setEditingItem(g);
     setFormData({
       name: g.name,
+      state: g.state || "",
       minimumWage: String(g.minimumWage),
       effectiveFrom: g.effectiveFrom || "",
     });
@@ -2969,6 +2985,19 @@ function WageGradesManager({ companyId }: { companyId: string }) {
                 </Select>
               </div>
               <div>
+                <Label>State *</Label>
+                <Select value={formData.state} onValueChange={(v) => setFormData({ ...formData, state: v })}>
+                  <SelectTrigger data-testid="select-wage-grade-state">
+                    <SelectValue placeholder="Select state" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {STATE_OPTIONS.map((st) => (
+                      <SelectItem key={st} value={st}>{st}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
                 <Label>Minimum Wage (INR) *</Label>
                 <Input type="number" min="1" value={formData.minimumWage} onChange={(e) => setFormData({ ...formData, minimumWage: e.target.value })} placeholder="e.g. 18000" data-testid="input-wage-grade-min" />
               </div>
@@ -2996,6 +3025,7 @@ function WageGradesManager({ companyId }: { companyId: string }) {
             <TableHeader>
               <TableRow>
                 <TableHead>Grade</TableHead>
+                <TableHead>State</TableHead>
                 <TableHead>Minimum Wage (INR)</TableHead>
                 <TableHead>Effective From</TableHead>
                 <TableHead>Status</TableHead>
@@ -3006,6 +3036,7 @@ function WageGradesManager({ companyId }: { companyId: string }) {
               {grades.map((g) => (
                 <TableRow key={g.id} data-testid={`row-wage-grade-${g.id}`}>
                   <TableCell className="font-medium">{g.name}</TableCell>
+                  <TableCell>{g.state || "—"}</TableCell>
                   <TableCell>₹{g.minimumWage.toLocaleString("en-IN")}</TableCell>
                   <TableCell>{g.effectiveFrom || "—"}</TableCell>
                   <TableCell><Badge variant={g.status === "active" ? "default" : "secondary"}>{g.status}</Badge></TableCell>
