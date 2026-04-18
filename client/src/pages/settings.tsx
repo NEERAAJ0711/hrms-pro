@@ -15,7 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth";
-import type { Company, Setting, MasterDepartment, MasterDesignation, MasterLocation, EarningHead, DeductionHead, StatutorySettings, TimeOfficePolicy, Holiday } from "@shared/schema";
+import type { Company, Setting, MasterDepartment, MasterDesignation, MasterLocation, EarningHead, DeductionHead, StatutorySettings, TimeOfficePolicy, Holiday, WageGrade } from "@shared/schema";
 import { Textarea } from "@/components/ui/textarea";
 
 interface SettingFormData {
@@ -533,6 +533,7 @@ function MastersSettings({ companyId, selectedCompany, userRole }: { companyId: 
           <TabsTrigger value="locations">Locations</TabsTrigger>
           <TabsTrigger value="earnings">Earning Heads</TabsTrigger>
           <TabsTrigger value="deductions">Deduction Heads</TabsTrigger>
+          <TabsTrigger value="wage-grades">Wage Grades</TabsTrigger>
         </TabsList>
 
         <TabsContent value="departments">
@@ -549,6 +550,9 @@ function MastersSettings({ companyId, selectedCompany, userRole }: { companyId: 
         </TabsContent>
         <TabsContent value="deductions">
           <DeductionHeadsManager companyId={companyId!} />
+        </TabsContent>
+        <TabsContent value="wage-grades">
+          <WageGradesManager companyId={companyId!} />
         </TabsContent>
       </Tabs>
     </div>
@@ -2840,3 +2844,174 @@ function HolidayCalendarTab({ companyId, selectedCompany, userRole }: { companyI
     </div>
   );
 }
+
+function WageGradesManager({ companyId }: { companyId: string }) {
+  const { toast } = useToast();
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editingItem, setEditingItem] = useState<WageGrade | null>(null);
+  const [formData, setFormData] = useState({ name: "", code: "", minimumWage: "", description: "" });
+
+  const { data: grades = [], isLoading } = useQuery<WageGrade[]>({
+    queryKey: [`/api/wage-grades?companyId=${companyId}`],
+    queryFn: async () => {
+      const res = await fetch(`/api/wage-grades${companyId ? `?companyId=${companyId}` : ''}`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch wage grades");
+      return res.json();
+    },
+    enabled: !!companyId,
+  });
+
+  const invalidate = () => {
+    queryClient.invalidateQueries({ predicate: (q) => (q.queryKey[0] as string)?.includes("/api/wage-grades") });
+  };
+
+  const createMutation = useMutation({
+    mutationFn: (data: any) => apiRequest("POST", "/api/wage-grades", { ...data, companyId }),
+    onSuccess: () => {
+      invalidate();
+      toast({ title: "Wage grade created" });
+      setDialogOpen(false);
+      resetForm();
+    },
+    onError: (error: Error) => toast({ title: "Error", description: error.message, variant: "destructive" }),
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: any }) => apiRequest("PATCH", `/api/wage-grades/${id}`, data),
+    onSuccess: () => {
+      invalidate();
+      toast({ title: "Wage grade updated" });
+      setDialogOpen(false);
+      resetForm();
+    },
+    onError: (error: Error) => toast({ title: "Error", description: error.message, variant: "destructive" }),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => apiRequest("DELETE", `/api/wage-grades/${id}`),
+    onSuccess: () => {
+      invalidate();
+      toast({ title: "Wage grade deleted" });
+    },
+    onError: (error: Error) => toast({ title: "Error", description: error.message, variant: "destructive" }),
+  });
+
+  const resetForm = () => {
+    setFormData({ name: "", code: "", minimumWage: "", description: "" });
+    setEditingItem(null);
+  };
+
+  const handleSubmit = () => {
+    const wage = parseInt(formData.minimumWage, 10);
+    if (!formData.name.trim()) {
+      toast({ title: "Name is required", variant: "destructive" });
+      return;
+    }
+    if (!Number.isFinite(wage) || wage < 0) {
+      toast({ title: "Minimum wage must be a non-negative number", variant: "destructive" });
+      return;
+    }
+    const payload = {
+      name: formData.name.trim(),
+      code: formData.code.trim() || undefined,
+      minimumWage: wage,
+      description: formData.description.trim() || undefined,
+    };
+    if (editingItem) {
+      updateMutation.mutate({ id: editingItem.id, data: payload });
+    } else {
+      createMutation.mutate(payload);
+    }
+  };
+
+  const openEdit = (g: WageGrade) => {
+    setEditingItem(g);
+    setFormData({
+      name: g.name,
+      code: g.code || "",
+      minimumWage: String(g.minimumWage),
+      description: g.description || "",
+    });
+    setDialogOpen(true);
+  };
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between">
+        <div>
+          <CardTitle>Wage Grades</CardTitle>
+          <CardDescription>Define minimum-wage grades for this company</CardDescription>
+        </div>
+        <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) resetForm(); }}>
+          <Button onClick={() => { resetForm(); setDialogOpen(true); }} data-testid="button-add-wage-grade">
+            <Plus className="h-4 w-4 mr-2" /> Add Wage Grade
+          </Button>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>{editingItem ? "Edit Wage Grade" : "Add Wage Grade"}</DialogTitle>
+              <DialogDescription>Used to tag employees with a statutory minimum monthly wage.</DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div>
+                <Label>Name *</Label>
+                <Input value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} placeholder="e.g. Skilled" data-testid="input-wage-grade-name" />
+              </div>
+              <div>
+                <Label>Code</Label>
+                <Input value={formData.code} onChange={(e) => setFormData({ ...formData, code: e.target.value })} placeholder="e.g. SK" data-testid="input-wage-grade-code" />
+              </div>
+              <div>
+                <Label>Minimum Wage (INR / month) *</Label>
+                <Input type="number" min="0" value={formData.minimumWage} onChange={(e) => setFormData({ ...formData, minimumWage: e.target.value })} placeholder="e.g. 18000" data-testid="input-wage-grade-min" />
+              </div>
+              <div>
+                <Label>Description</Label>
+                <Textarea value={formData.description} onChange={(e) => setFormData({ ...formData, description: e.target.value })} placeholder="Optional notes" />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
+              <Button onClick={handleSubmit} disabled={createMutation.isPending || updateMutation.isPending} data-testid="button-save-wage-grade">
+                {editingItem ? "Update" : "Create"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <div className="text-center py-8 text-muted-foreground">Loading...</div>
+        ) : grades.length === 0 ? (
+          <div className="text-center py-8 text-muted-foreground">No wage grades yet. Click "Add Wage Grade" to create one.</div>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Name</TableHead>
+                <TableHead>Code</TableHead>
+                <TableHead>Minimum Wage (INR)</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead className="w-32">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {grades.map((g) => (
+                <TableRow key={g.id} data-testid={`row-wage-grade-${g.id}`}>
+                  <TableCell className="font-medium">{g.name}</TableCell>
+                  <TableCell>{g.code || "—"}</TableCell>
+                  <TableCell>{g.minimumWage.toLocaleString("en-IN")}</TableCell>
+                  <TableCell><Badge variant={g.status === "active" ? "default" : "secondary"}>{g.status}</Badge></TableCell>
+                  <TableCell>
+                    <Button variant="ghost" size="icon" onClick={() => openEdit(g)} data-testid={`button-edit-wage-grade-${g.id}`}><Pencil className="h-4 w-4" /></Button>
+                    <Button variant="ghost" size="icon" onClick={() => { if (confirm(`Delete wage grade "${g.name}"?`)) deleteMutation.mutate(g.id); }} data-testid={`button-delete-wage-grade-${g.id}`}><Trash2 className="h-4 w-4" /></Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+

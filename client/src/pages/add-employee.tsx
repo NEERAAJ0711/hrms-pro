@@ -30,7 +30,7 @@ import { z } from "zod";
 import { ArrowLeft, Save, User, Briefcase, FileText, Building2, MapPin, Upload, Trash2, Eye, Image, FileSignature, CreditCard, FolderOpen } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useLocation, useParams, useSearch } from "wouter";
-import type { Employee, Company, MasterDepartment, MasterDesignation, MasterLocation, TimeOfficePolicy } from "@shared/schema";
+import type { Employee, Company, MasterDepartment, MasterDesignation, MasterLocation, TimeOfficePolicy, WageGrade } from "@shared/schema";
 
 const employeeFormSchema = z.object({
   employeeCode: z.string().min(1, "Employee code is required"),
@@ -64,6 +64,7 @@ const employeeFormSchema = z.object({
   aadhaar: z.string().optional(),
   timeOfficePolicyId: z.string().optional(),
   biometricDeviceId: z.string().optional(),
+  wageGradeId: z.string().optional(),
   presentAddress: z.string().optional(),
   presentState: z.string().optional(),
   presentDistrict: z.string().optional(),
@@ -280,6 +281,15 @@ export default function AddEmployee() {
     },
   });
 
+  const { data: wageGrades = [] } = useQuery<WageGrade[]>({
+    queryKey: ["/api/wage-grades"],
+    queryFn: async () => {
+      const res = await fetch("/api/wage-grades", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch wage grades");
+      return res.json();
+    },
+  });
+
   const { data: existingEmployee } = useQuery<Employee>({
     queryKey: ["/api/employees", employeeId],
     enabled: isEditing,
@@ -304,6 +314,7 @@ export default function AddEmployee() {
       location: "",
       employmentType: "permanent",
       status: "active",
+      wageGradeId: "",
       pfApplicable: false,
       esiApplicable: false,
       lwfApplicable: false,
@@ -380,6 +391,7 @@ export default function AddEmployee() {
       aadhaar: existingEmployee.aadhaar || "",
       timeOfficePolicyId: existingEmployee.timeOfficePolicyId || "",
       biometricDeviceId: existingEmployee.biometricDeviceId || "",
+      wageGradeId: existingEmployee.wageGradeId || "",
       presentAddress: existingEmployee.presentAddress || "",
       presentState: existingEmployee.presentState || "",
       presentDistrict: existingEmployee.presentDistrict || "",
@@ -397,6 +409,7 @@ export default function AddEmployee() {
   const filteredDesignations = masterDesignations.filter(d => d.companyId === selectedCompanyId);
   const filteredLocations = masterLocations.filter(l => l.companyId === selectedCompanyId);
   const filteredPolicies = timeOfficePolicies.filter(p => p.companyId === selectedCompanyId && p.status === "active");
+  const filteredWageGrades = wageGrades.filter(g => g.companyId === selectedCompanyId && g.status === "active");
 
   const createMutation = useMutation({
     mutationFn: async (data: EmployeeFormValues) => {
@@ -455,6 +468,7 @@ export default function AddEmployee() {
       lastName,
       timeOfficePolicyId: data.timeOfficePolicyId || null,
       biometricDeviceId: data.biometricDeviceId || null,
+      wageGradeId: data.wageGradeId || null,
     };
     if (isEditing) {
       updateMutation.mutate(submitData as any);
@@ -892,6 +906,37 @@ export default function AddEmployee() {
                           <FormControl>
                             <Input placeholder="e.g. 1001" {...field} />
                           </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="wageGradeId"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Wage Grade</FormLabel>
+                          <Select onValueChange={(val) => field.onChange(val === "__none__" ? "" : val)} value={field.value || "__none__"}>
+                            <FormControl>
+                              <SelectTrigger data-testid="select-wage-grade">
+                                <SelectValue placeholder="Select wage grade" />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              <SelectItem value="__none__">None</SelectItem>
+                              {filteredWageGrades.length > 0 ? (
+                                filteredWageGrades.map((grade) => (
+                                  <SelectItem key={grade.id} value={grade.id}>
+                                    {grade.name} — ₹{grade.minimumWage.toLocaleString("en-IN")}
+                                  </SelectItem>
+                                ))
+                              ) : (
+                                <SelectItem value="_none_wg" disabled>
+                                  No wage grades configured — add in Settings
+                                </SelectItem>
+                              )}
+                            </SelectContent>
+                          </Select>
                           <FormMessage />
                         </FormItem>
                       )}

@@ -97,6 +97,7 @@ export const employees = pgTable("employees", {
   exitReason: text("exit_reason"),
   exitType: text("exit_type"),
   biometricDeviceId: text("biometric_device_id"),
+  wageGradeId: varchar("wage_grade_id", { length: 36 }),
   registeredFaceImage: text("registered_face_image"),
   fatherHusbandName: text("father_husband_name"),
   presentAddress: text("present_address"),
@@ -155,6 +156,25 @@ export const masterDesignations = pgTable("master_designations", {
 export const insertMasterDesignationSchema = createInsertSchema(masterDesignations).omit({ id: true });
 export type InsertMasterDesignation = z.infer<typeof insertMasterDesignationSchema>;
 export type MasterDesignation = typeof masterDesignations.$inferSelect;
+
+// Wage Grades table — per-company minimum-wage grades. Used to tag each
+// employee with the grade that determines their statutory minimum monthly
+// wage (e.g. "Skilled", "Semi-skilled", "Unskilled"). Stored in rupees as
+// an integer to match grossSalary semantics.
+export const wageGrades = pgTable("wage_grades", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  companyId: varchar("company_id", { length: 36 }).notNull(),
+  name: text("name").notNull(),
+  code: text("code"),
+  minimumWage: integer("minimum_wage").notNull(),
+  description: text("description"),
+  status: text("status").notNull().default("active"),
+});
+
+export const insertWageGradeSchema = createInsertSchema(wageGrades).omit({ id: true });
+export type InsertWageGrade = z.infer<typeof insertWageGradeSchema>;
+export type WageGrade = typeof wageGrades.$inferSelect;
+
 
 // Master Locations table (company-specific)
 export const masterLocations = pgTable("master_locations", {

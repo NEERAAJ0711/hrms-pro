@@ -20,6 +20,8 @@ import {
   type InsertSetting,
   type MasterDepartment,
   type InsertMasterDepartment,
+  type WageGrade,
+  type InsertWageGrade,
   type MasterDesignation,
   type InsertMasterDesignation,
   type MasterLocation,
@@ -61,6 +63,7 @@ import {
   payroll,
   settings,
   masterDepartments,
+  wageGrades,
   masterDesignations,
   masterLocations,
   earningHeads,
@@ -962,6 +965,35 @@ export class DatabaseStorage implements IStorage {
 
   async deleteLoanAdvance(id: string): Promise<boolean> {
     const result = await db.delete(loanAdvances).where(eq(loanAdvances.id, id)).returning();
+    return result.length > 0;
+  }
+
+  async getWageGrade(id: string): Promise<WageGrade | undefined> {
+    const result = await db.select().from(wageGrades).where(eq(wageGrades.id, id));
+    return result[0];
+  }
+
+  async getAllWageGrades(): Promise<WageGrade[]> {
+    return await db.select().from(wageGrades);
+  }
+
+  async getWageGradesByCompany(companyId: string): Promise<WageGrade[]> {
+    return await db.select().from(wageGrades).where(eq(wageGrades.companyId, companyId));
+  }
+
+  async createWageGrade(grade: InsertWageGrade): Promise<WageGrade> {
+    const id = randomUUID();
+    const result = await db.insert(wageGrades).values({ ...grade, id }).returning();
+    return result[0];
+  }
+
+  async updateWageGrade(id: string, grade: Partial<InsertWageGrade>): Promise<WageGrade | undefined> {
+    const result = await db.update(wageGrades).set(grade).where(eq(wageGrades.id, id)).returning();
+    return result[0];
+  }
+
+  async deleteWageGrade(id: string): Promise<boolean> {
+    const result = await db.delete(wageGrades).where(eq(wageGrades.id, id)).returning();
     return result.length > 0;
   }
 }

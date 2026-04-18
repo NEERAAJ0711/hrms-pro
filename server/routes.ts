@@ -29,7 +29,8 @@ import {
   insertHolidaySchema,
   insertBiometricDeviceSchema,
   insertJobPostingSchema,
-  insertJobApplicationSchema
+  insertJobApplicationSchema,
+  insertWageGradeSchema
 } from "@shared/schema";
 import { z } from "zod";
 import ZKLib from 'zkteco-js';
@@ -329,6 +330,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
     CREATE UNIQUE INDEX IF NOT EXISTS biometric_device_users_unique
       ON biometric_device_users (device_id, device_employee_id)
   `).catch((err) => console.error("[migrations] biometric_device_users_unique failed:", err));
+
+  // Mirror of migrations/009: per-company wage grades + employee tag column.
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS wage_grades (
+      id           VARCHAR(36) PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      company_id   VARCHAR(36) NOT NULL,
+      name         TEXT        NOT NULL,
+      code         TEXT,
+      minimum_wage INTEGER     NOT NULL,
+      description  TEXT,
+      status       TEXT        NOT NULL DEFAULT 'active'
+    )
+  `).catch((err) => console.error("[migrations] create wage_grades failed:", err));
+  await db.execute(sql`
+    CREATE INDEX IF NOT EXISTS wage_grades_company_idx ON wage_grades (company_id)
+  `).catch(() => {});
+  await db.execute(sql`
+    ALTER TABLE employees ADD COLUMN IF NOT EXISTS wage_grade_id VARCHAR(36)
+  `).catch((err) => console.error("[migrations] add employees.wage_grade_id failed:", err));
 
   // Create employee_documents table if not exists
   await db.execute(sql`
@@ -3269,6 +3289,91 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ success });
     } catch (error) {
       res.status(500).json({ error: "Failed to delete designation" });
+    }
+  });
+
+  // ===== Wage Grades Routes =====
+  // Authz: GET filtered by user's companyId unless super_admin; mutations
+  // require masters module access AND record-level company ownership.
+  const canTouchWageGrade = (user: { role?: string; companyId?: string | null }, companyId: string) =>
+    user.role === "super_admin" || (!!user.companyId && user.companyId === companyId);
+
+  app.get("/api/wage-grades", requireAuth, requireModuleAccess("masters"), async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const { companyId } = req.query;
+      if (companyId) {
+        if (!canTouchWageGrade(user, companyId as string)) {
+          return res.status(403).json({ error: "Forbidden" });
+        }
+        return res.json(await storage.getWageGradesByCompany(companyId as string));
+      }
+      if (user.role === "super_admin") {
+        return res.json(await storage.getAllWageGrades());
+      }
+      if (user.companyId) {
+        return res.json(await storage.getWageGradesByCompany(user.companyId));
+      }
+      res.json([]);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch wage grades" });
+    }
+  });
+
+  app.post("/api/wage-grades", requireAuth, requireModuleAccess("masters"), async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const data = insertWageGradeSchema.parse(req.body);
+      if (!canTouchWageGrade(user, data.companyId)) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
+      const grade = await storage.createWageGrade(data);
+      res.status(201).json(grade);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: "Invalid wage grade", details: error.errors });
+      }
+      res.status(500).json({ error: "Failed to create wage grade" });
+    }
+  });
+
+  app.patch("/api/wage-grades/:id", requireAuth, requireModuleAccess("masters"), async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const existing = await storage.getWageGrade(req.params.id);
+      if (!existing) return res.status(404).json({ error: "Wage grade not found" });
+      if (!canTouchWageGrade(user, existing.companyId)) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
+      const data = insertWageGradeSchema.partial().parse(req.body);
+      // Forbid moving a grade to a different company
+      if (data.companyId && !canTouchWageGrade(user, data.companyId)) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
+      const updated = await storage.updateWageGrade(req.params.id, data);
+      if (!updated) return res.status(404).json({ error: "Wage grade not found" });
+      res.json(updated);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: "Invalid wage grade", details: error.errors });
+      }
+      res.status(500).json({ error: "Failed to update wage grade" });
+    }
+  });
+
+  app.delete("/api/wage-grades/:id", requireAuth, requireModuleAccess("masters"), async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const existing = await storage.getWageGrade(req.params.id);
+      if (!existing) return res.status(404).json({ error: "Wage grade not found" });
+      if (!canTouchWageGrade(user, existing.companyId)) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
+      const success = await storage.deleteWageGrade(req.params.id);
+      if (!success) return res.status(404).json({ error: "Wage grade not found" });
+      res.json({ success });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete wage grade" });
     }
   });
 

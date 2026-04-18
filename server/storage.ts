@@ -22,6 +22,8 @@ import {
   type InsertMasterDepartment,
   type MasterDesignation,
   type InsertMasterDesignation,
+  type WageGrade,
+  type InsertWageGrade,
   type MasterLocation,
   type InsertMasterLocation,
   type EarningHead,
@@ -152,6 +154,14 @@ export interface IStorage {
   createMasterDesignation(desg: InsertMasterDesignation): Promise<MasterDesignation>;
   updateMasterDesignation(id: string, desg: Partial<InsertMasterDesignation>): Promise<MasterDesignation | undefined>;
   deleteMasterDesignation(id: string): Promise<boolean>;
+  // Wage Grades
+  getAllWageGrades(): Promise<WageGrade[]>;
+  getWageGradesByCompany(companyId: string): Promise<WageGrade[]>;
+  getWageGrade(id: string): Promise<WageGrade | undefined>;
+  createWageGrade(grade: InsertWageGrade): Promise<WageGrade>;
+  updateWageGrade(id: string, grade: Partial<InsertWageGrade>): Promise<WageGrade | undefined>;
+  deleteWageGrade(id: string): Promise<boolean>;
+
 
   // Master Locations
   getMasterLocation(id: string): Promise<MasterLocation | undefined>;
@@ -284,6 +294,7 @@ export class MemStorage implements IStorage {
   private settingsMap: Map<string, Setting>;
   private masterDepartmentsMap: Map<string, MasterDepartment>;
   private masterDesignationsMap: Map<string, MasterDesignation>;
+  private wageGradesMap: Map<string, WageGrade>;
   private masterLocationsMap: Map<string, MasterLocation>;
   private earningHeadsMap: Map<string, EarningHead>;
   private deductionHeadsMap: Map<string, DeductionHead>;
@@ -311,6 +322,7 @@ export class MemStorage implements IStorage {
     this.settingsMap = new Map();
     this.masterDepartmentsMap = new Map();
     this.masterDesignationsMap = new Map();
+    this.wageGradesMap = new Map();
     this.masterLocationsMap = new Map();
     this.earningHeadsMap = new Map();
     this.deductionHeadsMap = new Map();
@@ -975,6 +987,46 @@ export class MemStorage implements IStorage {
 
   async deleteMasterDesignation(id: string): Promise<boolean> {
     return this.masterDesignationsMap.delete(id);
+  }
+
+  // Wage Grades methods
+  async getWageGrade(id: string): Promise<WageGrade | undefined> {
+    return this.wageGradesMap.get(id);
+  }
+
+  async getAllWageGrades(): Promise<WageGrade[]> {
+    return Array.from(this.wageGradesMap.values());
+  }
+
+  async getWageGradesByCompany(companyId: string): Promise<WageGrade[]> {
+    return Array.from(this.wageGradesMap.values()).filter(
+      (g) => g.companyId === companyId
+    );
+  }
+
+  async createWageGrade(insertGrade: InsertWageGrade): Promise<WageGrade> {
+    const id = randomUUID();
+    const grade: WageGrade = {
+      ...insertGrade,
+      id,
+      code: insertGrade.code ?? null,
+      description: insertGrade.description ?? null,
+      status: insertGrade.status ?? "active",
+    };
+    this.wageGradesMap.set(id, grade);
+    return grade;
+  }
+
+  async updateWageGrade(id: string, updates: Partial<InsertWageGrade>): Promise<WageGrade | undefined> {
+    const grade = this.wageGradesMap.get(id);
+    if (!grade) return undefined;
+    const updated = { ...grade, ...updates };
+    this.wageGradesMap.set(id, updated);
+    return updated;
+  }
+
+  async deleteWageGrade(id: string): Promise<boolean> {
+    return this.wageGradesMap.delete(id);
   }
 
   // Master Locations methods
