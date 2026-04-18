@@ -936,39 +936,7 @@ export default function PayrollPage() {
                                 ? wageGrades.find(g => g.id === emp.wageGradeId && g.status === "active")
                                 : undefined;
                               if (grade) {
-                                const companyId = form.getValues("companyId");
-                                const alreadyExists = salaryStructures.some(
-                                  s => s.employeeId === value && s.companyId === companyId
-                                );
-                                const basic = grade.minimumWage;
-                                const gross = basic;
-                                const statutory = calculateStatutoryDeductions(companyId, value, basic, gross);
-                                const totalDed = statutory.pfEmployee + statutory.esi + statutory.pt + statutory.lwfEmployee;
-                                const net = Math.max(0, gross - totalDed);
-                                if (!alreadyExists) {
-                                  createStructureMutation.mutate({
-                                    employeeId: value,
-                                    companyId,
-                                    basicSalary: basic,
-                                    hra: 0,
-                                    conveyance: 0,
-                                    medicalAllowance: 0,
-                                    specialAllowance: 0,
-                                    otherAllowances: 0,
-                                    grossSalary: gross,
-                                    pfEmployee: statutory.pfEmployee,
-                                    pfEmployer: statutory.pfEmployer,
-                                    esi: statutory.esi,
-                                    professionalTax: statutory.pt,
-                                    lwfEmployee: statutory.lwfEmployee,
-                                    tds: 0,
-                                    otherDeductions: 0,
-                                    netSalary: net,
-                                    effectiveFrom: format(new Date(), "yyyy-MM-dd"),
-                                  });
-                                  return;
-                                }
-                                form.setValue("basicSalary", basic, { shouldDirty: true, shouldValidate: true });
+                                form.setValue("basicSalary", grade.minimumWage, { shouldDirty: true, shouldValidate: true });
                               }
                             }
                             calculateSalary();

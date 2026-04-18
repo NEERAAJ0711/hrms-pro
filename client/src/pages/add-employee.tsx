@@ -30,7 +30,7 @@ import { z } from "zod";
 import { ArrowLeft, Save, User, Briefcase, FileText, Building2, MapPin, Upload, Trash2, Eye, Image, FileSignature, CreditCard, FolderOpen } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useLocation, useParams, useSearch } from "wouter";
-import type { Employee, Company, MasterDepartment, MasterDesignation, MasterLocation, TimeOfficePolicy, WageGrade } from "@shared/schema";
+import type { Employee, Company, MasterDepartment, MasterDesignation, MasterLocation, TimeOfficePolicy, WageGrade, StatutorySettings } from "@shared/schema";
 
 const employeeFormSchema = z.object({
   employeeCode: z.string().min(1, "Employee code is required"),
@@ -290,6 +290,16 @@ export default function AddEmployee() {
     },
   });
 
+  const { data: statutorySettingsList = [] } = useQuery<StatutorySettings[]>({
+    queryKey: ["/api/statutory-settings"],
+    queryFn: async () => {
+      const res = await fetch("/api/statutory-settings", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch statutory settings");
+      const data = await res.json();
+      return Array.isArray(data) ? data : [data];
+    },
+  });
+
   const { data: existingEmployee } = useQuery<Employee>({
     queryKey: ["/api/employees", employeeId],
     enabled: isEditing,
@@ -411,17 +421,88 @@ export default function AddEmployee() {
   const filteredPolicies = timeOfficePolicies.filter(p => p.companyId === selectedCompanyId && p.status === "active");
   const filteredWageGrades = wageGrades.filter(g => g.companyId === selectedCompanyId && g.status === "active");
 
+  const autoCreateSalaryStructure = async (emp: any, gradeId: string) => {
+    const grade = wageGrades.find(g => g.id === gradeId && g.status === "active");
+    if (!grade) return;
+    const settings = statutorySettingsList.find(s => s.companyId === emp.companyId);
+    const basic = grade.minimumWage;
+    const gross = basic;
+
+    let pfEmployee = 0, pfEmployer = 0, esi = 0, pt = 0, lwfEmployee = 0;
+
+    if (settings?.pfEnabled && emp.pfApplicable) {
+      const pfBase = Math.min(basic, Number(settings.pfWageCeiling) || 15000);
+      pfEmployee = Math.round(pfBase * (Number(settings.pfEmployeePercent) || 12) / 100);
+      pfEmployer = Math.round(pfBase * (Number(settings.pfEmployerPercent) || 12) / 100);
+    }
+
+    if (settings?.esicEnabled && emp.esiApplicable) {
+      const wageCeiling = Number(settings.esicWageCeiling) || 21000;
+      const percent = Number(settings.esicEmployeePercent) || 75;
+      if (gross <= wageCeiling) {
+        const esicBase = settings.esicCalcOnGross
+          ? Math.min(gross, wageCeiling)
+          : Math.min(Math.max(basic, gross * 0.5), wageCeiling);
+        esi = Math.round(esicBase * percent / 10000);
+      }
+    }
+
+    if (settings?.ptEnabled) {
+      pt = Math.min(Number(settings.ptMaxAmount) || 200, 200);
+    }
+
+    if (settings?.lwfEnabled && emp.lwfApplicable) {
+      const lwfBase = settings.lwfCalculationBase === "basic" ? basic : gross;
+      const empPercent = Number(settings.lwfEmployeePercent) || 20;
+      const empCap = Number(settings.lwfEmployeeMaxCap) || 34;
+      lwfEmployee = Math.min(Math.round(lwfBase * empPercent / 10000), empCap);
+    }
+
+    const totalDeductions = pfEmployee + esi + pt + lwfEmployee;
+    const net = Math.max(0, gross - totalDeductions);
+
+    const today = new Date().toISOString().slice(0, 10);
+    try {
+      await apiRequest("POST", "/api/salary-structures", {
+        employeeId: emp.id,
+        companyId: emp.companyId,
+        basicSalary: basic,
+        hra: 0,
+        conveyance: 0,
+        medicalAllowance: 0,
+        specialAllowance: 0,
+        otherAllowances: 0,
+        grossSalary: gross,
+        pfEmployee,
+        pfEmployer,
+        esi,
+        professionalTax: pt,
+        lwfEmployee,
+        tds: 0,
+        otherDeductions: 0,
+        netSalary: net,
+        effectiveFrom: today,
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/salary-structures"] });
+    } catch (_) {}
+  };
+
   const createMutation = useMutation({
     mutationFn: async (data: EmployeeFormValues) => {
       const res = await apiRequest("POST", "/api/employees", data);
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: async (createdEmployee: any) => {
+      if (createdEmployee?.id && createdEmployee?.wageGradeId) {
+        await autoCreateSalaryStructure(createdEmployee, createdEmployee.wageGradeId);
+      }
       queryClient.invalidateQueries({ queryKey: ["/api/employees"] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
       toast({
         title: "Employee Added",
-        description: "The employee has been successfully added.",
+        description: createdEmployee?.wageGradeId
+          ? "Employee added and salary structure created from minimum wage."
+          : "The employee has been successfully added.",
       });
       setLocation("/employees");
     },
@@ -439,12 +520,19 @@ export default function AddEmployee() {
       const res = await apiRequest("PATCH", `/api/employees/${employeeId}`, data);
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: async (updatedEmployee: any) => {
+      const prevGradeId = existingEmployee?.wageGradeId;
+      const newGradeId = updatedEmployee?.wageGradeId;
+      if (updatedEmployee?.id && newGradeId && newGradeId !== prevGradeId) {
+        await autoCreateSalaryStructure(updatedEmployee, newGradeId);
+      }
       queryClient.invalidateQueries({ queryKey: ["/api/employees"] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
       toast({
         title: "Employee Updated",
-        description: "The employee has been successfully updated.",
+        description: (newGradeId && newGradeId !== prevGradeId)
+          ? "Employee updated and new salary structure created from minimum wage."
+          : "The employee has been successfully updated.",
       });
       setLocation("/employees");
     },
