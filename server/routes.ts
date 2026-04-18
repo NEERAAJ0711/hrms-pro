@@ -350,6 +350,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     ALTER TABLE employees ADD COLUMN IF NOT EXISTS wage_grade_id VARCHAR(36)
   `).catch((err) => console.error("[migrations] add employees.wage_grade_id failed:", err));
   await db.execute(sql`
+    ALTER TABLE employees ADD COLUMN IF NOT EXISTS ot_applicable BOOLEAN DEFAULT false
+  `).catch((err) => console.error("[migrations] add employees.ot_applicable failed:", err));
+  await db.execute(sql`
+    ALTER TABLE employees ADD COLUMN IF NOT EXISTS ot_rate TEXT DEFAULT '2x'
+  `).catch((err) => console.error("[migrations] add employees.ot_rate failed:", err));
+  await db.execute(sql`
     ALTER TABLE wage_grades ADD COLUMN IF NOT EXISTS period TEXT
   `).catch((err) => console.error("[migrations] add wage_grades.period failed:", err));
   await db.execute(sql`

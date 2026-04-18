@@ -688,12 +688,15 @@ export default function PayrollPage() {
           monthlyBonus = Math.round(fullMonthBonus * prorationFactor);
         }
         
-        // OT Amount: (grossSalary rate per day / 8 hours) × 2 × OT hours
-        // Use structure.grossSalary (full month rate) / workingDays for daily rate
+        // OT Amount: (grossSalary / workingDays / 8) × otMultiplier × OT hours
+        // otMultiplier = 1 for 1X rate, 2 for 2X rate (default)
+        const otMultiplier = (emp as any).otApplicable
+          ? ((emp as any).otRate === "1x" ? 1 : 2)
+          : 2;
         const otRatePerHour = workingDays > 0
-          ? Math.round((structure.grossSalary / workingDays / 8) * 2)
+          ? Math.round((structure.grossSalary / workingDays / 8) * otMultiplier)
           : 0;
-        const otAmount = Math.round(otRatePerHour * totalOtHours);
+        const otAmount = (emp as any).otApplicable ? Math.round(otRatePerHour * totalOtHours) : 0;
 
         const totalEarnings = grossSalary + monthlyBonus + otAmount;
 

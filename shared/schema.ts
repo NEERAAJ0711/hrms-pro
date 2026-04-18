@@ -88,6 +88,8 @@ export const employees = pgTable("employees", {
   lwfApplicable: boolean("lwf_applicable").default(false),
   bonusApplicable: boolean("bonus_applicable").default(false),
   bonusPaidMonthly: boolean("bonus_paid_monthly").default(false),
+  otApplicable: boolean("ot_applicable").default(false),
+  otRate: text("ot_rate").default("2x"),
   bankAccount: text("bank_account"),
   ifsc: text("ifsc"),
   pan: text("pan"),

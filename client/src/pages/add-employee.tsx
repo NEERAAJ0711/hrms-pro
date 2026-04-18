@@ -58,6 +58,8 @@ const employeeFormSchema = z.object({
   lwfApplicable: z.boolean().default(false),
   bonusApplicable: z.boolean().default(false),
   bonusPaidMonthly: z.boolean().default(false),
+  otApplicable: z.boolean().default(false),
+  otRate: z.string().default("2x"),
   bankAccount: z.string().optional(),
   ifsc: z.string().optional(),
   pan: z.string().optional(),
@@ -330,6 +332,8 @@ export default function AddEmployee() {
       lwfApplicable: false,
       bonusApplicable: false,
       bonusPaidMonthly: false,
+      otApplicable: false,
+      otRate: "2x",
       aadhaar: searchParams.get("aadhaar") || "",
       pan: searchParams.get("pan") || "",
       bankAccount: searchParams.get("bankAccount") || "",
@@ -395,6 +399,8 @@ export default function AddEmployee() {
       lwfApplicable: existingEmployee.lwfApplicable || false,
       bonusApplicable: existingEmployee.bonusApplicable || false,
       bonusPaidMonthly: existingEmployee.bonusPaidMonthly || false,
+      otApplicable: (existingEmployee as any).otApplicable || false,
+      otRate: (existingEmployee as any).otRate || "2x",
       bankAccount: existingEmployee.bankAccount || "",
       ifsc: existingEmployee.ifsc || "",
       pan: existingEmployee.pan || "",
@@ -1190,6 +1196,56 @@ export default function AddEmployee() {
                                   Bonus is included in monthly payroll instead of annual payout
                                 </p>
                               </div>
+                            </FormItem>
+                          )}
+                        />
+                      )}
+                    </div>
+
+                    <div className="space-y-4">
+                      <FormField
+                        control={form.control}
+                        name="otApplicable"
+                        render={({ field }) => (
+                          <FormItem className="flex flex-row items-center gap-3 space-y-0 rounded-lg border p-4">
+                            <FormControl>
+                              <Checkbox
+                                checked={field.value}
+                                onCheckedChange={field.onChange}
+                                data-testid="checkbox-ot"
+                              />
+                            </FormControl>
+                            <div className="space-y-1 leading-none">
+                              <FormLabel className="font-medium">OT Applicable</FormLabel>
+                              <p className="text-sm text-muted-foreground">
+                                Employee is eligible for overtime pay
+                              </p>
+                            </div>
+                          </FormItem>
+                        )}
+                      />
+                      {form.watch("otApplicable") && (
+                        <FormField
+                          control={form.control}
+                          name="otRate"
+                          render={({ field }) => (
+                            <FormItem className="ml-6">
+                              <FormLabel>OT Rate</FormLabel>
+                              <Select onValueChange={field.onChange} value={field.value}>
+                                <FormControl>
+                                  <SelectTrigger data-testid="select-ot-rate">
+                                    <SelectValue placeholder="Select OT rate" />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  <SelectItem value="1x">1X — Single rate (basic hourly rate)</SelectItem>
+                                  <SelectItem value="2x">2X — Double rate (overtime premium)</SelectItem>
+                                </SelectContent>
+                              </Select>
+                              <p className="text-xs text-muted-foreground mt-1">
+                                OT pay = (Gross ÷ Working days ÷ 8 hrs) × {field.value === "1x" ? "1" : "2"} × OT hours
+                              </p>
+                              <FormMessage />
                             </FormItem>
                           )}
                         />
