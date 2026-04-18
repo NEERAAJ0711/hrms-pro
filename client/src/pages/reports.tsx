@@ -223,12 +223,12 @@ export default function ReportsPage() {
           if (settings.esicEnabled && emp.esiApplicable) {
             const wageCeiling = Number(settings.esicWageCeiling) || 21000;
             const esicPercent = Number(settings.esicEmployeePercent) || 75;
-            if (settings.esicCalcOnGross) {
-              if (gross <= wageCeiling) {
+            // Eligibility on contracted salary; deduction on earned/prorated salary
+            const contractedGross = ss?.grossSalary || gross;
+            if (contractedGross <= wageCeiling) {
+              if (settings.esicCalcOnGross) {
                 esi = Math.round(Math.min(gross, wageCeiling) * esicPercent / 10000);
-              }
-            } else {
-              if (gross * 0.5 <= wageCeiling) {
+              } else {
                 const esicBase = Math.min(Math.max(basic, gross * 0.5), wageCeiling);
                 esi = Math.round(esicBase * esicPercent / 10000);
               }
@@ -832,12 +832,12 @@ export default function ReportsPage() {
       const erPercent = Number(settings?.esicEmployerPercent) || 325;
       const esiEE = c.esi;
       let esiER = 0;
-      if (settings?.esicCalcOnGross) {
-        if (c.grossSalary <= wageCeiling) {
+      // Eligibility on contracted salary; employer contribution on earned/prorated salary
+      const contractedGross = ss?.grossSalary || c.grossSalary;
+      if (contractedGross <= wageCeiling) {
+        if (settings?.esicCalcOnGross) {
           esiER = Math.round(Math.min(c.grossSalary, wageCeiling) * erPercent / 10000);
-        }
-      } else {
-        if (c.grossSalary * 0.5 <= wageCeiling) {
+        } else {
           const esicBase = Math.min(Math.max(c.basicSalary, c.grossSalary * 0.5), wageCeiling);
           esiER = Math.round(esicBase * erPercent / 10000);
         }
@@ -1910,12 +1910,12 @@ export default function ReportsPage() {
       const erPercent = Number(settings?.esicEmployerPercent) || 325;
       const esiEE = c.esi;
       let esiER = 0;
-      if (settings?.esicCalcOnGross) {
-        if (c.grossSalary <= wageCeiling) {
+      // Eligibility on contracted salary; employer contribution on earned/prorated salary
+      const contractedGrossV = ss?.grossSalary || c.grossSalary;
+      if (contractedGrossV <= wageCeiling) {
+        if (settings?.esicCalcOnGross) {
           esiER = Math.round(Math.min(c.grossSalary, wageCeiling) * erPercent / 10000);
-        }
-      } else {
-        if (c.grossSalary * 0.5 <= wageCeiling) {
+        } else {
           const esicBase = Math.min(Math.max(c.basicSalary, c.grossSalary * 0.5), wageCeiling);
           esiER = Math.round(esicBase * erPercent / 10000);
         }

@@ -629,19 +629,17 @@ export default function PayrollPage() {
         if (settings?.esicEnabled && emp.esiApplicable) {
           const wageCeiling = Number(settings.esicWageCeiling) || 21000;
           const percent = Number(settings.esicEmployeePercent) || 75;
-          // "actual" = ESIC eligibility and base use full contracted salary (not prorated)
-          const esicGross = esicType === "actual" ? structure.grossSalary : grossSalary;
-          const esicBasic = esicType === "actual" ? structure.basicSalary : basicSalary;
-          if (settings.esicCalcOnGross) {
-            // ESIC calculated on gross salary
-            if (esicGross <= wageCeiling) {
-              const esicBase = Math.min(esicGross, wageCeiling);
+          // Eligibility: always check contracted gross (determines coverage regardless of attendance)
+          // Deduction base: always on earned/prorated salary (actual wages paid for the period)
+          const eligibilityGross = structure.grossSalary;
+          if (eligibilityGross <= wageCeiling) {
+            if (settings.esicCalcOnGross) {
+              // Old Setup: ESIC on earned gross salary
+              const esicBase = Math.min(grossSalary, wageCeiling);
               esi = Math.round(esicBase * percent / 10000);
-            }
-          } else {
-            // New Rule (Jan 2026): ESIC base = higher of Basic or 50% of Gross, capped at ceiling
-            if (esicGross <= wageCeiling) {
-              const esicBase = Math.min(Math.max(esicBasic, esicGross * 0.5), wageCeiling);
+            } else {
+              // New Rule (Jan 2026): base = higher of earned Basic or 50% of earned Gross, capped at ceiling
+              const esicBase = Math.min(Math.max(basicSalary, grossSalary * 0.5), wageCeiling);
               esi = Math.round(esicBase * percent / 10000);
             }
           }
