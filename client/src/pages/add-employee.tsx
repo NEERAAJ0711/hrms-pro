@@ -1243,7 +1243,7 @@ export default function AddEmployee() {
                                 </SelectContent>
                               </Select>
                               <p className="text-xs text-muted-foreground mt-1">
-                                OT pay = (Gross ÷ Working days ÷ 8 hrs) × {field.value === "1x" ? "1" : "2"} × OT hours
+                                OT pay = (Gross ÷ 26 days ÷ 8 hrs) × {field.value === "1x" ? "1" : "2"} × OT hours &nbsp;(India statutory base)
                               </p>
                               <FormMessage />
                             </FormItem>

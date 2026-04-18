@@ -688,15 +688,19 @@ export default function PayrollPage() {
           monthlyBonus = Math.round(fullMonthBonus * prorationFactor);
         }
         
-        // OT Amount: (grossSalary / workingDays / 8) × otMultiplier × OT hours
-        // otMultiplier = 1 for 1X rate, 2 for 2X rate (default)
+        // OT Amount per India standard: (Gross ÷ 26 working days ÷ 8 hrs) × multiplier × OT hours
+        // 26 is the statutory base for OT calculation (Factories Act / Min Wages Act)
+        // multiplier: 1X = single rate, 2X = double rate (overtime premium)
+        const OT_BASE_DAYS = 26;
         const otMultiplier = (emp as any).otApplicable
           ? ((emp as any).otRate === "1x" ? 1 : 2)
-          : 2;
-        const otRatePerHour = workingDays > 0
-          ? Math.round((structure.grossSalary / workingDays / 8) * otMultiplier)
           : 0;
-        const otAmount = (emp as any).otApplicable ? Math.round(otRatePerHour * totalOtHours) : 0;
+        const otRatePerHour = otMultiplier > 0
+          ? Math.round((structure.grossSalary / OT_BASE_DAYS / 8) * otMultiplier * 100) / 100
+          : 0;
+        const otAmount = (emp as any).otApplicable
+          ? Math.round(otRatePerHour * totalOtHours)
+          : 0;
 
         const totalEarnings = grossSalary + monthlyBonus + otAmount;
 
