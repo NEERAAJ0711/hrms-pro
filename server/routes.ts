@@ -663,39 +663,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // ===== Employee Bulk Upload =====
   app.get("/api/employees/bulk-template", requireAuth, requireModuleAccess("employees"), (req, res) => {
+    // Columns marked * are required; all others are optional.
     const templateData = [
       {
-        "Employee Code": "EMP001",
-        "First Name": "John",
-        "Last Name": "Doe",
+        "Employee Code *": "EMP001",
+        "Full Name *": "Rajesh Kumar Sharma",
+        "Father / Husband Name": "Ram Kumar Sharma",
         "Gender": "Male",
         "Date of Birth": "1990-01-15",
         "Mobile Number": "9876543210",
-        "Official Email": "john@company.com",
-        "Date of Joining": "2024-01-01",
-        "Department": "Engineering",
-        "Designation": "Software Engineer",
-        "Location": "Mumbai",
+        "Date of Joining *": "2024-01-01",
+        "Department": "Production",
+        "Designation": "Supervisor",
         "Employment Type": "permanent",
-        "Gross Salary": 50000,
         "Payment Mode": "bank",
-        "PF Applicable": "Yes",
         "UAN": "",
-        "ESI Applicable": "No",
         "ESI Number": "",
         "PT State": "Maharashtra",
-        "LWF Applicable": "No",
         "Bonus Applicable": "Yes",
         "Bonus Paid Monthly": "No",
         "Bank Account": "1234567890",
         "IFSC": "SBIN0001234",
         "PAN": "ABCDE1234F",
         "Aadhaar": "123456789012",
-        "Biometric Device ID": "",
       }
     ];
     const ws = XLSX.utils.json_to_sheet(templateData);
-    const colWidths = Object.keys(templateData[0]).map(k => ({ wch: Math.max(k.length + 2, 18) }));
+    // Set column widths
+    const colWidths = Object.keys(templateData[0]).map(k => ({ wch: Math.max(k.length + 4, 20) }));
     ws['!cols'] = colWidths;
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Employees");
@@ -731,13 +726,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const row = rows[i];
         const rowNum = i + 2;
         try {
-          const employeeCode = String(row["Employee Code"] || "").trim();
-          const firstName = String(row["First Name"] || "").trim();
-          const lastName = String(row["Last Name"] || "").trim();
-          const dateOfJoining = String(row["Date of Joining"] || "").trim();
+          // Support both new format ("Employee Code *") and old format ("Employee Code")
+          const employeeCode = String(row["Employee Code *"] || row["Employee Code"] || "").trim();
 
-          if (!employeeCode || !firstName || !lastName || !dateOfJoining) {
-            results.errors.push(`Row ${rowNum}: Missing required fields (Employee Code, First Name, Last Name, Date of Joining)`);
+          // Support new "Full Name *" column as well as legacy "First Name" + "Last Name"
+          const fullNameRaw = String(row["Full Name *"] || row["Full Name"] || "").trim();
+          let firstName = String(row["First Name"] || "").trim();
+          let lastName = String(row["Last Name"] || "").trim();
+          if (fullNameRaw) {
+            const parts = fullNameRaw.split(/\s+/);
+            firstName = parts[0];
+            lastName = parts.length > 1 ? parts.slice(1).join(" ") : parts[0];
+          }
+
+          const dateOfJoining = String(row["Date of Joining *"] || row["Date of Joining"] || "").trim();
+
+          if (!employeeCode || !firstName || !dateOfJoining) {
+            results.errors.push(`Row ${rowNum}: Missing required fields (Employee Code, Full Name, Date of Joining)`);
             results.skipped++;
             continue;
           }
@@ -806,30 +811,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
             companyId,
             firstName,
             lastName,
+            fatherHusbandName: String(row["Father / Husband Name"] || row["Father Name"] || "").trim() || null,
             gender: String(row["Gender"] || "").trim() || null,
             dateOfBirth: String(row["Date of Birth"] || "").trim() || null,
             mobileNumber: String(row["Mobile Number"] || "").trim() || null,
-            officialEmail: String(row["Official Email"] || "").trim() || null,
             dateOfJoining,
             department: String(row["Department"] || "").trim() || null,
             designation: String(row["Designation"] || "").trim() || null,
-            location: String(row["Location"] || "").trim() || null,
             employmentType: String(row["Employment Type"] || "permanent").trim(),
-            grossSalary: row["Gross Salary"] ? Number(row["Gross Salary"]) : null,
             paymentMode: String(row["Payment Mode"] || "").trim() || null,
-            pfApplicable: yesNo(row["PF Applicable"]),
-            uan: String(row["UAN"] || "").trim() || null,
-            esiApplicable: yesNo(row["ESI Applicable"]),
-            esiNumber: String(row["ESI Number"] || "").trim() || null,
+            pfApplicable: true,
+            uan: uanVal || null,
+            esiApplicable: true,
+            esiNumber: esiVal || null,
             ptState: String(row["PT State"] || "").trim() || null,
-            lwfApplicable: yesNo(row["LWF Applicable"]),
+            lwfApplicable: false,
             bonusApplicable: yesNo(row["Bonus Applicable"]),
             bonusPaidMonthly: yesNo(row["Bonus Paid Monthly"]),
-            bankAccount: String(row["Bank Account"] || "").trim() || null,
+            bankAccount: bankVal || null,
             ifsc: String(row["IFSC"] || "").trim() || null,
-            pan: String(row["PAN"] || "").trim() || null,
+            pan: panVal || null,
             aadhaar: aadhaar || null,
-            biometricDeviceId: String(row["Biometric Device ID"] || "").trim() || null,
             status: "active",
           };
 

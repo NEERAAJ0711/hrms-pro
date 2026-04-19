@@ -852,10 +852,27 @@ export default function Employees() {
           </DialogHeader>
 
           <div className="space-y-4">
+            {/* Required / optional column guide */}
+            <div className="rounded-lg border bg-muted/40 p-3 text-xs space-y-1">
+              <p className="font-semibold text-foreground mb-1">Required columns (marked * in template)</p>
+              <div className="flex flex-wrap gap-1">
+                {["Employee Code *", "Full Name *", "Date of Joining *"].map(c => (
+                  <span key={c} className="bg-primary/10 text-primary rounded px-2 py-0.5 font-mono">{c}</span>
+                ))}
+              </div>
+              <p className="font-semibold text-foreground mt-2 mb-1">Optional columns</p>
+              <div className="flex flex-wrap gap-1 text-muted-foreground">
+                {["Father / Husband Name","Gender","Date of Birth","Mobile Number","Department","Designation","Employment Type","Payment Mode","UAN","ESI Number","PT State","Bonus Applicable","Bank Account","IFSC","PAN","Aadhaar"].map(c => (
+                  <span key={c} className="bg-muted rounded px-1.5 py-0.5 font-mono">{c}</span>
+                ))}
+              </div>
+              <p className="text-muted-foreground mt-1">PF, ESIC & LWF are set automatically. Date format: <span className="font-mono">YYYY-MM-DD</span>. Bonus Applicable: <span className="font-mono">Yes / No</span>.</p>
+            </div>
+
             <div className="border-2 border-dashed border-muted-foreground/25 rounded-lg p-6 text-center">
               <FileSpreadsheet className="h-10 w-10 mx-auto mb-3 text-muted-foreground" />
               <p className="text-sm text-muted-foreground mb-3">
-                Upload an Excel file (.xlsx) with employee data
+                Download the template, fill in employee data, then upload
               </p>
               <input
                 ref={fileInputRef}
