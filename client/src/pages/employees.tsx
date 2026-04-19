@@ -1026,7 +1026,7 @@ export default function Employees() {
                   <span key={c} className="bg-muted rounded px-1.5 py-0.5 font-mono">{c}</span>
                 ))}
               </div>
-              <p className="text-muted-foreground mt-1">PF, ESIC & LWF are set automatically. Date format: <span className="font-mono">YYYY-MM-DD</span>.</p>
+              <p className="text-muted-foreground mt-1">PF, ESIC & LWF are set automatically. Date format: <span className="font-mono">DD-MM-YYYY</span>.</p>
             </div>
 
             <div className="border-2 border-dashed border-muted-foreground/25 rounded-lg p-6 text-center">

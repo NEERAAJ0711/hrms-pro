@@ -670,9 +670,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         "Full Name *": "Rajesh Kumar Sharma",
         "Father / Husband Name": "Ram Kumar Sharma",
         "Gender": "Male",
-        "Date of Birth": "1990-01-15",
+        "Date of Birth": "15-01-1990",
         "Mobile Number": "9876543210",
-        "Date of Joining *": "2024-01-01",
+        "Date of Joining *": "01-01-2024",
         "UAN": "",
         "ESI Number": "",
         "Bank Account": "1234567890",
@@ -705,10 +705,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const company = await storage.getCompany(companyId);
       if (!company) return res.status(400).json({ error: "Invalid company ID" });
 
-      const workbook = XLSX.read(file.buffer, { type: "buffer" });
+      const workbook = XLSX.read(file.buffer, { type: "buffer", cellDates: true });
       const sheetName = workbook.SheetNames[0];
       const sheet = workbook.Sheets[sheetName];
-      const rows: any[] = XLSX.utils.sheet_to_json(sheet);
+      const rows: any[] = XLSX.utils.sheet_to_json(sheet, { raw: false, dateNF: "dd-mm-yyyy" });
 
       if (rows.length === 0) return res.status(400).json({ error: "Excel file is empty" });
 
@@ -729,10 +729,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
           if (fullNameRaw) {
             const parts = fullNameRaw.split(/\s+/);
             firstName = parts[0];
-            lastName = parts.length > 1 ? parts.slice(1).join(" ") : parts[0];
+            // Single-word name: leave lastName empty rather than duplicating firstName
+            lastName = parts.length > 1 ? parts.slice(1).join(" ") : "";
           }
 
-          const dateOfJoining = String(row["Date of Joining *"] || row["Date of Joining"] || "").trim();
+          const dateOfJoining = parseExcelDate(row["Date of Joining *"] || row["Date of Joining"]) || "";
 
           if (!employeeCode || !firstName || !dateOfJoining) {
             results.errors.push(`Row ${rowNum}: Missing required fields (Employee Code, Full Name, Date of Joining)`);
@@ -806,7 +807,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             lastName,
             fatherHusbandName: String(row["Father / Husband Name"] || row["Father Name"] || "").trim() || null,
             gender: String(row["Gender"] || "").trim() || null,
-            dateOfBirth: String(row["Date of Birth"] || "").trim() || null,
+            dateOfBirth: parseExcelDate(row["Date of Birth"]) || null,
             mobileNumber: String(row["Mobile Number"] || "").trim() || null,
             dateOfJoining,
             department: String(row["Department"] || "").trim() || null,
@@ -848,6 +849,52 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ===== Employee Bulk Update =====
+
+  // Helper: parse any date value coming from Excel → YYYY-MM-DD for DB storage
+  // Accepts: JS Date object, Excel serial number, DD-MM-YYYY, YYYY-MM-DD, DD/MM/YYYY
+  function parseExcelDate(val: any): string | null {
+    if (val === null || val === undefined || val === "") return null;
+    // JS Date object (cellDates:true path or xlsx auto-parse)
+    if (val instanceof Date && !isNaN(val.getTime())) {
+      const d = String(val.getDate()).padStart(2, "0");
+      const m = String(val.getMonth() + 1).padStart(2, "0");
+      return `${val.getFullYear()}-${m}-${d}`;
+    }
+    // Excel serial number (numeric)
+    if (typeof val === "number") {
+      const jsDate = new Date(Math.round((val - 25569) * 86400 * 1000));
+      const d = String(jsDate.getUTCDate()).padStart(2, "0");
+      const m = String(jsDate.getUTCMonth() + 1).padStart(2, "0");
+      return `${jsDate.getUTCFullYear()}-${m}-${d}`;
+    }
+    const s = String(val).trim();
+    if (!s) return null;
+    // DD-MM-YYYY
+    if (/^\d{2}-\d{2}-\d{4}$/.test(s)) {
+      const [dd, mm, yyyy] = s.split("-");
+      return `${yyyy}-${mm}-${dd}`;
+    }
+    // DD/MM/YYYY
+    if (/^\d{2}\/\d{2}\/\d{4}$/.test(s)) {
+      const [dd, mm, yyyy] = s.split("/");
+      return `${yyyy}-${mm}-${dd}`;
+    }
+    // YYYY-MM-DD (already correct for DB)
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+    return s; // fallback — pass as-is
+  }
+
+  // Format YYYY-MM-DD → DD-MM-YYYY for template display
+  function toDisplayDate(val: any): string {
+    if (!val) return "";
+    const s = String(val).trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+      const [yyyy, mm, dd] = s.split("-");
+      return `${dd}-${mm}-${yyyy}`;
+    }
+    return s;
+  }
+
   // Mapping: Excel column label → DB field key
   const BULK_UPDATE_FIELD_MAP: Record<string, string> = {
     "Father / Husband Name": "fatherHusbandName",
@@ -871,6 +918,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     "Aadhaar": "aadhaar",
   };
   const BOOL_FIELDS = new Set(["pfApplicable", "esiApplicable", "lwfApplicable"]);
+  const DATE_FIELDS = new Set(["dateOfBirth", "dateOfJoining"]);
 
   // GET  /api/employees/bulk-update-template?fields=f1,f2,...&companyId=xxx
   app.get("/api/employees/bulk-update-template", requireAuth, requireModuleAccess("employees"), async (req, res) => {
@@ -895,9 +943,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const dbField = BULK_UPDATE_FIELD_MAP[label];
           if (!dbField) continue;
           const current = (emp as any)[dbField];
-          // For bool fields show current value as Yes/No
           if (BOOL_FIELDS.has(dbField)) {
             row[label] = current ? "Yes" : "No";
+          } else if (DATE_FIELDS.has(dbField)) {
+            row[label] = toDisplayDate(current); // DD-MM-YYYY
           } else {
             row[label] = current ?? "";
           }
@@ -929,9 +978,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const companyId = user.role === "super_admin" ? req.body.companyId : user.companyId;
       if (!companyId) return res.status(400).json({ error: "Company ID is required" });
 
-      const workbook = XLSX.read(file.buffer, { type: "buffer" });
+      const workbook = XLSX.read(file.buffer, { type: "buffer", cellDates: true });
       const sheet = workbook.Sheets[workbook.SheetNames[0]];
-      const rows: any[] = XLSX.utils.sheet_to_json(sheet);
+      const rows: any[] = XLSX.utils.sheet_to_json(sheet, { raw: false, dateNF: "dd-mm-yyyy" });
       if (rows.length === 0) return res.status(400).json({ error: "Excel file is empty" });
 
       // Detect which update-able columns are present (exclude fixed cols)
@@ -956,10 +1005,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         for (const label of updateLabels) {
           const dbField = BULK_UPDATE_FIELD_MAP[label];
           if (!dbField) continue;
-          const raw = String(row[label] ?? "").trim();
-          if (raw === "") continue; // skip blank cells — don't overwrite with null
+          const cellVal = row[label];
+          const raw = String(cellVal ?? "").trim();
+          if (raw === "") continue; // skip blank cells
           if (BOOL_FIELDS.has(dbField)) {
             updates[dbField] = raw.toLowerCase() === "yes";
+          } else if (DATE_FIELDS.has(dbField)) {
+            const parsed = parseExcelDate(cellVal);
+            if (parsed) updates[dbField] = parsed;
           } else {
             updates[dbField] = raw;
           }
