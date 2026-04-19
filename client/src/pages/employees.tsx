@@ -102,6 +102,9 @@ export default function Employees() {
   const { toast } = useToast();
   const { user } = useAuth();
   const isSuperAdmin = user?.role === "super_admin";
+  const [selectedCompany, setSelectedCompany] = useState<string>(
+    isSuperAdmin ? "__all__" : (user?.companyId || "")
+  );
   const [exitDialogOpen, setExitDialogOpen] = useState(false);
   const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
   const [exitDate, setExitDate] = useState("");
@@ -272,13 +275,16 @@ export default function Employees() {
   };
 
   const filteredEmployees = employees.filter((employee) => {
+    // Company isolation: super_admin can filter; company_admin always scoped to their company
+    const matchesCompany = isSuperAdmin
+      ? (selectedCompany === "__all__" || employee.companyId === selectedCompany)
+      : employee.companyId === (user?.companyId || "");
     const matchesSearch =
-      employee.firstName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      employee.lastName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      `${employee.firstName} ${employee.lastName}`.toLowerCase().includes(searchQuery.toLowerCase()) ||
       employee.employeeCode.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesStatus =
       statusFilter === "all" || employee.status === statusFilter;
-    return matchesSearch && matchesStatus;
+    return matchesCompany && matchesSearch && matchesStatus;
   });
 
   const getCompanyName = (companyId: string) => {
@@ -306,11 +312,17 @@ export default function Employees() {
     setBulkUploading(true);
     setBulkResult(null);
     try {
+      const effectiveCompanyId = isSuperAdmin
+        ? (selectedCompany === "__all__" ? "" : selectedCompany)
+        : user?.companyId || "";
+      if (!effectiveCompanyId) {
+        toast({ title: "Select a Company", description: "Please select a company before uploading.", variant: "destructive" });
+        setBulkUploading(false);
+        return;
+      }
       const formData = new FormData();
       formData.append("file", file);
-      if (!isSuperAdmin && user?.companyId) {
-        formData.append("companyId", user.companyId);
-      }
+      formData.append("companyId", effectiveCompanyId);
       const res = await fetch("/api/employees/bulk-upload", {
         method: "POST",
         body: formData,
@@ -423,7 +435,8 @@ export default function Employees() {
           <Button
             variant="outline"
             onClick={() => { setBulkUploadOpen(true); setBulkResult(null); }}
-            disabled={companies.length === 0}
+            disabled={companies.length === 0 || (isSuperAdmin && selectedCompany === "__all__")}
+            title={isSuperAdmin && selectedCompany === "__all__" ? "Select a company first to bulk upload" : undefined}
           >
             <Upload className="h-4 w-4 mr-2" />
             Bulk Upload
@@ -451,8 +464,21 @@ export default function Employees() {
 
       <Card>
         <CardHeader className="pb-4">
-          <div className="flex items-center gap-4">
-            <div className="relative flex-1 max-w-sm">
+          <div className="flex items-center gap-3 flex-wrap">
+            {isSuperAdmin && (
+              <Select value={selectedCompany} onValueChange={setSelectedCompany}>
+                <SelectTrigger className="w-52" data-testid="select-company-filter">
+                  <SelectValue placeholder="All Companies" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__all__">All Companies</SelectItem>
+                  {companies.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>{c.companyName}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+            <div className="relative flex-1 min-w-[200px] max-w-sm">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
                 placeholder="Search employees..."
@@ -472,7 +498,7 @@ export default function Employees() {
                 <SelectItem value="inactive">Exited</SelectItem>
               </SelectContent>
             </Select>
-            <Badge variant="secondary" className="text-xs">
+            <Badge variant="secondary" className="text-xs whitespace-nowrap">
               {filteredEmployees.length} employees
             </Badge>
           </div>
