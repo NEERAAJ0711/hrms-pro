@@ -129,6 +129,7 @@ export default function PayrollPage() {
   const [bulkUploading, setBulkUploading] = useState(false);
   const [bulkResult, setBulkResult] = useState<{ created: number; skipped: number; errors: string[] } | null>(null);
   const bulkFileInputRef = useRef<HTMLInputElement | null>(null);
+  const [grossInputAmt, setGrossInputAmt] = useState<string>("");
 
   const { data: companies = [] } = useQuery<Company[]>({
     queryKey: ["/api/companies"],
@@ -315,6 +316,30 @@ export default function PayrollPage() {
     const net = gross - totalDeductions;
     
     form.setValue("netSalary", net);
+  };
+
+  // Auto-breakdown: given a gross salary, distribute into standard India payroll components
+  const autoBreakdownGross = (grossStr: string) => {
+    const gross = Math.round(Number(grossStr) || 0);
+    if (gross <= 0) {
+      toast({ title: "Enter a valid Gross Salary", description: "Please enter a gross salary amount greater than 0.", variant: "destructive" });
+      return;
+    }
+    // Standard India breakdown
+    const basic      = Math.round(gross * 0.40);            // 40% of gross
+    const hra        = Math.round(basic * 0.50);            // 50% of basic (20% gross)
+    const conveyance = Math.min(1600, Math.round(gross * 0.05));  // ₹1,600 max (tax-exempt)
+    const medical    = Math.min(1250, Math.round(gross * 0.04));  // ₹1,250 max (standard)
+    const special    = Math.max(0, gross - basic - hra - conveyance - medical);
+
+    form.setValue("basicSalary", basic, { shouldDirty: true, shouldValidate: true });
+    form.setValue("hra", hra, { shouldDirty: true, shouldValidate: true });
+    form.setValue("conveyance", conveyance, { shouldDirty: true, shouldValidate: true });
+    form.setValue("medicalAllowance", medical, { shouldDirty: true, shouldValidate: true });
+    form.setValue("specialAllowance", special, { shouldDirty: true, shouldValidate: true });
+    form.setValue("otherAllowances", 0, { shouldDirty: true, shouldValidate: true });
+    // Re-run full calculation including statutory deductions
+    setTimeout(() => calculateSalary(true), 0);
   };
 
   const createStructureMutation = useMutation({
