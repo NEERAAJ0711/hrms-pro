@@ -854,6 +854,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     "Gender": "gender",
     "Date of Birth": "dateOfBirth",
     "Mobile Number": "mobileNumber",
+    "Date of Joining": "dateOfJoining",
     "Department": "department",
     "Designation": "designation",
     "Employment Type": "employmentType",

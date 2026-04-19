@@ -77,6 +77,7 @@ const BULK_UPDATE_GROUPS: { group: string; fields: { label: string; hint?: strin
   {
     group: "Job Info",
     fields: [
+      { label: "Date of Joining", hint: "YYYY-MM-DD" },
       { label: "Department" },
       { label: "Designation" },
       { label: "Employment Type", hint: "permanent / contractual / daily_wage" },
