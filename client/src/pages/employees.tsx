@@ -862,11 +862,11 @@ export default function Employees() {
               </div>
               <p className="font-semibold text-foreground mt-2 mb-1">Optional columns</p>
               <div className="flex flex-wrap gap-1 text-muted-foreground">
-                {["Father / Husband Name","Gender","Date of Birth","Mobile Number","Department","Designation","Employment Type","Payment Mode","UAN","ESI Number","PT State","Bonus Applicable","Bank Account","IFSC","PAN","Aadhaar"].map(c => (
+                {["Father / Husband Name","Gender","Date of Birth","Mobile Number","UAN","ESI Number","Bank Account","IFSC","PAN","Aadhaar"].map(c => (
                   <span key={c} className="bg-muted rounded px-1.5 py-0.5 font-mono">{c}</span>
                 ))}
               </div>
-              <p className="text-muted-foreground mt-1">PF, ESIC & LWF are set automatically. Date format: <span className="font-mono">YYYY-MM-DD</span>. Bonus Applicable: <span className="font-mono">Yes / No</span>.</p>
+              <p className="text-muted-foreground mt-1">PF, ESIC & LWF are set automatically. Date format: <span className="font-mono">YYYY-MM-DD</span>.</p>
             </div>
 
             <div className="border-2 border-dashed border-muted-foreground/25 rounded-lg p-6 text-center">
