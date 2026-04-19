@@ -3141,6 +3141,91 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Auto-create or update salary structure from assigned wage grade
+  app.post("/api/salary-structures/auto-from-grade", requireAuth, async (req, res) => {
+    try {
+      const { employeeId } = req.body;
+      if (!employeeId) return res.status(400).json({ error: "employeeId required" });
+
+      const emp = await storage.getEmployee(employeeId);
+      if (!emp) return res.status(404).json({ error: "Employee not found" });
+      if (!emp.wageGradeId) return res.status(400).json({ error: "Employee has no wage grade assigned" });
+
+      const grade = await storage.getWageGrade(emp.wageGradeId);
+      if (!grade || grade.status !== "active") return res.status(404).json({ error: "Active wage grade not found" });
+
+      const settings = await storage.getStatutorySettingsByCompany(emp.companyId);
+
+      const basic = grade.minimumWage;
+      const gross = basic;
+      let pfEmployee = 0, pfEmployer = 0, esi = 0, pt = 0, lwfEmployee = 0;
+
+      if (settings?.pfEnabled && emp.pfApplicable) {
+        const pfBase = Math.min(basic, Number(settings.pfWageCeiling) || 15000);
+        pfEmployee = Math.round(pfBase * (Number(settings.pfEmployeePercent) || 12) / 100);
+        pfEmployer = Math.round(pfBase * (Number(settings.pfEmployerPercent) || 12) / 100);
+      }
+      if (settings?.esicEnabled && emp.esiApplicable) {
+        const ceiling = Number(settings.esicWageCeiling) || 21000;
+        if (gross <= ceiling) {
+          const esicBase = settings.esicCalcOnGross
+            ? Math.min(gross, ceiling)
+            : Math.min(Math.max(basic, gross * 0.5), ceiling);
+          esi = Math.round(esicBase * (Number(settings.esicEmployeePercent) || 75) / 10000);
+        }
+      }
+      if (settings?.ptEnabled) {
+        pt = Math.min(Number(settings.ptMaxAmount) || 200, 200);
+      }
+      if (settings?.lwfEnabled && emp.lwfApplicable) {
+        const lwfBase = settings.lwfCalculationBase === "basic" ? basic : gross;
+        lwfEmployee = Math.min(
+          Math.round(lwfBase * (Number(settings.lwfEmployeePercent) || 20) / 10000),
+          Number(settings.lwfEmployeeMaxCap) || 34
+        );
+      }
+
+      const net = Math.max(0, gross - pfEmployee - esi - pt - lwfEmployee);
+      const today = new Date().toISOString().slice(0, 10);
+
+      const payload = {
+        employeeId: emp.id,
+        companyId: emp.companyId,
+        basicSalary: basic,
+        hra: 0,
+        conveyance: 0,
+        medicalAllowance: 0,
+        specialAllowance: 0,
+        otherAllowances: 0,
+        grossSalary: gross,
+        pfEmployee,
+        pfEmployer,
+        esi,
+        professionalTax: pt,
+        lwfEmployee,
+        tds: 0,
+        otherDeductions: 0,
+        netSalary: net,
+        effectiveFrom: today,
+        status: "active",
+      };
+
+      // Upsert: update if active structure exists, otherwise create new
+      const existing = await storage.getSalaryStructureByEmployee(emp.id);
+      let structure;
+      if (existing) {
+        structure = await storage.updateSalaryStructure(existing.id, payload);
+      } else {
+        structure = await storage.createSalaryStructure(payload as any);
+      }
+
+      res.json({ structure, action: existing ? "updated" : "created" });
+    } catch (error) {
+      console.error("[auto-from-grade]", error);
+      res.status(500).json({ error: "Failed to auto-create salary structure" });
+    }
+  });
+
   app.post("/api/salary-structures", requireAuth, requireModuleAccess("payroll"), async (req, res) => {
     try {
       const data = insertSalaryStructureSchema.parse(req.body);

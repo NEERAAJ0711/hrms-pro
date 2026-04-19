@@ -428,70 +428,22 @@ export default function AddEmployee() {
   const filteredPolicies = timeOfficePolicies.filter(p => p.companyId === effectiveCompanyId && p.status === "active");
   const filteredWageGrades = wageGrades.filter(g => g.companyId === effectiveCompanyId && g.status === "active");
 
-  const autoCreateSalaryStructure = async (emp: any, gradeId: string) => {
-    const grade = wageGrades.find(g => g.id === gradeId && g.status === "active");
-    if (!grade) return;
-    const settings = statutorySettingsList.find(s => s.companyId === emp.companyId);
-    const basic = grade.minimumWage;
-    const gross = basic;
-
-    let pfEmployee = 0, pfEmployer = 0, esi = 0, pt = 0, lwfEmployee = 0;
-
-    if (settings?.pfEnabled && emp.pfApplicable) {
-      const pfBase = Math.min(basic, Number(settings.pfWageCeiling) || 15000);
-      pfEmployee = Math.round(pfBase * (Number(settings.pfEmployeePercent) || 12) / 100);
-      pfEmployer = Math.round(pfBase * (Number(settings.pfEmployerPercent) || 12) / 100);
-    }
-
-    if (settings?.esicEnabled && emp.esiApplicable) {
-      const wageCeiling = Number(settings.esicWageCeiling) || 21000;
-      const percent = Number(settings.esicEmployeePercent) || 75;
-      if (gross <= wageCeiling) {
-        const esicBase = settings.esicCalcOnGross
-          ? Math.min(gross, wageCeiling)
-          : Math.min(Math.max(basic, gross * 0.5), wageCeiling);
-        esi = Math.round(esicBase * percent / 10000);
-      }
-    }
-
-    if (settings?.ptEnabled) {
-      pt = Math.min(Number(settings.ptMaxAmount) || 200, 200);
-    }
-
-    if (settings?.lwfEnabled && emp.lwfApplicable) {
-      const lwfBase = settings.lwfCalculationBase === "basic" ? basic : gross;
-      const empPercent = Number(settings.lwfEmployeePercent) || 20;
-      const empCap = Number(settings.lwfEmployeeMaxCap) || 34;
-      lwfEmployee = Math.min(Math.round(lwfBase * empPercent / 10000), empCap);
-    }
-
-    const totalDeductions = pfEmployee + esi + pt + lwfEmployee;
-    const net = Math.max(0, gross - totalDeductions);
-
-    const today = new Date().toISOString().slice(0, 10);
+  const autoCreateSalaryStructure = async (emp: any) => {
+    if (!emp?.id || !emp?.wageGradeId) return;
     try {
-      await apiRequest("POST", "/api/salary-structures", {
-        employeeId: emp.id,
-        companyId: emp.companyId,
-        basicSalary: basic,
-        hra: 0,
-        conveyance: 0,
-        medicalAllowance: 0,
-        specialAllowance: 0,
-        otherAllowances: 0,
-        grossSalary: gross,
-        pfEmployee,
-        pfEmployer,
-        esi,
-        professionalTax: pt,
-        lwfEmployee,
-        tds: 0,
-        otherDeductions: 0,
-        netSalary: net,
-        effectiveFrom: today,
-      });
+      const res = await apiRequest("POST", "/api/salary-structures/auto-from-grade", { employeeId: emp.id });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || "Failed to create salary structure");
+      }
       queryClient.invalidateQueries({ queryKey: ["/api/salary-structures"] });
-    } catch (_) {}
+    } catch (err: any) {
+      toast({
+        title: "Salary Structure Error",
+        description: err.message || "Could not auto-create salary structure from wage grade.",
+        variant: "destructive",
+      });
+    }
   };
 
   const createMutation = useMutation({
@@ -501,7 +453,7 @@ export default function AddEmployee() {
     },
     onSuccess: async (createdEmployee: any) => {
       if (createdEmployee?.id && createdEmployee?.wageGradeId) {
-        await autoCreateSalaryStructure(createdEmployee, createdEmployee.wageGradeId);
+        await autoCreateSalaryStructure(createdEmployee);
       }
       queryClient.invalidateQueries({ queryKey: ["/api/employees"] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
@@ -530,15 +482,18 @@ export default function AddEmployee() {
     onSuccess: async (updatedEmployee: any) => {
       const prevGradeId = existingEmployee?.wageGradeId;
       const newGradeId = updatedEmployee?.wageGradeId;
-      if (updatedEmployee?.id && newGradeId && newGradeId !== prevGradeId) {
-        await autoCreateSalaryStructure(updatedEmployee, newGradeId);
+      // Always auto-create/update salary structure whenever a grade is present
+      if (updatedEmployee?.id && newGradeId) {
+        await autoCreateSalaryStructure(updatedEmployee);
       }
       queryClient.invalidateQueries({ queryKey: ["/api/employees"] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
       toast({
         title: "Employee Updated",
-        description: (newGradeId && newGradeId !== prevGradeId)
-          ? "Employee updated and new salary structure created from minimum wage."
+        description: newGradeId
+          ? `Employee updated. Salary structure set to minimum wage (₹${
+              wageGrades.find(g => g.id === newGradeId)?.minimumWage?.toLocaleString("en-IN") ?? "—"
+            }).`
           : "The employee has been successfully updated.",
       });
       setLocation("/employees");
