@@ -19,3 +19,5 @@ ALTER TABLE wage_grades ADD COLUMN IF NOT EXISTS period TEXT;
 ALTER TABLE wage_grades ADD COLUMN IF NOT EXISTS effective_from TEXT;
 
 ALTER TABLE wage_grades ADD COLUMN IF NOT EXISTS state TEXT;
+
+ALTER TABLE wage_grades ADD COLUMN IF NOT EXISTS effective_to TEXT;
