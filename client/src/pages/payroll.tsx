@@ -462,6 +462,7 @@ export default function PayrollPage() {
     setIsCreateOpen(open);
     if (!open) {
       setEditingStructureId(null);
+      setGrossInputAmt("");
       form.reset({
         employeeId: "",
         companyId: isSuperAdmin ? "" : (user?.companyId || ""),
@@ -949,8 +950,23 @@ export default function PayrollPage() {
                               const grade = emp?.wageGradeId
                                 ? wageGrades.find(g => g.id === emp.wageGradeId && g.status === "active")
                                 : undefined;
-                              if (grade) {
-                                form.setValue("basicSalary", grade.minimumWage, { shouldDirty: true, shouldValidate: true });
+                              if (grade && grade.minimumWage > 0) {
+                                // Auto-breakdown from minimum wage
+                                const gross = grade.minimumWage;
+                                setGrossInputAmt(String(gross));
+                                const basic      = Math.round(gross * 0.40);
+                                const hra        = Math.round(basic * 0.50);
+                                const conveyance = Math.min(1600, Math.round(gross * 0.05));
+                                const medical    = Math.min(1250, Math.round(gross * 0.04));
+                                const special    = Math.max(0, gross - basic - hra - conveyance - medical);
+                                form.setValue("basicSalary", basic, { shouldDirty: true, shouldValidate: true });
+                                form.setValue("hra", hra, { shouldDirty: true, shouldValidate: true });
+                                form.setValue("conveyance", conveyance, { shouldDirty: true, shouldValidate: true });
+                                form.setValue("medicalAllowance", medical, { shouldDirty: true, shouldValidate: true });
+                                form.setValue("specialAllowance", special, { shouldDirty: true, shouldValidate: true });
+                                form.setValue("otherAllowances", 0, { shouldDirty: true, shouldValidate: true });
+                                setTimeout(() => calculateSalary(true), 0);
+                                return;
                               }
                             }
                             calculateSalary();
@@ -993,6 +1009,47 @@ export default function PayrollPage() {
                     </div>
                   </div>
                 )}
+
+                {/* ── Auto Breakdown from Gross ─────────────────────────── */}
+                <div className="rounded-lg border bg-blue-50 dark:bg-blue-950 border-blue-200 dark:border-blue-800 p-3">
+                  <p className="text-xs font-semibold text-blue-800 dark:text-blue-300 mb-2 flex items-center gap-1.5">
+                    <Calculator className="h-3.5 w-3.5" />
+                    Auto Breakdown from Gross Salary
+                    {grossInputAmt && Number(grossInputAmt) > 0 && (
+                      <span className="ml-auto font-normal text-blue-600 dark:text-blue-400">
+                        Basic 40% · HRA 50% of Basic · Conv ≤₹1,600 · Med ≤₹1,250 · Special = Remainder
+                      </span>
+                    )}
+                  </p>
+                  <div className="flex gap-2 items-center">
+                    <div className="relative flex-1">
+                      <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">₹</span>
+                      <Input
+                        type="number"
+                        placeholder="Enter gross salary (e.g. 18000)"
+                        className="pl-6 h-8 text-sm"
+                        value={grossInputAmt}
+                        onChange={(e) => setGrossInputAmt(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); autoBreakdownGross(grossInputAmt); } }}
+                        data-testid="input-gross-breakdown"
+                      />
+                    </div>
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="h-8 whitespace-nowrap"
+                      onClick={() => autoBreakdownGross(grossInputAmt)}
+                      data-testid="button-auto-breakdown"
+                    >
+                      <Calculator className="h-3.5 w-3.5 mr-1.5" />
+                      Auto Fill
+                    </Button>
+                  </div>
+                  <p className="text-[10px] text-blue-600 dark:text-blue-400 mt-1.5">
+                    When an employee has a Wage Grade assigned, salary is auto-filled from the minimum wage on selection.
+                  </p>
+                </div>
+                {/* ─────────────────────────────────────────────────────── */}
 
                 <div className="border-t pt-4">
                   <h4 className="font-medium mb-3">Earnings</h4>
