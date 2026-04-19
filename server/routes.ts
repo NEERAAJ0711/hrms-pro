@@ -847,6 +847,140 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ===== Employee Bulk Update =====
+  // Mapping: Excel column label → DB field key
+  const BULK_UPDATE_FIELD_MAP: Record<string, string> = {
+    "Father / Husband Name": "fatherHusbandName",
+    "Gender": "gender",
+    "Date of Birth": "dateOfBirth",
+    "Mobile Number": "mobileNumber",
+    "Department": "department",
+    "Designation": "designation",
+    "Employment Type": "employmentType",
+    "Payment Mode": "paymentMode",
+    "UAN": "uan",
+    "ESI Number": "esiNumber",
+    "PF Applicable": "pfApplicable",
+    "ESI Applicable": "esiApplicable",
+    "PT State": "ptState",
+    "LWF Applicable": "lwfApplicable",
+    "Bank Account": "bankAccount",
+    "IFSC Code": "ifsc",
+    "PAN": "pan",
+    "Aadhaar": "aadhaar",
+  };
+  const BOOL_FIELDS = new Set(["pfApplicable", "esiApplicable", "lwfApplicable"]);
+
+  // GET  /api/employees/bulk-update-template?fields=f1,f2,...&companyId=xxx
+  app.get("/api/employees/bulk-update-template", requireAuth, requireModuleAccess("employees"), async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const rawFields = String(req.query.fields || "").split(",").map(f => f.trim()).filter(Boolean);
+      if (rawFields.length === 0) return res.status(400).json({ error: "No fields selected" });
+
+      const companyId = user.role === "super_admin" ? String(req.query.companyId || "") : user.companyId;
+      if (!companyId) return res.status(400).json({ error: "Company ID is required" });
+
+      const employees = await storage.getEmployeesByCompany(companyId);
+      if (employees.length === 0) return res.status(400).json({ error: "No employees found for this company" });
+
+      // Build rows: fixed cols Employee Code + Employee Name, then blank selected cols
+      const rows = employees.map(emp => {
+        const row: Record<string, any> = {
+          "Employee Code": emp.employeeCode,
+          "Employee Name": `${emp.firstName} ${emp.lastName}`.trim(),
+        };
+        for (const label of rawFields) {
+          const dbField = BULK_UPDATE_FIELD_MAP[label];
+          if (!dbField) continue;
+          const current = (emp as any)[dbField];
+          // For bool fields show current value as Yes/No
+          if (BOOL_FIELDS.has(dbField)) {
+            row[label] = current ? "Yes" : "No";
+          } else {
+            row[label] = current ?? "";
+          }
+        }
+        return row;
+      });
+
+      const ws = XLSX.utils.json_to_sheet(rows);
+      const colWidths = Object.keys(rows[0] || {}).map(k => ({ wch: Math.max(k.length + 4, 22) }));
+      ws["!cols"] = colWidths;
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Bulk Update");
+      const buffer = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
+      res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+      res.setHeader("Content-Disposition", "attachment; filename=employee_bulk_update_template.xlsx");
+      res.send(buffer);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || "Failed to generate template" });
+    }
+  });
+
+  // POST /api/employees/bulk-update
+  app.post("/api/employees/bulk-update", requireAuth, requireModuleAccess("employees"), upload.single("file"), async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const file = (req as any).file;
+      if (!file) return res.status(400).json({ error: "No file uploaded" });
+
+      const companyId = user.role === "super_admin" ? req.body.companyId : user.companyId;
+      if (!companyId) return res.status(400).json({ error: "Company ID is required" });
+
+      const workbook = XLSX.read(file.buffer, { type: "buffer" });
+      const sheet = workbook.Sheets[workbook.SheetNames[0]];
+      const rows: any[] = XLSX.utils.sheet_to_json(sheet);
+      if (rows.length === 0) return res.status(400).json({ error: "Excel file is empty" });
+
+      // Detect which update-able columns are present (exclude fixed cols)
+      const allKeys = Object.keys(rows[0] || {});
+      const updateLabels = allKeys.filter(k => k !== "Employee Code" && k !== "Employee Name" && BULK_UPDATE_FIELD_MAP[k]);
+
+      const employees = await storage.getEmployeesByCompany(companyId);
+      const empMap = new Map(employees.map(e => [e.employeeCode.toLowerCase(), e]));
+
+      const results = { updated: 0, skipped: 0, errors: [] as string[] };
+
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i];
+        const rowNum = i + 2;
+        const code = String(row["Employee Code"] || "").trim();
+        if (!code) { results.errors.push(`Row ${rowNum}: Missing Employee Code`); results.skipped++; continue; }
+
+        const emp = empMap.get(code.toLowerCase());
+        if (!emp) { results.errors.push(`Row ${rowNum}: Employee code '${code}' not found`); results.skipped++; continue; }
+
+        const updates: Record<string, any> = {};
+        for (const label of updateLabels) {
+          const dbField = BULK_UPDATE_FIELD_MAP[label];
+          if (!dbField) continue;
+          const raw = String(row[label] ?? "").trim();
+          if (raw === "") continue; // skip blank cells — don't overwrite with null
+          if (BOOL_FIELDS.has(dbField)) {
+            updates[dbField] = raw.toLowerCase() === "yes";
+          } else {
+            updates[dbField] = raw;
+          }
+        }
+
+        if (Object.keys(updates).length === 0) { results.skipped++; continue; }
+
+        try {
+          await storage.updateEmployee(emp.id, updates as any);
+          results.updated++;
+        } catch (err: any) {
+          results.errors.push(`Row ${rowNum} (${code}): ${err.message}`);
+          results.skipped++;
+        }
+      }
+
+      res.json({ success: true, message: `${results.updated} updated, ${results.skipped} skipped`, ...results });
+    } catch (err: any) {
+      res.status(500).json({ error: "Failed to process file: " + (err.message || "Unknown error") });
+    }
+  });
+
   // ===== Biometric Routes =====
   app.get("/api/biometric/devices", requireAuth, async (req, res) => {
     try {

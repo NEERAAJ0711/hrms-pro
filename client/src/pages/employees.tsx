@@ -60,7 +60,50 @@ import {
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useLocation } from "wouter";
 import { useAuth } from "@/lib/auth";
+import { Checkbox } from "@/components/ui/checkbox";
 import type { Employee, Company, TimeOfficePolicy } from "@shared/schema";
+
+// ─── Bulk-update field definitions ────────────────────────────────────────────
+const BULK_UPDATE_GROUPS: { group: string; fields: { label: string; hint?: string }[] }[] = [
+  {
+    group: "Personal",
+    fields: [
+      { label: "Father / Husband Name" },
+      { label: "Gender", hint: "Male / Female / Other" },
+      { label: "Date of Birth", hint: "YYYY-MM-DD" },
+      { label: "Mobile Number" },
+    ],
+  },
+  {
+    group: "Job Info",
+    fields: [
+      { label: "Department" },
+      { label: "Designation" },
+      { label: "Employment Type", hint: "permanent / contractual / daily_wage" },
+      { label: "Payment Mode", hint: "bank / cash / cheque" },
+    ],
+  },
+  {
+    group: "Compliance",
+    fields: [
+      { label: "UAN" },
+      { label: "ESI Number" },
+      { label: "PT State" },
+      { label: "PF Applicable", hint: "Yes / No" },
+      { label: "ESI Applicable", hint: "Yes / No" },
+      { label: "LWF Applicable", hint: "Yes / No" },
+    ],
+  },
+  {
+    group: "Banking & ID",
+    fields: [
+      { label: "Bank Account" },
+      { label: "IFSC Code" },
+      { label: "PAN" },
+      { label: "Aadhaar" },
+    ],
+  },
+];
 
 function EmployeesTableSkeleton() {
   return (
@@ -116,6 +159,13 @@ export default function Employees() {
   const [bulkUploading, setBulkUploading] = useState(false);
   const [bulkResult, setBulkResult] = useState<{ created: number; skipped: number; errors: string[] } | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Bulk Update state
+  const [bulkUpdateOpen, setBulkUpdateOpen] = useState(false);
+  const [bulkUpdateFields, setBulkUpdateFields] = useState<Set<string>>(new Set());
+  const [bulkUpdating, setBulkUpdating] = useState(false);
+  const [bulkUpdateResult, setBulkUpdateResult] = useState<{ updated: number; skipped: number; errors: string[] } | null>(null);
+  const bulkUpdateFileRef = useRef<HTMLInputElement | null>(null);
 
   const [aadhaarDialogOpen, setAadhaarDialogOpen] = useState(false);
   const [aadhaarInput, setAadhaarInput] = useState("");
@@ -350,6 +400,79 @@ export default function Employees() {
     setBulkUploading(false);
   };
 
+  // ── Bulk-Update handlers ────────────────────────────────────────────────────
+  const toggleBulkUpdateField = (label: string) => {
+    setBulkUpdateFields(prev => {
+      const next = new Set(prev);
+      next.has(label) ? next.delete(label) : next.add(label);
+      return next;
+    });
+  };
+
+  const toggleBulkUpdateGroup = (labels: string[]) => {
+    const allSelected = labels.every(l => bulkUpdateFields.has(l));
+    setBulkUpdateFields(prev => {
+      const next = new Set(prev);
+      if (allSelected) { labels.forEach(l => next.delete(l)); }
+      else { labels.forEach(l => next.add(l)); }
+      return next;
+    });
+  };
+
+  const handleDownloadUpdateTemplate = async () => {
+    if (bulkUpdateFields.size === 0) {
+      toast({ title: "No fields selected", description: "Select at least one field to include in the template.", variant: "destructive" });
+      return;
+    }
+    const effectiveCompanyId = isSuperAdmin
+      ? (selectedCompany === "__all__" ? "" : selectedCompany)
+      : user?.companyId || "";
+    if (!effectiveCompanyId) {
+      toast({ title: "Select a Company", description: "Choose a specific company before downloading the update template.", variant: "destructive" });
+      return;
+    }
+    const fieldsParam = encodeURIComponent(Array.from(bulkUpdateFields).join(","));
+    window.open(`/api/employees/bulk-update-template?fields=${fieldsParam}&companyId=${effectiveCompanyId}`, "_blank");
+  };
+
+  const handleBulkUpdate = async (file: File) => {
+    setBulkUpdating(true);
+    setBulkUpdateResult(null);
+    try {
+      const effectiveCompanyId = isSuperAdmin
+        ? (selectedCompany === "__all__" ? "" : selectedCompany)
+        : user?.companyId || "";
+      if (!effectiveCompanyId) {
+        toast({ title: "Select a Company", description: "Choose a specific company before uploading.", variant: "destructive" });
+        setBulkUpdating(false);
+        return;
+      }
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("companyId", effectiveCompanyId);
+      const res = await fetch("/api/employees/bulk-update", { method: "POST", body: formData, credentials: "include" });
+      const result = await res.json();
+      if (!res.ok) {
+        toast({ title: "Update Failed", description: result.error || "Failed to process file", variant: "destructive" });
+        setBulkUpdating(false);
+        return;
+      }
+      setBulkUpdateResult(result);
+      if (result.updated > 0) {
+        queryClient.invalidateQueries({ queryKey: ["/api/employees"] });
+      }
+      toast({
+        title: "Bulk Update Complete",
+        description: `${result.updated} employees updated, ${result.skipped} skipped`,
+        variant: result.updated > 0 ? "default" : "destructive",
+      });
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message || "Upload failed", variant: "destructive" });
+    }
+    setBulkUpdating(false);
+  };
+  // ────────────────────────────────────────────────────────────────────────────
+
   const openAadhaarDialog = () => {
     setAadhaarInput("");
     setAadhaarCompanyId(isSuperAdmin ? "" : (user?.companyId || ""));
@@ -440,6 +563,16 @@ export default function Employees() {
           >
             <Upload className="h-4 w-4 mr-2" />
             Bulk Upload
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => { setBulkUpdateOpen(true); setBulkUpdateResult(null); setBulkUpdateFields(new Set()); }}
+            disabled={companies.length === 0 || (isSuperAdmin && selectedCompany === "__all__")}
+            title={isSuperAdmin && selectedCompany === "__all__" ? "Select a company first to bulk update" : undefined}
+            data-testid="button-bulk-update"
+          >
+            <FileSpreadsheet className="h-4 w-4 mr-2" />
+            Bulk Update
           </Button>
           <Button 
             onClick={openAadhaarDialog}
@@ -973,6 +1106,159 @@ export default function Employees() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* ─── Bulk Update Dialog ──────────────────────────────────────────────── */}
+      <Dialog open={bulkUpdateOpen} onOpenChange={(open) => { setBulkUpdateOpen(open); if (!open) setBulkUpdateResult(null); }}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileSpreadsheet className="h-5 w-5 text-blue-600" />
+              Bulk Update Employee Details
+            </DialogTitle>
+            <DialogDescription>
+              Select which fields to update, download the pre-filled template, edit values, then upload.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-5">
+            {/* Step 1: Field selector */}
+            <div className="rounded-lg border p-4 space-y-4">
+              <p className="text-sm font-semibold text-foreground flex items-center gap-2">
+                <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-primary text-primary-foreground text-xs font-bold">1</span>
+                Select fields to include in the template
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4">
+                {BULK_UPDATE_GROUPS.map(({ group, fields }) => {
+                  const labels = fields.map(f => f.label);
+                  const allChecked = labels.every(l => bulkUpdateFields.has(l));
+                  const someChecked = labels.some(l => bulkUpdateFields.has(l));
+                  return (
+                    <div key={group} className="space-y-2">
+                      <div className="flex items-center gap-2 pb-1 border-b">
+                        <Checkbox
+                          id={`group-${group}`}
+                          checked={allChecked}
+                          data-state={someChecked && !allChecked ? "indeterminate" : undefined}
+                          onCheckedChange={() => toggleBulkUpdateGroup(labels)}
+                        />
+                        <label htmlFor={`group-${group}`} className="text-xs font-semibold text-muted-foreground uppercase tracking-wide cursor-pointer select-none">
+                          {group}
+                        </label>
+                      </div>
+                      {fields.map(({ label, hint }) => (
+                        <div key={label} className="flex items-start gap-2 pl-1">
+                          <Checkbox
+                            id={`field-${label}`}
+                            checked={bulkUpdateFields.has(label)}
+                            onCheckedChange={() => toggleBulkUpdateField(label)}
+                          />
+                          <div>
+                            <label htmlFor={`field-${label}`} className="text-sm cursor-pointer select-none leading-tight">{label}</label>
+                            {hint && <p className="text-[10px] text-muted-foreground font-mono">{hint}</p>}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {bulkUpdateFields.size > 0
+                  ? <span className="text-primary font-medium">{bulkUpdateFields.size} field{bulkUpdateFields.size !== 1 ? "s" : ""} selected</span>
+                  : "No fields selected yet"}
+              </p>
+            </div>
+
+            {/* Step 2: Download template */}
+            <div className="rounded-lg border p-4 space-y-2">
+              <p className="text-sm font-semibold flex items-center gap-2">
+                <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-primary text-primary-foreground text-xs font-bold">2</span>
+                Download pre-filled template
+              </p>
+              <p className="text-xs text-muted-foreground">
+                The file will contain <span className="font-semibold">Employee Code</span> and <span className="font-semibold">Employee Name</span> pre-filled for all employees in the selected company, plus blank columns for each field you chose above (current values shown for reference).
+              </p>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleDownloadUpdateTemplate}
+                disabled={bulkUpdateFields.size === 0}
+                data-testid="button-download-update-template"
+              >
+                <Download className="h-4 w-4 mr-2" />
+                Download Template ({bulkUpdateFields.size} {bulkUpdateFields.size === 1 ? "field" : "fields"})
+              </Button>
+            </div>
+
+            {/* Step 3: Upload filled file */}
+            <div className="rounded-lg border-2 border-dashed border-muted-foreground/25 p-5 space-y-3">
+              <p className="text-sm font-semibold flex items-center gap-2">
+                <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-primary text-primary-foreground text-xs font-bold">3</span>
+                Upload the filled template
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Blank cells are skipped — only non-empty cells will overwrite existing values.
+              </p>
+              <input
+                ref={bulkUpdateFileRef}
+                type="file"
+                accept=".xlsx,.xls"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) handleBulkUpdate(file);
+                  e.target.value = "";
+                }}
+              />
+              <Button
+                size="sm"
+                onClick={() => bulkUpdateFileRef.current?.click()}
+                disabled={bulkUpdating}
+                data-testid="button-upload-bulk-update"
+              >
+                {bulkUpdating ? (
+                  <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Updating...</>
+                ) : (
+                  <><Upload className="h-4 w-4 mr-2" />Select & Upload File</>
+                )}
+              </Button>
+            </div>
+
+            {/* Results */}
+            {bulkUpdateResult && (
+              <div className="space-y-3">
+                <div className="flex gap-4">
+                  <div className="flex-1 bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-lg p-3 text-center">
+                    <p className="text-2xl font-bold text-blue-700 dark:text-blue-400">{bulkUpdateResult.updated}</p>
+                    <p className="text-xs text-blue-600 dark:text-blue-500">Updated</p>
+                  </div>
+                  <div className="flex-1 bg-yellow-50 dark:bg-yellow-950 border border-yellow-200 dark:border-yellow-800 rounded-lg p-3 text-center">
+                    <p className="text-2xl font-bold text-yellow-700 dark:text-yellow-400">{bulkUpdateResult.skipped}</p>
+                    <p className="text-xs text-yellow-600 dark:text-yellow-500">Skipped</p>
+                  </div>
+                </div>
+                {bulkUpdateResult.errors.length > 0 && (
+                  <div className="bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 rounded-lg p-3">
+                    <p className="text-sm font-medium text-red-800 dark:text-red-300 mb-2">Issues:</p>
+                    <div className="max-h-36 overflow-y-auto space-y-1">
+                      {bulkUpdateResult.errors.map((err, i) => (
+                        <p key={i} className="text-xs text-red-700 dark:text-red-400">{err}</p>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setBulkUpdateOpen(false)}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      {/* ─────────────────────────────────────────────────────────────────────── */}
 
       <Dialog open={linkedAccountOpen} onOpenChange={(open) => { setLinkedAccountOpen(open); if (!open) setLinkedAccountEmployee(null); }}>
         <DialogContent className="sm:max-w-md">
