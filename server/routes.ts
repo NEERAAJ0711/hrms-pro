@@ -3156,8 +3156,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const settings = await storage.getStatutorySettingsByCompany(emp.companyId);
 
-      const basic = grade.minimumWage;
-      const gross = basic;
+      // Full breakdown: Basic = max(minWage, 50% gross), HRA = min(50% basic, rem),
+      //   Conveyance = min(50% HRA, rem), Special = rest, Medical/Other = 0
+      const minWage    = grade.minimumWage;
+      const gross      = minWage;                                      // gross starts at min wage
+      const basic      = Math.max(minWage, Math.round(gross * 0.5));  // max(minWage, 50%)
+      const afterBasic = gross - basic;
+      const hra        = Math.min(Math.round(basic * 0.5), afterBasic);
+      const afterHra   = afterBasic - hra;
+      const conveyance = Math.min(Math.round(hra * 0.5), afterHra);
+      const special    = Math.max(0, afterHra - conveyance);
+
       let pfEmployee = 0, pfEmployer = 0, esi = 0, pt = 0, lwfEmployee = 0;
 
       if (settings?.pfEnabled && emp.pfApplicable) {
@@ -3192,10 +3201,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         employeeId: emp.id,
         companyId: emp.companyId,
         basicSalary: basic,
-        hra: 0,
-        conveyance: 0,
+        hra,
+        conveyance,
         medicalAllowance: 0,
-        specialAllowance: 0,
+        specialAllowance: special,
         otherAllowances: 0,
         grossSalary: gross,
         pfEmployee,

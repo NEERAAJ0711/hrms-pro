@@ -318,24 +318,30 @@ export default function PayrollPage() {
     form.setValue("netSalary", net);
   };
 
-  // Set salary components from a basic + optional entered gross.
-  // Rules:
-  //   basic   = minimumWage (wage-grade) OR entered gross (no grade)
-  //   HRA     = min(50% × basic, gross − basic)   ← absorbs excess up to 50% of basic
-  //   special = (gross − basic) − HRA             ← any further excess
-  //   conv, medical, other = 0 by default (user may fill manually)
-  const applyGross = (basic: number, grossEntered?: number) => {
-    const gross     = grossEntered && grossEntered > basic ? grossEntered : basic;
-    const remaining = gross - basic;                                // ≥ 0
-    const hra       = Math.min(Math.round(basic * 0.5), remaining); // 50% of basic, capped at remainder
-    const special   = Math.max(0, remaining - hra);                 // anything left after HRA
+  // Full salary breakdown formula:
+  //   Basic      = max(minimumWage, 50% of gross)   — wage-grade: never below min wage
+  //   HRA        = min(50% of Basic, gross − Basic)  — capped at remaining
+  //   Conveyance = min(50% of HRA,   gross − Basic − HRA)  — capped at remaining
+  //   Special    = gross − Basic − HRA − Conveyance  — absorbs the rest
+  //   Medical / Other = 0 (user fills manually if needed)
+  const breakdownComponents = (gross: number, minimumWage = 0) => {
+    const basic      = Math.max(minimumWage, Math.round(gross * 0.5));
+    const afterBasic = gross - basic;                                             // ≥ 0
+    const hra        = Math.min(Math.round(basic * 0.5),  afterBasic);           // 50% basic
+    const afterHra   = afterBasic - hra;
+    const conveyance = Math.min(Math.round(hra   * 0.5),  afterHra);            // 50% of HRA
+    const special    = Math.max(0, afterHra - conveyance);
+    return { basic, hra, conveyance, special };
+  };
 
-    form.setValue("basicSalary",      basic,   { shouldDirty: true, shouldValidate: true });
-    form.setValue("hra",              hra,     { shouldDirty: true, shouldValidate: true });
-    form.setValue("conveyance",       0,       { shouldDirty: true, shouldValidate: true });
-    form.setValue("medicalAllowance", 0,       { shouldDirty: true, shouldValidate: true });
-    form.setValue("specialAllowance", special, { shouldDirty: true, shouldValidate: true });
-    form.setValue("otherAllowances",  0,       { shouldDirty: true, shouldValidate: true });
+  const applyGross = (gross: number, minimumWage = 0) => {
+    const { basic, hra, conveyance, special } = breakdownComponents(gross, minimumWage);
+    form.setValue("basicSalary",      basic,      { shouldDirty: true, shouldValidate: true });
+    form.setValue("hra",              hra,        { shouldDirty: true, shouldValidate: true });
+    form.setValue("conveyance",       conveyance, { shouldDirty: true, shouldValidate: true });
+    form.setValue("medicalAllowance", 0,          { shouldDirty: true, shouldValidate: true });
+    form.setValue("specialAllowance", special,    { shouldDirty: true, shouldValidate: true });
+    form.setValue("otherAllowances",  0,          { shouldDirty: true, shouldValidate: true });
     setGrossInputAmt(String(gross));
     setTimeout(() => calculateSalary(true), 0);
   };
@@ -346,7 +352,6 @@ export default function PayrollPage() {
       toast({ title: "Enter a valid Gross Salary", description: "Please enter a gross salary amount greater than 0.", variant: "destructive" });
       return;
     }
-    // Wage-grade employees: basic is locked to minimum wage
     const empId = form.getValues("employeeId");
     const emp   = employees.find(e => e.id === empId);
     const grade = emp?.wageGradeId
@@ -362,11 +367,9 @@ export default function PayrollPage() {
         setGrossInputAmt(String(grade.minimumWage));
         return;
       }
-      // basic = min wage; HRA = min(50% basic, gross − basic); special = remainder
-      applyGross(grade.minimumWage, entered);
+      applyGross(entered, grade.minimumWage);
       return;
     }
-    // No wage grade: basic = entered gross, HRA = 0 (user fills manually)
     applyGross(entered);
   };
 
@@ -979,8 +982,8 @@ export default function PayrollPage() {
                                 ? wageGrades.find(g => g.id === emp.wageGradeId && g.status === "active")
                                 : undefined;
                               if (grade && grade.minimumWage > 0) {
-                                // Basic = Gross = Minimum Wage; all other allowances = 0
-                                applyGross(grade.minimumWage);
+                                // Gross = minimum wage; breakdown with min wage floor
+                                applyGross(grade.minimumWage, grade.minimumWage);
                                 return;
                               }
                             }
@@ -1074,8 +1077,7 @@ export default function PayrollPage() {
                     </Button>
                   </div>
                   <p className="text-[10px] text-blue-600 dark:text-blue-400 mt-1.5">
-                    Wage grade: Basic = Min. Wage · HRA = min(50% of Basic, Gross − Basic) · Special = remaining · Conv/Medical = ₹0.&nbsp;
-                    No grade: Basic = Gross · all others ₹0. Add Conv/Medical manually if needed.
+                    Basic = max(Min.Wage, 50% of Gross) · HRA = min(50% of Basic, rem.) · Conveyance = min(50% of HRA, rem.) · Special = balance · Medical = ₹0
                   </p>
                 </div>
                 {/* ─────────────────────────────────────────────────────── */}
