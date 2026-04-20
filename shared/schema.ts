@@ -453,7 +453,10 @@ export const payroll = pgTable("payroll", {
   generatedAt: text("generated_at").notNull(),
 });
 
-export const insertPayrollSchema = createInsertSchema(payroll).omit({ id: true });
+export const insertPayrollSchema = createInsertSchema(payroll).omit({ id: true }).extend({
+  presentDays: z.union([z.string(), z.number()]).transform(v => String(v)),
+  payDays: z.union([z.string(), z.number()]).transform(v => String(v)),
+});
 export type InsertPayroll = z.infer<typeof insertPayrollSchema>;
 export type Payroll = typeof payroll.$inferSelect;
 
