@@ -31,10 +31,25 @@ import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth";
 import type { BiometricPunchLog, Company, Employee, BiometricDevice } from "@shared/schema";
 
+// Compute the correct ADMS server URL dynamically from the browser origin.
+// The ZKTeco device must push to THIS server's /iclock/cdata endpoint.
+// In Replit (dev or deployed) the app is always served over HTTPS via the
+// reverse-proxy, so port 443 is correct. For plain-HTTP dev environments
+// use whatever port the browser is actually on.
+function getAdmsServerInfo() {
+  const proto = window.location.protocol;          // "https:" or "http:"
+  const host  = window.location.hostname;          // e.g. "abc.user.replit.dev"
+  const port  = proto === "https:" ? "443"
+               : (window.location.port || "80");
+  const url   = `${proto}//${host}/iclock/cdata`;
+  return { host, port, url, isHttps: proto === "https:" };
+}
+
 export default function BiometricPage() {
   const { toast } = useToast();
   const { user } = useAuth();
   const isSuperAdmin = user?.role === "super_admin";
+  const adms = getAdmsServerInfo();
 
   const [selectedCompany, setSelectedCompany] = useState<string>(isSuperAdmin ? "__all__" : (user?.companyId || ""));
   const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split("T")[0]);
@@ -48,8 +63,8 @@ export default function BiometricPage() {
   const [deviceName, setDeviceName] = useState("");
   const [deviceCode, setDeviceCode] = useState("");
   const [deviceSerial, setDeviceSerial] = useState("");
-  const [deviceIp, setDeviceIp] = useState("31.97.207.109");
-  const [devicePort, setDevicePort] = useState("8181");
+  const [deviceIp, setDeviceIp] = useState("");
+  const [devicePort, setDevicePort] = useState("4370");
   const [devicePushToken, setDevicePushToken] = useState("");
   const [deviceAllowedCidr, setDeviceAllowedCidr] = useState("");
 
@@ -166,8 +181,8 @@ export default function BiometricPage() {
       setDeviceName("");
       setDeviceCode("");
       setDeviceSerial("");
-      setDeviceIp("31.97.207.109");
-      setDevicePort("8181");
+      setDeviceIp("");
+      setDevicePort("4370");
       setDevicePushToken("");
       setDeviceAllowedCidr("");
     },
@@ -595,19 +610,33 @@ export default function BiometricPage() {
                 <span className="font-medium"> Menu → Communication → Cloud Server Settings (ADMS)</span>
               </p>
               <div className="grid grid-cols-2 gap-x-6 gap-y-1 font-mono bg-white dark:bg-blue-900 rounded p-2 border border-blue-200 dark:border-blue-700">
+                <span className="font-sans font-medium not-italic">Server Mode</span>
+                <span className="font-bold text-green-700 dark:text-green-300">ADMS</span>
+                <span className="font-sans font-medium not-italic">Enable Domain Name</span>
+                <span className="font-bold text-green-700 dark:text-green-300">ON ✓</span>
                 <span className="font-sans font-medium not-italic">Server Address</span>
-                <span className="font-bold text-blue-700 dark:text-blue-300">31.97.207.109</span>
+                <span className="font-bold text-blue-700 dark:text-blue-300 break-all select-all">{adms.host}</span>
                 <span className="font-sans font-medium not-italic">Server Port</span>
-                <span className="font-bold text-blue-700 dark:text-blue-300">8181</span>
-                <span className="font-sans font-medium not-italic">Protocol</span>
-                <span>HTTP</span>
+                <span className="font-bold text-blue-700 dark:text-blue-300">{adms.port}</span>
                 <span className="font-sans font-medium not-italic">Push Interval</span>
                 <span>1 minute</span>
               </div>
-              <p className="text-[11px] opacity-75">
-                The device will POST attendance records to <span className="font-mono">http://31.97.207.109:8181/iclock/cdata</span>.
-                Port 8181 is the ZKTeco ADMS default — no firmware change needed on most models.
-              </p>
+              <div className="flex items-center gap-2 mt-1">
+                <span className="opacity-75">Full push URL:</span>
+                <code className="bg-white dark:bg-blue-900 border border-blue-200 dark:border-blue-700 px-2 py-0.5 rounded text-[11px] break-all select-all">{adms.url}</code>
+                <button
+                  type="button"
+                  className="shrink-0 text-blue-600 underline hover:no-underline text-[11px]"
+                  onClick={() => { navigator.clipboard.writeText(adms.url); }}
+                >
+                  Copy
+                </button>
+              </div>
+              <div className="mt-2 rounded bg-amber-50 dark:bg-amber-950 border border-amber-300 dark:border-amber-700 p-2 text-amber-800 dark:text-amber-200 text-[11px] space-y-1">
+                <p className="font-semibold">⚠ Important — use domain name, not raw IP</p>
+                <p>The server IP can change. Always set <strong>Enable Domain Name = ON</strong> on the device and enter the hostname above. Port {adms.port} is the standard {adms.isHttps ? "HTTPS" : "HTTP"} port — no special firewall rules needed.</p>
+                <p>The device's own <em>TCP COMM Port</em> (8181 on the Ethernet screen) is separate — that is the port the <em>device</em> listens on for commands, and you do not need to change it.</p>
+              </div>
             </CardContent>
           </Card>
 
@@ -946,7 +975,7 @@ export default function BiometricPage() {
                 <Input
                   value={deviceAllowedCidr}
                   onChange={e => setDeviceAllowedCidr(e.target.value)}
-                  placeholder="e.g. 31.97.207.109/32"
+                  placeholder="e.g. 192.168.1.0/24 or 203.0.113.5/32"
                 />
                 <p className="text-xs text-muted-foreground mt-1">
                   Pushes from any other source IP will be rejected. Comma-separate multiple ranges.
@@ -1078,7 +1107,7 @@ export default function BiometricPage() {
                 <Input
                   value={editAllowedCidr}
                   onChange={(e) => setEditAllowedCidr(e.target.value)}
-                  placeholder="e.g. 31.97.207.109 or 31.97.207.0/24"
+                  placeholder="e.g. 192.168.1.200/32 or 203.0.113.0/24"
                   className="font-mono text-xs"
                   data-testid="input-edit-device-cidr"
                 />
