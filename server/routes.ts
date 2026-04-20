@@ -231,15 +231,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // or the raw IP (port 443) — both reach the same /iclock/* handlers.
   app.get("/api/server/network-info", requireAuth, async (req, res) => {
     try {
-      const host = req.hostname; // e.g. "hrms.tbjvisionconnect.com"
+      // Prefer the Replit dev domain env var — it's the guaranteed-accessible
+      // hostname for this server. In production the custom domain/replit.app
+      // domain takes precedence (req.hostname from the proxy).
+      const replitDevDomain = process.env.REPLIT_DEV_DOMAIN || null;
+      const reqHost = req.hostname; // whatever the browser used
+      // Use Replit dev domain if the browser used localhost/127.0.0.1
+      const host = (reqHost === "localhost" || reqHost === "127.0.0.1")
+        ? (replitDevDomain || reqHost)
+        : reqHost;
+
       let ip: string | null = null;
       try {
         const result = await dnsPromises.lookup(host, { family: 4 });
         ip = result.address;
       } catch {
-        // DNS failed (dev environment / localhost) — skip
+        // DNS failed — skip
       }
-      // Also try fetching from an IP-echo service as fallback
+      // Fallback: use ipify to get server's outbound IP
       if (!ip || ip.startsWith("127.") || ip.startsWith("::")) {
         try {
           const ctrl = new AbortController();
@@ -250,15 +259,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
           ip = j.ip;
         } catch { /* ignore */ }
       }
-      const proto = req.protocol;
+      const proto = (req.secure || req.headers["x-forwarded-proto"] === "https") ? "https" : "http";
       const port  = proto === "https" ? "443" : (req.socket.localPort?.toString() || "5000");
       res.json({
         host,
+        replitDevDomain,
         ip,
         port,
         proto,
         admsUrl: `${proto}://${host}/iclock/cdata`,
-        admsUrlIp: ip ? `${proto}://${ip}/iclock/cdata` : null,
+        admsUrlIp: ip ? `https://${ip}/iclock/cdata` : null,
       });
     } catch (err: any) {
       res.status(500).json({ error: err?.message || "Failed to resolve network info" });

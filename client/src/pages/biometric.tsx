@@ -41,25 +41,26 @@ export default function BiometricPage() {
   // "ip"     = use resolved IPv4 (for devices that can't use domain)
   const [admsMode, setAdmsMode] = useState<"domain" | "ip">("ip");
 
-  const { data: networkInfo } = useQuery<{
-    host: string; ip: string | null; port: string; proto: string;
-    admsUrl: string; admsUrlIp: string | null;
+  const { data: networkInfo, isLoading: networkLoading } = useQuery<{
+    host: string; replitDevDomain: string | null; ip: string | null;
+    port: string; proto: string; admsUrl: string; admsUrlIp: string | null;
   }>({
     queryKey: ["/api/server/network-info"],
     staleTime: 5 * 60 * 1000,
     retry: false,
   });
 
-  // Fallback values derived from browser location (before server responds)
+  // Prefer Replit dev domain (guaranteed accessible) over browser hostname
   const fallbackHost = window.location.hostname;
   const fallbackPort = window.location.protocol === "https:" ? "443" : (window.location.port || "5000");
-  const admsHost  = networkInfo?.host  ?? fallbackHost;
-  const admsIp    = networkInfo?.ip    ?? null;
-  const admsPort  = networkInfo?.port  ?? fallbackPort;
-  const admsProto = networkInfo?.proto ?? (window.location.protocol === "https:" ? "https" : "http");
+  // The best hostname: replitDevDomain > req.hostname > browser hostname
+  const admsHost  = networkInfo?.replitDevDomain ?? networkInfo?.host ?? fallbackHost;
+  const admsIp    = networkInfo?.ip ?? null;
+  const admsPort  = "443"; // Always 443 — Replit always terminates TLS at the proxy
+  const admsProto = "https";
 
   const admsAddr  = admsMode === "ip" ? (admsIp ?? admsHost) : admsHost;
-  const admsUrl   = `${admsProto}://${admsAddr}/iclock/cdata`;
+  const admsUrl   = `https://${admsAddr}/iclock/cdata`;
 
   const [selectedCompany, setSelectedCompany] = useState<string>(isSuperAdmin ? "__all__" : (user?.companyId || ""));
   const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split("T")[0]);
@@ -640,55 +641,60 @@ export default function BiometricPage() {
             </CardHeader>
             <CardContent className="text-xs text-blue-800 dark:text-blue-300 space-y-2">
 
-              {/* RED PROXY WARNING — shown prominently */}
+              {/* RED PROXY WARNING */}
               <div className="rounded bg-red-50 dark:bg-red-950 border-2 border-red-400 dark:border-red-600 p-2 text-red-800 dark:text-red-200 text-[11px]">
                 <p className="font-bold text-sm mb-1">🚫 Enable Proxy Server → must be OFF</p>
-                <p>On the device: <strong>Menu → Communication → Cloud Server Settings</strong> — scroll down and make sure <strong>Enable Proxy Server is toggled OFF</strong>. If it is ON, the device routes traffic through the wrong address and will never connect.</p>
+                <p>On the device go to <strong>Cloud Server Settings</strong> and scroll down — make sure <strong>Enable Proxy Server is toggled OFF</strong>. When it is ON the device routes traffic through the wrong address and will never connect.</p>
               </div>
 
-              <p>Enter these values on the device: <span className="font-medium">Menu → Communication → Cloud Server Settings</span></p>
+              {/* PRIMARY: correct server address box */}
+              <div className="rounded border-2 border-green-400 dark:border-green-600 bg-green-50 dark:bg-green-950 p-3 space-y-2">
+                <p className="font-bold text-green-800 dark:text-green-200 text-sm">Enter these exact values on the device:</p>
+                <p className="text-[11px] text-green-700 dark:text-green-300">Menu → Communication → Cloud Server Settings</p>
+                <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-[12px] font-mono bg-white dark:bg-green-900 rounded p-2 border border-green-200 dark:border-green-700">
+                  <span className="font-sans font-semibold not-italic text-gray-700 dark:text-gray-300">Server Mode</span>
+                  <span className="font-bold text-green-700 dark:text-green-300">ADMS</span>
 
-              <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 font-mono bg-white dark:bg-blue-900 rounded p-3 border border-blue-200 dark:border-blue-700 text-[12px]">
-                <span className="font-sans font-semibold not-italic">Server Mode</span>
-                <span className="font-bold text-green-700 dark:text-green-300">ADMS</span>
-
-                <span className="font-sans font-semibold not-italic">Enable Domain Name</span>
-                {admsMode === "domain"
-                  ? <span className="font-bold text-green-700 dark:text-green-300">ON ✓</span>
-                  : <span className="font-bold text-orange-600 dark:text-orange-300">OFF</span>
-                }
-
-                <span className="font-sans font-semibold not-italic">Server Address</span>
-                <span className="font-bold text-blue-700 dark:text-blue-200 break-all select-all">
-                  {admsMode === "ip"
-                    ? (admsIp ? admsIp : <span className="text-amber-600 italic">resolving…</span>)
-                    : admsHost
+                  <span className="font-sans font-semibold not-italic text-gray-700 dark:text-gray-300">Enable Domain Name</span>
+                  {admsMode === "domain"
+                    ? <span className="font-bold text-green-700 dark:text-green-300">ON ✓</span>
+                    : <span className="font-bold text-orange-600 dark:text-orange-300">OFF</span>
                   }
-                </span>
 
-                <span className="font-sans font-semibold not-italic">Server Port</span>
-                <span className="font-bold text-blue-700 dark:text-blue-200">{admsPort}</span>
+                  <span className="font-sans font-semibold not-italic text-gray-700 dark:text-gray-300">Server Address</span>
+                  <div className="flex items-center gap-1">
+                    <span className="font-bold text-blue-700 dark:text-blue-200 break-all select-all">
+                      {networkLoading
+                        ? <span className="text-gray-400 italic">loading…</span>
+                        : admsMode === "ip"
+                          ? (admsIp ?? <span className="text-amber-600 italic">resolving…</span>)
+                          : admsHost
+                      }
+                    </span>
+                    <button
+                      type="button"
+                      className="shrink-0 text-blue-600 dark:text-blue-300 text-[10px] underline"
+                      onClick={() => { navigator.clipboard.writeText(admsAddr); toast({ title: "Address copied!" }); }}
+                    >copy</button>
+                  </div>
 
-                <span className="font-sans font-semibold not-italic">Enable Proxy Server</span>
-                <span className="font-bold text-red-600 dark:text-red-400">OFF 🚫</span>
+                  <span className="font-sans font-semibold not-italic text-gray-700 dark:text-gray-300">Server Port</span>
+                  <span className="font-bold text-blue-700 dark:text-blue-200">443</span>
+
+                  <span className="font-sans font-semibold not-italic text-gray-700 dark:text-gray-300">Enable Proxy Server</span>
+                  <span className="font-bold text-red-600 dark:text-red-400">OFF 🚫</span>
+                </div>
               </div>
 
-              <div className="flex items-center gap-2">
-                <span className="opacity-75 shrink-0">Full push URL:</span>
-                <code className="bg-white dark:bg-blue-900 border border-blue-200 dark:border-blue-700 px-2 py-0.5 rounded text-[11px] break-all select-all flex-1">{admsUrl}</code>
+              <div className="flex items-center gap-2 text-[11px]">
+                <span className="text-muted-foreground shrink-0">Full URL:</span>
+                <code className="bg-white dark:bg-blue-900 border border-blue-200 dark:border-blue-700 px-2 py-0.5 rounded break-all select-all flex-1 text-[10px]">{admsUrl}</code>
                 <button
                   type="button"
-                  className="shrink-0 text-blue-600 dark:text-blue-300 underline hover:no-underline text-[11px]"
+                  className="shrink-0 text-blue-600 dark:text-blue-300 underline hover:no-underline"
                   onClick={() => { navigator.clipboard.writeText(admsUrl); toast({ title: "Copied to clipboard" }); }}
                 >Copy</button>
               </div>
-
-              <p className="text-[11px] opacity-70">
-                {admsMode === "ip"
-                  ? "Using raw IP: no DNS lookup needed on the device. If the IP changes after a server restart, update the device. The device's TCP COMM Port (8181 on Ethernet screen) is the port the device listens on — do not confuse it with the server port above."
-                  : "Using domain name: set Enable Domain Name = ON on the device. The domain never changes even if the server's IP changes."
-                }
-              </p>
             </CardContent>
           </Card>
 
