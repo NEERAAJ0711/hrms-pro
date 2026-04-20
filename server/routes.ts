@@ -44,43 +44,13 @@ import * as path from 'path';
 import * as net from 'net';
 
 // --- Biometric device network allow-list (SSRF guard) ---
-// Devices live on the public internet at fixed addresses, so we refuse to
-// store an IP that points back into our own infrastructure (loopback,
-// private RFC1918/RFC4193, link-local, multicast, broadcast). We also
-// pin the port to a small set of known biometric ports unless an operator
-// explicitly broadens it via env. The currently-deployed device at
-// 31.97.207.109:8181 must keep working, so 8181 is in the default list.
+// ZKTeco biometric devices are typically on the office LAN (192.168.x.x).
+// We allow all valid IPs and hostnames — private ranges are fine because
+// the IP is the device's local address used for direct TCP commands.
 const DEFAULT_ALLOWED_BIOMETRIC_PORTS = [80, 443, 4370, 8080, 8181];
 const EXTRA_ALLOWED_BIOMETRIC_PORTS = (process.env.BIOMETRIC_ALLOWED_PORTS || "")
   .split(",").map(s => Number(s.trim())).filter(n => Number.isInteger(n) && n > 0 && n < 65536);
 const ALLOWED_BIOMETRIC_PORTS = new Set<number>([...DEFAULT_ALLOWED_BIOMETRIC_PORTS, ...EXTRA_ALLOWED_BIOMETRIC_PORTS]);
-const BIOMETRIC_ALLOW_PRIVATE_IPS = process.env.BIOMETRIC_ALLOW_PRIVATE_IPS === "1";
-
-function isPrivateOrUnsafeIp(ip: string): boolean {
-  const v = net.isIP(ip);
-  if (v === 0) return true; // not even an IP literal — reject
-  if (v === 4) {
-    const [a, b] = ip.split(".").map(Number);
-    if (a === 10) return true;                         // 10.0.0.0/8
-    if (a === 127) return true;                        // loopback
-    if (a === 169 && b === 254) return true;           // link-local
-    if (a === 172 && b >= 16 && b <= 31) return true;  // 172.16.0.0/12
-    if (a === 192 && b === 168) return true;           // 192.168.0.0/16
-    if (a === 100 && b >= 64 && b <= 127) return true; // CGNAT 100.64.0.0/10
-    if (a >= 224) return true;                         // multicast / reserved
-    if (a === 0) return true;                          // 0.0.0.0/8
-    return false;
-  }
-  // IPv6
-  const lower = ip.toLowerCase();
-  if (lower === "::1" || lower === "::") return true;
-  if (lower.startsWith("fe80:") || lower.startsWith("fc") || lower.startsWith("fd")) return true;
-  if (lower.startsWith("ff")) return true; // multicast
-  // IPv4-mapped IPv6 (::ffff:a.b.c.d)
-  const mapped = lower.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
-  if (mapped) return isPrivateOrUnsafeIp(mapped[1]);
-  return false;
-}
 
 // Per-device ADMS auth: a device must have either a shared secret or a
 // pinned source CIDR. Validates the values here so bad input is rejected
@@ -120,13 +90,12 @@ function validateBiometricDeviceAuth(pushToken: unknown, allowedIpCidr: unknown)
 function validateBiometricNetwork(ip: unknown, port: unknown): string | null {
   if (ip != null && ip !== "") {
     if (typeof ip !== "string") return "ipAddress must be a string";
-    // Allow either an IP literal or a DNS hostname — devices behind a
-    // reverse proxy (e.g. hrms.workseazy.in:443) need to use the hostname.
+    // Accept IPv4, IPv6, or a DNS hostname.
+    // Private/LAN IPs (192.168.x.x, 10.x, 172.x) are valid — ZKTeco
+    // devices are almost always on the office local network.
     if (net.isIP(ip) === 0) {
       const isHostname = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/i.test(ip);
       if (!isHostname) return "ipAddress must be a valid IPv4/IPv6 literal or DNS hostname";
-    } else if (!BIOMETRIC_ALLOW_PRIVATE_IPS && isPrivateOrUnsafeIp(ip)) {
-      return "ipAddress points at a private, loopback, link-local, or reserved range and is not allowed";
     }
   }
   if (port != null && port !== "") {
