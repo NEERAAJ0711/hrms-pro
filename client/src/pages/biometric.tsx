@@ -31,25 +31,35 @@ import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth";
 import type { BiometricPunchLog, Company, Employee, BiometricDevice } from "@shared/schema";
 
-// Compute the correct ADMS server URL dynamically from the browser origin.
-// The ZKTeco device must push to THIS server's /iclock/cdata endpoint.
-// In Replit (dev or deployed) the app is always served over HTTPS via the
-// reverse-proxy, so port 443 is correct. For plain-HTTP dev environments
-// use whatever port the browser is actually on.
-function getAdmsServerInfo() {
-  const proto = window.location.protocol;          // "https:" or "http:"
-  const host  = window.location.hostname;          // e.g. "abc.user.replit.dev"
-  const port  = proto === "https:" ? "443"
-               : (window.location.port || "80");
-  const url   = `${proto}//${host}/iclock/cdata`;
-  return { host, port, url, isHttps: proto === "https:" };
-}
 
 export default function BiometricPage() {
   const { toast } = useToast();
   const { user } = useAuth();
   const isSuperAdmin = user?.role === "super_admin";
-  const adms = getAdmsServerInfo();
+
+  // "domain" = use hostname + port 443 (recommended)
+  // "ip"     = use resolved IPv4 (for devices that can't use domain)
+  const [admsMode, setAdmsMode] = useState<"domain" | "ip">("ip");
+
+  const { data: networkInfo } = useQuery<{
+    host: string; ip: string | null; port: string; proto: string;
+    admsUrl: string; admsUrlIp: string | null;
+  }>({
+    queryKey: ["/api/server/network-info"],
+    staleTime: 5 * 60 * 1000,
+    retry: false,
+  });
+
+  // Fallback values derived from browser location (before server responds)
+  const fallbackHost = window.location.hostname;
+  const fallbackPort = window.location.protocol === "https:" ? "443" : (window.location.port || "5000");
+  const admsHost  = networkInfo?.host  ?? fallbackHost;
+  const admsIp    = networkInfo?.ip    ?? null;
+  const admsPort  = networkInfo?.port  ?? fallbackPort;
+  const admsProto = networkInfo?.proto ?? (window.location.protocol === "https:" ? "https" : "http");
+
+  const admsAddr  = admsMode === "ip" ? (admsIp ?? admsHost) : admsHost;
+  const admsUrl   = `${admsProto}://${admsAddr}/iclock/cdata`;
 
   const [selectedCompany, setSelectedCompany] = useState<string>(isSuperAdmin ? "__all__" : (user?.companyId || ""));
   const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split("T")[0]);
@@ -599,44 +609,73 @@ export default function BiometricPage() {
           {/* ADMS Server Setup Instructions */}
           <Card className="border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950">
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm text-blue-900 dark:text-blue-200 flex items-center gap-2">
-                <Signal className="h-4 w-4" />
-                ZKTeco ADMS Device Configuration
+              <CardTitle className="text-sm text-blue-900 dark:text-blue-200 flex items-center justify-between">
+                <span className="flex items-center gap-2"><Signal className="h-4 w-4" />ZKTeco ADMS Device Configuration</span>
+                <div className="flex items-center gap-1 text-[11px] font-normal">
+                  <button
+                    type="button"
+                    onClick={() => setAdmsMode("ip")}
+                    className={`px-2 py-0.5 rounded border text-[11px] transition-colors ${admsMode === "ip" ? "bg-blue-700 text-white border-blue-700" : "bg-white dark:bg-blue-900 border-blue-300 dark:border-blue-600 text-blue-700 dark:text-blue-300"}`}
+                  >Use IP</button>
+                  <button
+                    type="button"
+                    onClick={() => setAdmsMode("domain")}
+                    className={`px-2 py-0.5 rounded border text-[11px] transition-colors ${admsMode === "domain" ? "bg-blue-700 text-white border-blue-700" : "bg-white dark:bg-blue-900 border-blue-300 dark:border-blue-600 text-blue-700 dark:text-blue-300"}`}
+                  >Use Domain</button>
+                </div>
               </CardTitle>
             </CardHeader>
             <CardContent className="text-xs text-blue-800 dark:text-blue-300 space-y-2">
-              <p>
-                Configure each ZKTeco device to push attendance to this server. On the device touchscreen go to:
-                <span className="font-medium"> Menu → Communication → Cloud Server Settings (ADMS)</span>
-              </p>
-              <div className="grid grid-cols-2 gap-x-6 gap-y-1 font-mono bg-white dark:bg-blue-900 rounded p-2 border border-blue-200 dark:border-blue-700">
-                <span className="font-sans font-medium not-italic">Server Mode</span>
-                <span className="font-bold text-green-700 dark:text-green-300">ADMS</span>
-                <span className="font-sans font-medium not-italic">Enable Domain Name</span>
-                <span className="font-bold text-green-700 dark:text-green-300">ON ✓</span>
-                <span className="font-sans font-medium not-italic">Server Address</span>
-                <span className="font-bold text-blue-700 dark:text-blue-300 break-all select-all">{adms.host}</span>
-                <span className="font-sans font-medium not-italic">Server Port</span>
-                <span className="font-bold text-blue-700 dark:text-blue-300">{adms.port}</span>
-                <span className="font-sans font-medium not-italic">Push Interval</span>
-                <span>1 minute</span>
+
+              {/* RED PROXY WARNING — shown prominently */}
+              <div className="rounded bg-red-50 dark:bg-red-950 border-2 border-red-400 dark:border-red-600 p-2 text-red-800 dark:text-red-200 text-[11px]">
+                <p className="font-bold text-sm mb-1">🚫 Enable Proxy Server → must be OFF</p>
+                <p>On the device: <strong>Menu → Communication → Cloud Server Settings</strong> — scroll down and make sure <strong>Enable Proxy Server is toggled OFF</strong>. If it is ON, the device routes traffic through the wrong address and will never connect.</p>
               </div>
-              <div className="flex items-center gap-2 mt-1">
-                <span className="opacity-75">Full push URL:</span>
-                <code className="bg-white dark:bg-blue-900 border border-blue-200 dark:border-blue-700 px-2 py-0.5 rounded text-[11px] break-all select-all">{adms.url}</code>
+
+              <p>Enter these values on the device: <span className="font-medium">Menu → Communication → Cloud Server Settings</span></p>
+
+              <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 font-mono bg-white dark:bg-blue-900 rounded p-3 border border-blue-200 dark:border-blue-700 text-[12px]">
+                <span className="font-sans font-semibold not-italic">Server Mode</span>
+                <span className="font-bold text-green-700 dark:text-green-300">ADMS</span>
+
+                <span className="font-sans font-semibold not-italic">Enable Domain Name</span>
+                {admsMode === "domain"
+                  ? <span className="font-bold text-green-700 dark:text-green-300">ON ✓</span>
+                  : <span className="font-bold text-orange-600 dark:text-orange-300">OFF</span>
+                }
+
+                <span className="font-sans font-semibold not-italic">Server Address</span>
+                <span className="font-bold text-blue-700 dark:text-blue-200 break-all select-all">
+                  {admsMode === "ip"
+                    ? (admsIp ? admsIp : <span className="text-amber-600 italic">resolving…</span>)
+                    : admsHost
+                  }
+                </span>
+
+                <span className="font-sans font-semibold not-italic">Server Port</span>
+                <span className="font-bold text-blue-700 dark:text-blue-200">{admsPort}</span>
+
+                <span className="font-sans font-semibold not-italic">Enable Proxy Server</span>
+                <span className="font-bold text-red-600 dark:text-red-400">OFF 🚫</span>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <span className="opacity-75 shrink-0">Full push URL:</span>
+                <code className="bg-white dark:bg-blue-900 border border-blue-200 dark:border-blue-700 px-2 py-0.5 rounded text-[11px] break-all select-all flex-1">{admsUrl}</code>
                 <button
                   type="button"
-                  className="shrink-0 text-blue-600 underline hover:no-underline text-[11px]"
-                  onClick={() => { navigator.clipboard.writeText(adms.url); }}
-                >
-                  Copy
-                </button>
+                  className="shrink-0 text-blue-600 dark:text-blue-300 underline hover:no-underline text-[11px]"
+                  onClick={() => { navigator.clipboard.writeText(admsUrl); toast({ title: "Copied to clipboard" }); }}
+                >Copy</button>
               </div>
-              <div className="mt-2 rounded bg-amber-50 dark:bg-amber-950 border border-amber-300 dark:border-amber-700 p-2 text-amber-800 dark:text-amber-200 text-[11px] space-y-1">
-                <p className="font-semibold">⚠ Important — use domain name, not raw IP</p>
-                <p>The server IP can change. Always set <strong>Enable Domain Name = ON</strong> on the device and enter the hostname above. Port {adms.port} is the standard {adms.isHttps ? "HTTPS" : "HTTP"} port — no special firewall rules needed.</p>
-                <p>The device's own <em>TCP COMM Port</em> (8181 on the Ethernet screen) is separate — that is the port the <em>device</em> listens on for commands, and you do not need to change it.</p>
-              </div>
+
+              <p className="text-[11px] opacity-70">
+                {admsMode === "ip"
+                  ? "Using raw IP: no DNS lookup needed on the device. If the IP changes after a server restart, update the device. The device's TCP COMM Port (8181 on Ethernet screen) is the port the device listens on — do not confuse it with the server port above."
+                  : "Using domain name: set Enable Domain Name = ON on the device. The domain never changes even if the server's IP changes."
+                }
+              </p>
             </CardContent>
           </Card>
 

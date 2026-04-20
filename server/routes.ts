@@ -35,6 +35,7 @@ import {
 import { z } from "zod";
 import ZKLib from 'zkteco-js';
 import { registerAdmsRoutes } from './adms';
+import * as dnsPromises from 'dns/promises';
 import multer from 'multer';
 import * as XLSX from 'xlsx';
 import { randomUUID } from 'crypto';
@@ -245,6 +246,45 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // here over HTTP. These are intentionally unauthenticated at the session
   // layer; identity is the device serial number sent in the query string.
   registerAdmsRoutes(app);
+
+  // Returns the server's resolved public IP for ADMS device configuration.
+  // The ZKTeco device can be configured with either the domain name (port 443)
+  // or the raw IP (port 443) — both reach the same /iclock/* handlers.
+  app.get("/api/server/network-info", requireAuth, async (req, res) => {
+    try {
+      const host = req.hostname; // e.g. "hrms.tbjvisionconnect.com"
+      let ip: string | null = null;
+      try {
+        const result = await dnsPromises.lookup(host, { family: 4 });
+        ip = result.address;
+      } catch {
+        // DNS failed (dev environment / localhost) — skip
+      }
+      // Also try fetching from an IP-echo service as fallback
+      if (!ip || ip.startsWith("127.") || ip.startsWith("::")) {
+        try {
+          const ctrl = new AbortController();
+          const timer = setTimeout(() => ctrl.abort(), 3000);
+          const r = await fetch("https://api.ipify.org?format=json", { signal: ctrl.signal });
+          clearTimeout(timer);
+          const j = await r.json() as { ip: string };
+          ip = j.ip;
+        } catch { /* ignore */ }
+      }
+      const proto = req.protocol;
+      const port  = proto === "https" ? "443" : (req.socket.localPort?.toString() || "5000");
+      res.json({
+        host,
+        ip,
+        port,
+        proto,
+        admsUrl: `${proto}://${host}/iclock/cdata`,
+        admsUrlIp: ip ? `${proto}://${ip}/iclock/cdata` : null,
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || "Failed to resolve network info" });
+    }
+  });
 
   // Add OT columns to payroll table if they don't exist
   await db.execute(sql`ALTER TABLE payroll ADD COLUMN IF NOT EXISTS ot_hours NUMERIC(6,2) DEFAULT 0`).catch(() => {});
