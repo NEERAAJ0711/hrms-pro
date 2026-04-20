@@ -354,6 +354,9 @@ jobs:
             echo "▶ Cleaning old backups (keeping last 3)..."
             ls -dt $HOME/hrms-pro-backup-* 2>/dev/null | tail -n +4 | xargs rm -rf 2>/dev/null || true
 
+            echo "▶ Configuring Nginx for ZKTeco ADMS (port 80 /iclock/ bypass)..."
+            bash "$APP_DIR/scripts/configure-nginx-iclock.sh" || echo "⚠️  Nginx patch step failed — app still running, fix Nginx manually"
+
             echo "✅ Deployment complete!"
           ENDSSH
 
