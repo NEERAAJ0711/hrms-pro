@@ -597,7 +597,8 @@ export default function PayrollPage() {
         if (unrecordedWoDays === 0) return 0;
 
         // Proportional WOs capped at unrecorded WO days
-        const earned = Math.round(presentTotal * wosPerWeek / workingDaysPerWeek);
+        // Use Math.floor so we never inflate WO count beyond what was actually earned
+        const earned = Math.floor(presentTotal * wosPerWeek / workingDaysPerWeek);
         return Math.min(Math.max(0, earned), unrecordedWoDays);
       };
 
@@ -793,7 +794,7 @@ export default function PayrollPage() {
           netSalary: netSalary,
           workingDays: workingDays,
           presentDays: effectivePresentDays,
-          payDays: Math.round(payDays),
+          payDays: payDays,
           leaveDays: leaveDays,
           status: "draft",
           generatedAt: new Date().toISOString(),
@@ -1413,7 +1414,7 @@ export default function PayrollPage() {
                         <TableCell className="text-right text-red-600">{formatCurrency(record.totalDeductions)}</TableCell>
                         <TableCell className="text-right font-bold">{formatCurrency(record.netSalary)}</TableCell>
                         <TableCell className="text-center">
-                          <span className="text-sm">{record.payDays ?? record.presentDays}<span className="text-muted-foreground">/{record.workingDays}</span></span>
+                          <span className="text-sm">{Number(record.payDays ?? record.presentDays)}<span className="text-muted-foreground">/{record.workingDays}</span></span>
                         </TableCell>
                         <TableCell className="text-center text-orange-600 font-medium">
                           {Number((record as any).otHours) > 0 ? `${Number((record as any).otHours).toFixed(1)}h` : "—"}
@@ -1746,19 +1747,19 @@ export default function PayrollPage() {
                   </div>
                   <div className="space-y-1">
                     <p className="text-muted-foreground">Present Days</p>
-                    <p className="font-medium">{record.presentDays}</p>
+                    <p className="font-medium">{Number(record.presentDays)}</p>
                   </div>
                   <div className="space-y-1">
                     <p className="text-muted-foreground">Pay Days</p>
-                    <p className="font-medium text-primary">{record.payDays ?? record.workingDays}</p>
+                    <p className="font-medium text-primary">{Number(record.payDays ?? record.workingDays)}</p>
                   </div>
                   <div className="space-y-1">
                     <p className="text-muted-foreground">Off Days</p>
-                    <p className="font-medium text-blue-600">{Math.max(0, (record.payDays ?? 0) - record.presentDays - (record.leaveDays || 0))}</p>
+                    <p className="font-medium text-blue-600">{Math.max(0, Number(record.payDays ?? 0) - Number(record.presentDays) - (record.leaveDays || 0))}</p>
                   </div>
                   <div className="space-y-1">
                     <p className="text-muted-foreground">Absent Days</p>
-                    <p className="font-medium text-red-500">{Math.max(0, record.workingDays - (record.payDays ?? record.workingDays))}</p>
+                    <p className="font-medium text-red-500">{Math.max(0, record.workingDays - Number(record.payDays ?? record.workingDays))}</p>
                   </div>
                   <div className="space-y-1">
                     <p className="text-muted-foreground">Leave Days</p>
