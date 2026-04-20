@@ -85,6 +85,19 @@ export default function BiometricPage() {
   const [deviceToDelete, setDeviceToDelete] = useState<any | null>(null);
 
   // "Edit Device" dialog state — same shape as the Add form, plus the device id.
+  const [detectingIp, setDetectingIp] = useState(false);
+
+  const autoDetectSourceIp = async (setter: (v: string) => void) => {
+    setDetectingIp(true);
+    try {
+      const res = await fetch("/api/server/my-ip", { credentials: "include" });
+      const { ip } = await res.json();
+      if (ip) setter(`${ip}/32`);
+    } catch { /* ignore */ } finally {
+      setDetectingIp(false);
+    }
+  };
+
   const [editDevice, setEditDevice] = useState<any | null>(null);
   const [editName, setEditName] = useState("");
   const [editCode, setEditCode] = useState("");
@@ -1006,28 +1019,55 @@ export default function BiometricPage() {
               </div>
             </div>
             <div className="border-t pt-3 space-y-3">
-              <p className="text-xs text-muted-foreground">
-                Provide at least one of the following so the server can tell real pushes from spoofed ones.
-              </p>
+              <div className="rounded bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-700 p-2 text-xs text-amber-800 dark:text-amber-200 space-y-1">
+                <p className="font-semibold">Security — fill at least one of the two fields below</p>
+                <p>This prevents fake attendance punches from unknown sources. The easiest option is to click <strong>Auto-detect</strong> to fill your internet IP automatically, or click <strong>Generate</strong> to create a token.</p>
+              </div>
+
+              {/* Option 1: Source IP */}
               <div>
-                <Label>Pinned Source IP / CIDR</Label>
-                <Input
-                  value={deviceAllowedCidr}
-                  onChange={e => setDeviceAllowedCidr(e.target.value)}
-                  placeholder="e.g. 192.168.1.0/24 or 203.0.113.5/32"
-                />
-                <p className="text-xs text-muted-foreground mt-1">
-                  Pushes from any other source IP will be rejected. Comma-separate multiple ranges.
+                <Label className="flex items-center gap-1">
+                  Your Internet IP
+                  <span className="text-xs text-muted-foreground font-normal ml-1">(the public IP of your office internet connection)</span>
+                </Label>
+                <div className="flex gap-2 mt-1">
+                  <Input
+                    value={deviceAllowedCidr}
+                    onChange={e => setDeviceAllowedCidr(e.target.value)}
+                    placeholder="Will be filled automatically — click Auto-detect"
+                    data-testid="input-add-device-cidr"
+                    className="font-mono text-xs"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={detectingIp}
+                    onClick={() => autoDetectSourceIp(setDeviceAllowedCidr)}
+                    data-testid="button-add-detect-ip"
+                    title="Detect your current public IP automatically"
+                  >
+                    {detectingIp ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Signal className="h-4 w-4" />}
+                    <span className="ml-1">Auto-detect</span>
+                  </Button>
+                </div>
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  This is your router's public internet IP — <strong>not</strong> the device's local IP (192.168.x.x). Click Auto-detect to fill it automatically.
                 </p>
               </div>
+
+              {/* Option 2: Push Token */}
               <div>
-                <Label>Push Token (shared secret)</Label>
-                <div className="flex gap-2">
+                <Label>
+                  Push Token
+                  <span className="text-xs text-muted-foreground font-normal ml-1">(a secret password the device sends with every punch)</span>
+                </Label>
+                <div className="flex gap-2 mt-1">
                   <Input
                     value={devicePushToken}
                     onChange={e => setDevicePushToken(e.target.value)}
-                    placeholder="Min 12 chars; sent as ?token=… or X-Device-Token header"
+                    placeholder="At least 12 characters"
                     data-testid="input-add-device-token"
+                    className="font-mono text-xs"
                   />
                   <Button
                     type="button"
@@ -1112,12 +1152,41 @@ export default function BiometricPage() {
               </div>
             </div>
             <div className="rounded-md border p-3 space-y-3">
-              <p className="text-xs font-medium">
-                Anti-spoofing — set at least one
-              </p>
+              <p className="text-xs font-medium text-muted-foreground">Security — set at least one to prevent fake punches</p>
               <div>
-                <Label>Push Token (shared secret)</Label>
-                <div className="flex gap-2">
+                <Label>
+                  Your Internet IP
+                  <span className="text-xs text-muted-foreground font-normal ml-1">(public IP of your office connection)</span>
+                </Label>
+                <div className="flex gap-2 mt-1">
+                  <Input
+                    value={editAllowedCidr}
+                    onChange={(e) => setEditAllowedCidr(e.target.value)}
+                    placeholder="Click Auto-detect to fill automatically"
+                    className="font-mono text-xs"
+                    data-testid="input-edit-device-cidr"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={detectingIp}
+                    onClick={() => autoDetectSourceIp(setEditAllowedCidr)}
+                    title="Detect your current public IP automatically"
+                  >
+                    {detectingIp ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Signal className="h-4 w-4" />}
+                    <span className="ml-1">Auto-detect</span>
+                  </Button>
+                </div>
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  This is your router's internet-facing IP — not the device's local 192.168.x.x address.
+                </p>
+              </div>
+              <div>
+                <Label>
+                  Push Token
+                  <span className="text-xs text-muted-foreground font-normal ml-1">(secret password the device sends with every punch)</span>
+                </Label>
+                <div className="flex gap-2 mt-1">
                   <Input
                     value={editPushToken}
                     onChange={(e) => setEditPushToken(e.target.value)}
@@ -1136,24 +1205,6 @@ export default function BiometricPage() {
                     Generate
                   </Button>
                 </div>
-                <p className="text-[11px] text-muted-foreground mt-1">
-                  After saving, configure the same token on the device's
-                  ADMS / Cloud Server settings (e.g. as ?token=…).
-                </p>
-              </div>
-              <div>
-                <Label>Allowed Source IP / CIDR</Label>
-                <Input
-                  value={editAllowedCidr}
-                  onChange={(e) => setEditAllowedCidr(e.target.value)}
-                  placeholder="e.g. 192.168.1.200/32 or 203.0.113.0/24"
-                  className="font-mono text-xs"
-                  data-testid="input-edit-device-cidr"
-                />
-                <p className="text-[11px] text-muted-foreground mt-1">
-                  Pushes from any other source address will be rejected
-                  with 401.
-                </p>
               </div>
             </div>
           </div>

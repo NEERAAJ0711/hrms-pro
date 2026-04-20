@@ -247,6 +247,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // layer; identity is the device serial number sent in the query string.
   registerAdmsRoutes(app);
 
+  // Returns the caller's public IP as seen by this server.
+  // Used by the "Auto-detect" button in the Add Machine dialog so the user
+  // doesn't have to manually look up their router's WAN IP.
+  app.get("/api/server/my-ip", requireAuth, (req, res) => {
+    const raw = req.ip || req.socket.remoteAddress || "";
+    // Strip IPv6-mapped IPv4 prefix (::ffff:1.2.3.4 → 1.2.3.4)
+    const ip = raw.replace(/^::ffff:/, "");
+    res.json({ ip });
+  });
+
   // Returns the server's resolved public IP for ADMS device configuration.
   // The ZKTeco device can be configured with either the domain name (port 443)
   // or the raw IP (port 443) — both reach the same /iclock/* handlers.
