@@ -359,6 +359,32 @@ export default function BiometricPage() {
     },
   });
 
+  const pullDirectMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await apiRequest("POST", `/api/biometric/devices/${id}/pull-direct`, {});
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || "Direct pull failed");
+      }
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/biometric/logs"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/biometric/devices"] });
+      toast({
+        title: "Direct Pull Complete",
+        description: data?.message || `${data?.results?.inserted ?? 0} records imported.`,
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Direct Pull Failed",
+        description: error?.message || "Could not connect to device on port 4370.",
+        variant: "destructive",
+      });
+    },
+  });
+
   const clearResyncMutation = useMutation({
     mutationFn: async () => {
       const res = await apiRequest("POST", "/api/biometric/clear-and-resync", {});
@@ -957,6 +983,25 @@ export default function BiometricPage() {
                                   </Button>
                                 </TooltipTrigger>
                                 <TooltipContent>Refresh punch logs</TooltipContent>
+                              </Tooltip>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    variant="outline"
+                                    size="icon"
+                                    className="border-blue-500 text-blue-600 hover:bg-blue-50"
+                                    onClick={() => pullDirectMutation.mutate(device.id)}
+                                    disabled={pullDirectMutation.isPending}
+                                    data-testid={`button-pull-direct-${device.id}`}
+                                  >
+                                    {pullDirectMutation.isPending ? (
+                                      <RefreshCw className="h-4 w-4 animate-spin" />
+                                    ) : (
+                                      <Signal className="h-4 w-4" />
+                                    )}
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>Direct Pull (TCP port 4370) — fetches ALL records including old history</TooltipContent>
                               </Tooltip>
                               <Tooltip>
                                 <TooltipTrigger asChild>

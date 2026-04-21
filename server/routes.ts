@@ -1377,6 +1377,146 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Direct TCP pull from ZKTeco device via SDK port 4370 (bypasses ADMS push).
+  // Requires port 4370 to be reachable from VPS on the device's public IP.
+  app.post("/api/biometric/devices/:id/pull-direct", requireAuth, requireRole("super_admin", "company_admin"), async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const device = await storage.getBiometricDevice(req.params.id);
+      if (!device) return res.status(404).json({ error: "Device not found" });
+      if (user.role !== "super_admin" && device.companyId && device.companyId !== user.companyId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      // Determine device IP — stored ipAddress first, fallback to lastPushIp
+      const deviceIp = (device.ipAddress || device.lastPushIp || "").trim();
+      if (!deviceIp) {
+        return res.status(400).json({ error: "No device IP known. Device must connect at least once via ADMS first." });
+      }
+
+      const sdkPort = 4370; // ZKTeco default SDK port
+      console.log(`[ZK-SDK] Connecting to ${deviceIp}:${sdkPort} for device SN=${device.deviceSerial}`);
+
+      const ZK = ZKLib as any;
+      const zk = new ZK(deviceIp, sdkPort, 5200, 10000);
+
+      let attendances: any[] = [];
+      let users: any[] = [];
+
+      try {
+        await zk.createSocket();
+        console.log(`[ZK-SDK] Connected to ${deviceIp}:${sdkPort}`);
+
+        // Fetch users first so we can match names
+        try {
+          const usersResult = await zk.getUsers();
+          users = usersResult?.data || usersResult || [];
+          console.log(`[ZK-SDK] Got ${users.length} users`);
+        } catch (e) {
+          console.warn("[ZK-SDK] getUsers failed:", e);
+        }
+
+        // Fetch all attendance records
+        const attResult = await zk.getAttendances();
+        attendances = attResult?.data || attResult || [];
+        console.log(`[ZK-SDK] Got ${attendances.length} attendance records`);
+
+        await zk.disconnect();
+      } catch (connErr: any) {
+        console.error(`[ZK-SDK] Connection failed to ${deviceIp}:${sdkPort}:`, connErr);
+        return res.status(502).json({
+          error: `Cannot reach device at ${deviceIp}:${sdkPort}. Make sure port 4370 is open and accessible from the server. Error: ${connErr?.message || connErr}`,
+        });
+      }
+
+      // Resolve company and employee map
+      const fallbackCompanyId = device.companyId || (await storage.getAllCompanies())?.[0]?.id || null;
+      const employees = device.companyId
+        ? await storage.getEmployeesByCompany(device.companyId)
+        : await storage.getAllEmployees();
+      const byBiometricId = new Map(
+        employees.filter((e: any) => e.biometricDeviceId).map((e: any) => [String(e.biometricDeviceId), e]),
+      );
+
+      // Upsert users into biometric_device_users
+      let usersUpserted = 0;
+      const now = new Date().toISOString();
+      for (const u of users) {
+        const pin = String(u.userId || u.uid || u.id || "").trim();
+        const name = (u.name || u.userName || "").trim() || null;
+        if (!pin) continue;
+        try {
+          await db.execute(sql`
+            INSERT INTO biometric_device_users
+              (device_id, device_employee_id, name, privilege, card,
+               password_set, fingerprint_count, first_seen_at, last_seen_at)
+            VALUES
+              (${device.id}, ${pin}, ${name}, ${u.role ?? null}, ${u.cardno ?? null},
+               ${false}, ${0}, ${now}, ${now})
+            ON CONFLICT (device_id, device_employee_id)
+            DO UPDATE SET name = EXCLUDED.name, last_seen_at = EXCLUDED.last_seen_at
+          `);
+          usersUpserted++;
+        } catch (_) {}
+      }
+
+      // Store attendance records
+      let inserted = 0, duplicates = 0, bad = 0;
+      for (const a of attendances) {
+        // zkteco-js returns: { deviceUserId, uid, attTime, verifyType, inOutStatus }
+        const pin = String(a.deviceUserId || a.uid || "").trim();
+        const rawTime: Date | string = a.attTime;
+        if (!pin || !rawTime) { bad++; continue; }
+
+        // attTime is a JS Date or ISO string
+        const dt = rawTime instanceof Date ? rawTime : new Date(rawTime);
+        if (isNaN(dt.getTime())) { bad++; continue; }
+
+        // Format as "YYYY-MM-DD" and "HH:MM"
+        const pad = (n: number) => String(n).padStart(2, "0");
+        const punchDate = `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}`;
+        const punchTime = `${pad(dt.getHours())}:${pad(dt.getMinutes())}`;
+
+        const punchCompanyId = byBiometricId.get(pin)?.companyId || fallbackCompanyId;
+        if (!punchCompanyId) { bad++; continue; }
+
+        const dup = await storage.findDuplicatePunchLog(punchCompanyId, pin, punchTime, punchDate);
+        if (dup) { duplicates++; continue; }
+
+        try {
+          const statusCode = String(a.inOutStatus ?? a.verifyType ?? "0");
+          const punchType = statusCode === "0" ? "in" : statusCode === "1" ? "out" :
+                            statusCode === "2" ? "break-out" : statusCode === "3" ? "break-in" : "unknown";
+          await storage.createBiometricPunchLog({
+            companyId: punchCompanyId,
+            employeeId: byBiometricId.get(pin)?.id ?? null,
+            deviceEmployeeId: pin,
+            punchTime,
+            punchDate,
+            punchType,
+            deviceId: device.id,
+            isProcessed: false,
+            isDuplicate: false,
+            missingPunch: false,
+            syncedAt: null,
+            createdAt: now,
+          } as any);
+          inserted++;
+        } catch (_) { bad++; }
+      }
+
+      console.log(`[ZK-SDK] Done: inserted=${inserted} dup=${duplicates} bad=${bad} users=${usersUpserted}`);
+      res.json({
+        success: true,
+        message: `Direct pull complete from ${deviceIp}. ${inserted} new records stored, ${duplicates} duplicates skipped, ${usersUpserted} users synced.`,
+        results: { inserted, duplicates, bad, usersUpserted, total: attendances.length },
+      });
+    } catch (error: any) {
+      console.error("[biometric/pull-direct] error:", error);
+      res.status(500).json({ error: String(error?.message || error) });
+    }
+  });
+
   // Delete ALL punch logs and re-trigger a full DATA UPDATE ATTLOG from every device.
   app.post("/api/biometric/clear-and-resync", requireAuth, requireRole("super_admin"), async (req, res) => {
     try {
