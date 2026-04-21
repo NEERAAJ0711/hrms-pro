@@ -56,11 +56,11 @@ export default function BiometricPage() {
   // The best hostname: replitDevDomain > req.hostname > browser hostname
   const admsHost  = networkInfo?.replitDevDomain ?? networkInfo?.host ?? fallbackHost;
   const admsIp    = networkInfo?.ip ?? null;
-  const admsPort  = "443"; // Always 443 — Replit always terminates TLS at the proxy
-  const admsProto = "https";
+  const admsPort  = "8181";
+  const admsProto = "http";
 
   const admsAddr  = admsMode === "ip" ? (admsIp ?? admsHost) : admsHost;
-  const admsUrl   = `https://${admsAddr}/iclock/cdata`;
+  const admsUrl   = `http://${admsAddr}:8181/iclock/cdata`;
 
   const [selectedCompany, setSelectedCompany] = useState<string>(isSuperAdmin ? "__all__" : (user?.companyId || ""));
   const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split("T")[0]);
@@ -75,7 +75,7 @@ export default function BiometricPage() {
   const [deviceCode, setDeviceCode] = useState("");
   const [deviceSerial, setDeviceSerial] = useState("");
   const [deviceIp, setDeviceIp] = useState("");
-  const [devicePort, setDevicePort] = useState("4370");
+  const [devicePort, setDevicePort] = useState("8181");
   const [devicePushToken, setDevicePushToken] = useState("");
   const [deviceAllowedCidr, setDeviceAllowedCidr] = useState("");
 
@@ -206,7 +206,7 @@ export default function BiometricPage() {
       setDeviceCode("");
       setDeviceSerial("");
       setDeviceIp("");
-      setDevicePort("4370");
+      setDevicePort("8181");
       setDevicePushToken("");
       setDeviceAllowedCidr("");
     },
@@ -679,7 +679,7 @@ export default function BiometricPage() {
                   </div>
 
                   <span className="font-sans font-semibold not-italic text-gray-700 dark:text-gray-300">Server Port</span>
-                  <span className="font-bold text-blue-700 dark:text-blue-200">443</span>
+                  <span className="font-bold text-blue-700 dark:text-blue-200">{admsPort}</span>
 
                   <span className="font-sans font-semibold not-italic text-gray-700 dark:text-gray-300">Enable Proxy Server</span>
                   <span className="font-bold text-red-600 dark:text-red-400">OFF 🚫</span>
