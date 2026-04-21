@@ -351,10 +351,24 @@ jobs:
             # detection never gets locked in for future deploys.
             echo "$APP_PORT" > "$HOME/.hrms-pro.port"
 
+            echo "▶ Configuring Nginx for ZKTeco ADMS endpoints..."
+            # Allow failure — if the deploy user lacks sudo for nginx this just warns.
+            if command -v sudo >/dev/null 2>&1 && sudo nginx -t >/dev/null 2>&1; then
+              APP_PORT_FOR_NGINX="$APP_PORT" sudo -E bash "$APP_DIR/scripts/configure-nginx-iclock.sh" || \
+                echo "⚠️  Nginx configure script failed — run manually: sudo bash ~/hrms-pro/scripts/configure-nginx-iclock.sh"
+            else
+              echo "⚠️  nginx/sudo not available — Nginx not patched. Run manually to enable raw-IP ADMS:"
+              echo "    sudo bash ~/hrms-pro/scripts/configure-nginx-iclock.sh"
+            fi
+
             echo "▶ Cleaning old backups (keeping last 3)..."
             ls -dt $HOME/hrms-pro-backup-* 2>/dev/null | tail -n +4 | xargs rm -rf 2>/dev/null || true
 
             echo "✅ Deployment complete!"
+            echo ""
+            echo "📡 ZKTeco device endpoints:"
+            echo "   http://31.97.207.109/iclock/cdata         (via Nginx port 80)"
+            echo "   http://31.97.207.109:8181/iclock/cdata    (direct ADMS port — no Nginx needed)"
           ENDSSH
 
       - name: Verify deployment
