@@ -407,7 +407,7 @@ export function registerAdmsRoutes(app: Express) {
   // Handshake / config pull. Some firmwares hit this on every wakeup;
   // others only on first boot. The body of our response tells the device
   // what to push and how often.
-  app.get("/iclock/cdata", async (req: Request, res: Response) => {
+  app.get(["/iclock/cdata", "/iclock/cdata.aspx"], async (req: Request, res: Response) => {
     const sn = String(req.query.SN || "").trim();
     const ip = clientIp(req);
     if (!sn) return res.status(400).type("text/plain").send("ERROR: missing SN");
@@ -448,7 +448,7 @@ export function registerAdmsRoutes(app: Express) {
 
   // The actual data push. Body is tab-separated lines; we got a `text`
   // body parser mounted under /iclock so `req.body` is always a string.
-  app.post("/iclock/cdata", async (req: Request, res: Response) => {
+  app.post(["/iclock/cdata", "/iclock/cdata.aspx"], async (req: Request, res: Response) => {
     const sn = String(req.query.SN || "").trim();
     const table = String(req.query.table || "").toUpperCase();
     const stamp = String(req.query.Stamp || req.query.stamp || "0");
