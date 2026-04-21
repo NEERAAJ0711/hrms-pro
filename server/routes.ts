@@ -1378,7 +1378,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Direct TCP pull from ZKTeco device via SDK port 4370 (bypasses ADMS push).
-  // Requires port 4370 to be reachable from VPS on the device's public IP.
+  // Caller may pass { targetIp, targetPort } in the body to override auto-detected IP.
   app.post("/api/biometric/devices/:id/pull-direct", requireAuth, requireRole("super_admin", "company_admin"), async (req, res) => {
     try {
       const user = (req as any).user;
@@ -1388,17 +1388,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ error: "Access denied" });
       }
 
-      // Determine device IP — stored ipAddress first, fallback to lastPushIp
-      const deviceIp = (device.ipAddress || device.lastPushIp || "").trim();
+      // IP priority: caller override → lastPushIp (actual ADMS source) → stored ipAddress
+      const bodyIp   = (req.body?.targetIp   || "").trim();
+      const bodyPort = parseInt(req.body?.targetPort || "0", 10) || 4370;
+      const deviceIp = bodyIp || (device.lastPushIp || "").trim() || (device.ipAddress || "").trim();
       if (!deviceIp) {
-        return res.status(400).json({ error: "No device IP known. Device must connect at least once via ADMS first." });
+        return res.status(400).json({ error: "No device IP known. Enter the device IP manually or wait for the device to connect via ADMS first." });
       }
 
-      const sdkPort = 4370; // ZKTeco default SDK port
+      const sdkPort = bodyPort;
       console.log(`[ZK-SDK] Connecting to ${deviceIp}:${sdkPort} for device SN=${device.deviceSerial}`);
 
       const ZK = ZKLib as any;
-      const zk = new ZK(deviceIp, sdkPort, 5200, 10000);
+      // inport=0 → OS auto-assigns a free local UDP port (avoids conflicts on VPS)
+      const zk = new ZK(deviceIp, sdkPort, 0, 15000);
 
       let attendances: any[] = [];
       let users: any[] = [];

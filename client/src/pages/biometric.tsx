@@ -92,6 +92,12 @@ export default function BiometricPage() {
   // Clear & Re-Sync state
   const [clearResyncOpen, setClearResyncOpen] = useState(false);
 
+  // Direct Pull dialog state
+  const [pullDirectDialogOpen, setPullDirectDialogOpen] = useState(false);
+  const [pullDirectDevice, setPullDirectDevice] = useState<any | null>(null);
+  const [pullTargetIp, setPullTargetIp] = useState("");
+  const [pullTargetPort, setPullTargetPort] = useState("4370");
+
   // "Edit Device" dialog state — same shape as the Add form, plus the device id.
   const [detectingIp, setDetectingIp] = useState(false);
 
@@ -360,8 +366,8 @@ export default function BiometricPage() {
   });
 
   const pullDirectMutation = useMutation({
-    mutationFn: async (id: string) => {
-      const res = await apiRequest("POST", `/api/biometric/devices/${id}/pull-direct`, {});
+    mutationFn: async ({ id, targetIp, targetPort }: { id: string; targetIp: string; targetPort: string }) => {
+      const res = await apiRequest("POST", `/api/biometric/devices/${id}/pull-direct`, { targetIp, targetPort });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         throw new Error(err.error || "Direct pull failed");
@@ -371,6 +377,7 @@ export default function BiometricPage() {
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/biometric/logs"] });
       queryClient.invalidateQueries({ queryKey: ["/api/biometric/devices"] });
+      setPullDirectDialogOpen(false);
       toast({
         title: "Direct Pull Complete",
         description: data?.message || `${data?.results?.inserted ?? 0} records imported.`,
@@ -379,11 +386,19 @@ export default function BiometricPage() {
     onError: (error: any) => {
       toast({
         title: "Direct Pull Failed",
-        description: error?.message || "Could not connect to device on port 4370.",
+        description: error?.message || "Could not connect to device on port 4370. If the device is behind a router, port 4370 must be forwarded.",
         variant: "destructive",
       });
     },
   });
+
+  const openPullDirectDialog = (device: any) => {
+    setPullDirectDevice(device);
+    // Pre-fill with lastPushIp if available, else blank so user can type
+    setPullTargetIp(device.lastPushIp || device.ipAddress || "");
+    setPullTargetPort("4370");
+    setPullDirectDialogOpen(true);
+  };
 
   const clearResyncMutation = useMutation({
     mutationFn: async () => {
@@ -990,18 +1005,13 @@ export default function BiometricPage() {
                                     variant="outline"
                                     size="icon"
                                     className="border-blue-500 text-blue-600 hover:bg-blue-50"
-                                    onClick={() => pullDirectMutation.mutate(device.id)}
-                                    disabled={pullDirectMutation.isPending}
+                                    onClick={() => openPullDirectDialog(device)}
                                     data-testid={`button-pull-direct-${device.id}`}
                                   >
-                                    {pullDirectMutation.isPending ? (
-                                      <RefreshCw className="h-4 w-4 animate-spin" />
-                                    ) : (
-                                      <Signal className="h-4 w-4" />
-                                    )}
+                                    <Signal className="h-4 w-4" />
                                   </Button>
                                 </TooltipTrigger>
-                                <TooltipContent>Direct Pull (TCP port 4370) — fetches ALL records including old history</TooltipContent>
+                                <TooltipContent>Direct Pull — fetch ALL historical records via TCP port 4370</TooltipContent>
                               </Tooltip>
                               <Tooltip>
                                 <TooltipTrigger asChild>
@@ -1571,6 +1581,66 @@ export default function BiometricPage() {
       </AlertDialog>
 
       {/* Timezone Correction Confirmation */}
+      {/* Direct Pull Dialog */}
+      <Dialog open={pullDirectDialogOpen} onOpenChange={setPullDirectDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Signal className="h-5 w-5 text-blue-600" />
+              Direct Pull from Device
+            </DialogTitle>
+            <DialogDescription>
+              Connects directly to the device on TCP port 4370 to download ALL stored attendance records — including old history the device has already "sent" before.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="rounded-md bg-amber-50 border border-amber-200 p-3 text-sm text-amber-800">
+              <strong>Requirement:</strong> TCP port 4370 must be reachable from the HRMS server. If the device is behind a router, forward port 4370 to the device's local IP.
+            </div>
+            <div className="space-y-2">
+              <Label>Device IP Address</Label>
+              <Input
+                value={pullTargetIp}
+                onChange={(e) => setPullTargetIp(e.target.value)}
+                placeholder="e.g. 45.115.177.50 or 192.168.1.100"
+                data-testid="input-pull-target-ip"
+              />
+              <p className="text-xs text-muted-foreground">
+                Auto-filled from last known device IP. You can change this to the device's local IP if you've set up port forwarding.
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label>Port</Label>
+              <Input
+                value={pullTargetPort}
+                onChange={(e) => setPullTargetPort(e.target.value)}
+                placeholder="4370"
+                className="w-32"
+                data-testid="input-pull-target-port"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPullDirectDialogOpen(false)}>Cancel</Button>
+            <Button
+              className="bg-blue-600 hover:bg-blue-700 text-white"
+              onClick={() => {
+                if (!pullDirectDevice) return;
+                pullDirectMutation.mutate({ id: pullDirectDevice.id, targetIp: pullTargetIp, targetPort: pullTargetPort });
+              }}
+              disabled={pullDirectMutation.isPending || !pullTargetIp}
+              data-testid="button-confirm-pull-direct"
+            >
+              {pullDirectMutation.isPending ? (
+                <><RefreshCw className="h-4 w-4 animate-spin mr-2" /> Connecting...</>
+              ) : (
+                <><Signal className="h-4 w-4 mr-2" /> Connect & Pull All Records</>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <AlertDialog open={tzFixOpen} onOpenChange={setTzFixOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
