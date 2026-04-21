@@ -51,6 +51,19 @@ const NEW_LINE = "\r\n";
 const pendingCommands: Map<string, string[]> = new Map();
 let nextCmdId = Date.now();
 
+// Track when we last pushed a DATE TIME clock-sync command to each device.
+// We resync every 5 minutes so the device clock stays on IST.
+const lastClockSync: Map<string, number> = new Map();
+const CLOCK_SYNC_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+
+function currentISTString(): string {
+  const nowUtc = new Date();
+  const istMs = nowUtc.getTime() + 5.5 * 60 * 60 * 1000;
+  const d = new Date(istMs);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:${p(d.getUTCSeconds())}`;
+}
+
 const MAX_QUEUE_PER_DEVICE = 8;
 
 export function enqueueDeviceCommand(deviceId: string, cmd: string): void {
@@ -436,13 +449,6 @@ export function registerAdmsRoutes(app: Express) {
     const fw = String(req.query.pushver || req.query.PushVersion || "").trim();
     await touchDevice(device.id, ip, { firmwareVersion: fw || undefined });
 
-    // Build current IST datetime string to sync the device clock
-    const nowUtc = new Date();
-    const istMs = nowUtc.getTime() + 5.5 * 60 * 60 * 1000;
-    const istDate = new Date(istMs);
-    const pad2 = (n: number) => String(n).padStart(2, "0");
-    const istDateStr = `${istDate.getUTCFullYear()}-${pad2(istDate.getUTCMonth() + 1)}-${pad2(istDate.getUTCDate())} ${pad2(istDate.getUTCHours())}:${pad2(istDate.getUTCMinutes())}:${pad2(istDate.getUTCSeconds())}`;
-
     const lines = [
       `GET OPTION FROM: ${sn}`,
       `Stamp=0`,
@@ -455,7 +461,6 @@ export function registerAdmsRoutes(app: Express) {
       `TransInterval=1`,
       `TransFlag=TransData AttLog\tOpLog\tAttPhoto\tEnrollUser\tChgUser\tEnrollFP\tChgFP\tFPImag`,
       `TimeZone=5.5`,
-      `Date=${istDateStr}`,
       `Realtime=1`,
       `Encrypt=None`,
       ``,
@@ -533,6 +538,16 @@ export function registerAdmsRoutes(app: Express) {
           return res.status(401).type("text/plain").send("ERROR: unauthorized");
         }
         await touchDevice(device.id, ip);
+
+        // Auto-enqueue IST clock-sync every 5 minutes per device
+        const lastSync = lastClockSync.get(device.id) || 0;
+        if (Date.now() - lastSync > CLOCK_SYNC_INTERVAL_MS) {
+          const istStr = currentISTString();
+          enqueueDeviceCommand(device.id, `DATE TIME ${istStr}`);
+          lastClockSync.set(device.id, Date.now());
+          console.log(`[ADMS] Auto IST clock-sync SN=${sn} → DATE TIME ${istStr}`);
+        }
+
         const cmds = drainCommands(device.id);
         if (cmds.length > 0) {
           const lines = cmds.map((c) => `C:${++nextCmdId}:${c}`);
