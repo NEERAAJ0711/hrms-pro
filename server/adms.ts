@@ -343,6 +343,14 @@ async function processAttlog(
     employees.filter((e) => e.biometricDeviceId).map((e) => [String(e.biometricDeviceId), e]),
   );
 
+  // Fallback companyId: when the device has no company assigned and the employee
+  // isn't mapped, use the first company so the punch is never silently dropped.
+  let fallbackCompanyId: string | null = device.companyId ?? null;
+  if (!fallbackCompanyId) {
+    const allCompanies = await storage.getAllCompanies();
+    fallbackCompanyId = allCompanies?.[0]?.id ?? null;
+  }
+
   for (const line of lines) {
     const parts = line.split("\t");
     if (parts.length < 2) {
@@ -356,10 +364,10 @@ async function processAttlog(
       continue;
     }
     const employee = byBiometricId.get(String(pin));
-    const punchCompanyId = employee?.companyId || device.companyId;
+    const punchCompanyId = employee?.companyId || device.companyId || fallbackCompanyId;
     if (!punchCompanyId) {
-      // Shared device + no employee mapping — there is no company to attach
-      // this punch to. Count it as unmapped and move on.
+      // No company could be resolved at all — no device company, no employee
+      // company, no companies in DB. Count as unmapped and skip.
       out.unmapped++;
       continue;
     }

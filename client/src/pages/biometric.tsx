@@ -76,6 +76,7 @@ export default function BiometricPage() {
   const [deviceSerial, setDeviceSerial] = useState("");
   const [deviceIp, setDeviceIp] = useState("");
   const [devicePort, setDevicePort] = useState("8181");
+  const [deviceCompanyId, setDeviceCompanyId] = useState("");
   const [devicePushToken, setDevicePushToken] = useState("");
   const [deviceAllowedCidr, setDeviceAllowedCidr] = useState("");
 
@@ -105,6 +106,7 @@ export default function BiometricPage() {
   const [editSerial, setEditSerial] = useState("");
   const [editIp, setEditIp] = useState("");
   const [editPort, setEditPort] = useState("");
+  const [editCompanyId, setEditCompanyId] = useState("");
   const [editPushToken, setEditPushToken] = useState("");
   const [editAllowedCidr, setEditAllowedCidr] = useState("");
 
@@ -115,6 +117,7 @@ export default function BiometricPage() {
     setEditSerial(d.deviceSerial || "");
     setEditIp(d.ipAddress || "");
     setEditPort(d.port != null ? String(d.port) : "");
+    setEditCompanyId(d.companyId || "");
     setEditPushToken(d.pushToken || "");
     setEditAllowedCidr(d.allowedIpCidr || "");
   };
@@ -207,6 +210,7 @@ export default function BiometricPage() {
       setDeviceSerial("");
       setDeviceIp("");
       setDevicePort("8181");
+      setDeviceCompanyId("");
       setDevicePushToken("");
       setDeviceAllowedCidr("");
     },
@@ -270,6 +274,7 @@ export default function BiometricPage() {
         deviceSerial: editSerial.trim(),
         ipAddress: editIp.trim() || null,
         port: editPort === "" ? null : Number(editPort),
+        companyId: editCompanyId || null,
         pushToken: tokenTrim || null,
         allowedIpCidr: cidrTrim || null,
       },
@@ -401,6 +406,11 @@ export default function BiometricPage() {
       toast({ title: "Error", description: "Please fill all required fields", variant: "destructive" });
       return;
     }
+    const resolvedCompanyId = isSuperAdmin ? (deviceCompanyId || null) : (user?.companyId || null);
+    if (!resolvedCompanyId) {
+      toast({ title: "Error", description: "Please select a company for this device", variant: "destructive" });
+      return;
+    }
     const tokenTrim = devicePushToken.trim();
     const cidrTrim = deviceAllowedCidr.trim();
     if (!tokenTrim && !cidrTrim) {
@@ -420,7 +430,7 @@ export default function BiometricPage() {
       return;
     }
     deviceMutation.mutate({
-      companyId: null,
+      companyId: resolvedCompanyId,
       name: deviceName,
       code: deviceCode.trim() || null,
       deviceSerial,
@@ -977,6 +987,24 @@ export default function BiometricPage() {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
+            {isSuperAdmin && (
+              <div>
+                <Label>Company <span className="text-red-500">*</span></Label>
+                <Select value={deviceCompanyId} onValueChange={setDeviceCompanyId}>
+                  <SelectTrigger data-testid="select-device-company">
+                    <SelectValue placeholder="Select company for this device" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {companies.map(c => (
+                      <SelectItem key={c.id} value={c.id}>{c.companyName}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground mt-1">
+                  All punch data from this device will be stored under this company.
+                </p>
+              </div>
+            )}
             <div>
               <Label>Machine Name</Label>
               <Input
@@ -1112,6 +1140,21 @@ export default function BiometricPage() {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3 py-2">
+            {isSuperAdmin && (
+              <div>
+                <Label>Company <span className="text-red-500">*</span></Label>
+                <Select value={editCompanyId} onValueChange={setEditCompanyId}>
+                  <SelectTrigger data-testid="select-edit-device-company">
+                    <SelectValue placeholder="Select company" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {companies.map(c => (
+                      <SelectItem key={c.id} value={c.id}>{c.companyName}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             <div>
               <Label>Machine Name</Label>
               <Input
