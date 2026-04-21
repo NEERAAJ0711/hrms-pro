@@ -56,6 +56,11 @@ let nextCmdId = Date.now();
 const lastClockSync: Map<string, number> = new Map();
 const CLOCK_SYNC_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 
+// Devices for which we have already auto-queued a DATA QUERY ATTLOG since
+// this server process started. We only auto-queue once per boot — the user
+// can trigger additional re-uploads via the "Clear & Re-Sync" button.
+const autoAttlogQueued = new Set<string>();
+
 function currentISTString(): string {
   const nowUtc = new Date();
   const istMs = nowUtc.getTime() + 5.5 * 60 * 60 * 1000;
@@ -206,9 +211,29 @@ function authenticateDevice(req: Request, device: any, ip: string): string | nul
 }
 
 async function findDeviceBySerial(serial: string) {
-  // Cheap path until we have a dedicated index lookup helper.
   const all = await storage.getAllBiometricDevices();
-  return all.find((d) => d.deviceSerial === serial);
+  // 1. Exact match
+  const exact = all.find((d) => d.deviceSerial === serial);
+  if (exact) return exact;
+  // 2. Case-insensitive match
+  const upper = serial.toUpperCase();
+  const ci = all.find((d) => (d.deviceSerial || "").toUpperCase() === upper);
+  if (ci) return ci;
+  // 3. Single-device fallback — if only one device is registered and the SN
+  //    doesn't match exactly, use it anyway (handles typos / mistyped SNs).
+  //    We log a prominent warning so the operator can fix the SN in HRMS.
+  if (all.length === 1) {
+    console.warn(
+      `[ADMS] SN MISMATCH: device reports SN=${serial} but HRMS has SN=${all[0].deviceSerial}. ` +
+      `Using the only registered device as fallback. Please update the Device Serial in HRMS.`,
+    );
+    // Auto-correct the SN in DB so future calls match exactly
+    try {
+      await storage.updateBiometricDevice(all[0].id, { deviceSerial: serial } as any);
+    } catch (_) { /* best-effort */ }
+    return { ...all[0], deviceSerial: serial };
+  }
+  return undefined;
 }
 
 async function touchDevice(
@@ -448,6 +473,15 @@ export function registerAdmsRoutes(app: Express) {
 
     const fw = String(req.query.pushver || req.query.PushVersion || "").trim();
     await touchDevice(device.id, ip, { firmwareVersion: fw || undefined });
+
+    // On first handshake after server start, auto-queue a DATA QUERY ATTLOG
+    // so the device re-uploads all stored records (handles cases where DB was
+    // cleared or SN was just auto-corrected).
+    if (!autoAttlogQueued.has(device.id)) {
+      autoAttlogQueued.add(device.id);
+      enqueueDeviceCommand(device.id, "DATA QUERY ATTLOG");
+      console.log(`[ADMS] Auto-queued DATA QUERY ATTLOG for SN=${sn} on first handshake`);
+    }
 
     const lines = [
       `GET OPTION FROM: ${sn}`,
