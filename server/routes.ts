@@ -1603,10 +1603,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Force a fresh DATA UPDATE ATTLOG Stamp=0 command for a specific device
+  // WITHOUT clearing existing data. Resets the autoSyncQueued guard so the
+  // next handshake also auto-queues it again.
+  app.post("/api/biometric/devices/:id/force-attlog", requireAuth, requireRole("super_admin", "company_admin"), async (req: any, res) => {
+    try {
+      const user = req.user;
+      const device = await storage.getBiometricDevice(req.params.id);
+      if (!device) return res.status(404).json({ error: "Device not found" });
+      if (user.role !== "super_admin" && device.companyId && device.companyId !== user.companyId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      const { enqueueDeviceCommand, resetAutoSyncGuard } = await import("./adms");
+      // Reset the guard so the next handshake also re-queues automatically
+      resetAutoSyncGuard(device.id);
+      // Queue the command immediately — device will execute on next poll (≤1s with Delay=1)
+      enqueueDeviceCommand(device.id, "DATA UPDATE ATTLOG Stamp=0");
+      res.json({
+        success: true,
+        message: `"DATA UPDATE ATTLOG Stamp=0" queued for ${device.name}. The device will push ALL historical records on its next check-in (usually within a few seconds). Watch the Device Log for incoming data.`,
+      });
+    } catch (error: any) {
+      console.error(`[biometric/devices/:id/force-attlog] error:`, error);
+      res.status(500).json({ error: String(error?.message || "Failed to queue command") });
+    }
+  });
+
   // ===== Biometric Punch Log Routes =====
   // ADMS device communication log — shows last 200 raw requests from device.
   // Useful to diagnose why old ATTLOG data isn't being pushed.
-  app.get("/api/biometric/adms-log", requireAuth, requireRole("super_admin"), async (_req, res) => {
+  app.get("/api/biometric/adms-log", requireAuth, requireRole("super_admin", "company_admin"), async (_req, res) => {
     res.json(getAdmsActivityLog());
   });
 

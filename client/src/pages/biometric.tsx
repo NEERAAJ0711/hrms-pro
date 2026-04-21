@@ -199,13 +199,15 @@ export default function BiometricPage() {
     },
   });
 
-  // ADMS raw device communication log — super_admin only, auto-refreshes every 5s
+  // ADMS raw device communication log — visible to super_admin and company_admin,
+  // auto-refreshes every 5s so incoming ATTLOG data appears immediately.
+  const canViewAdmsLog = isSuperAdmin || user?.role === "company_admin";
   const { data: admsLog = [], refetch: refetchAdmsLog } = useQuery<Array<{
     ts: string; direction: "IN" | "OUT"; sn: string; line: string;
   }>>({
     queryKey: ["/api/biometric/adms-log"],
-    enabled: isSuperAdmin,
-    refetchInterval: isSuperAdmin ? 5000 : false,
+    enabled: canViewAdmsLog,
+    refetchInterval: canViewAdmsLog ? 5000 : false,
   });
 
   const pushMutation = useMutation({
@@ -542,6 +544,33 @@ export default function BiometricPage() {
     },
   });
 
+  const forceAttlogMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await apiRequest("POST", `/api/biometric/devices/${id}/force-attlog`, {});
+      return res.json();
+    },
+    onSuccess: (data) => {
+      toast({
+        title: "Re-Upload Triggered",
+        description: typeof data?.message === "string"
+          ? data.message
+          : "Device will push ALL historical records shortly. Watch the Device Log.",
+      });
+      // Refresh punch logs after ~90s to show the newly arrived records
+      setTimeout(() => {
+        queryClient.invalidateQueries({ queryKey: ["/api/biometric/logs"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/biometric/devices"] });
+      }, 90_000);
+    },
+    onError: (err: any) => {
+      toast({
+        title: "Force Re-Upload failed",
+        description: err?.message || "Could not queue the re-upload command",
+        variant: "destructive",
+      });
+    },
+  });
+
   const deleteDeviceMutation = useMutation({
     mutationFn: async (id: string) => {
       await apiRequest("DELETE", `/api/biometric/devices/${id}`);
@@ -675,7 +704,7 @@ export default function BiometricPage() {
             <Settings className="h-4 w-4" />
             Device Management
           </TabsTrigger>
-          {isSuperAdmin && (
+          {canViewAdmsLog && (
             <TabsTrigger value="adms-debug" className="flex items-center gap-2" data-testid="tab-adms-debug">
               <Activity className="h-4 w-4" />
               Device Log
@@ -1060,6 +1089,21 @@ export default function BiometricPage() {
                                   </Button>
                                 </TooltipTrigger>
                                 <TooltipContent>Sync users from device</TooltipContent>
+                              </Tooltip>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    variant="outline"
+                                    size="icon"
+                                    onClick={() => forceAttlogMutation.mutate(device.id)}
+                                    disabled={forceAttlogMutation.isPending}
+                                    data-testid={`button-force-attlog-${device.id}`}
+                                    className="text-amber-600 border-amber-300 hover:bg-amber-50 dark:text-amber-400 dark:border-amber-700 dark:hover:bg-amber-950"
+                                  >
+                                    <Upload className={`h-4 w-4 ${forceAttlogMutation.isPending ? "animate-pulse" : ""}`} />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>Force re-upload of all historical attendance records</TooltipContent>
                               </Tooltip>
                               <Tooltip>
                                 <TooltipTrigger asChild>

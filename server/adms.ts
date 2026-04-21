@@ -60,6 +60,10 @@ const autoSyncQueued = new Set<string>();
 
 const MAX_QUEUE_PER_DEVICE = 8;
 
+export function resetAutoSyncGuard(deviceId: string): void {
+  autoSyncQueued.delete(deviceId);
+}
+
 export function enqueueDeviceCommand(deviceId: string, cmd: string): void {
   const list = pendingCommands.get(deviceId) || [];
   // Skip if the same command is already pending — repeated clicks while the
@@ -515,8 +519,10 @@ export function registerAdmsRoutes(app: Express) {
     // (which includes enrollment events) at the next scheduled upload cycle.
     if (!autoSyncQueued.has(device.id)) {
       autoSyncQueued.add(device.id);
-      enqueueDeviceCommand(device.id, "DATA UPDATE ATTLOG");
-      console.log(`[ADMS] Auto-queued DATA UPDATE ATTLOG for SN=${sn} on first handshake`);
+      // Stamp=0 tells the device to re-upload ALL records from the very
+      // beginning, regardless of what stamp it thinks we already have.
+      enqueueDeviceCommand(device.id, "DATA UPDATE ATTLOG Stamp=0");
+      console.log(`[ADMS] Auto-queued "DATA UPDATE ATTLOG Stamp=0" for SN=${sn} on first handshake`);
     }
 
     // Standard ADMS config — no inline commands here (they break config parsing
@@ -575,6 +581,14 @@ export function registerAdmsRoutes(app: Express) {
 
     const body = typeof req.body === "string" ? req.body : "";
     if (table === "ATTLOG") {
+      // Log a preview of the raw body + device Stamp so we can diagnose
+      // format problems and confirm records are actually arriving.
+      const bodyPreview = body.slice(0, 400).replace(/\r?\n/g, " | ");
+      const lineCount = body.split(/\r?\n/).filter((l) => l.trim()).length;
+      console.log(
+        `[ADMS] POST ATTLOG SN=${sn} Stamp=${stamp} lines=${lineCount} preview="${bodyPreview}"`,
+      );
+      admsLog("IN", sn, `ATTLOG Stamp=${stamp} lines=${lineCount} body="${bodyPreview.slice(0, 150)}"`);
       const r = await processAttlog(device, body);
       await touchDevice(device.id, ip, { addToTotal: r.inserted });
       await storage.updateBiometricDevice(device.id, {
