@@ -86,6 +86,9 @@ export default function BiometricPage() {
   // "Delete Device" confirmation state
   const [deviceToDelete, setDeviceToDelete] = useState<any | null>(null);
 
+  // Timezone correction state
+  const [tzFixOpen, setTzFixOpen] = useState(false);
+
   // "Edit Device" dialog state — same shape as the Add form, plus the device id.
   const [detectingIp, setDetectingIp] = useState(false);
 
@@ -344,6 +347,28 @@ export default function BiometricPage() {
     },
   });
 
+  const tzFixMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/biometric/correct-timezone", { offsetMinutes: -150 });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/biometric/logs"] });
+      toast({
+        title: "Timezone Corrected",
+        description: typeof data?.message === "string" ? data.message : "Punch times updated.",
+      });
+      setTzFixOpen(false);
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Correction Failed",
+        description: typeof error?.message === "string" ? error.message : "Could not fix times.",
+        variant: "destructive",
+      });
+    },
+  });
+
   const syncUsersMutation = useMutation({
     mutationFn: async (id: string) => {
       const res = await apiRequest("POST", `/api/biometric/devices/${id}/sync-users`, {});
@@ -469,6 +494,12 @@ export default function BiometricPage() {
           </p>
         </div>
         <div className="flex gap-2">
+          {isSuperAdmin && (
+            <Button variant="outline" onClick={() => setTzFixOpen(true)} data-testid="button-fix-timezone">
+              <Clock className="h-4 w-4 mr-2" />
+              Fix Old Times
+            </Button>
+          )}
           <Button variant="outline" onClick={() => setPushDialogOpen(true)}>
             <Upload className="h-4 w-4 mr-2" />
             Push Punch Data
@@ -1377,6 +1408,30 @@ export default function BiometricPage() {
               }}
             >
               Delete device
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Timezone Correction Confirmation */}
+      <AlertDialog open={tzFixOpen} onOpenChange={setTzFixOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Fix stored punch times?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will subtract <strong>2 hours 30 minutes</strong> from all stored punch records
+              (correcting UTC+8 China time → IST UTC+5:30). This is a <strong>one-time</strong> fix —
+              run it only once. Future punches from the device will already be in IST.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-tz-fix">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              data-testid="button-confirm-tz-fix"
+              onClick={() => tzFixMutation.mutate()}
+              disabled={tzFixMutation.isPending}
+            >
+              {tzFixMutation.isPending ? "Fixing..." : "Yes, Fix Times"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

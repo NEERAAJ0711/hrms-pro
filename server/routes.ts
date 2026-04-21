@@ -1377,6 +1377,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // One-time timezone correction: shift all stored punch times by N minutes.
+  // Use when the biometric device was sending timestamps in a wrong timezone
+  // (e.g., UTC+8 instead of IST UTC+5:30 → offsetMinutes = -150).
+  app.post("/api/biometric/correct-timezone", requireAuth, requireRole("super_admin"), async (req, res) => {
+    try {
+      const offsetMinutes: number = typeof req.body?.offsetMinutes === "number" ? req.body.offsetMinutes : -150;
+      if (offsetMinutes === 0) return res.json({ success: true, updated: 0, message: "Offset is 0 — nothing to do." });
+
+      const sign = offsetMinutes >= 0 ? "+" : "-";
+      const absMin = Math.abs(offsetMinutes);
+      const intervalSql = `${absMin} minutes`;
+
+      const result = await db.execute(sql.raw(`
+        UPDATE biometric_punch_logs
+        SET
+          punch_time = to_char(
+            (to_timestamp(punch_date || ' ' || punch_time, 'YYYY-MM-DD HH24:MI') ${sign} interval '${intervalSql}'),
+            'HH24:MI'
+          ),
+          punch_date = to_char(
+            (to_timestamp(punch_date || ' ' || punch_time, 'YYYY-MM-DD HH24:MI') ${sign} interval '${intervalSql}'),
+            'YYYY-MM-DD'
+          )
+      `));
+
+      const updated = (result as any)?.rowCount ?? 0;
+      res.json({ success: true, updated, message: `Shifted ${updated} punch records by ${offsetMinutes} minutes.` });
+    } catch (error: any) {
+      console.error("[biometric/correct-timezone] error:", error);
+      res.status(500).json({ error: String(error?.message || "Correction failed") });
+    }
+  });
+
   // Ask the device to push its full enrolled-user list. The device runs the
   // command on its next /iclock/getrequest poll (a few seconds) and replies
   // with USER records over /iclock/cdata?table=USERINFO, which our existing

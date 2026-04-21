@@ -436,6 +436,13 @@ export function registerAdmsRoutes(app: Express) {
     const fw = String(req.query.pushver || req.query.PushVersion || "").trim();
     await touchDevice(device.id, ip, { firmwareVersion: fw || undefined });
 
+    // Build current IST datetime string to sync the device clock
+    const nowUtc = new Date();
+    const istMs = nowUtc.getTime() + 5.5 * 60 * 60 * 1000;
+    const istDate = new Date(istMs);
+    const pad2 = (n: number) => String(n).padStart(2, "0");
+    const istDateStr = `${istDate.getUTCFullYear()}-${pad2(istDate.getUTCMonth() + 1)}-${pad2(istDate.getUTCDate())} ${pad2(istDate.getUTCHours())}:${pad2(istDate.getUTCMinutes())}:${pad2(istDate.getUTCSeconds())}`;
+
     const lines = [
       `GET OPTION FROM: ${sn}`,
       `Stamp=0`,
@@ -448,6 +455,7 @@ export function registerAdmsRoutes(app: Express) {
       `TransInterval=1`,
       `TransFlag=TransData AttLog\tOpLog\tAttPhoto\tEnrollUser\tChgUser\tEnrollFP\tChgFP\tFPImag`,
       `TimeZone=5.5`,
+      `Date=${istDateStr}`,
       `Realtime=1`,
       `Encrypt=None`,
       ``,
