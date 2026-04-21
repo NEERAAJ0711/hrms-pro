@@ -1377,6 +1377,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Delete ALL punch logs and re-trigger a full DATA QUERY ATTLOG from every device.
+  app.post("/api/biometric/clear-and-resync", requireAuth, requireRole("super_admin"), async (req, res) => {
+    try {
+      const result = await db.execute(sql.raw(`DELETE FROM biometric_punch_logs`));
+      const deleted = (result as any)?.rowCount ?? 0;
+
+      // Enqueue DATA QUERY ATTLOG for every registered device
+      const { enqueueDeviceCommand } = await import("./adms");
+      const devices = await storage.getAllBiometricDevices();
+      for (const dev of devices) {
+        enqueueDeviceCommand(dev.id, "DATA QUERY ATTLOG");
+      }
+
+      res.json({
+        success: true,
+        deleted,
+        devicesQueued: devices.length,
+        message: `Deleted ${deleted} punch records. Re-sync command sent to ${devices.length} device(s). Data will arrive within seconds.`,
+      });
+    } catch (error: any) {
+      console.error("[biometric/clear-and-resync] error:", error);
+      res.status(500).json({ error: String(error?.message || "Clear failed") });
+    }
+  });
+
   // One-time timezone correction: shift all stored punch times by N minutes.
   // Use when the biometric device was sending timestamps in a wrong timezone
   // (e.g., UTC+8 instead of IST UTC+5:30 → offsetMinutes = -150).

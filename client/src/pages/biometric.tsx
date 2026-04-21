@@ -89,6 +89,9 @@ export default function BiometricPage() {
   // Timezone correction state
   const [tzFixOpen, setTzFixOpen] = useState(false);
 
+  // Clear & Re-Sync state
+  const [clearResyncOpen, setClearResyncOpen] = useState(false);
+
   // "Edit Device" dialog state — same shape as the Add form, plus the device id.
   const [detectingIp, setDetectingIp] = useState(false);
 
@@ -347,6 +350,29 @@ export default function BiometricPage() {
     },
   });
 
+  const clearResyncMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/biometric/clear-and-resync", {});
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/biometric/logs"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/biometric/devices"] });
+      toast({
+        title: "Cleared & Re-Sync Started",
+        description: typeof data?.message === "string" ? data.message : "All data cleared. Device is re-uploading.",
+      });
+      setClearResyncOpen(false);
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Failed",
+        description: typeof error?.message === "string" ? error.message : "Clear & re-sync failed.",
+        variant: "destructive",
+      });
+    },
+  });
+
   const tzFixMutation = useMutation({
     mutationFn: async () => {
       const res = await apiRequest("POST", "/api/biometric/correct-timezone", { offsetMinutes: -150 });
@@ -494,6 +520,12 @@ export default function BiometricPage() {
           </p>
         </div>
         <div className="flex gap-2">
+          {isSuperAdmin && (
+            <Button variant="destructive" onClick={() => setClearResyncOpen(true)} data-testid="button-clear-resync">
+              <XCircle className="h-4 w-4 mr-2" />
+              Clear & Re-Sync
+            </Button>
+          )}
           {isSuperAdmin && (
             <Button variant="outline" onClick={() => setTzFixOpen(true)} data-testid="button-fix-timezone">
               <Clock className="h-4 w-4 mr-2" />
@@ -1408,6 +1440,31 @@ export default function BiometricPage() {
               }}
             >
               Delete device
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Clear All Data & Re-Sync Confirmation */}
+      <AlertDialog open={clearResyncOpen} onOpenChange={setClearResyncOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Clear all punch data and re-sync?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will <strong>permanently delete ALL stored punch logs</strong> and immediately
+              ask every biometric device to re-upload its complete attendance history with the
+              corrected IST time. The re-upload will start within seconds.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-clear-resync">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              data-testid="button-confirm-clear-resync"
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => clearResyncMutation.mutate()}
+              disabled={clearResyncMutation.isPending}
+            >
+              {clearResyncMutation.isPending ? "Clearing..." : "Yes, Clear & Re-Sync"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
