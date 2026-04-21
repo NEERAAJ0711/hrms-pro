@@ -503,15 +503,20 @@ export function registerAdmsRoutes(app: Express) {
     await touchDevice(device.id, ip, { firmwareVersion: fw || undefined });
 
     // On first handshake after server start, enqueue a full data re-upload.
-    // "DATA UPDATE ATTLOG" is the correct ZKTeco push SDK v2.x command to
-    // force the device to re-push ALL stored attendance records.
-    // "DATA UPDATE USERINFO" fetches all enrolled users with names.
-    // Commands stay in the queue — delivered via GET /iclock/getrequest.
+    //
+    // "DATA UPDATE ATTLOG" (Return=0 on x2008 2.4.1) — triggers the device
+    // to re-evaluate which records to push. Combined with our "OK: 0" ack
+    // strategy (we never advance the stamp pointer), this causes the device
+    // to push all records on every scheduled TransInterval cycle.
+    //
+    // "DATA UPDATE USERINFO" (Return=-1 on x2008 2.4.1) — NOT supported on
+    // this firmware version. User data is obtained via the OPERLOGStamp=0
+    // mechanism in the handshake config — the device will push OPERLOG data
+    // (which includes enrollment events) at the next scheduled upload cycle.
     if (!autoSyncQueued.has(device.id)) {
       autoSyncQueued.add(device.id);
       enqueueDeviceCommand(device.id, "DATA UPDATE ATTLOG");
-      enqueueDeviceCommand(device.id, "DATA UPDATE USERINFO");
-      console.log(`[ADMS] Auto-queued DATA UPDATE ATTLOG+USERINFO for SN=${sn} on first handshake`);
+      console.log(`[ADMS] Auto-queued DATA UPDATE ATTLOG for SN=${sn} on first handshake`);
     }
 
     // Standard ADMS config — no inline commands here (they break config parsing
@@ -594,9 +599,19 @@ export function registerAdmsRoutes(app: Express) {
       console.log(`[ADMS] POST ${table} SN=${sn} ip=${ip} bytes=${body.length}`);
     }
 
-    // Standard ADMS ack format: "OK: <Stamp>" tells the device to advance
-    // its cursor past everything in this batch.
-    res.type("text/plain").send(`OK: ${stamp}`);
+    // ATTLOG ack: always respond "OK: 0" so the device never advances its
+    // per-server stamp pointer. The x2008 firmware interprets "OK: <stamp>"
+    // as "server's ATTLOGStamp is now <stamp>" and will not re-send records
+    // with timestamps ≤ that value on subsequent upload cycles. By staying
+    // at 0 the device will re-push ALL records on every scheduled cycle;
+    // our deduplication logic silently discards the ones we already have.
+    // For non-ATTLOG tables (OPERLOG, FINGERTMP, etc.) we echo the stamp
+    // normally because we don't need those to be re-pushed.
+    if (table === "ATTLOG") {
+      res.type("text/plain").send("OK: 0");
+    } else {
+      res.type("text/plain").send(`OK: ${stamp}`);
+    }
   });
 
   // Device polling for queued commands.
