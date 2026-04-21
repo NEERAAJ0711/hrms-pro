@@ -104,6 +104,10 @@ export default function BiometricPage() {
   const [importDeviceId, setImportDeviceId] = useState("");
   const [importType, setImportType] = useState<"attlog" | "userinfo">("attlog");
 
+  // Map PIN → HR Employee dialog state
+  const [mapPinRow, setMapPinRow] = useState<{ devicePin: string; deviceName: string } | null>(null);
+  const [mapSelectedEmployee, setMapSelectedEmployee] = useState("");
+
   // "Edit Device" dialog state — same shape as the Add form, plus the device id.
   const [detectingIp, setDetectingIp] = useState(false);
 
@@ -481,6 +485,33 @@ export default function BiometricPage() {
       toast({
         title: "Correction Failed",
         description: typeof error?.message === "string" ? error.message : "Could not fix times.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const mapPinMutation = useMutation({
+    mutationFn: async ({ employeeId, devicePin, deviceId }: { employeeId: string; devicePin: string; deviceId?: string }) => {
+      const res = await apiRequest("POST", "/api/biometric/map-pin", { employeeId, devicePin, deviceId });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/employees"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/biometric/logs"] });
+      if (usersDialogDevice?.id) {
+        queryClient.invalidateQueries({ queryKey: ["/api/biometric/devices", usersDialogDevice.id, "users"] });
+      }
+      toast({
+        title: "Mapped Successfully",
+        description: typeof data?.message === "string" ? data.message : "PIN mapped to employee.",
+      });
+      setMapPinRow(null);
+      setMapSelectedEmployee("");
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Mapping Failed",
+        description: typeof error?.message === "string" ? error.message : "Could not map PIN.",
         variant: "destructive",
       });
     },
@@ -1525,6 +1556,7 @@ export default function BiometricPage() {
                     <TableHead>Status</TableHead>
                     <TableHead className="text-right">Punches</TableHead>
                     <TableHead>Last Seen</TableHead>
+                    <TableHead></TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -1560,6 +1592,20 @@ export default function BiometricPage() {
                       <TableCell className="text-xs text-muted-foreground">
                         {u.lastSeenAt || "—"}
                       </TableCell>
+                      <TableCell>
+                        <Button
+                          data-testid={`button-map-pin-${u.deviceEmployeeId}`}
+                          size="sm"
+                          variant={u.matched ? "outline" : "default"}
+                          className="text-xs h-7 px-2"
+                          onClick={() => {
+                            setMapPinRow({ devicePin: u.deviceEmployeeId, deviceName: u.deviceName || u.deviceEmployeeId });
+                            setMapSelectedEmployee(u.employeeId || "");
+                          }}
+                        >
+                          {u.matched ? "Remap" : "Map"}
+                        </Button>
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -1568,6 +1614,56 @@ export default function BiometricPage() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setUsersDialogDevice(null)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Map Device PIN → HR Employee dialog */}
+      <Dialog open={!!mapPinRow} onOpenChange={(open) => { if (!open) { setMapPinRow(null); setMapSelectedEmployee(""); } }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Map Device PIN to Employee</DialogTitle>
+            <DialogDescription>
+              Select the HR employee for device PIN <strong className="font-mono">{mapPinRow?.devicePin}</strong>
+              {mapPinRow?.deviceName ? ` (${mapPinRow.deviceName})` : ""}. Existing punch records for this PIN will be retroactively linked.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <Select
+              value={mapSelectedEmployee}
+              onValueChange={setMapSelectedEmployee}
+            >
+              <SelectTrigger data-testid="select-map-employee" className="w-full">
+                <SelectValue placeholder="Select an HR employee..." />
+              </SelectTrigger>
+              <SelectContent>
+                {(employees as any[])
+                  .filter((e: any) => !e.biometricDeviceId || e.biometricDeviceId === mapPinRow?.devicePin)
+                  .map((e: any) => (
+                    <SelectItem key={e.id} value={e.id}>
+                      {e.firstName} {e.lastName} — {e.employeeCode}
+                    </SelectItem>
+                  ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setMapPinRow(null); setMapSelectedEmployee(""); }}>Cancel</Button>
+            <Button
+              data-testid="button-confirm-map-pin"
+              disabled={!mapSelectedEmployee || mapPinMutation.isPending}
+              onClick={() => {
+                if (mapPinRow && mapSelectedEmployee) {
+                  mapPinMutation.mutate({
+                    employeeId: mapSelectedEmployee,
+                    devicePin: mapPinRow.devicePin,
+                    deviceId: usersDialogDevice?.id,
+                  });
+                }
+              }}
+            >
+              {mapPinMutation.isPending ? "Mapping..." : "Confirm Map"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

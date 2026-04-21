@@ -1698,6 +1698,55 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Map a device PIN to an HR employee.
+  // Sets employee.biometricDeviceId and retroactively links all existing
+  // punch logs for that PIN to the employee (sets employeeId where null).
+  app.post("/api/biometric/map-pin", requireAuth, requireRole("super_admin", "company_admin"), async (req: any, res) => {
+    try {
+      const user = req.user;
+      const { employeeId, devicePin, deviceId } = req.body || {};
+      if (!employeeId || !devicePin) {
+        return res.status(400).json({ error: "employeeId and devicePin are required." });
+      }
+
+      // Verify employee belongs to the user's company
+      const employee = await storage.getEmployee(employeeId);
+      if (!employee) return res.status(404).json({ error: "Employee not found." });
+      if (user.role !== "super_admin" && employee.companyId !== user.companyId) {
+        return res.status(403).json({ error: "Access denied." });
+      }
+
+      // Check if another employee already has this PIN in the same company
+      const allEmps = await storage.getEmployeesByCompany(employee.companyId);
+      const conflict = allEmps.find((e: any) => e.biometricDeviceId === String(devicePin) && e.id !== employeeId);
+      if (conflict) {
+        return res.status(409).json({
+          error: `PIN ${devicePin} is already assigned to ${conflict.firstName} ${conflict.lastName} (${conflict.employeeCode}).`
+        });
+      }
+
+      // Update the employee's biometric device PIN
+      await storage.updateEmployee(employeeId, { biometricDeviceId: String(devicePin) } as any);
+
+      // Retroactively link existing punch logs for this PIN
+      const updated = await db.execute(sql`
+        UPDATE biometric_punch_logs
+        SET employee_id = ${employeeId}
+        WHERE device_employee_id = ${String(devicePin)}
+          AND company_id = ${employee.companyId}
+          AND employee_id IS NULL
+      `);
+
+      res.json({
+        success: true,
+        message: `PIN ${devicePin} mapped to ${employee.firstName} ${employee.lastName}. ${(updated as any)?.rowCount ?? 0} existing punch records linked.`,
+      });
+    } catch (error: any) {
+      console.error("[biometric/map-pin] error:", error);
+      res.status(500).json({ error: String(error?.message || error) });
+    }
+  });
+
   app.get("/api/biometric/logs", requireAuth, async (req, res) => {
     try {
       const user = (req as any).user;
