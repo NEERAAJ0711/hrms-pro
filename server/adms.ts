@@ -49,7 +49,9 @@ const NEW_LINE = "\r\n";
 // back via /iclock/devicecmd. Volatile memory is fine here — if the server
 // restarts the admin just clicks "Sync Users" again.
 const pendingCommands: Map<string, string[]> = new Map();
-let nextCmdId = Date.now();
+// Command IDs must be small integers — ZKTeco firmware typically overflows
+// on IDs larger than a few digits. DO NOT use Date.now() here.
+let nextCmdId = 1;
 
 // Devices for which we have already auto-queued ATTLOG+USERINFO since
 // this server process started. We only auto-queue once per boot — the user
@@ -514,17 +516,25 @@ export function registerAdmsRoutes(app: Express) {
 
     // Standard ADMS config — no inline commands here (they break config parsing
     // on older firmware). Commands are delivered via GET /iclock/getrequest.
+    //
+    // IMPORTANT notes for x2008 firmware compatibility:
+    //   - Do NOT include a bare "Stamp=0" — use the specific ATTLOGStamp /
+    //     OPERLOGStamp fields instead. A bare Stamp= can confuse some firmware
+    //     versions into thinking the server already has everything.
+    //   - TransFlag flags must be space-separated. Tabs break the parser on
+    //     some x2008 firmware builds.
+    //   - Delay=1 makes the device poll /getrequest every 1 second so commands
+    //     are picked up quickly.
     const lines = [
       `GET OPTION FROM: ${sn}`,
-      `Stamp=0`,
       `ATTLOGStamp=0`,
       `OPERLOGStamp=0`,
       `ATTPHOTOStamp=0`,
       `ErrorDelay=30`,
-      `Delay=10`,
+      `Delay=1`,
       `TransTimes=00:00;01:00;02:00;03:00;04:00;05:00;06:00;07:00;08:00;09:00;10:00;11:00;12:00;13:00;14:00;15:00;16:00;17:00;18:00;19:00;20:00;21:00;22:00;23:00`,
       `TransInterval=1`,
-      `TransFlag=TransData AttLog\tOpLog\tAttPhoto\tEnrollUser\tChgUser\tEnrollFP\tChgFP\tFPImag`,
+      `TransFlag=TransData AttLog OpLog AttPhoto EnrollUser ChgUser EnrollFP ChgFP FPImag`,
       `TimeZone=5.5`,
       `Realtime=1`,
       `Encrypt=None`,
@@ -589,9 +599,10 @@ export function registerAdmsRoutes(app: Express) {
     res.type("text/plain").send(`OK: ${stamp}`);
   });
 
-  // Device polling for queued commands. We don't push remote commands yet,
-  // so always reply with the empty-OK response.
-  app.get("/iclock/getrequest", async (req: Request, res: Response) => {
+  // Device polling for queued commands.
+  // IMPORTANT: x2008 firmware polls /iclock/getrequest.aspx (with .aspx).
+  // Both variants must be handled or commands are never delivered.
+  app.get(["/iclock/getrequest", "/iclock/getrequest.aspx"], async (req: Request, res: Response) => {
     const sn = String(req.query.SN || "").trim();
     const ip = clientIp(req);
     if (sn) {
@@ -606,8 +617,14 @@ export function registerAdmsRoutes(app: Express) {
 
         const cmds = drainCommands(device.id);
         if (cmds.length > 0) {
-          const lines = cmds.map((c) => `C:${++nextCmdId}:${c}`);
-          console.log(`[ADMS] DELIVER cmds=${cmds.length} SN=${sn}: ${cmds.join(" | ")}`);
+          // Command IDs must be small sequential integers — x2008 firmware
+          // silently ignores commands with large IDs (e.g. Date.now()).
+          const lines = cmds.map((c) => `C:${nextCmdId++}:${c}`);
+          // Wrap around to avoid ever sending very large IDs
+          if (nextCmdId > 9999) nextCmdId = 1;
+          const cmdStr = cmds.join(" | ");
+          console.log(`[ADMS] DELIVER cmds=${cmds.length} SN=${sn}: ${cmdStr}`);
+          admsLog("OUT", sn, `CMDS: ${cmdStr}`);
           return res.type("text/plain").send(lines.join(NEW_LINE));
         }
       }
@@ -615,10 +632,12 @@ export function registerAdmsRoutes(app: Express) {
     res.type("text/plain").send("OK");
   });
 
-  // Device reports back result of a command we sent. Ack and discard.
-  app.post("/iclock/devicecmd", async (req: Request, res: Response) => {
+  // Device reports back result of a command we sent.
+  // IMPORTANT: x2008 firmware uses /iclock/devicecmd.aspx (with .aspx).
+  app.post(["/iclock/devicecmd", "/iclock/devicecmd.aspx"], async (req: Request, res: Response) => {
     const sn = String(req.query.SN || "").trim();
     const ip = clientIp(req);
+    const body = typeof req.body === "string" ? req.body : "";
     if (sn) {
       const device = await findDeviceBySerial(sn);
       if (device) {
@@ -628,6 +647,11 @@ export function registerAdmsRoutes(app: Express) {
           return res.status(401).type("text/plain").send("ERROR: unauthorized");
         }
         await touchDevice(device.id, ip);
+        // Log the device's command result so we can see if commands execute
+        if (body) {
+          console.log(`[ADMS] devicecmd result SN=${sn}: ${body.slice(0, 200)}`);
+          admsLog("IN", sn, `devicecmd: ${body.slice(0, 200)}`);
+        }
       }
     }
     res.type("text/plain").send("OK");
