@@ -377,12 +377,26 @@ async function processAttlog(
   }
 
   for (const line of lines) {
-    const parts = line.split("\t");
-    if (parts.length < 2) {
-      out.bad++;
-      continue;
+    // Parse ATTLOG line: ZKTeco firmware uses tab-separated fields.
+    // Some x2008 firmware versions use spaces. We try tab-split first;
+    // if that gives only 1 field we fall back to a regex that extracts
+    // PIN · YYYY-MM-DD HH:MM[:SS] · status from the raw text.
+    let pin: string, ts: string, status: string = "0";
+    const tabParts = line.split("\t");
+    if (tabParts.length >= 2) {
+      pin = tabParts[0]; ts = tabParts[1]; status = tabParts[2] ?? "0";
+    } else {
+      // Regex fallback for space-separated ATTLOG.
+      // Format: <PIN> <YYYY-MM-DD> <HH:MM[:SS]> <status> ...
+      const m = line.match(/^(\S+)\s+(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2}(?::\d{2})?)\s+(\d+)/);
+      if (!m) {
+        out.bad++;
+        continue;
+      }
+      pin = m[1];
+      ts  = `${m[2]} ${m[3]}`;
+      status = m[4];
     }
-    const [pin, ts, status] = parts;
     const split = splitTimestamp(ts);
     if (!split) {
       out.bad++;
@@ -455,7 +469,7 @@ export function registerAdmsRoutes(app: Express) {
     const method = req.method;
     const url = req.path + (req.query.table ? `?table=${req.query.table}` : "");
     const bodyPreview = typeof req.body === "string" && req.body.length > 0
-      ? ` BODY[${req.body.length}bytes]: ${req.body.slice(0, 300).replace(/\n/g, "|")}` : "";
+      ? ` BODY[${req.body.length}bytes]: ${req.body.slice(0, 400).replace(/\t/g, "·").replace(/\r?\n/g, " | ")}` : "";
     const entry = `${method} ${url}${bodyPreview}`;
     console.log(`[ADMS-RAW] SN=${sn} ${entry}`);
     admsLog("IN", sn, entry);
