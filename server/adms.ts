@@ -51,23 +51,10 @@ const NEW_LINE = "\r\n";
 const pendingCommands: Map<string, string[]> = new Map();
 let nextCmdId = Date.now();
 
-// Track when we last pushed a DATE TIME clock-sync command to each device.
-// We resync every 5 minutes so the device clock stays on IST.
-const lastClockSync: Map<string, number> = new Map();
-const CLOCK_SYNC_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
-
-// Devices for which we have already auto-queued a DATA QUERY ATTLOG since
+// Devices for which we have already auto-queued ATTLOG+USERINFO since
 // this server process started. We only auto-queue once per boot — the user
 // can trigger additional re-uploads via the "Clear & Re-Sync" button.
-const autoAttlogQueued = new Set<string>();
-
-function currentISTString(): string {
-  const nowUtc = new Date();
-  const istMs = nowUtc.getTime() + 5.5 * 60 * 60 * 1000;
-  const d = new Date(istMs);
-  const p = (n: number) => String(n).padStart(2, "0");
-  return `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:${p(d.getUTCSeconds())}`;
-}
+const autoSyncQueued = new Set<string>();
 
 const MAX_QUEUE_PER_DEVICE = 8;
 
@@ -474,13 +461,22 @@ export function registerAdmsRoutes(app: Express) {
     const fw = String(req.query.pushver || req.query.PushVersion || "").trim();
     await touchDevice(device.id, ip, { firmwareVersion: fw || undefined });
 
-    // On first handshake after server start, auto-queue a DATA QUERY ATTLOG
-    // so the device re-uploads all stored records (handles cases where DB was
-    // cleared or SN was just auto-corrected).
-    if (!autoAttlogQueued.has(device.id)) {
-      autoAttlogQueued.add(device.id);
+    // On first handshake after server start, auto-queue a full data fetch:
+    // ATTLOG (all stored attendance records) + USERINFO (all enrolled users with names).
+    // We trust the machine's own clock — no DATE TIME command is sent.
+    if (!autoSyncQueued.has(device.id)) {
+      autoSyncQueued.add(device.id);
       enqueueDeviceCommand(device.id, "DATA QUERY ATTLOG");
-      console.log(`[ADMS] Auto-queued DATA QUERY ATTLOG for SN=${sn} on first handshake`);
+      enqueueDeviceCommand(device.id, "DATA QUERY USERINFO");
+      console.log(`[ADMS] Auto-queued DATA QUERY ATTLOG+USERINFO for SN=${sn} on first handshake`);
+    }
+
+    // Drain any pending commands and include them INLINE in the handshake
+    // response — some firmware versions don't poll /iclock/getrequest
+    // separately and only read commands embedded in the config reply.
+    const inlineCmds = drainCommands(device.id);
+    if (inlineCmds.length > 0) {
+      console.log(`[ADMS] Inline cmds in handshake SN=${sn}: ${inlineCmds.join(" | ")}`);
     }
 
     const lines = [
@@ -498,6 +494,8 @@ export function registerAdmsRoutes(app: Express) {
       `Realtime=1`,
       `Encrypt=None`,
       ``,
+      // Inline commands (C:<id>:<cmd>) — picked up by firmware that skips getrequest
+      ...inlineCmds.map((c) => `C:${++nextCmdId}:${c}`),
     ];
     res.type("text/plain").send(lines.join(NEW_LINE));
   });
@@ -572,15 +570,6 @@ export function registerAdmsRoutes(app: Express) {
           return res.status(401).type("text/plain").send("ERROR: unauthorized");
         }
         await touchDevice(device.id, ip);
-
-        // Auto-enqueue IST clock-sync every 5 minutes per device
-        const lastSync = lastClockSync.get(device.id) || 0;
-        if (Date.now() - lastSync > CLOCK_SYNC_INTERVAL_MS) {
-          const istStr = currentISTString();
-          enqueueDeviceCommand(device.id, `DATE TIME ${istStr}`);
-          lastClockSync.set(device.id, Date.now());
-          console.log(`[ADMS] Auto IST clock-sync SN=${sn} → DATE TIME ${istStr}`);
-        }
 
         const cmds = drainCommands(device.id);
         if (cmds.length > 0) {

@@ -1383,18 +1383,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const result = await db.execute(sql.raw(`DELETE FROM biometric_punch_logs`));
       const deleted = (result as any)?.rowCount ?? 0;
 
-      // Enqueue DATA QUERY ATTLOG for every registered device
+      // Enqueue DATA QUERY ATTLOG + USERINFO for every registered device
       const { enqueueDeviceCommand } = await import("./adms");
       const devices = await storage.getAllBiometricDevices();
       for (const dev of devices) {
         enqueueDeviceCommand(dev.id, "DATA QUERY ATTLOG");
+        enqueueDeviceCommand(dev.id, "DATA QUERY USERINFO");
       }
 
       res.json({
         success: true,
         deleted,
         devicesQueued: devices.length,
-        message: `Deleted ${deleted} punch records. Re-sync command sent to ${devices.length} device(s). Data will arrive within seconds.`,
+        message: `Deleted ${deleted} punch records. Full re-sync (ATTLOG + USERINFO) sent to ${devices.length} device(s). Data will arrive within seconds.`,
       });
     } catch (error: any) {
       console.error("[biometric/clear-and-resync] error:", error);
