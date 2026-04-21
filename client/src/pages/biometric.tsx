@@ -3,7 +3,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { 
   Fingerprint, Upload, RefreshCw, AlertTriangle, CheckCircle, 
   Clock, XCircle, Settings, Plus, Trash2, Signal, SignalLow, Download, Users,
-  ShieldAlert, ShieldCheck, Pencil, KeyRound, Activity, UserCheck
+  ShieldAlert, ShieldCheck, Pencil, KeyRound, Activity, UserCheck, FileUp
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -97,6 +97,12 @@ export default function BiometricPage() {
   const [pullDirectDevice, setPullDirectDevice] = useState<any | null>(null);
   const [pullTargetIp, setPullTargetIp] = useState("");
   const [pullTargetPort, setPullTargetPort] = useState("4370");
+
+  // Import attendance file state
+  const [importDialogOpen, setImportDialogOpen] = useState(false);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importDeviceId, setImportDeviceId] = useState("");
+  const [importType, setImportType] = useState<"attlog" | "userinfo">("attlog");
 
   // "Edit Device" dialog state — same shape as the Add form, plus the device id.
   const [detectingIp, setDetectingIp] = useState(false);
@@ -394,11 +400,46 @@ export default function BiometricPage() {
 
   const openPullDirectDialog = (device: any) => {
     setPullDirectDevice(device);
-    // Pre-fill with lastPushIp if available, else blank so user can type
     setPullTargetIp(device.lastPushIp || device.ipAddress || "");
     setPullTargetPort("4370");
     setPullDirectDialogOpen(true);
   };
+
+  const importFileMutation = useMutation({
+    mutationFn: async ({ file, deviceId, type }: { file: File; deviceId: string; type: "attlog" | "userinfo" }) => {
+      const form = new FormData();
+      form.append("file", file);
+      if (deviceId) form.append("deviceId", deviceId);
+      const endpoint = type === "userinfo" ? "/api/biometric/import-userinfo" : "/api/biometric/import-attlog";
+      const res = await fetch(endpoint, {
+        method: "POST",
+        body: form,
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || "Import failed");
+      }
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/biometric/logs"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/biometric/devices"] });
+      setImportDialogOpen(false);
+      setImportFile(null);
+      toast({
+        title: "Import Complete",
+        description: data?.message || "Import completed successfully.",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Import Failed",
+        description: error?.message || "Could not import the file.",
+        variant: "destructive",
+      });
+    },
+  });
 
   const clearResyncMutation = useMutation({
     mutationFn: async () => {
@@ -582,6 +623,10 @@ export default function BiometricPage() {
               Fix Old Times
             </Button>
           )}
+          <Button variant="outline" onClick={() => { setImportFile(null); setImportDialogOpen(true); }} data-testid="button-import-attlog">
+            <FileUp className="h-4 w-4 mr-2" />
+            Import Attendance File
+          </Button>
           <Button variant="outline" onClick={() => setPushDialogOpen(true)}>
             <Upload className="h-4 w-4 mr-2" />
             Push Punch Data
@@ -1636,6 +1681,116 @@ export default function BiometricPage() {
               ) : (
                 <><Signal className="h-4 w-4 mr-2" /> Connect & Pull All Records</>
               )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Import from Device File Dialog ── */}
+      <Dialog open={importDialogOpen} onOpenChange={(open) => { setImportDialogOpen(open); if (!open) setImportFile(null); }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileUp className="h-5 w-5 text-blue-600" />
+              Import from Device File (USB Export)
+            </DialogTitle>
+            <DialogDescription>
+              Upload a file exported from the ZKTeco device via USB to recover historical data.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            {/* Type selector */}
+            <div>
+              <Label className="mb-1 block">What to import</Label>
+              <Select value={importType} onValueChange={(v) => { setImportType(v as any); setImportFile(null); }}>
+                <SelectTrigger data-testid="select-import-type">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="attlog">Attendance Records (attlog.dat)</SelectItem>
+                  <SelectItem value="userinfo">Enrolled Users (user.dat / userinfo.dat)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Instructions */}
+            <div className="rounded-md border bg-muted/40 p-3 text-xs text-muted-foreground space-y-1">
+              <p className="font-medium text-foreground">
+                How to export from ZKTeco x2008 via USB:
+              </p>
+              {importType === "attlog" ? (
+                <ol className="ml-4 list-decimal space-y-0.5">
+                  <li>Plug a USB drive into the device</li>
+                  <li>Press <strong>Menu → USB Manager → Download → Attendance Log</strong></li>
+                  <li>Wait for "Download Successful", remove USB</li>
+                  <li>Find <code>attlog.dat</code> on the USB and upload it here</li>
+                </ol>
+              ) : (
+                <ol className="ml-4 list-decimal space-y-0.5">
+                  <li>Plug a USB drive into the device</li>
+                  <li>Press <strong>Menu → USB Manager → Download → User Data</strong></li>
+                  <li>Wait for "Download Successful", remove USB</li>
+                  <li>Find <code>user.dat</code> or <code>userinfo.dat</code> on the USB and upload it here</li>
+                </ol>
+              )}
+            </div>
+
+            {/* File picker */}
+            <div>
+              <Label htmlFor="import-file-input" className="mb-1 block">
+                {importType === "attlog" ? "Attendance File (.dat / .txt)" : "User Data File (.dat / .txt)"}
+              </Label>
+              <Input
+                id="import-file-input"
+                type="file"
+                accept=".dat,.txt,.csv,.log"
+                data-testid="input-import-file"
+                onChange={(e) => setImportFile(e.target.files?.[0] ?? null)}
+                className="cursor-pointer"
+              />
+            </div>
+
+            {/* Device selector (only if multiple devices) */}
+            {devices && devices.length > 1 && (
+              <div>
+                <Label className="mb-1 block">Device (optional)</Label>
+                <Select value={importDeviceId} onValueChange={setImportDeviceId}>
+                  <SelectTrigger data-testid="select-import-device">
+                    <SelectValue placeholder="Auto-detect (first device)" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="">Auto-detect</SelectItem>
+                    {devices.map((d: any) => (
+                      <SelectItem key={d.id} value={d.id}>{d.name} ({d.serialNumber})</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            {importFile && (
+              <p className="text-xs text-muted-foreground">
+                Selected: <strong>{importFile.name}</strong> ({(importFile.size / 1024).toFixed(1)} KB)
+              </p>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setImportDialogOpen(false)} disabled={importFileMutation.isPending}>
+              Cancel
+            </Button>
+            <Button
+              data-testid="button-confirm-import-file"
+              disabled={!importFile || importFileMutation.isPending}
+              onClick={() => {
+                if (importFile) {
+                  importFileMutation.mutate({ file: importFile, deviceId: importDeviceId, type: importType });
+                }
+              }}
+            >
+              <FileUp className="h-4 w-4 mr-2" />
+              {importFileMutation.isPending ? "Importing…" : "Import"}
             </Button>
           </DialogFooter>
         </DialogContent>

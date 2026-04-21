@@ -300,7 +300,7 @@ function parseUserRecord(line: string): Record<string, string> | null {
 // Persist enrolled-user records pushed by the device (USERINFO table or
 // USER rows inside OPERLOG). Idempotent: an upsert keyed on (device_id, pin)
 // keeps name/privilege/card current and bumps last_seen_at on every push.
-async function processUserRecords(
+export async function processUserRecords(
   device: any,
   body: string,
 ): Promise<{ upserted: number; bad: number }> {
@@ -349,7 +349,7 @@ async function processUserRecords(
   return out;
 }
 
-async function processAttlog(
+export async function processAttlog(
   device: any,
   body: string,
 ): Promise<{ inserted: number; duplicates: number; unmapped: number; bad: number }> {

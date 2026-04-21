@@ -34,7 +34,7 @@ import {
 } from "@shared/schema";
 import { z } from "zod";
 import ZKLib from 'zkteco-js';
-import { registerAdmsRoutes, getAdmsActivityLog } from './adms';
+import { registerAdmsRoutes, getAdmsActivityLog, processAttlog, processUserRecords } from './adms';
 import * as dnsPromises from 'dns/promises';
 import multer from 'multer';
 import * as XLSX from 'xlsx';
@@ -1608,6 +1608,94 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Useful to diagnose why old ATTLOG data isn't being pushed.
   app.get("/api/biometric/adms-log", requireAuth, requireRole("super_admin"), async (_req, res) => {
     res.json(getAdmsActivityLog());
+  });
+
+  // Import ATTLOG data from a file — workaround for devices that won't re-push
+  // historical records. User exports data from device USB, uploads the text file here.
+  // Accepts the raw ZKTeco ATTLOG text format (tab OR space-separated lines).
+  // Also accepts CSV: date,time,pin,status  or  pin,datetime,status columns.
+  app.post("/api/biometric/import-attlog", requireAuth, requireRole("super_admin", "company_admin"),
+    upload.single("file"), async (req: any, res) => {
+    try {
+      const user = (req as any).user;
+      const deviceId = (req.body?.deviceId || "").trim();
+
+      if (!req.file) {
+        return res.status(400).json({ error: "No file uploaded." });
+      }
+
+      // Resolve device — required for associating records
+      let device: any = null;
+      if (deviceId) {
+        device = await storage.getBiometricDevice(deviceId);
+        if (!device) return res.status(404).json({ error: "Device not found." });
+        if (user.role !== "super_admin" && device.companyId && device.companyId !== user.companyId) {
+          return res.status(403).json({ error: "Access denied." });
+        }
+      } else {
+        // Pick first device for this user's company
+        const allDevices = await storage.getAllBiometricDevices();
+        const myDevices = user.role === "super_admin"
+          ? allDevices
+          : allDevices.filter((d: any) => d.companyId === user.companyId);
+        device = myDevices[0] ?? null;
+        if (!device) return res.status(400).json({ error: "No biometric device found. Please select a device." });
+      }
+
+      const fileText = req.file.buffer.toString("utf8");
+      const result = await processAttlog(device, fileText);
+
+      res.json({
+        success: true,
+        message: `Import complete: ${result.inserted} records stored, ${result.duplicates} duplicates skipped, ${result.unmapped} unmapped (no employee match), ${result.bad} unreadable lines.`,
+        results: result,
+      });
+    } catch (error: any) {
+      console.error("[biometric/import-attlog] error:", error);
+      res.status(500).json({ error: String(error?.message || error) });
+    }
+  });
+
+  // Import USERINFO (device user list) from a file exported via USB.
+  // Format expected: ZKTeco USER key=value lines, one per line.
+  app.post("/api/biometric/import-userinfo", requireAuth, requireRole("super_admin", "company_admin"),
+    upload.single("file"), async (req: any, res) => {
+    try {
+      const user = (req as any).user;
+      const deviceId = (req.body?.deviceId || "").trim();
+
+      if (!req.file) {
+        return res.status(400).json({ error: "No file uploaded." });
+      }
+
+      let device: any = null;
+      if (deviceId) {
+        device = await storage.getBiometricDevice(deviceId);
+        if (!device) return res.status(404).json({ error: "Device not found." });
+        if (user.role !== "super_admin" && device.companyId && device.companyId !== user.companyId) {
+          return res.status(403).json({ error: "Access denied." });
+        }
+      } else {
+        const allDevices = await storage.getAllBiometricDevices();
+        const myDevices = user.role === "super_admin"
+          ? allDevices
+          : allDevices.filter((d: any) => d.companyId === user.companyId);
+        device = myDevices[0] ?? null;
+        if (!device) return res.status(400).json({ error: "No biometric device found." });
+      }
+
+      const fileText = req.file.buffer.toString("utf8");
+      const result = await processUserRecords(device, fileText);
+
+      res.json({
+        success: true,
+        message: `User import complete: ${result.upserted} users stored/updated, ${result.bad} unreadable lines.`,
+        results: result,
+      });
+    } catch (error: any) {
+      console.error("[biometric/import-userinfo] error:", error);
+      res.status(500).json({ error: String(error?.message || error) });
+    }
   });
 
   app.get("/api/biometric/logs", requireAuth, async (req, res) => {
