@@ -589,7 +589,8 @@ export default function PayrollPage() {
         for (let d = 1; d <= daysCount; d++) {
           const date = new Date(year, monthIdx, d);
           if (date > today) break;
-          const dateStr = date.toISOString().slice(0, 10);
+          // Build date string directly to avoid UTC timezone shift (toISOString shifts IST dates back 1 day)
+          const dateStr = `${year}-${String(monthIdx + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
           const storedRecord = periodAtt.find((a: any) => a.date === dateStr);
           if (!storedRecord && isDayWeeklyOff(policy, date)) unrecordedWoDays++;
         }
