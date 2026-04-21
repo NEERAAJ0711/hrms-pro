@@ -3343,11 +3343,84 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const employee = await storage.getEmployee(data.employeeId);
       if (!employee) return res.status(404).json({ error: "Employee not found" });
 
-      const payrollMonth = parseInt(data.month);
-      const payrollYear = parseInt(data.year);
-      const payrollMonthStart = `${data.year}-${String(payrollMonth).padStart(2, "0")}-01`;
-      const payrollMonthEndDay = new Date(payrollYear, payrollMonth, 0).getDate();
-      const payrollMonthEnd = `${data.year}-${String(payrollMonth).padStart(2, "0")}-${String(payrollMonthEndDay).padStart(2, "0")}`;
+      // ── Server-side payDays recalculation (timezone-safe) ──────────────────
+      // Browser runs in local time (IST/etc.) which causes date mismatches.
+      // Re-derive payDays and presentDays on the server using only UTC dates
+      // and string prefix matching — no timezone conversion involved.
+      const MONTH_NAME_TO_NUM: Record<string, number> = {
+        January:1, February:2, March:3, April:4, May:5, June:6,
+        July:7, August:8, September:9, October:10, November:11, December:12,
+      };
+      const calcMonthNum = MONTH_NAME_TO_NUM[String(data.month)];
+      const calcYear = Number(data.year);
+
+      if (calcMonthNum && calcYear) {
+        const allAtt = await storage.getAttendanceByEmployee(data.employeeId);
+        const monthPrefix = `${calcYear}-${String(calcMonthNum).padStart(2, "0")}`;
+        const periodAtt = allAtt.filter((a) => a.date.startsWith(monthPrefix));
+
+        const presents = periodAtt.filter(a => a.status === "present").length;
+        const halfdays = periodAtt.filter(a => a.status === "half_day").length;
+        const weekends = periodAtt.filter(a => a.status === "weekend").length;
+        const holidays = periodAtt.filter(a => a.status === "holiday").length;
+        const leaves   = periodAtt.filter(a => a.status === "on_leave").length;
+
+        // Earned WOs for WO days that have no stored attendance record
+        let earnedWOs = 0;
+        try {
+          const policies = await storage.getTimeOfficePoliciesByCompany(data.companyId);
+          const empPolicyId = (employee as any).timeOfficePolicyId;
+          const policy =
+            policies.find(p => (p as any).status === "active" && empPolicyId && p.id === empPolicyId) ||
+            policies.find(p => (p as any).status === "active" && (p as any).isDefault) ||
+            policies.find(p => (p as any).status === "active") || null;
+
+          if (policy) {
+            const dayNames = ["sunday","monday","tuesday","wednesday","thursday","friday","saturday"];
+            const wo1 = (policy as any).weeklyOff1 as string | null;
+            const wo2 = (policy as any).weeklyOff2 as string | null;
+            const wosPerWeek = (wo1 ? 1 : 0) + (wo2 ? 1 : 0);
+            const workingDaysPerWeek = Math.max(1, 7 - wosPerWeek);
+            // UTC day count — no local timezone involved
+            const daysInMonth = new Date(Date.UTC(calcYear, calcMonthNum, 0)).getUTCDate();
+            const today = new Date();
+
+            let unrecordedWOs = 0;
+            for (let d = 1; d <= daysInMonth; d++) {
+              const dateStr = `${calcYear}-${String(calcMonthNum).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+              const utcDate = new Date(Date.UTC(calcYear, calcMonthNum - 1, d));
+              if (utcDate > today) break;
+              const dayName = dayNames[utcDate.getUTCDay()];
+              if ((dayName === wo1 || dayName === wo2) && !periodAtt.find(a => a.date === dateStr)) {
+                unrecordedWOs++;
+              }
+            }
+
+            if (unrecordedWOs > 0) {
+              const presentTotal = presents + halfdays * 0.5;
+              const earned = Math.floor(presentTotal * wosPerWeek / workingDaysPerWeek);
+              earnedWOs = Math.min(Math.max(0, earned), unrecordedWOs);
+            }
+          }
+        } catch (_) { /* policy lookup failed — earnedWOs stays 0 */ }
+
+        const serverPresentDays = presents + halfdays * 0.5;
+        const serverPayDays = serverPresentDays + weekends + holidays + leaves + earnedWOs;
+        // Override whatever the browser sent — server value is authoritative
+        (data as any).payDays = String(serverPayDays);
+        (data as any).presentDays = String(serverPresentDays);
+      }
+      // ──────────────────────────────────────────────────────────────────────
+
+      const MONTH_NAME_TO_NUM_V: Record<string, number> = {
+        January:1, February:2, March:3, April:4, May:5, June:6,
+        July:7, August:8, September:9, October:10, November:11, December:12,
+      };
+      const payrollMonthNum = MONTH_NAME_TO_NUM_V[String(data.month)] || 1;
+      const payrollYear = Number(data.year);
+      const payrollMonthStart = `${payrollYear}-${String(payrollMonthNum).padStart(2, "0")}-01`;
+      const payrollMonthEndDay = new Date(Date.UTC(payrollYear, payrollMonthNum, 0)).getUTCDate();
+      const payrollMonthEnd = `${payrollYear}-${String(payrollMonthNum).padStart(2, "0")}-${String(payrollMonthEndDay).padStart(2, "0")}`;
 
       const joiningDate = (employee as any).dateOfJoining;
       if (joiningDate && joiningDate > payrollMonthEnd) {
