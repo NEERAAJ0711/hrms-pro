@@ -2531,14 +2531,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/attendance/quick-entry", requireAuth, async (req, res) => {
     try {
-      const { employeeId, companyId, month, year, payDays, otHours } = req.body;
+      const { employeeId, companyId, month, year, payDays, halfDays, otHours } = req.body;
       const employee = await storage.getEmployee(employeeId);
       if (!employee) return res.status(404).json({ error: "Employee not found" });
 
       const yearNum = parseInt(year);
       const monthNum = parseInt(month);
-      const daysInMonth = new Date(yearNum, monthNum, 0).getDate();
+      const daysInMonth = new Date(Date.UTC(yearNum, monthNum, 0)).getUTCDate();
       const totalPayDays = parseInt(payDays);
+      const halfDayCount = Math.max(0, Math.min(parseInt(halfDays || "0"), totalPayDays));
       const totalOtHours = parseFloat(otHours || "0");
 
       const today = new Date();
@@ -2678,18 +2679,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
+      // Pre-sort present day indices; last halfDayCount days → half_day status
+      const sortedPresentDays = Array.from(presentDayIndices).sort((a, b) => a - b);
+      const effectiveHalfDayCount = Math.min(halfDayCount, sortedPresentDays.length);
+      const halfDayDayNumbers = new Set(sortedPresentDays.slice(sortedPresentDays.length - effectiveHalfDayCount));
+      const fullPresentCount = sortedPresentDays.length - effectiveHalfDayCount;
+
       let created = 0;
       let skipped = 0;
       let presentDaysCreated = 0;
+      let halfDaysCreated = 0;
       let woMarked = 0;
       let holidayMarked = 0;
       let leaveMarked = 0;
 
-      // Pre-sort present day indices to know which is last — for exact OT distribution
-      const sortedPresentDays = Array.from(presentDayIndices).sort((a, b) => a - b);
-      const lastPresentDay = sortedPresentDays.length > 0 ? sortedPresentDays[sortedPresentDays.length - 1] : -1;
-      const perDayOt = requiredPresentDays > 0
-        ? Math.round((totalOtHours / requiredPresentDays) * 100) / 100
+      const lastFullPresentDay = sortedPresentDays.slice(0, fullPresentCount).pop() ?? -1;
+      const perDayOt = fullPresentCount > 0
+        ? Math.round((totalOtHours / fullPresentCount) * 100) / 100
         : 0;
       let distributedOtSoFar = 0;
 
@@ -2720,16 +2726,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
           status = "on_leave";
           leaveMarked++;
         } else if (presentDayIndices.has(dayInfo.day)) {
-          status = "present";
-          presentDaysCreated++;
+          if (halfDayDayNumbers.has(dayInfo.day)) {
+            status = "half_day";
+            halfDaysCreated++;
+          } else {
+            status = "present";
+            presentDaysCreated++;
+          }
         } else {
           status = "absent";
         }
 
-        // OT distribution: give all days perDayOt, last present day gets exact remainder
+        // OT distribution: only to full present days; last present day gets exact remainder
         let otForDay = "0";
-        if (status === "present" && totalOtHours > 0 && requiredPresentDays > 0) {
-          if (dayInfo.day === lastPresentDay) {
+        if (status === "present" && totalOtHours > 0 && fullPresentCount > 0) {
+          if (dayInfo.day === lastFullPresentDay) {
             const remainder = Math.round((totalOtHours - distributedOtSoFar) * 100) / 100;
             otForDay = String(Math.max(0, remainder));
           } else {
@@ -2742,37 +2753,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
         let clockOut: string | null = null;
         let workHrs = "0";
 
+        const dutyStart = policy?.dutyStartTime || "09:00";
+        const dutyEnd   = policy?.dutyEndTime   || "18:00";
+        const [startH, startM] = dutyStart.split(":").map(Number);
+        const [endH, endM]     = dutyEnd.split(":").map(Number);
+
         if (status === "present") {
-          const dutyStart = policy?.dutyStartTime || "09:00";
-          const dutyEnd = policy?.dutyEndTime || "18:00";
-          const [startH, startM] = dutyStart.split(":").map(Number);
-          const [endH, endM] = dutyEnd.split(":").map(Number);
-
-          const inOffsetMin = Math.floor(Math.random() * 21) - 5;
+          const inOffsetMin  = Math.floor(Math.random() * 21) - 5;
           const outOffsetMin = Math.floor(Math.random() * 21) - 5;
-
-          let inTotalMin = startH * 60 + startM + inOffsetMin;
-          let outTotalMin = endH * 60 + endM + outOffsetMin;
-
+          let inTotalMin  = startH * 60 + startM + inOffsetMin;
+          let outTotalMin = endH   * 60 + endM   + outOffsetMin;
           if (inTotalMin < 0) inTotalMin = 0;
           if (outTotalMin <= inTotalMin) outTotalMin = inTotalMin + 480;
-
-          const inH = Math.floor(inTotalMin / 60);
-          const inM = inTotalMin % 60;
-          const outH = Math.floor(outTotalMin / 60);
-          const outM = outTotalMin % 60;
-
-          clockIn = `${String(inH).padStart(2, "0")}:${String(inM).padStart(2, "0")}`;
-          clockOut = `${String(outH).padStart(2, "0")}:${String(outM).padStart(2, "0")}`;
-
+          clockIn  = `${String(Math.floor(inTotalMin / 60)).padStart(2, "0")}:${String(inTotalMin % 60).padStart(2, "0")}`;
+          clockOut = `${String(Math.floor(outTotalMin / 60)).padStart(2, "0")}:${String(outTotalMin % 60).padStart(2, "0")}`;
           const diffMin = outTotalMin - inTotalMin;
-          const hrs = Math.floor(diffMin / 60);
-          const mins = diffMin % 60;
-          workHrs = `${String(hrs).padStart(2, "0")}:${String(mins).padStart(2, "0")}`;
+          workHrs = `${String(Math.floor(diffMin / 60)).padStart(2, "0")}:${String(diffMin % 60).padStart(2, "0")}`;
+        } else if (status === "half_day") {
+          // Half-day: clock in at duty start, clock out ~4 hours later (morning half)
+          const inTotalMin  = startH * 60 + startM;
+          const outTotalMin = inTotalMin + 240; // 4 hours
+          clockIn  = `${String(Math.floor(inTotalMin / 60)).padStart(2, "0")}:${String(inTotalMin % 60).padStart(2, "0")}`;
+          clockOut = `${String(Math.floor(outTotalMin / 60)).padStart(2, "0")}:${String(outTotalMin % 60).padStart(2, "0")}`;
+          workHrs  = "04:00";
         } else if (status === "weekend" || status === "holiday") {
-          clockIn = "00:00";
+          clockIn  = "00:00";
           clockOut = "00:00";
-          workHrs = "00:00";
+          workHrs  = "00:00";
         }
 
         await storage.createAttendance({
@@ -2790,7 +2797,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         created++;
       }
 
-      res.json({ success: true, message: `Pay Days: ${totalPayDays} (${presentDaysCreated} Present + ${woMarked} Weekly Offs + ${holidayMarked} Holidays${leaveMarked > 0 ? ` + ${leaveMarked} Leave` : ""}). Created ${created} records (up to ${isCurrentMonth ? "today" : "month end"}), skipped ${skipped} existing.` });
+      const halfMsg = halfDaysCreated > 0 ? ` + ${halfDaysCreated} Half Day` : "";
+      res.json({ success: true, message: `Pay Days: ${totalPayDays} (${presentDaysCreated} Present${halfMsg} + ${woMarked} Weekly Offs + ${holidayMarked} Holidays${leaveMarked > 0 ? ` + ${leaveMarked} Leave` : ""}). Created ${created} records (up to ${isCurrentMonth ? "today" : "month end"}), skipped ${skipped} existing.` });
     } catch (error) {
       res.status(500).json({ error: "Failed to process quick entry" });
     }

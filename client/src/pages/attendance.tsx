@@ -75,6 +75,7 @@ export default function AttendancePage() {
     employeeId: "",
     companyId: isSuperAdmin ? "" : (user?.companyId || ""),
     payDays: "",
+    halfDays: "0",
     otHours: "0",
   });
 
@@ -298,14 +299,14 @@ export default function AttendancePage() {
   });
 
   const quickEntryMutation = useMutation({
-    mutationFn: async (data: { employeeId: string; companyId: string; month: string; year: string; payDays: string; otHours: string }) => {
+    mutationFn: async (data: { employeeId: string; companyId: string; month: string; year: string; payDays: string; halfDays: string; otHours: string }) => {
       return apiRequest("POST", "/api/attendance/quick-entry", data);
     },
     onSuccess: async (res) => {
       const result = await res.json();
       queryClient.invalidateQueries({ queryKey: ["/api/attendance"] });
       setIsQuickEntryOpen(false);
-      setQuickEntryData({ employeeId: "", companyId: isSuperAdmin ? "" : (user?.companyId || ""), payDays: "", otHours: "0" });
+      setQuickEntryData({ employeeId: "", companyId: isSuperAdmin ? "" : (user?.companyId || ""), payDays: "", halfDays: "0", otHours: "0" });
       toast({
         title: "Quick Entry Complete",
         description: result.message,
@@ -328,6 +329,7 @@ export default function AttendancePage() {
       month: monthStr,
       year: yearStr,
       payDays: quickEntryData.payDays,
+      halfDays: quickEntryData.halfDays || "0",
       otHours: quickEntryData.otHours,
     });
   };
@@ -905,17 +907,30 @@ export default function AttendancePage() {
               <Input type="month" value={selectedMonth} disabled className="bg-muted" />
               <p className="text-xs text-muted-foreground">Uses the currently selected month from the attendance view</p>
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-3 gap-3">
               <div className="space-y-2">
                 <label className="text-sm font-medium">Pay Days</label>
                 <Input
                   type="number"
                   min="0"
                   placeholder="e.g. 26"
+                  data-testid="input-quick-paydays"
                   value={quickEntryData.payDays}
                   onChange={(e) => setQuickEntryData({ ...quickEntryData, payDays: e.target.value })}
                 />
-                <p className="text-xs text-muted-foreground">Working days to mark as Present</p>
+                <p className="text-xs text-muted-foreground">Full present days</p>
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Half Days</label>
+                <Input
+                  type="number"
+                  min="0"
+                  placeholder="e.g. 1"
+                  data-testid="input-quick-halfdays"
+                  value={quickEntryData.halfDays}
+                  onChange={(e) => setQuickEntryData({ ...quickEntryData, halfDays: e.target.value })}
+                />
+                <p className="text-xs text-muted-foreground">Half-day occurrences</p>
               </div>
               <div className="space-y-2">
                 <label className="text-sm font-medium">OT Hours</label>
@@ -924,10 +939,11 @@ export default function AttendancePage() {
                   min="0"
                   step="0.5"
                   placeholder="e.g. 10"
+                  data-testid="input-quick-othours"
                   value={quickEntryData.otHours}
                   onChange={(e) => setQuickEntryData({ ...quickEntryData, otHours: e.target.value })}
                 />
-                <p className="text-xs text-muted-foreground">Total overtime hours for the month</p>
+                <p className="text-xs text-muted-foreground">Total overtime hours</p>
               </div>
             </div>
           </div>
