@@ -1351,9 +1351,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const today = new Date().toISOString().split("T")[0];
       const todayCount = fromThisDevice.filter((l: any) => l.punchDate === today).length;
 
+      // Enqueue DATA QUERY command so device re-uploads all ATTLOGs on next poll
+      const { enqueueDeviceCommand } = await import("./adms");
+      enqueueDeviceCommand(device.id, "DATA QUERY ATTLOG");
+
       const message = device.lastPushAt
-        ? `Showing ${fromThisDevice.length} stored punches (${todayCount} today). The device pushes new data automatically — no manual sync needed.`
-        : `No data has ever been received from this device. Check the device's Cloud Server Settings.`;
+        ? `Re-upload requested. ${fromThisDevice.length} stored punches (${todayCount} today). Device will push all logs within seconds.`
+        : `No data received yet. Re-upload command sent — check device Cloud Server Settings.`;
 
       res.json({
         success: true,

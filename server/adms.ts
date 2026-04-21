@@ -438,15 +438,16 @@ export function registerAdmsRoutes(app: Express) {
 
     const lines = [
       `GET OPTION FROM: ${sn}`,
+      `Stamp=0`,
       `ATTLOGStamp=0`,
       `OPERLOGStamp=0`,
       `ATTPHOTOStamp=0`,
       `ErrorDelay=30`,
       `Delay=10`,
-      `TransTimes=00:00;14:05`,
+      `TransTimes=00:00;01:00;02:00;03:00;04:00;05:00;06:00;07:00;08:00;09:00;10:00;11:00;12:00;13:00;14:00;15:00;16:00;17:00;18:00;19:00;20:00;21:00;22:00;23:00`,
       `TransInterval=1`,
       `TransFlag=TransData AttLog\tOpLog\tAttPhoto\tEnrollUser\tChgUser\tEnrollFP\tChgFP\tFPImag`,
-      `TimeZone=8`,
+      `TimeZone=5.5`,
       `Realtime=1`,
       `Encrypt=None`,
       ``,
