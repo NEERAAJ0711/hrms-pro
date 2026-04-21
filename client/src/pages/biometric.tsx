@@ -183,6 +183,15 @@ export default function BiometricPage() {
     },
   });
 
+  // ADMS raw device communication log — super_admin only, auto-refreshes every 5s
+  const { data: admsLog = [], refetch: refetchAdmsLog } = useQuery<Array<{
+    ts: string; direction: "IN" | "OUT"; sn: string; line: string;
+  }>>({
+    queryKey: ["/api/biometric/adms-log"],
+    enabled: isSuperAdmin,
+    refetchInterval: isSuperAdmin ? 5000 : false,
+  });
+
   const pushMutation = useMutation({
     mutationFn: async (data: { punches: any[]; companyId: string }) => {
       const res = await apiRequest("POST", "/api/biometric/push", data);
@@ -540,7 +549,7 @@ export default function BiometricPage() {
       </div>
 
       <Tabs defaultValue="logs" className="w-full">
-        <TabsList className="grid w-full grid-cols-2 max-w-[400px]">
+        <TabsList className={`grid w-full ${isSuperAdmin ? "grid-cols-3 max-w-[600px]" : "grid-cols-2 max-w-[400px]"}`}>
           <TabsTrigger value="logs" className="flex items-center gap-2">
             <Clock className="h-4 w-4" />
             Punch Logs
@@ -549,6 +558,12 @@ export default function BiometricPage() {
             <Settings className="h-4 w-4" />
             Device Management
           </TabsTrigger>
+          {isSuperAdmin && (
+            <TabsTrigger value="adms-debug" className="flex items-center gap-2" data-testid="tab-adms-debug">
+              <Activity className="h-4 w-4" />
+              Device Log
+            </TabsTrigger>
+          )}
         </TabsList>
 
         <TabsContent value="logs" className="space-y-6 mt-4">
@@ -995,6 +1010,46 @@ export default function BiometricPage() {
             </CardContent>
           </Card>
         </TabsContent>
+
+        {/* ADMS Device Communication Log — super_admin only */}
+        {isSuperAdmin && (
+          <TabsContent value="adms-debug" className="mt-4">
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between pb-2">
+                <div>
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Activity className="h-4 w-4" />
+                    Device Communication Log
+                  </CardTitle>
+                  <CardDescription>
+                    Live feed of every request the ZKTeco device sends to this server.
+                    Refreshes every 5 seconds. Shows last 200 entries.
+                  </CardDescription>
+                </div>
+                <Button variant="outline" size="sm" onClick={() => refetchAdmsLog()} data-testid="button-refresh-adms-log">
+                  <RefreshCw className="h-3 w-3 mr-1" /> Refresh
+                </Button>
+              </CardHeader>
+              <CardContent>
+                {admsLog.length === 0 ? (
+                  <div className="text-center py-10 text-muted-foreground text-sm">
+                    No device activity yet. Device will appear here within 10 seconds of connecting.
+                  </div>
+                ) : (
+                  <div className="font-mono text-xs bg-muted rounded-md p-3 overflow-auto max-h-[500px] space-y-0.5" data-testid="adms-log-container">
+                    {[...admsLog].reverse().map((entry, i) => (
+                      <div key={i} className={`flex gap-2 ${entry.line.includes("ATTLOG") ? "text-green-600 dark:text-green-400" : entry.line.includes("USERINFO") ? "text-blue-600 dark:text-blue-400" : "text-foreground/70"}`}>
+                        <span className="shrink-0 text-muted-foreground">{new Date(entry.ts).toLocaleTimeString("en-IN", { hour12: false })}</span>
+                        <span className="shrink-0 font-semibold">[{entry.sn}]</span>
+                        <span className="break-all">{entry.line}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+        )}
       </Tabs>
 
       {/* Existing Dialogs */}

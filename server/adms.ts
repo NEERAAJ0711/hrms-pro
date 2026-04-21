@@ -436,7 +436,32 @@ async function processAttlog(
   return out;
 }
 
+// Rolling in-memory log of recent ADMS device activity (last 200 entries).
+// Exposed via /api/biometric/adms-log for admin debugging.
+const admsActivityLog: Array<{ ts: string; direction: "IN" | "OUT"; sn: string; line: string }> = [];
+function admsLog(direction: "IN" | "OUT", sn: string, line: string) {
+  admsActivityLog.push({ ts: new Date().toISOString(), direction, sn, line });
+  if (admsActivityLog.length > 200) admsActivityLog.shift();
+}
+
+export function getAdmsActivityLog() {
+  return [...admsActivityLog];
+}
+
 export function registerAdmsRoutes(app: Express) {
+  // Log every raw /iclock/* request for debugging.
+  app.use("/iclock", (req, _res, next) => {
+    const sn = String(req.query.SN || req.query.sn || "?").trim();
+    const method = req.method;
+    const url = req.path + (req.query.table ? `?table=${req.query.table}` : "");
+    const bodyPreview = typeof req.body === "string" && req.body.length > 0
+      ? ` BODY[${req.body.length}bytes]: ${req.body.slice(0, 300).replace(/\n/g, "|")}` : "";
+    const entry = `${method} ${url}${bodyPreview}`;
+    console.log(`[ADMS-RAW] SN=${sn} ${entry}`);
+    admsLog("IN", sn, entry);
+    next();
+  });
+
   // Handshake / config pull. Some firmwares hit this on every wakeup;
   // others only on first boot. The body of our response tells the device
   // what to push and how often.
@@ -461,24 +486,20 @@ export function registerAdmsRoutes(app: Express) {
     const fw = String(req.query.pushver || req.query.PushVersion || "").trim();
     await touchDevice(device.id, ip, { firmwareVersion: fw || undefined });
 
-    // On first handshake after server start, auto-queue a full data fetch:
-    // ATTLOG (all stored attendance records) + USERINFO (all enrolled users with names).
-    // We trust the machine's own clock — no DATE TIME command is sent.
+    // On first handshake after server start, enqueue a full data re-upload.
+    // "DATA UPDATE ATTLOG" is the correct ZKTeco push SDK v2.x command to
+    // force the device to re-push ALL stored attendance records.
+    // "DATA UPDATE USERINFO" fetches all enrolled users with names.
+    // Commands stay in the queue — delivered via GET /iclock/getrequest.
     if (!autoSyncQueued.has(device.id)) {
       autoSyncQueued.add(device.id);
-      enqueueDeviceCommand(device.id, "DATA QUERY ATTLOG");
-      enqueueDeviceCommand(device.id, "DATA QUERY USERINFO");
-      console.log(`[ADMS] Auto-queued DATA QUERY ATTLOG+USERINFO for SN=${sn} on first handshake`);
+      enqueueDeviceCommand(device.id, "DATA UPDATE ATTLOG");
+      enqueueDeviceCommand(device.id, "DATA UPDATE USERINFO");
+      console.log(`[ADMS] Auto-queued DATA UPDATE ATTLOG+USERINFO for SN=${sn} on first handshake`);
     }
 
-    // Drain any pending commands and include them INLINE in the handshake
-    // response — some firmware versions don't poll /iclock/getrequest
-    // separately and only read commands embedded in the config reply.
-    const inlineCmds = drainCommands(device.id);
-    if (inlineCmds.length > 0) {
-      console.log(`[ADMS] Inline cmds in handshake SN=${sn}: ${inlineCmds.join(" | ")}`);
-    }
-
+    // Standard ADMS config — no inline commands here (they break config parsing
+    // on older firmware). Commands are delivered via GET /iclock/getrequest.
     const lines = [
       `GET OPTION FROM: ${sn}`,
       `Stamp=0`,
@@ -494,8 +515,6 @@ export function registerAdmsRoutes(app: Express) {
       `Realtime=1`,
       `Encrypt=None`,
       ``,
-      // Inline commands (C:<id>:<cmd>) — picked up by firmware that skips getrequest
-      ...inlineCmds.map((c) => `C:${++nextCmdId}:${c}`),
     ];
     res.type("text/plain").send(lines.join(NEW_LINE));
   });

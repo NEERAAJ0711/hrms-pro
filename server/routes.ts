@@ -34,7 +34,7 @@ import {
 } from "@shared/schema";
 import { z } from "zod";
 import ZKLib from 'zkteco-js';
-import { registerAdmsRoutes } from './adms';
+import { registerAdmsRoutes, getAdmsActivityLog } from './adms';
 import * as dnsPromises from 'dns/promises';
 import multer from 'multer';
 import * as XLSX from 'xlsx';
@@ -1353,7 +1353,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Enqueue DATA QUERY command so device re-uploads all ATTLOGs on next poll
       const { enqueueDeviceCommand } = await import("./adms");
-      enqueueDeviceCommand(device.id, "DATA QUERY ATTLOG");
+      enqueueDeviceCommand(device.id, "DATA UPDATE ATTLOG");
 
       const message = device.lastPushAt
         ? `Re-upload requested. ${fromThisDevice.length} stored punches (${todayCount} today). Device will push all logs within seconds.`
@@ -1377,18 +1377,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Delete ALL punch logs and re-trigger a full DATA QUERY ATTLOG from every device.
+  // Delete ALL punch logs and re-trigger a full DATA UPDATE ATTLOG from every device.
   app.post("/api/biometric/clear-and-resync", requireAuth, requireRole("super_admin"), async (req, res) => {
     try {
       const result = await db.execute(sql.raw(`DELETE FROM biometric_punch_logs`));
       const deleted = (result as any)?.rowCount ?? 0;
 
-      // Enqueue DATA QUERY ATTLOG + USERINFO for every registered device
+      // Enqueue DATA UPDATE ATTLOG + USERINFO for every registered device
       const { enqueueDeviceCommand } = await import("./adms");
       const devices = await storage.getAllBiometricDevices();
       for (const dev of devices) {
-        enqueueDeviceCommand(dev.id, "DATA QUERY ATTLOG");
-        enqueueDeviceCommand(dev.id, "DATA QUERY USERINFO");
+        enqueueDeviceCommand(dev.id, "DATA UPDATE ATTLOG");
+        enqueueDeviceCommand(dev.id, "DATA UPDATE USERINFO");
       }
 
       res.json({
@@ -1449,7 +1449,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ error: "Access denied" });
       }
       const { enqueueDeviceCommand } = await import("./adms");
-      enqueueDeviceCommand(device.id, "DATA QUERY USERINFO");
+      enqueueDeviceCommand(device.id, "DATA UPDATE USERINFO");
       res.json({
         success: true,
         message: "Sync requested. The device will push its user list on its next check-in (usually within 30 seconds). Refresh the View Users dialog after a minute.",
@@ -1461,6 +1461,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ===== Biometric Punch Log Routes =====
+  // ADMS device communication log — shows last 200 raw requests from device.
+  // Useful to diagnose why old ATTLOG data isn't being pushed.
+  app.get("/api/biometric/adms-log", requireAuth, requireRole("super_admin"), async (_req, res) => {
+    res.json(getAdmsActivityLog());
+  });
+
   app.get("/api/biometric/logs", requireAuth, async (req, res) => {
     try {
       const user = (req as any).user;
