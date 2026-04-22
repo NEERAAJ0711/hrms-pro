@@ -599,9 +599,51 @@ export default function BiometricPage() {
                     </Select>
                   </div>
                 )}
-                <div className="w-44">
+                <div>
                   <Label className="text-xs">Date</Label>
-                  <Input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)} />
+                  <div className="flex items-center gap-1">
+                    {/* ◀ previous day */}
+                    <button
+                      type="button"
+                      title="Previous day"
+                      disabled={!selectedDate}
+                      onClick={() => {
+                        if (!selectedDate) return;
+                        const d = new Date(selectedDate);
+                        d.setDate(d.getDate() - 1);
+                        setSelectedDate(d.toISOString().split("T")[0]);
+                      }}
+                      className="px-1.5 py-1 rounded border border-input bg-background text-xs text-muted-foreground hover:bg-accent disabled:opacity-30"
+                    >◀</button>
+                    <Input
+                      type="date"
+                      value={selectedDate}
+                      onChange={e => setSelectedDate(e.target.value)}
+                      placeholder="All dates"
+                      className="w-36"
+                    />
+                    {/* ▶ next day */}
+                    <button
+                      type="button"
+                      title="Next day"
+                      disabled={!selectedDate}
+                      onClick={() => {
+                        if (!selectedDate) return;
+                        const d = new Date(selectedDate);
+                        d.setDate(d.getDate() + 1);
+                        setSelectedDate(d.toISOString().split("T")[0]);
+                      }}
+                      className="px-1.5 py-1 rounded border border-input bg-background text-xs text-muted-foreground hover:bg-accent disabled:opacity-30"
+                    >▶</button>
+                    {/* All-dates toggle */}
+                    <button
+                      type="button"
+                      title={selectedDate ? "Clear date — show all dates" : "Set to today"}
+                      onClick={() => setSelectedDate(selectedDate ? "" : new Date().toISOString().split("T")[0])}
+                      className={`px-2 py-1 rounded border text-xs transition-colors ${selectedDate ? "border-input bg-background text-muted-foreground hover:bg-accent" : "border-blue-400 bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300"}`}
+                      data-testid="button-toggle-all-dates"
+                    >{selectedDate ? "All" : "Today"}</button>
+                  </div>
                 </div>
                 <div className="w-40">
                   <Label className="text-xs">Status</Label>
@@ -620,7 +662,19 @@ export default function BiometricPage() {
               {isLoading ? (
                 <p className="text-center py-8 text-muted-foreground">Loading...</p>
               ) : logs.length === 0 ? (
-                <p className="text-center py-8 text-muted-foreground">No punch logs found for selected filters.</p>
+                <div className="text-center py-8 space-y-2">
+                  <p className="text-muted-foreground">No punch logs found for the selected filters.</p>
+                  {selectedDate && (
+                    <p className="text-sm text-muted-foreground">
+                      Historical records from the device may be on different dates.{" "}
+                      <button
+                        type="button"
+                        onClick={() => setSelectedDate("")}
+                        className="text-blue-600 dark:text-blue-400 underline hover:no-underline"
+                      >Click here to show all dates</button>
+                    </p>
+                  )}
+                </div>
               ) : (
                 <div className="overflow-auto max-h-[500px]">
                   <Table>
