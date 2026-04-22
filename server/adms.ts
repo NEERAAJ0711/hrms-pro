@@ -674,30 +674,57 @@ export function registerAdmsRoutes(app: Express) {
     // attendance records promptly. Format: HH:MM;HH:MM;...
     const transTimes = buildTransTimes();
 
-    if (ADMS_DEBUG) console.log(`[ADMS] GET /cdata SN=${sn} ip=${ip} ATTLOGStamp=${attlogStamp}`);
-    admsLog("OUT", sn, `→ 200 registration ATTLOGStamp=${attlogStamp}`);
-    // SpeedFace-V5L / ZKTeco ADMS push-mode registration response.
-    // TransTables=User Transaction instructs the device to push both its
-    // enrolled-user list and attendance log to this server.
-    // OPERLOGStamp=9999999999 skips noisy door-access operation logs.
-    const lines = [
-      `ServerVersion=2.4.1`,
-      `ServerName=ADMS`,
-      `PushVersion=2.6.1`,
+    // x2008 firmware: no "pushver" in the query string.
+    // SpeedFace-V5L / newer push firmware: includes "pushver".
+    const isSpeedFace = !!fw;
+
+    if (ADMS_DEBUG) console.log(`[ADMS] GET /iclock/cdata SN=${sn} ip=${ip} protocol=${isSpeedFace ? "SpeedFace" : "x2008"} ATTLOGStamp=${attlogStamp}`);
+    admsLog("OUT", sn, `→ 200 registration protocol=${isSpeedFace ? "SpeedFace" : "x2008"} ATTLOGStamp=${attlogStamp}`);
+
+    if (isSpeedFace) {
+      // SpeedFace-V5L / push mode — device uploads automatically at TransTimes.
+      // TransTables=User Transaction instructs it to push enrolled users + attendance.
+      const lines = [
+        `ServerVersion=2.4.1`,
+        `ServerName=ADMS`,
+        `PushVersion=2.6.1`,
+        `ATTLOGStamp=${attlogStamp}`,
+        `OPERLOGStamp=9999999999`,
+        `ATTPHOTOStamp=0`,
+        `ErrorDelay=30`,
+        `RequestDelay=10`,
+        `TransTimes=${transTimes}`,
+        `TransInterval=1`,
+        `TransTables=User Transaction`,
+        `Realtime=1`,
+        `TimeoutSec=30`,
+        `Encrypt=None`,
+        ``,
+      ];
+      return res.type("text/plain").send(lines.join(NEW_LINE));
+    }
+
+    // x2008 / legacy mode — "GET OPTION FROM:" registration response.
+    // The device does NOT self-initiate ATTLOG upload; it waits for a
+    // "DATA UPDATE ATTLOG Stamp=X" command delivered via /getrequest.
+    const x2008Lines = [
+      `GET OPTION FROM: ${sn}`,
       `ATTLOGStamp=${attlogStamp}`,
       `OPERLOGStamp=9999999999`,
-      `ATTPHOTOStamp=0`,
       `ErrorDelay=30`,
-      `RequestDelay=10`,
+      `Delay=10`,
       `TransTimes=${transTimes}`,
       `TransInterval=1`,
-      `TransTables=User Transaction`,
+      `TransFlag=TransData AttLog OpLog EnrollFP`,
       `Realtime=1`,
-      `TimeoutSec=30`,
-      `Encrypt=None`,
+      `Encrypt=0`,
       ``,
     ];
-    res.type("text/plain").send(lines.join(NEW_LINE));
+    // Sync clock then trigger ATTLOG upload on the device's next /getrequest poll.
+    const deviceTime = new Date().toISOString().replace("T", " ").substring(0, 19);
+    await enqueueDeviceCommand(device.id, `SET TIME ${deviceTime}`);
+    await enqueueDeviceCommand(device.id, `DATA UPDATE ATTLOG Stamp=${attlogStamp}`);
+    return res.type("text/plain").send(x2008Lines.join(NEW_LINE));
   });
 
   // The actual data push. Body is tab-separated lines; we got a `text`
