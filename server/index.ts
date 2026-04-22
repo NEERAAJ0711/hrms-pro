@@ -1,3 +1,5 @@
+import { readFileSync } from "fs";
+import { join } from "path";
 import express, { type Request, Response, NextFunction } from "express";
 import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
@@ -7,6 +9,27 @@ import { setupBiometricSync } from "./biometric-sync";
 import { startAdmsServer } from "./adms";
 import { serveStatic } from "./static";
 import { createServer } from "http";
+
+// Load .env into process.env if DATABASE_URL is missing.
+// Handles manual PM2 restarts where the shell didn't source .env first.
+if (!process.env.DATABASE_URL) {
+  try {
+    const raw = readFileSync(join(process.cwd(), ".env"), "utf8");
+    for (const line of raw.split(/\r?\n/)) {
+      const eq = line.indexOf("=");
+      if (eq < 1) continue;
+      const key = line.slice(0, eq).trim();
+      if (!/^[A-Z_][A-Z0-9_]*$/.test(key)) continue;
+      if (process.env[key]) continue;
+      let val = line.slice(eq + 1).trim();
+      if ((val.startsWith('"') && val.endsWith('"')) ||
+          (val.startsWith("'") && val.endsWith("'"))) {
+        val = val.slice(1, -1);
+      }
+      process.env[key] = val;
+    }
+  } catch { /* no .env file, continue */ }
+}
 
 const app = express();
 const httpServer = createServer(app);
