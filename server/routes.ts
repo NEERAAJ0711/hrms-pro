@@ -1282,11 +1282,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const result = await db.execute(sql.raw(`DELETE FROM biometric_punch_logs`));
       const deleted = (result as any)?.rowCount ?? 0;
 
-      // Enqueue DATA UPDATE ATTLOG + USERINFO for every registered device
-      const { enqueueDeviceCommand } = await import("./adms");
+      // Reset stamp pointer so each device re-uploads all records from stamp 0.
+      // Without this the device would only push records newer than its stored stamp.
+      const { enqueueDeviceCommand, resetAutoSyncGuard } = await import("./adms");
       const devices = await storage.getAllBiometricDevices();
       for (const dev of devices) {
-        enqueueDeviceCommand(dev.id, "DATA UPDATE ATTLOG");
+        await storage.updateBiometricDevice(dev.id, { lastAttlogStamp: 0 } as any);
+        resetAutoSyncGuard(dev.id);
+        enqueueDeviceCommand(dev.id, "DATA UPDATE ATTLOG Stamp=0");
         enqueueDeviceCommand(dev.id, "DATA UPDATE USERINFO");
       }
 

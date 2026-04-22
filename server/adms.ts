@@ -2,9 +2,14 @@ import express from "express";
 import type { Express, Request, Response } from "express";
 import { createServer } from "http";
 import { storage } from "./storage";
-import { timingSafeEqual } from "crypto";
+import { timingSafeEqual, randomUUID } from "crypto";
 import { db } from "./db";
 import { sql } from "drizzle-orm";
+import { biometricPunchLogs } from "../shared/schema";
+
+// Verbose ADMS request/response logging — set DEBUG_ADMS=true in .env to enable.
+// Off by default in production to avoid flooding the PM2 log.
+const ADMS_DEBUG = process.env.DEBUG_ADMS === "true";
 
 /**
  * ZKTeco "Push SDK" / ADMS protocol handler.
@@ -45,6 +50,20 @@ import { sql } from "drizzle-orm";
  */
 
 const NEW_LINE = "\r\n";
+
+// ---------------------------------------------------------------------------
+// In-memory device cache — avoids hitting the DB on every ADMS request.
+// TTL of 30 s is short enough to pick up DB changes quickly.
+// ---------------------------------------------------------------------------
+const _deviceCache = new Map<string, { device: any | null; ts: number }>();
+const DEVICE_CACHE_TTL_MS = 30_000;
+
+function _invalidateDevice(deviceId?: string) {
+  if (!deviceId) { _deviceCache.clear(); return; }
+  for (const [k, v] of Array.from(_deviceCache.entries())) {
+    if (v.device?.id === deviceId) _deviceCache.delete(k);
+  }
+}
 
 // In-memory command queue per device. ZK ADMS lets the server reply to a
 // device poll with C:<id>:<command> lines; the device executes and reports
@@ -185,9 +204,11 @@ function authenticateDevice(req: Request, device: any, ip: string): string | nul
   const cidr = (device.allowedIpCidr || "").trim();
   if (!token && !cidr) {
     // No auth configured → trust-all (open) mode.
-    console.warn(
-      `[ADMS] WARN: device SN=${device.deviceSerial} has no pushToken or allowedIpCidr — ` +
-      `accepting push from ${ip} in open mode. Set a pushToken to secure this device.`,
+    // Only log this warning in debug mode; it fires on every single request
+    // otherwise (most deployments legitimately run open — device behind NAT).
+    if (ADMS_DEBUG) console.warn(
+      `[ADMS] WARN: device SN=${device.deviceSerial} running in open mode (no pushToken/allowedIpCidr) — ` +
+      `accepted push from ${ip}.`,
     );
     return null;
   }
@@ -206,35 +227,46 @@ function authenticateDevice(req: Request, device: any, ip: string): string | nul
 }
 
 async function findDeviceBySerial(serial: string) {
+  const cacheKey = serial || "";
+  const cached = _deviceCache.get(cacheKey);
+  if (cached && Date.now() - cached.ts < DEVICE_CACHE_TTL_MS) {
+    return cached.device ?? undefined;
+  }
+
   const all = await storage.getAllBiometricDevices();
   // 1. Exact match
   const exact = all.find((d) => d.deviceSerial === serial);
-  if (exact) return exact;
+  if (exact) { _deviceCache.set(cacheKey, { device: exact, ts: Date.now() }); return exact; }
   // 2. Case-insensitive match
   const upper = serial.toUpperCase();
   const ci = all.find((d) => (d.deviceSerial || "").toUpperCase() === upper);
-  if (ci) return ci;
+  if (ci) { _deviceCache.set(cacheKey, { device: ci, ts: Date.now() }); return ci; }
   // 3. Single-device fallback — if only one device is registered and the SN
   //    doesn't match exactly, use it anyway (handles typos / mistyped SNs).
   //    We log a prominent warning so the operator can fix the SN in HRMS.
   if (all.length === 1) {
-    console.warn(
+    if (ADMS_DEBUG) console.warn(
       `[ADMS] SN MISMATCH: device reports SN=${serial} but HRMS has SN=${all[0].deviceSerial}. ` +
-      `Using the only registered device as fallback. Please update the Device Serial in HRMS.`,
+      `Using the only registered device as fallback.`,
     );
     // Auto-correct the SN in DB so future calls match exactly
     try {
       await storage.updateBiometricDevice(all[0].id, { deviceSerial: serial } as any);
+      _invalidateDevice(all[0].id);
     } catch (_) { /* best-effort */ }
-    return { ...all[0], deviceSerial: serial };
+    const result = { ...all[0], deviceSerial: serial };
+    _deviceCache.set(cacheKey, { device: result, ts: Date.now() });
+    return result;
   }
+
+  _deviceCache.set(cacheKey, { device: null, ts: Date.now() }); // negative cache
   return undefined;
 }
 
 async function touchDevice(
   deviceId: string,
   ip: string,
-  extra: { firmwareVersion?: string; addToTotal?: number } = {},
+  extra: { firmwareVersion?: string; addToTotal?: number; lastAttlogStamp?: number } = {},
 ) {
   const update: any = {
     status: "online",
@@ -242,10 +274,9 @@ async function touchDevice(
     lastPushIp: ip,
   };
   if (extra.firmwareVersion) update.firmwareVersion = extra.firmwareVersion;
+  if (extra.lastAttlogStamp != null) update.lastAttlogStamp = extra.lastAttlogStamp;
   await storage.updateBiometricDevice(deviceId, update);
   if (extra.addToTotal) {
-    // Increment the running counter via raw update — done as a separate
-    // call so we don't depend on a numeric helper that doesn't exist yet.
     const fresh = await storage.getBiometricDevice(deviceId);
     if (fresh) {
       await storage.updateBiometricDevice(deviceId, {
@@ -253,6 +284,8 @@ async function touchDevice(
       } as any);
     }
   }
+  // Invalidate cache so subsequent lookups see fresh DB values.
+  _invalidateDevice(deviceId);
 }
 
 // status field from ATTLOG → our internal punch type.
@@ -275,12 +308,18 @@ function decodePunchType(raw: string): string {
   }
 }
 
-// "2026-04-17 09:30:15" → { punchDate: "2026-04-17", punchTime: "09:30" }.
-// We deliberately drop seconds because the rest of the system stores HH:MM.
-function splitTimestamp(ts: string): { punchDate: string; punchTime: string } | null {
-  const m = (ts || "").trim().match(/^(\d{4}-\d{2}-\d{2})[T ](\d{2}):(\d{2})(?::\d{2})?/);
+// "2026-04-17 09:30:15" → { punchDate, punchTime, epochSecs }.
+// punchTime is HH:MM (seconds dropped for display/dedup).
+// epochSecs is the Unix timestamp used to advance the ATTLOGStamp pointer.
+// Timestamps from ZKTeco x2008 are in the device's configured timezone
+// (TimeZone=5.5 → IST = UTC+05:30). We parse them with an explicit offset.
+function splitTimestamp(ts: string): { punchDate: string; punchTime: string; epochSecs: number } | null {
+  const m = (ts || "").trim().match(/^(\d{4}-\d{2}-\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?/);
   if (!m) return null;
-  return { punchDate: m[1], punchTime: `${m[2]}:${m[3]}` };
+  const secs = m[4] ?? "00";
+  const isoStr = `${m[1]}T${m[2]}:${m[3]}:${secs}+05:30`;
+  const epochSecs = Math.floor(new Date(isoStr).getTime() / 1000);
+  return { punchDate: m[1], punchTime: `${m[2]}:${m[3]}`, epochSecs: isNaN(epochSecs) ? 0 : epochSecs };
 }
 
 // Parse a USERINFO/USER row pushed by the device. ZKTeco firmwares typically
@@ -360,15 +399,13 @@ export async function processUserRecords(
 export async function processAttlog(
   device: any,
   body: string,
-): Promise<{ inserted: number; duplicates: number; unmapped: number; bad: number }> {
-  const out = { inserted: 0, duplicates: 0, unmapped: 0, bad: 0 };
+): Promise<{ inserted: number; duplicates: number; unmapped: number; bad: number; maxStamp: number }> {
+  const out = { inserted: 0, duplicates: 0, unmapped: 0, bad: 0, maxStamp: 0 };
   const lines = (body || "").split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
   if (!lines.length) return out;
 
   // For unmapped rows we still want to record them so the operator can see
-  // them in the Punch Logs view. The companyId on the row defaults to the
-  // device's company; for shared devices we fall back to the resolved
-  // employee's company, and if that fails too we skip the row.
+  // them in the Punch Logs view.
   const employees = device.companyId
     ? await storage.getEmployeesByCompany(device.companyId)
     : await storage.getAllEmployees();
@@ -376,13 +413,33 @@ export async function processAttlog(
     employees.filter((e) => e.biometricDeviceId).map((e) => [String(e.biometricDeviceId), e]),
   );
 
-  // Fallback companyId: when the device has no company assigned and the employee
-  // isn't mapped, use the first company so the punch is never silently dropped.
+  // Fallback companyId: when the device has no company assigned and the
+  // employee isn't mapped, use the first company so no punch is silently lost.
   let fallbackCompanyId: string | null = device.companyId ?? null;
   if (!fallbackCompanyId) {
     const allCompanies = await storage.getAllCompanies();
     fallbackCompanyId = allCompanies?.[0]?.id ?? null;
   }
+
+  const now = new Date().toISOString();
+  // Collect all valid rows for a single bulk INSERT … ON CONFLICT DO NOTHING.
+  // This replaces the old per-row findDuplicatePunchLog + createBiometricPunchLog
+  // pattern (2 DB round-trips per line) with one batch round-trip for the whole push.
+  const rows: Array<{
+    id: string;
+    companyId: string;
+    employeeId: string | null;
+    deviceEmployeeId: string;
+    punchTime: string;
+    punchDate: string;
+    punchType: string;
+    deviceId: string;
+    isProcessed: boolean;
+    isDuplicate: boolean;
+    missingPunch: boolean;
+    syncedAt: null;
+    createdAt: string;
+  }> = [];
 
   for (const line of lines) {
     // Parse ATTLOG line. ZKTeco x2008 firmware 2.x emits tab-separated fields.
@@ -390,92 +447,79 @@ export async function processAttlog(
     // Standard format:  PIN \t YYYY-MM-DD HH:MM:SS \t status \t verify ...
     // Extended format:  PIN \t Name \t YYYY-MM-DD HH:MM:SS \t status \t ...
     //   (some builds include the employee name as field[1])
-    //
-    // We auto-detect by checking whether field[1] looks like a datetime.
-    // If not, we treat it as the employee name and shift remaining fields.
-    // Fallback: regex scan for space-separated format when there are no tabs.
     let pin: string, ts: string, status: string = "0";
     const tabParts = line.split("\t");
     if (tabParts.length >= 2) {
       pin = tabParts[0].trim();
-      // Detect extended format: field[1] is a name if it doesn't start with a digit sequence
-      // that looks like YYYY-MM-DD or YYYY/MM/DD.
       const isDateField1 = /^\d{4}[-/]\d{2}[-/]\d{2}/.test(tabParts[1].trim());
       if (isDateField1) {
-        // Standard: PIN \t DATE TIME \t status ...
         ts     = tabParts[1].trim();
         status = (tabParts[2] ?? "0").trim();
       } else {
-        // Extended: PIN \t Name \t DATE TIME \t status ...
         ts     = (tabParts[2] ?? "").trim();
         status = (tabParts[3] ?? "0").trim();
       }
     } else {
       // Regex fallback for space-separated ATTLOG.
-      // Format: <PIN> <YYYY-MM-DD> <HH:MM[:SS]> <status> ...
       const m = line.match(/^(\S+)\s+(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2}(?::\d{2})?)\s+(\d+)/);
-      if (!m) {
-        out.bad++;
-        continue;
-      }
+      if (!m) { out.bad++; continue; }
       pin    = m[1];
       ts     = `${m[2]} ${m[3]}`;
       status = m[4];
     }
+
     const split = splitTimestamp(ts);
     if (!split) {
-      // Log the first failure so we can see the raw field values in server logs.
       if (out.bad === 0) {
         console.warn(`[ADMS] ATTLOG parse fail — pin="${pin}" ts="${ts}" raw="${line.slice(0, 80)}"`);
       }
       out.bad++;
       continue;
     }
+
     const employee = byBiometricId.get(String(pin));
     const punchCompanyId = employee?.companyId || device.companyId || fallbackCompanyId;
     if (!punchCompanyId) {
-      // No company could be resolved at all — no device company, no employee
-      // company, no companies in DB. Count as unmapped and skip.
+      // Cannot resolve a company — skip so we don't create orphaned rows.
       out.unmapped++;
       continue;
     }
 
-    const dup = await storage.findDuplicatePunchLog(
-      punchCompanyId,
-      String(pin),
-      split.punchTime,
-      split.punchDate,
-    );
-    if (dup) {
-      out.duplicates++;
-      continue;
-    }
+    if (!employee) out.unmapped++;
+    if (split.epochSecs > out.maxStamp) out.maxStamp = split.epochSecs;
 
+    rows.push({
+      id: randomUUID(),
+      companyId: punchCompanyId,
+      employeeId: employee?.id ?? null,
+      deviceEmployeeId: String(pin),
+      punchTime: split.punchTime,
+      punchDate: split.punchDate,
+      punchType: decodePunchType(status),
+      deviceId: device.id,
+      isProcessed: false,
+      isDuplicate: false,
+      missingPunch: false,
+      syncedAt: null,
+      createdAt: now,
+    });
+  }
+
+  if (rows.length > 0) {
     try {
-      await storage.createBiometricPunchLog({
-        companyId: punchCompanyId,
-        employeeId: employee?.id ?? null,
-        deviceEmployeeId: String(pin),
-        punchTime: split.punchTime,
-        punchDate: split.punchDate,
-        punchType: decodePunchType(status),
-        deviceId: device.id,
-        isProcessed: false,
-        isDuplicate: false,
-        missingPunch: false,
-        syncedAt: null,
-        createdAt: new Date().toISOString(),
-      } as any);
-      if (employee) out.inserted++;
-      else {
-        out.inserted++;
-        out.unmapped++;
-      }
+      const inserted = await db
+        .insert(biometricPunchLogs)
+        .values(rows)
+        .onConflictDoNothing()
+        .returning({ id: biometricPunchLogs.id });
+      out.inserted  = inserted.length;
+      out.duplicates = rows.length - inserted.length;
     } catch (err) {
-      console.error("[ADMS] insert ATTLOG row failed:", err);
-      out.bad++;
+      console.error("[ADMS] bulk insert ATTLOG failed:", err);
+      out.bad += rows.length;
     }
   }
+
   return out;
 }
 
@@ -492,16 +536,22 @@ export function getAdmsActivityLog() {
 }
 
 export function registerAdmsRoutes(app: Express) {
-  // Log every raw /iclock/* request for debugging.
+  // Log every raw /iclock/* request.
+  // Verbose body preview is gated behind DEBUG_ADMS=true to avoid flooding
+  // production PM2 logs on every 5-minute device heartbeat.
   app.use("/iclock", (req, _res, next) => {
     const sn = String(req.query.SN || req.query.sn || "?").trim();
     const method = req.method;
     const url = req.path + (req.query.table ? `?table=${req.query.table}` : "");
-    const bodyPreview = typeof req.body === "string" && req.body.length > 0
-      ? ` BODY[${req.body.length}bytes]: ${req.body.slice(0, 400).replace(/\t/g, "·").replace(/\r?\n/g, " | ")}` : "";
-    const entry = `${method} ${url}${bodyPreview}`;
-    console.log(`[ADMS-RAW] SN=${sn} ${entry}`);
-    admsLog("IN", sn, entry);
+    if (ADMS_DEBUG) {
+      const bodyPreview = typeof req.body === "string" && req.body.length > 0
+        ? ` BODY[${req.body.length}bytes]: ${req.body.slice(0, 400).replace(/\t/g, "·").replace(/\r?\n/g, " | ")}` : "";
+      const entry = `${method} ${url}${bodyPreview}`;
+      console.log(`[ADMS-RAW] SN=${sn} ${entry}`);
+      admsLog("IN", sn, entry);
+    } else {
+      admsLog("IN", sn, `${method} ${url}`);
+    }
     next();
   });
 
@@ -530,8 +580,6 @@ export function registerAdmsRoutes(app: Express) {
       }
     }
 
-    console.log(`[ADMS] GET /iclock/cdata SN=${sn || "(none)"} ip=${ip} known=${!!device}`);
-
     if (!sn) return res.status(400).type("text/plain").send("ERROR: missing SN");
     if (!device) {
       // Reply 200 anyway — silent rejection just makes the device retry
@@ -549,28 +597,20 @@ export function registerAdmsRoutes(app: Express) {
     await touchDevice(device.id, ip, { firmwareVersion: fw || undefined });
 
     // On first handshake after server start, enqueue a full data re-upload.
-    //
-    // "DATA UPDATE ATTLOG" (Return=0 on x2008 2.4.1) — triggers the device
-    // to re-evaluate which records to push. Combined with our "OK: 0" ack
-    // strategy (we never advance the stamp pointer), this causes the device
-    // to push all records on every scheduled TransInterval cycle.
-    //
-    // "DATA UPDATE USERINFO" (Return=-1 on x2008 2.4.1) — NOT supported on
-    // this firmware version. User data is obtained via the OPERLOGStamp=0
-    // mechanism in the handshake config — the device will push OPERLOG data
-    // (which includes enrollment events) at the next scheduled upload cycle.
-    // ATTLOGStamp=0 tells the device to re-upload ALL records on its next
-    // scheduled upload cycle. We never advance the stamp, so duplicates are
-    // silently discarded by processAttlog on every subsequent push.
-    //
     // C: commands must NOT appear in the /cdata response — they belong only
     // in /getrequest responses. Embedding them here breaks the device parser.
-    // Instead we queue the DATA UPDATE command for delivery via getrequest.
     if (!autoSyncQueued.has(device.id)) {
       autoSyncQueued.add(device.id);
       enqueueDeviceCommand(device.id, "DATA UPDATE ATTLOG Stamp=0");
-      console.log(`[ADMS] Queued "DATA UPDATE ATTLOG Stamp=0" for SN=${sn} — will deliver via getrequest`);
+      if (ADMS_DEBUG) console.log(`[ADMS] Queued "DATA UPDATE ATTLOG Stamp=0" for SN=${sn}`);
     }
+
+    // ATTLOGStamp tells the device the last record the server has already seen;
+    // the device will only push records with a higher timestamp. We track this
+    // per-device so the device doesn't re-push everything on every cycle.
+    // If lastAttlogStamp is 0 (default or after a manual reset) the device
+    // sends all stored records, which is safe — the bulk upsert handles dedup.
+    const attlogStamp = device.lastAttlogStamp ?? 0;
 
     // TransTimes every 5 minutes ensures the device uploads frequently.
     // Format: HH:MM;HH:MM;... for each 5-minute slot across all 24 hours.
@@ -580,10 +620,10 @@ export function registerAdmsRoutes(app: Express) {
       ).join(";")
     ).join(";");
 
-    console.log(`[ADMS] Sending handshake config to SN=${sn} ip=${ip} — ATTLOGStamp=0, TransTimes every 5 min`);
+    console.log(`[ADMS] GET /cdata SN=${sn} ip=${ip} ATTLOGStamp=${attlogStamp}`);
     const lines = [
       `GET OPTION FROM: ${sn}`,
-      `ATTLOGStamp=0`,
+      `ATTLOGStamp=${attlogStamp}`,
       `OPERLOGStamp=0`,
       `ATTPHOTOStamp=0`,
       `ErrorDelay=30`,
@@ -636,21 +676,28 @@ export function registerAdmsRoutes(app: Express) {
 
     const body = typeof req.body === "string" ? req.body : "";
     if (table === "ATTLOG") {
-      // Log a preview of the raw body + device Stamp so we can diagnose
-      // format problems and confirm records are actually arriving.
-      const bodyPreview = body.slice(0, 400).replace(/\r?\n/g, " | ");
       const lineCount = body.split(/\r?\n/).filter((l) => l.trim()).length;
-      console.log(
-        `[ADMS] POST ATTLOG SN=${sn} Stamp=${stamp} lines=${lineCount} preview="${bodyPreview}"`,
-      );
-      admsLog("IN", sn, `ATTLOG Stamp=${stamp} lines=${lineCount} body="${bodyPreview.slice(0, 150)}"`);
+      if (ADMS_DEBUG) {
+        const bodyPreview = body.slice(0, 400).replace(/\r?\n/g, " | ");
+        console.log(`[ADMS] POST ATTLOG SN=${sn} Stamp=${stamp} lines=${lineCount} preview="${bodyPreview}"`);
+        admsLog("IN", sn, `ATTLOG Stamp=${stamp} lines=${lineCount} body="${bodyPreview.slice(0, 150)}"`);
+      } else {
+        console.log(`[ADMS] POST ATTLOG SN=${sn} ip=${ip} Stamp=${stamp} lines=${lineCount}`);
+      }
       const r = await processAttlog(device, body);
-      await touchDevice(device.id, ip, { addToTotal: r.inserted });
-      await storage.updateBiometricDevice(device.id, {
-        lastSync: new Date().toISOString(),
-      } as any);
+      // Advance the per-device stamp to the highest record we just processed.
+      // On next GET /cdata we return this as ATTLOGStamp so the device only
+      // pushes records newer than this point. Fall back to current stored value
+      // if this batch yielded no parseable timestamps (e.g. empty or all-bad).
+      const newStamp = r.maxStamp > (device.lastAttlogStamp ?? 0) ? r.maxStamp : (device.lastAttlogStamp ?? 0);
+      await touchDevice(device.id, ip, {
+        addToTotal: r.inserted,
+        lastAttlogStamp: newStamp > 0 ? newStamp : undefined,
+      });
+      await storage.updateBiometricDevice(device.id, { lastSync: new Date().toISOString() } as any);
+      _invalidateDevice(device.id);
       console.log(
-        `[ADMS] POST ATTLOG SN=${sn} ip=${ip} inserted=${r.inserted} dups=${r.duplicates} unmapped=${r.unmapped} bad=${r.bad}`,
+        `[ADMS] POST ATTLOG SN=${sn} ip=${ip} inserted=${r.inserted} dups=${r.duplicates} unmapped=${r.unmapped} bad=${r.bad} newStamp=${newStamp}`,
       );
     } else if (table === "OPERLOG" || table === "USERINFO" || table === "USER") {
       // OPERLOG carries USER enrollments mixed with other op events; USERINFO
@@ -668,16 +715,17 @@ export function registerAdmsRoutes(app: Express) {
       console.log(`[ADMS] POST ${table} SN=${sn} ip=${ip} bytes=${body.length}`);
     }
 
-    // ATTLOG ack: always respond "OK: 0" so the device never advances its
-    // per-server stamp pointer. The x2008 firmware interprets "OK: <stamp>"
-    // as "server's ATTLOGStamp is now <stamp>" and will not re-send records
-    // with timestamps ≤ that value on subsequent upload cycles. By staying
-    // at 0 the device will re-push ALL records on every scheduled cycle;
-    // our deduplication logic silently discards the ones we already have.
-    // For non-ATTLOG tables (OPERLOG, FINGERTMP, etc.) we echo the stamp
-    // normally because we don't need those to be re-pushed.
+    // ATTLOG ack: respond with the latest stamp we stored for this device.
+    // The x2008 firmware stores this value and, on the next scheduled push,
+    // only sends records with a higher timestamp — eliminating redundant
+    // re-uploads. The bulk upsert still handles any overlap safely via
+    // ON CONFLICT DO NOTHING. When no stamp was set yet (device.lastAttlogStamp
+    // is 0) we echo 0 so the device re-sends everything (first-boot behaviour).
     if (table === "ATTLOG") {
-      res.type("text/plain").send("OK: 0");
+      // Re-read from DB so we always ack the value we just persisted.
+      const freshDevice = await storage.getBiometricDevice(device.id);
+      const ackStamp = freshDevice?.lastAttlogStamp ?? 0;
+      res.type("text/plain").send(`OK: ${ackStamp}`);
     } else {
       res.type("text/plain").send(`OK: ${stamp}`);
     }
@@ -790,7 +838,6 @@ export function registerAdmsRoutes(app: Express) {
         console.warn(`[ADMS] No-SN bare GET /cdata from ${ip} — matched sole device SN=${sn}`);
       }
     }
-    console.log(`[ADMS] GET /cdata (bare) SN=${sn || "(none)"} ip=${ip} known=${!!device}`);
     if (!sn) return res.status(400).type("text/plain").send("ERROR: missing SN");
     if (!device) return res.type("text/plain").send("OK");
     const authErr = authenticateDevice(req, device, ip);
@@ -799,17 +846,18 @@ export function registerAdmsRoutes(app: Express) {
     if (!autoSyncQueued.has(device.id)) {
       autoSyncQueued.add(device.id);
       enqueueDeviceCommand(device.id, "DATA UPDATE ATTLOG Stamp=0");
-      console.log(`[ADMS] Queued "DATA UPDATE ATTLOG Stamp=0" for SN=${sn} (bare path) — will deliver via getrequest`);
+      if (ADMS_DEBUG) console.log(`[ADMS] Queued "DATA UPDATE ATTLOG Stamp=0" for SN=${sn} (bare path)`);
     }
+    const bareAttlogStamp = device.lastAttlogStamp ?? 0;
     const bareTransTimes = Array.from({ length: 24 }, (_, h) =>
       ["00", "05", "10", "15", "20", "25", "30", "35", "40", "45", "50", "55"].map(
         (m) => `${String(h).padStart(2, "0")}:${m}`
       ).join(";")
     ).join(";");
-    console.log(`[ADMS] Sending handshake config (bare) to SN=${sn} ip=${ip} — ATTLOGStamp=0, TransTimes every 5 min`);
+    console.log(`[ADMS] GET /cdata (bare) SN=${sn} ip=${ip} ATTLOGStamp=${bareAttlogStamp}`);
     const lines = [
       `GET OPTION FROM: ${sn}`,
-      `ATTLOGStamp=0`, `OPERLOGStamp=0`, `ATTPHOTOStamp=0`,
+      `ATTLOGStamp=${bareAttlogStamp}`, `OPERLOGStamp=0`, `ATTPHOTOStamp=0`,
       `ErrorDelay=30`, `Delay=1`,
       `TransTimes=${bareTransTimes}`,
       `TransInterval=1`,
@@ -840,16 +888,31 @@ export function registerAdmsRoutes(app: Express) {
     if (authErr) return res.status(401).type("text/plain").send("ERROR: unauthorized");
     const body = typeof req.body === "string" ? req.body : "";
     if (table === "ATTLOG") {
-      const bodyPreview = body.slice(0, 400).replace(/\r?\n/g, " | ");
       const lineCount = body.split(/\r?\n/).filter((l) => l.trim()).length;
-      console.log(`[ADMS] POST bare ATTLOG SN=${sn} Stamp=${stamp} lines=${lineCount} preview="${bodyPreview}"`);
-      admsLog("IN", sn, `ATTLOG(bare) Stamp=${stamp} lines=${lineCount} body="${bodyPreview.slice(0, 150)}"`);
+      if (ADMS_DEBUG) {
+        const bodyPreview = body.slice(0, 400).replace(/\r?\n/g, " | ");
+        console.log(`[ADMS] POST bare ATTLOG SN=${sn} Stamp=${stamp} lines=${lineCount} preview="${bodyPreview}"`);
+        admsLog("IN", sn, `ATTLOG(bare) Stamp=${stamp} lines=${lineCount} body="${bodyPreview.slice(0, 150)}"`);
+      } else {
+        console.log(`[ADMS] POST bare ATTLOG SN=${sn} ip=${ip} Stamp=${stamp} lines=${lineCount}`);
+      }
       const r = await processAttlog(device, body);
-      await touchDevice(device.id, ip, { addToTotal: r.inserted });
+      const newStamp = r.maxStamp > (device.lastAttlogStamp ?? 0) ? r.maxStamp : (device.lastAttlogStamp ?? 0);
+      await touchDevice(device.id, ip, {
+        addToTotal: r.inserted,
+        lastAttlogStamp: newStamp > 0 ? newStamp : undefined,
+      });
       await storage.updateBiometricDevice(device.id, { lastSync: new Date().toISOString() } as any);
+      _invalidateDevice(device.id);
+      console.log(`[ADMS] POST bare ATTLOG SN=${sn} inserted=${r.inserted} dups=${r.duplicates} newStamp=${newStamp}`);
     }
-    if (table === "ATTLOG") res.type("text/plain").send("OK: 0");
-    else res.type("text/plain").send(`OK: ${stamp}`);
+    if (table === "ATTLOG") {
+      const freshDevice = await storage.getBiometricDevice(device.id);
+      const ackStamp = freshDevice?.lastAttlogStamp ?? 0;
+      res.type("text/plain").send(`OK: ${ackStamp}`);
+    } else {
+      res.type("text/plain").send(`OK: ${stamp}`);
+    }
   });
 
   // GET /getrequest → same as GET /iclock/getrequest (command polling)

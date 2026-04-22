@@ -581,6 +581,10 @@ export const biometricDevices = pgTable("biometric_devices", {
   // If both are null the device cannot push (fail-closed).
   pushToken: text("push_token"),
   allowedIpCidr: text("allowed_ip_cidr"),
+  // Tracks the highest ATTLOG record timestamp acknowledged per device.
+  // Returned as ATTLOGStamp in GET /cdata so the device only pushes new records.
+  // Set to 0 to force a full re-upload on next connection.
+  lastAttlogStamp: integer("last_attlog_stamp").notNull().default(0),
 });
 
 export const insertBiometricDeviceSchema = createInsertSchema(biometricDevices).omit({ id: true });
