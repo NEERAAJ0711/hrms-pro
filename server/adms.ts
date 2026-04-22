@@ -508,12 +508,31 @@ export function registerAdmsRoutes(app: Express) {
   // Handshake / config pull. Some firmwares hit this on every wakeup;
   // others only on first boot. The body of our response tells the device
   // what to push and how often.
+  //
+  // Some ZKTeco firmware versions (x2008 fw 2.4.x) send an initial probe to
+  // /iclock/cdata WITHOUT the SN parameter. If exactly one device is registered
+  // we accept the probe using that device so the ADMS protocol can proceed.
   app.get(["/iclock/cdata", "/iclock/cdata.aspx"], async (req: Request, res: Response) => {
-    const sn = String(req.query.SN || "").trim();
+    let sn = String(req.query.SN || req.query.sn || "").trim();
     const ip = clientIp(req);
+
+    // Resolve device — skip findDeviceBySerial for empty SN to avoid
+    // accidentally clearing the stored serial in the DB.
+    let device = sn ? await findDeviceBySerial(sn) : undefined;
+
+    // No-SN firmware probe: fall back to sole registered device.
+    if (!device && !sn) {
+      const all = await storage.getAllBiometricDevices();
+      if (all.length === 1) {
+        device = all[0];
+        sn = device.deviceSerial || "";
+        console.warn(`[ADMS] No-SN probe from ${ip} — matched sole device SN=${sn}`);
+      }
+    }
+
+    console.log(`[ADMS] GET /iclock/cdata SN=${sn || "(none)"} ip=${ip} known=${!!device}`);
+
     if (!sn) return res.status(400).type("text/plain").send("ERROR: missing SN");
-    const device = await findDeviceBySerial(sn);
-    console.log(`[ADMS] GET /iclock/cdata SN=${sn} ip=${ip} known=${!!device}`);
     if (!device) {
       // Reply 200 anyway — silent rejection just makes the device retry
       // forever and clutters the network. We'll still log the attempt.
