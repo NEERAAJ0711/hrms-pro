@@ -1281,28 +1281,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Delete ALL punch logs and re-trigger a full DATA UPDATE ATTLOG from every device.
+  // Delete ALL punch logs and reset ATTLOGStamp so every device re-uploads everything.
   app.post("/api/biometric/clear-and-resync", requireAuth, requireRole("super_admin"), async (req, res) => {
     try {
       const result = await db.execute(sql.raw(`DELETE FROM biometric_punch_logs`));
       const deleted = (result as any)?.rowCount ?? 0;
 
-      // Reset stamp pointer so each device re-uploads all records from stamp 0.
-      // Without this the device would only push records newer than its stored stamp.
-      const { enqueueDeviceCommand, resetAutoSyncGuard } = await import("./adms");
+      // Reset ATTLOGStamp to 0 on every device so the next GET /iclock/cdata
+      // response includes ATTLOGStamp=0, telling the SpeedFace-V5L to re-push
+      // its entire stored attendance log. No extra getrequest commands needed —
+      // the stamp in the registration response IS the trigger.
       const devices = await storage.getAllBiometricDevices();
       for (const dev of devices) {
         await storage.updateBiometricDevice(dev.id, { lastAttlogStamp: 0 } as any);
-        resetAutoSyncGuard(dev.id);
-        await enqueueDeviceCommand(dev.id, "DATA UPDATE ATTLOG Stamp=0");
-        await enqueueDeviceCommand(dev.id, "DATA UPDATE USERINFO");
       }
 
       res.json({
         success: true,
         deleted,
-        devicesQueued: devices.length,
-        message: `Deleted ${deleted} punch records. Full re-sync (ATTLOG + USERINFO) sent to ${devices.length} device(s). Data will arrive within seconds.`,
+        devicesReset: devices.length,
+        message: `Deleted ${deleted} punch records. ATTLOGStamp reset to 0 on ${devices.length} device(s). The device will re-upload all stored records on its next TransTimes connection (within 5 minutes).`,
       });
     } catch (error: any) {
       console.error("[biometric/clear-and-resync] error:", error);
@@ -1343,10 +1341,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Ask the device to push its full enrolled-user list. The device runs the
-  // command on its next /iclock/getrequest poll (a few seconds) and replies
-  // with USER records over /iclock/cdata?table=USERINFO, which our existing
-  // ADMS handler upserts into biometric_device_users.
+  // Trigger a user-list sync from the SpeedFace-V5L.
+  // The device automatically pushes its enrolled-user table on every
+  // TransTimes connection (TransTables=User Transaction in the registration
+  // response). We don't send a getrequest command — that mechanism doesn't
+  // exist in the SpeedFace-V5L ADMS push protocol.
   app.post("/api/biometric/devices/:id/sync-users", requireAuth, requireRole("super_admin", "company_admin"), async (req, res) => {
     try {
       const user = (req as any).user;
@@ -1355,11 +1354,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (user.role !== "super_admin" && device.companyId && device.companyId !== user.companyId) {
         return res.status(403).json({ error: "Access denied" });
       }
-      const { enqueueDeviceCommand } = await import("./adms");
-      await enqueueDeviceCommand(device.id, "DATA UPDATE USERINFO");
       res.json({
         success: true,
-        message: "Sync requested. The device will push its user list on its next check-in (usually within 30 seconds). Refresh the View Users dialog after a minute.",
+        message: "The SpeedFace-V5L pushes its enrolled-user list automatically on every scheduled connection (up to every 5 minutes). Refresh the View Users dialog after the next device check-in.",
       });
     } catch (error: any) {
       console.error(`[biometric/devices/:id/sync-users] error:`, error);

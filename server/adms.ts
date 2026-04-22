@@ -74,16 +74,7 @@ const pendingCommands: Map<string, string[]> = new Map();
 // on IDs larger than a few digits. DO NOT use Date.now() here.
 let nextCmdId = 1;
 
-// Devices for which we have already auto-queued ATTLOG+USERINFO since
-// this server process started. We only auto-queue once per boot — the user
-// can trigger additional re-uploads via the "Clear & Re-Sync" button.
-const autoSyncQueued = new Set<string>();
-
 const MAX_QUEUE_PER_DEVICE = 8;
-
-export function resetAutoSyncGuard(deviceId: string): void {
-  autoSyncQueued.delete(deviceId);
-}
 
 export async function enqueueDeviceCommand(deviceId: string, cmd: string): Promise<void> {
   // Update in-memory queue first (zero-latency for the current request cycle).
@@ -583,6 +574,30 @@ export function getAdmsActivityLog() {
   return [...admsActivityLog];
 }
 
+// Build a TransTimes string covering every 5-minute slot in 24 hours.
+// The SpeedFace-V5L / ZKTeco ADMS firmware uploads data only at the
+// times listed here, so dense coverage ensures low end-to-end latency.
+function buildTransTimes(): string {
+  return Array.from({ length: 24 }, (_, h) =>
+    ["00", "05", "10", "15", "20", "25", "30", "35", "40", "45", "50", "55"]
+      .map((m) => `${String(h).padStart(2, "0")}:${m}`)
+      .join(";")
+  ).join(";");
+}
+
+// Map ZKTeco Verified field value to a human-readable label.
+// SpeedFace-V5L face-recognition punches arrive with Verified=15.
+function verifiedLabel(v: string): string {
+  switch (v?.trim()) {
+    case "1":   return "fingerprint";
+    case "3":   return "finger-vein";
+    case "4":   return "password";
+    case "15":  return "face";
+    case "200": return "palm";
+    default:    return `method-${v ?? "?"}`;
+  }
+}
+
 export function registerAdmsRoutes(app: Express) {
   // Log every raw /iclock/* request.
   // Verbose body preview is gated behind DEBUG_ADMS=true to avoid flooding
@@ -644,43 +659,36 @@ export function registerAdmsRoutes(app: Express) {
     const fw = String(req.query.pushver || req.query.PushVersion || "").trim();
     await touchDevice(device.id, ip, { firmwareVersion: fw || undefined });
 
-    // On first handshake after server start, enqueue a full data re-upload.
-    // C: commands must NOT appear in the /cdata response — they belong only
-    // in /getrequest responses. Embedding them here breaks the device parser.
-    if (!autoSyncQueued.has(device.id)) {
-      autoSyncQueued.add(device.id);
-      await enqueueDeviceCommand(device.id, "DATA UPDATE ATTLOG Stamp=0");
-      if (ADMS_DEBUG) console.log(`[ADMS] Queued "DATA UPDATE ATTLOG Stamp=0" for SN=${sn}`);
-    }
-
-    // ATTLOGStamp tells the device the last record the server has already seen;
-    // the device will only push records with a higher timestamp. We track this
-    // per-device so the device doesn't re-push everything on every cycle.
-    // If lastAttlogStamp is 0 (default or after a manual reset) the device
-    // sends all stored records, which is safe — the bulk upsert handles dedup.
+    // ATTLOGStamp tells the device the last record the server has already seen.
+    // The device will only push records with a higher timestamp on its next
+    // TransTimes trigger. When lastAttlogStamp is 0 (fresh install or after a
+    // manual "Clear & Re-Sync") the device sends its entire stored log.
+    // This is the standard ADMS mechanism — no separate getrequest command needed.
     const attlogStamp = device.lastAttlogStamp ?? 0;
 
-    // TransTimes every 5 minutes ensures the device uploads frequently.
-    // Format: HH:MM;HH:MM;... for each 5-minute slot across all 24 hours.
-    const transTimes = Array.from({ length: 24 }, (_, h) =>
-      ["00", "05", "10", "15", "20", "25", "30", "35", "40", "45", "50", "55"].map(
-        (m) => `${String(h).padStart(2, "0")}:${m}`
-      ).join(";")
-    ).join(";");
+    // TransTimes: every 5 minutes across all 24 hours so the device uploads
+    // attendance records promptly. Format: HH:MM;HH:MM;...
+    const transTimes = buildTransTimes();
 
     console.log(`[ADMS] GET /cdata SN=${sn} ip=${ip} ATTLOGStamp=${attlogStamp}`);
+    // SpeedFace-V5L / ZKTeco ADMS push-mode registration response.
+    // TransTables=User Transaction instructs the device to push both its
+    // enrolled-user list and attendance log to this server.
+    // OPERLOGStamp=9999999999 skips noisy door-access operation logs.
     const lines = [
-      `GET OPTION FROM: ${sn}`,
+      `ServerVersion=2.4.1`,
+      `ServerName=ADMS`,
+      `PushVersion=2.6.1`,
       `ATTLOGStamp=${attlogStamp}`,
-      `OPERLOGStamp=0`,
+      `OPERLOGStamp=9999999999`,
       `ATTPHOTOStamp=0`,
       `ErrorDelay=30`,
-      `Delay=1`,
+      `RequestDelay=10`,
       `TransTimes=${transTimes}`,
       `TransInterval=1`,
-      `TransFlag=TransData AttLog OpLog AttPhoto EnrollUser ChgUser EnrollFP ChgFP FPImag`,
-      `TimeZone=5.5`,
+      `TransTables=User Transaction`,
       `Realtime=1`,
+      `TimeoutSec=30`,
       `Encrypt=None`,
       ``,
     ];
@@ -756,18 +764,34 @@ export function registerAdmsRoutes(app: Express) {
       );
     } else if (table === "OPERLOG" || table === "USERINFO" || table === "USER") {
       // OPERLOG carries USER enrollments mixed with other op events; USERINFO
-      // is a USER-only push. We persist USER rows so the View Users dialog
-      // can show every enrolled employee, not just those who've punched.
+      // and USER are user-only pushes. We persist USER rows so the View Users
+      // dialog can show every enrolled employee, not just those who've punched.
       const r = await processUserRecords(device, body);
       await touchDevice(device.id, ip);
-      console.log(
-        `[ADMS] POST ${table} SN=${sn} ip=${ip} users_upserted=${r.upserted} bad=${r.bad}`,
-      );
-    } else {
-      // FINGERTMP / ATTPHOTO etc — acknowledge so the device clears its
-      // queue. We don't store fingerprint or face template blobs.
+      console.log(`[ADMS] POST ${table} SN=${sn} ip=${ip} users_upserted=${r.upserted} bad=${r.bad}`);
+    } else if (table === "TABLEDATA") {
+      // SpeedFace-V5L pushes enrolled-user records as:
+      //   POST /iclock/cdata?table=tabledata&tablename=user&count=N
+      // where the body is tab-separated key=value pairs per line.
+      const tableName = String(req.query.tablename || req.query.tableName || "").toLowerCase();
+      if (tableName === "user") {
+        const r = await processUserRecords(device, body);
+        await touchDevice(device.id, ip);
+        console.log(`[ADMS] POST TABLEDATA/user SN=${sn} ip=${ip} users_upserted=${r.upserted} bad=${r.bad}`);
+      } else {
+        await touchDevice(device.id, ip);
+        console.log(`[ADMS] POST TABLEDATA/${tableName} SN=${sn} ip=${ip} bytes=${body.length} — ack`);
+      }
+    } else if (table === "BIODATA" || table === "BIOPHOTO") {
+      // SpeedFace-V5L uploads face templates (BIODATA) and face photos (BIOPHOTO).
+      // We acknowledge without storing the biometric blob — storing raw face
+      // templates is out of scope and requires careful data-protection controls.
       await touchDevice(device.id, ip);
-      console.log(`[ADMS] POST ${table} SN=${sn} ip=${ip} bytes=${body.length}`);
+      console.log(`[ADMS] POST ${table} SN=${sn} ip=${ip} bytes=${body.length} — face data ack`);
+    } else {
+      // FINGERTMP / ATTPHOTO / unknown — acknowledge so the device clears its queue.
+      await touchDevice(device.id, ip);
+      console.log(`[ADMS] POST ${table} SN=${sn} ip=${ip} bytes=${body.length} — ack`);
     }
 
     // ATTLOG ack: the device interprets "OK: N" as "server has records up to
@@ -888,31 +912,29 @@ export function registerAdmsRoutes(app: Express) {
     const authErr = authenticateDevice(req, device, ip);
     if (authErr) return res.status(401).type("text/plain").send("ERROR: unauthorized");
     await touchDevice(device.id, ip, { firmwareVersion: String(req.query.pushver || "") || undefined });
-    if (!autoSyncQueued.has(device.id)) {
-      autoSyncQueued.add(device.id);
-      await enqueueDeviceCommand(device.id, "DATA UPDATE ATTLOG Stamp=0");
-      if (ADMS_DEBUG) console.log(`[ADMS] Queued "DATA UPDATE ATTLOG Stamp=0" for SN=${sn} (bare path)`);
-    }
     const bareAttlogStamp = device.lastAttlogStamp ?? 0;
-    const bareTransTimes = Array.from({ length: 24 }, (_, h) =>
-      ["00", "05", "10", "15", "20", "25", "30", "35", "40", "45", "50", "55"].map(
-        (m) => `${String(h).padStart(2, "0")}:${m}`
-      ).join(";")
-    ).join(";");
     console.log(`[ADMS] GET /cdata (bare) SN=${sn} ip=${ip} ATTLOGStamp=${bareAttlogStamp}`);
     const lines = [
-      `GET OPTION FROM: ${sn}`,
-      `ATTLOGStamp=${bareAttlogStamp}`, `OPERLOGStamp=0`, `ATTPHOTOStamp=0`,
-      `ErrorDelay=30`, `Delay=1`,
-      `TransTimes=${bareTransTimes}`,
+      `ServerVersion=2.4.1`,
+      `ServerName=ADMS`,
+      `PushVersion=2.6.1`,
+      `ATTLOGStamp=${bareAttlogStamp}`,
+      `OPERLOGStamp=9999999999`,
+      `ATTPHOTOStamp=0`,
+      `ErrorDelay=30`,
+      `RequestDelay=10`,
+      `TransTimes=${buildTransTimes()}`,
       `TransInterval=1`,
-      `TransFlag=TransData AttLog OpLog AttPhoto EnrollUser ChgUser EnrollFP ChgFP FPImag`,
-      `TimeZone=5.5`, `Realtime=1`, `Encrypt=None`, ``,
+      `TransTables=User Transaction`,
+      `Realtime=1`,
+      `TimeoutSec=30`,
+      `Encrypt=None`,
+      ``,
     ];
     res.type("text/plain").send(lines.join(NEW_LINE));
   });
 
-  // POST /cdata → same as POST /iclock/cdata (ATTLOG upload)
+  // POST /cdata → same as POST /iclock/cdata (attendance + user data push)
   app.post(["/cdata", "/cdata.aspx"], async (req: Request, res: Response) => {
     let sn = String(req.query.SN || req.query.sn || "").trim();
     const table = String(req.query.table || "").toUpperCase();
@@ -954,6 +976,26 @@ export function registerAdmsRoutes(app: Express) {
       await storage.updateBiometricDevice(device.id, { lastSync: new Date().toISOString() } as any);
       _invalidateDevice(device.id);
       console.log(`[ADMS] POST bare ATTLOG SN=${sn} inserted=${r.inserted} dups=${r.duplicates} ackStamp=${ackStamp}`);
+    } else if (table === "OPERLOG" || table === "USERINFO" || table === "USER") {
+      const r = await processUserRecords(device, body);
+      await touchDevice(device.id, ip);
+      console.log(`[ADMS] POST bare ${table} SN=${sn} ip=${ip} users_upserted=${r.upserted} bad=${r.bad}`);
+    } else if (table === "TABLEDATA") {
+      const tableName = String(req.query.tablename || req.query.tableName || "").toLowerCase();
+      if (tableName === "user") {
+        const r = await processUserRecords(device, body);
+        await touchDevice(device.id, ip);
+        console.log(`[ADMS] POST bare TABLEDATA/user SN=${sn} ip=${ip} users_upserted=${r.upserted} bad=${r.bad}`);
+      } else {
+        await touchDevice(device.id, ip);
+        console.log(`[ADMS] POST bare TABLEDATA/${tableName} SN=${sn} ip=${ip} bytes=${body.length} — ack`);
+      }
+    } else if (table === "BIODATA" || table === "BIOPHOTO") {
+      await touchDevice(device.id, ip);
+      console.log(`[ADMS] POST bare ${table} SN=${sn} ip=${ip} bytes=${body.length} — face data ack`);
+    } else {
+      await touchDevice(device.id, ip);
+      console.log(`[ADMS] POST bare ${table} SN=${sn} ip=${ip} bytes=${body.length} — ack`);
     }
     res.type("text/plain").send(`OK: ${ackStamp}`);
   });
