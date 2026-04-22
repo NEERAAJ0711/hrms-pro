@@ -1107,6 +1107,18 @@ function buildAdmsApp() {
  * If port is already in use (e.g. rolling restart), retry up to maxRetries times
  * with a short delay so the old process has time to release the socket.
  */
+// ── ADMS server status (module-level, readable via API) ──────────────────────
+let admsServerState: {
+  running: boolean;
+  port: number;
+  boundAt: string | null;
+  error: string | null;
+} = { running: false, port: ADMS_PORT, boundAt: null, error: null };
+
+export function getAdmsServerStatus() {
+  return { ...admsServerState };
+}
+
 export function startAdmsServer(maxRetries = 6, retryDelayMs = 5000) {
   const server = createServer(buildAdmsApp());
 
@@ -1120,6 +1132,7 @@ export function startAdmsServer(maxRetries = 6, retryDelayMs = 5000) {
   server.on("listening", () => {
     console.log(`[ADMS] Dedicated ADMS server listening on port ${ADMS_PORT}`);
     console.log(`[ADMS] ZKTeco devices should push to http://<server-ip>:${ADMS_PORT}/iclock/cdata`);
+    admsServerState = { running: true, port: ADMS_PORT, boundAt: new Date().toISOString(), error: null };
   });
 
   server.on("error", (err: NodeJS.ErrnoException) => {
@@ -1129,18 +1142,18 @@ export function startAdmsServer(maxRetries = 6, retryDelayMs = 5000) {
           `[ADMS] Port ${ADMS_PORT} in use (attempt ${attempt}/${maxRetries}) — ` +
           `retrying in ${retryDelayMs / 1000}s…`
         );
-        // Must close before re-listening
+        admsServerState = { running: false, port: ADMS_PORT, boundAt: null, error: `port ${ADMS_PORT} in use (retry ${attempt}/${maxRetries})` };
         server.close(() => {
           setTimeout(tryListen, retryDelayMs);
         });
       } else {
-        console.error(
-          `[ADMS] Port ${ADMS_PORT} still in use after ${maxRetries} attempts. ` +
-          `Devices can still push via the main app port.`
-        );
+        const msg = `Port ${ADMS_PORT} still in use after ${maxRetries} attempts. Check for other processes on this port.`;
+        console.error(`[ADMS] ${msg}`);
+        admsServerState = { running: false, port: ADMS_PORT, boundAt: null, error: msg };
       }
     } else {
       console.error("[ADMS] Server error:", err);
+      admsServerState = { running: false, port: ADMS_PORT, boundAt: null, error: err.message };
     }
   });
 

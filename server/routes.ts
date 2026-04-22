@@ -33,7 +33,7 @@ import {
   insertWageGradeSchema
 } from "@shared/schema";
 import { z } from "zod";
-import { registerAdmsRoutes, getAdmsActivityLog, processAttlog, processUserRecords } from './adms';
+import { registerAdmsRoutes, getAdmsActivityLog, getAdmsServerStatus, processAttlog, processUserRecords } from './adms';
 import * as dnsPromises from 'dns/promises';
 import multer from 'multer';
 import * as XLSX from 'xlsx';
@@ -1369,6 +1369,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Useful to diagnose why old ATTLOG data isn't being pushed.
   app.get("/api/biometric/adms-log", requireAuth, requireRole("super_admin", "company_admin"), async (_req, res) => {
     res.json(getAdmsActivityLog());
+  });
+
+  // ADMS server status — shows whether port 8181 is bound, when it started,
+  // and any binding error. Used by the admin diagnostic banner.
+  app.get("/api/biometric/adms-server-status", requireAuth, requireRole("super_admin", "company_admin"), async (_req, res) => {
+    res.json(getAdmsServerStatus());
   });
 
   // Import ATTLOG data from a file — workaround for devices that won't re-push

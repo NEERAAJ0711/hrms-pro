@@ -198,6 +198,16 @@ export default function BiometricPage() {
     refetchInterval: canViewAdmsLog ? 5000 : false,
   });
 
+  // ADMS server health — checks whether port 8181 is bound on the VPS.
+  const { data: admsServerStatus } = useQuery<{
+    running: boolean; port: number; boundAt: string | null; error: string | null;
+  }>({
+    queryKey: ["/api/biometric/adms-server-status"],
+    enabled: canViewAdmsLog,
+    refetchInterval: 30000,
+    staleTime: 20000,
+  });
+
   const pushMutation = useMutation({
     mutationFn: async (data: { punches: any[]; companyId: string }) => {
       const res = await apiRequest("POST", "/api/biometric/push", data);
