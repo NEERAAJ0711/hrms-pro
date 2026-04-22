@@ -750,6 +750,148 @@ export function registerAdmsRoutes(app: Express) {
   app.get("/iclock/ping", (_req: Request, res: Response) => {
     res.type("text/plain").send("OK");
   });
+
+  // ---------------------------------------------------------------------------
+  // Bare-path aliases (no /iclock prefix).
+  // ZKTeco x2008 firmware 2.4.x configures the ADMS server URL as just
+  // "http://HOST:8181" and appends paths like /cdata, /getrequest, /devicecmd
+  // directly — without the /iclock segment. These aliases reuse the same
+  // handler arrays so both URL patterns work identically.
+  // ---------------------------------------------------------------------------
+
+  // Raw logger for bare paths (mirrors the /iclock middleware above).
+  app.use(["/cdata", "/getrequest", "/devicecmd", "/ping"], (req, _res, next) => {
+    const sn = String(req.query.SN || req.query.sn || "?").trim();
+    const method = req.method;
+    const url = req.path + (req.query.table ? `?table=${req.query.table}` : "");
+    const bodyPreview = typeof req.body === "string" && req.body.length > 0
+      ? ` BODY[${req.body.length}bytes]: ${req.body.slice(0, 400).replace(/\t/g, "·").replace(/\r?\n/g, " | ")}` : "";
+    const entry = `${method} ${url}${bodyPreview}`;
+    console.log(`[ADMS-RAW-BARE] SN=${sn} ${entry}`);
+    admsLog("IN", sn, `(bare) ${entry}`);
+    next();
+  });
+
+  // GET /cdata → same as GET /iclock/cdata (handshake)
+  app.get(["/cdata", "/cdata.aspx"], async (req: Request, res: Response) => {
+    // Reuse the /iclock/cdata logic by internally forwarding the request path
+    // and re-running the same handler. Simplest: just re-invoke the inline logic.
+    let sn = String(req.query.SN || req.query.sn || "").trim();
+    const ip = clientIp(req);
+    let device = sn ? await findDeviceBySerial(sn) : undefined;
+    if (!device && !sn) {
+      const all = await storage.getAllBiometricDevices();
+      if (all.length === 1) {
+        device = all[0];
+        sn = device.deviceSerial || "";
+        console.warn(`[ADMS] No-SN bare GET /cdata from ${ip} — matched sole device SN=${sn}`);
+      }
+    }
+    console.log(`[ADMS] GET /cdata (bare) SN=${sn || "(none)"} ip=${ip} known=${!!device}`);
+    if (!sn) return res.status(400).type("text/plain").send("ERROR: missing SN");
+    if (!device) return res.type("text/plain").send("OK");
+    const authErr = authenticateDevice(req, device, ip);
+    if (authErr) return res.status(401).type("text/plain").send("ERROR: unauthorized");
+    await touchDevice(device.id, ip, { firmwareVersion: String(req.query.pushver || "") || undefined });
+    if (!autoSyncQueued.has(device.id)) {
+      autoSyncQueued.add(device.id);
+      enqueueDeviceCommand(device.id, "DATA UPDATE ATTLOG Stamp=0");
+      console.log(`[ADMS] Auto-queued "DATA UPDATE ATTLOG Stamp=0" for SN=${sn} (bare path)`);
+    }
+    const lines = [
+      `GET OPTION FROM: ${sn}`,
+      `ATTLOGStamp=0`, `OPERLOGStamp=0`, `ATTPHOTOStamp=0`,
+      `ErrorDelay=30`, `Delay=1`,
+      `TransTimes=00:00;01:00;02:00;03:00;04:00;05:00;06:00;07:00;08:00;09:00;10:00;11:00;12:00;13:00;14:00;15:00;16:00;17:00;18:00;19:00;20:00;21:00;22:00;23:00`,
+      `TransInterval=1`,
+      `TransFlag=TransData AttLog OpLog AttPhoto EnrollUser ChgUser EnrollFP ChgFP FPImag`,
+      `TimeZone=5.5`, `Realtime=1`, `Encrypt=None`, ``,
+    ];
+    res.type("text/plain").send(lines.join(NEW_LINE));
+  });
+
+  // POST /cdata → same as POST /iclock/cdata (ATTLOG upload)
+  app.post(["/cdata", "/cdata.aspx"], async (req: Request, res: Response) => {
+    let sn = String(req.query.SN || req.query.sn || "").trim();
+    const table = String(req.query.table || "").toUpperCase();
+    const stamp = String(req.query.Stamp || req.query.stamp || "0");
+    const ip = clientIp(req);
+    let device = sn ? await findDeviceBySerial(sn) : undefined;
+    if (!device && !sn) {
+      const all = await storage.getAllBiometricDevices();
+      if (all.length === 1) {
+        device = all[0];
+        sn = device.deviceSerial || "";
+        console.warn(`[ADMS] POST bare /cdata no-SN from ${ip} table=${table} — matched sole device SN=${sn}`);
+      }
+    }
+    if (!sn) return res.status(400).type("text/plain").send("ERROR: missing SN");
+    if (!device) return res.type("text/plain").send("OK");
+    const authErr = authenticateDevice(req, device, ip);
+    if (authErr) return res.status(401).type("text/plain").send("ERROR: unauthorized");
+    const body = typeof req.body === "string" ? req.body : "";
+    if (table === "ATTLOG") {
+      const bodyPreview = body.slice(0, 400).replace(/\r?\n/g, " | ");
+      const lineCount = body.split(/\r?\n/).filter((l) => l.trim()).length;
+      console.log(`[ADMS] POST bare ATTLOG SN=${sn} Stamp=${stamp} lines=${lineCount} preview="${bodyPreview}"`);
+      admsLog("IN", sn, `ATTLOG(bare) Stamp=${stamp} lines=${lineCount} body="${bodyPreview.slice(0, 150)}"`);
+      const r = await processAttlog(device, body);
+      await touchDevice(device.id, ip, { addToTotal: r.inserted });
+      await storage.updateBiometricDevice(device.id, { lastSync: new Date().toISOString() } as any);
+    }
+    if (table === "ATTLOG") res.type("text/plain").send("OK: 0");
+    else res.type("text/plain").send(`OK: ${stamp}`);
+  });
+
+  // GET /getrequest → same as GET /iclock/getrequest (command polling)
+  app.get(["/getrequest", "/getrequest.aspx"], async (req: Request, res: Response) => {
+    let sn = String(req.query.SN || req.query.sn || "").trim();
+    const ip = clientIp(req);
+    let device = sn ? await findDeviceBySerial(sn) : undefined;
+    if (!device && !sn) {
+      const all = await storage.getAllBiometricDevices();
+      if (all.length === 1) { device = all[0]; sn = device.deviceSerial || ""; }
+    }
+    if (device) {
+      const authErr = authenticateDevice(req, device, ip);
+      if (authErr) return res.status(401).type("text/plain").send("ERROR: unauthorized");
+      await touchDevice(device.id, ip);
+      const cmds = drainCommands(device.id);
+      if (cmds.length > 0) {
+        const lines = cmds.map((c) => `C:${nextCmdId++}:${c}`);
+        if (nextCmdId > 9999) nextCmdId = 1;
+        const cmdStr = cmds.join(" | ");
+        console.log(`[ADMS] DELIVER cmds=${cmds.length} SN=${sn} (bare): ${cmdStr}`);
+        admsLog("OUT", sn, `CMDS(bare): ${cmdStr}`);
+        return res.type("text/plain").send(lines.join(NEW_LINE));
+      }
+    }
+    res.type("text/plain").send("OK");
+  });
+
+  // POST /devicecmd → same as POST /iclock/devicecmd (command result)
+  app.post(["/devicecmd", "/devicecmd.aspx"], async (req: Request, res: Response) => {
+    let sn = String(req.query.SN || req.query.sn || "").trim();
+    const ip = clientIp(req);
+    const body = typeof req.body === "string" ? req.body : "";
+    let device = sn ? await findDeviceBySerial(sn) : undefined;
+    if (!device && !sn) {
+      const all = await storage.getAllBiometricDevices();
+      if (all.length === 1) { device = all[0]; sn = device.deviceSerial || ""; }
+    }
+    if (device) {
+      const authErr = authenticateDevice(req, device, ip);
+      if (authErr) return res.status(401).type("text/plain").send("ERROR: unauthorized");
+      await touchDevice(device.id, ip);
+      if (body) {
+        console.log(`[ADMS] devicecmd(bare) result SN=${sn}: ${body.slice(0, 200)}`);
+        admsLog("IN", sn, `devicecmd(bare): ${body.slice(0, 200)}`);
+      }
+    }
+    res.type("text/plain").send("OK");
+  });
+
+  app.get("/ping", (_req: Request, res: Response) => res.type("text/plain").send("OK"));
 }
 
 // ---------------------------------------------------------------------------
@@ -768,8 +910,14 @@ function buildAdmsApp() {
   admsApp.set("trust proxy", 1);
   // Mount all ZKTeco ADMS endpoints.
   registerAdmsRoutes(admsApp);
-  // Catch-all health check so the device can verify connectivity on this port.
-  admsApp.use((_req, res) => res.type("text/plain").send("HRMS ADMS server OK"));
+  // Catch-all: log any unrecognized path so we can diagnose firmware quirks,
+  // then return a plain OK so the device doesn't stall on unexpected paths.
+  admsApp.use((req, res) => {
+    const sn = String(req.query.SN || req.query.sn || "?").trim();
+    console.warn(`[ADMS-UNKNOWN] SN=${sn} ${req.method} ${req.url}`);
+    admsLog("IN", sn, `UNKNOWN ${req.method} ${req.url}`);
+    res.type("text/plain").send("OK");
+  });
   return admsApp;
 }
 
