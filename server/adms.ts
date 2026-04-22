@@ -1120,6 +1120,15 @@ function buildAdmsApp() {
   // type: () => true unconditionally parses every request body as plain text,
   // which is more reliable than the "*/*" wildcard (which may skip headerless requests).
   admsApp.use(express.text({ type: () => true, limit: "5mb" }));
+  // Hard timeout per request — prevents stalled device connections from holding
+  // the socket open indefinitely. 25 s is well above the longest expected ATTLOG
+  // upload while still freeing the slot if the device goes silent mid-transfer.
+  admsApp.use((req, res, next) => {
+    res.setTimeout(25000, () => {
+      console.error(`[ADMS] Request timeout ${req.method} ${req.url}`);
+    });
+    next();
+  });
   // Trust one proxy hop so req.ip is correct when the device pushes via NAT.
   admsApp.set("trust proxy", 1);
   // Mount all ZKTeco ADMS endpoints.
