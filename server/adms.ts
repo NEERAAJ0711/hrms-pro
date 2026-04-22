@@ -1108,6 +1108,13 @@ export function registerAdmsRoutes(app: Express) {
     console.log(`[ADMS] connectivity probe (bare) SN=${sn} path=${req.path}`);
     res.type("text/plain").send("Test");
   });
+
+  // Health check — human-readable endpoint to verify the ADMS server is up
+  // and see its current clock (useful for diagnosing SET TIME drift).
+  // Covers both /health and /iclock/health.
+  app.get(["/health", "/iclock/health"], (_req: Request, res: Response) => {
+    res.json({ status: "ok", time: new Date() });
+  });
 }
 
 // ---------------------------------------------------------------------------
