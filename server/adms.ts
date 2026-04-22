@@ -559,27 +559,28 @@ export function registerAdmsRoutes(app: Express) {
     // this firmware version. User data is obtained via the OPERLOGStamp=0
     // mechanism in the handshake config — the device will push OPERLOG data
     // (which includes enrollment events) at the next scheduled upload cycle.
-    // x2008 fw 2.4.x ignores Realtime/Delay after first boot.
-    // The reliable trigger is ATTLOGStamp=0 in every response — the device
-    // sees the server stamp is behind its own and immediately POSTs ATTLOG.
-    // We never advance the stamp so every handshake triggers a full upload;
-    // duplicates are silently discarded by processAttlog.
-    console.log(`[ADMS] Sending handshake config to SN=${sn} — ATTLOGStamp=0 will trigger immediate upload`);
+    // ATTLOGStamp=0 tells the device to re-upload ALL records on its next
+    // scheduled upload cycle. We never advance the stamp, so duplicates are
+    // silently discarded by processAttlog on every subsequent push.
+    //
+    // C: commands must NOT appear in the /cdata response — they belong only
+    // in /getrequest responses. Embedding them here breaks the device parser.
+    // Instead we queue the DATA UPDATE command for delivery via getrequest.
+    if (!autoSyncQueued.has(device.id)) {
+      autoSyncQueued.add(device.id);
+      enqueueDeviceCommand(device.id, "DATA UPDATE ATTLOG Stamp=0");
+      console.log(`[ADMS] Queued "DATA UPDATE ATTLOG Stamp=0" for SN=${sn} — will deliver via getrequest`);
+    }
 
-    // Build TransTimes: every minute of every hour (device uploads on each match).
-    // Keep it to every 5 minutes to avoid overflowing device config buffer.
+    // TransTimes every 5 minutes ensures the device uploads frequently.
+    // Format: HH:MM;HH:MM;... for each 5-minute slot across all 24 hours.
     const transTimes = Array.from({ length: 24 }, (_, h) =>
       ["00", "05", "10", "15", "20", "25", "30", "35", "40", "45", "50", "55"].map(
         (m) => `${String(h).padStart(2, "0")}:${m}`
       ).join(";")
     ).join(";");
 
-    // Embed a C: command directly in the cdata response.
-    // On x2008 fw 2.4.x this is the ONLY reliable way to trigger an immediate
-    // ATTLOG upload — the device reads the C: line, executes the DATA UPDATE
-    // command right after the handshake, then POSTs /cdata?table=ATTLOG.
-    const cmdId = nextCmdId++;
-    if (nextCmdId > 9999) nextCmdId = 1;
+    console.log(`[ADMS] Sending handshake config to SN=${sn} ip=${ip} — ATTLOGStamp=0, TransTimes every 5 min`);
     const lines = [
       `GET OPTION FROM: ${sn}`,
       `ATTLOGStamp=0`,
@@ -593,10 +594,8 @@ export function registerAdmsRoutes(app: Express) {
       `TimeZone=5.5`,
       `Realtime=1`,
       `Encrypt=None`,
-      `C:${cmdId}:DATA UPDATE ATTLOG Stamp=0`,
       ``,
     ];
-    console.log(`[ADMS] Embedded C:${cmdId}:DATA UPDATE ATTLOG Stamp=0 in cdata response for SN=${sn}`);
     res.type("text/plain").send(lines.join(NEW_LINE));
   });
 
@@ -797,14 +796,17 @@ export function registerAdmsRoutes(app: Express) {
     const authErr = authenticateDevice(req, device, ip);
     if (authErr) return res.status(401).type("text/plain").send("ERROR: unauthorized");
     await touchDevice(device.id, ip, { firmwareVersion: String(req.query.pushver || "") || undefined });
+    if (!autoSyncQueued.has(device.id)) {
+      autoSyncQueued.add(device.id);
+      enqueueDeviceCommand(device.id, "DATA UPDATE ATTLOG Stamp=0");
+      console.log(`[ADMS] Queued "DATA UPDATE ATTLOG Stamp=0" for SN=${sn} (bare path) — will deliver via getrequest`);
+    }
     const bareTransTimes = Array.from({ length: 24 }, (_, h) =>
       ["00", "05", "10", "15", "20", "25", "30", "35", "40", "45", "50", "55"].map(
         (m) => `${String(h).padStart(2, "0")}:${m}`
       ).join(";")
     ).join(";");
-    const bareCmdId = nextCmdId++;
-    if (nextCmdId > 9999) nextCmdId = 1;
-    console.log(`[ADMS] Embedded C:${bareCmdId}:DATA UPDATE ATTLOG Stamp=0 in bare /cdata response for SN=${sn}`);
+    console.log(`[ADMS] Sending handshake config (bare) to SN=${sn} ip=${ip} — ATTLOGStamp=0, TransTimes every 5 min`);
     const lines = [
       `GET OPTION FROM: ${sn}`,
       `ATTLOGStamp=0`, `OPERLOGStamp=0`, `ATTPHOTOStamp=0`,
@@ -812,9 +814,7 @@ export function registerAdmsRoutes(app: Express) {
       `TransTimes=${bareTransTimes}`,
       `TransInterval=1`,
       `TransFlag=TransData AttLog OpLog AttPhoto EnrollUser ChgUser EnrollFP ChgFP FPImag`,
-      `TimeZone=5.5`, `Realtime=1`, `Encrypt=None`,
-      `C:${bareCmdId}:DATA UPDATE ATTLOG Stamp=0`,
-      ``,
+      `TimeZone=5.5`, `Realtime=1`, `Encrypt=None`, ``,
     ];
     res.type("text/plain").send(lines.join(NEW_LINE));
   });
