@@ -8,9 +8,10 @@ import { sql } from "drizzle-orm";
 import { biometricPunchLogs } from "../shared/schema";
 import rateLimit from "express-rate-limit";
 
-// Verbose ADMS request/response logging — set DEBUG_ADMS=true in .env to enable.
-// Off by default in production to avoid flooding the PM2 log.
-const ADMS_DEBUG = process.env.DEBUG_ADMS === "true";
+// Verbose ADMS request/response logging.
+// Always on in development; in production only when DEBUG_ADMS=true is set.
+// Keeps PM2 logs clean without losing visibility during local dev or on-demand prod debugging.
+const ADMS_DEBUG = process.env.DEBUG_ADMS === "true" || process.env.NODE_ENV !== "production";
 
 /**
  * ZKTeco "Push SDK" / ADMS protocol handler.
@@ -673,7 +674,7 @@ export function registerAdmsRoutes(app: Express) {
     // attendance records promptly. Format: HH:MM;HH:MM;...
     const transTimes = buildTransTimes();
 
-    console.log(`[ADMS] GET /cdata SN=${sn} ip=${ip} ATTLOGStamp=${attlogStamp}`);
+    if (ADMS_DEBUG) console.log(`[ADMS] GET /cdata SN=${sn} ip=${ip} ATTLOGStamp=${attlogStamp}`);
     admsLog("OUT", sn, `→ 200 registration ATTLOGStamp=${attlogStamp}`);
     // SpeedFace-V5L / ZKTeco ADMS push-mode registration response.
     // TransTables=User Transaction instructs the device to push both its
@@ -763,7 +764,7 @@ export function registerAdmsRoutes(app: Express) {
       });
       await storage.updateBiometricDevice(device.id, { lastSync: new Date().toISOString() } as any);
       _invalidateDevice(device.id);
-      console.log(
+      if (ADMS_DEBUG) console.log(
         `[ADMS] POST ATTLOG SN=${sn} ip=${ip} inserted=${r.inserted} dups=${r.duplicates} unmapped=${r.unmapped} bad=${r.bad} ackStamp=${ackStamp}`,
       );
     } else if (table === "OPERLOG" || table === "USERINFO" || table === "USER") {
@@ -772,7 +773,7 @@ export function registerAdmsRoutes(app: Express) {
       // dialog can show every enrolled employee, not just those who've punched.
       const r = await processUserRecords(device, body);
       await touchDevice(device.id, ip);
-      console.log(`[ADMS] POST ${table} SN=${sn} ip=${ip} users_upserted=${r.upserted} bad=${r.bad}`);
+      if (ADMS_DEBUG) console.log(`[ADMS] POST ${table} SN=${sn} ip=${ip} users_upserted=${r.upserted} bad=${r.bad}`);
     } else if (table === "TABLEDATA") {
       // SpeedFace-V5L pushes enrolled-user records as:
       //   POST /iclock/cdata?table=tabledata&tablename=user&count=N
@@ -781,21 +782,21 @@ export function registerAdmsRoutes(app: Express) {
       if (tableName === "user") {
         const r = await processUserRecords(device, body);
         await touchDevice(device.id, ip);
-        console.log(`[ADMS] POST TABLEDATA/user SN=${sn} ip=${ip} users_upserted=${r.upserted} bad=${r.bad}`);
+        if (ADMS_DEBUG) console.log(`[ADMS] POST TABLEDATA/user SN=${sn} ip=${ip} users_upserted=${r.upserted} bad=${r.bad}`);
       } else {
         await touchDevice(device.id, ip);
-        console.log(`[ADMS] POST TABLEDATA/${tableName} SN=${sn} ip=${ip} bytes=${body.length} — ack`);
+        if (ADMS_DEBUG) console.log(`[ADMS] POST TABLEDATA/${tableName} SN=${sn} ip=${ip} bytes=${body.length} — ack`);
       }
     } else if (table === "BIODATA" || table === "BIOPHOTO") {
       // SpeedFace-V5L uploads face templates (BIODATA) and face photos (BIOPHOTO).
       // We acknowledge without storing the biometric blob — storing raw face
       // templates is out of scope and requires careful data-protection controls.
       await touchDevice(device.id, ip);
-      console.log(`[ADMS] POST ${table} SN=${sn} ip=${ip} bytes=${body.length} — face data ack`);
+      if (ADMS_DEBUG) console.log(`[ADMS] POST ${table} SN=${sn} ip=${ip} bytes=${body.length} — face data ack`);
     } else {
       // FINGERTMP / ATTPHOTO / unknown — acknowledge so the device clears its queue.
       await touchDevice(device.id, ip);
-      console.log(`[ADMS] POST ${table} SN=${sn} ip=${ip} bytes=${body.length} — ack`);
+      if (ADMS_DEBUG) console.log(`[ADMS] POST ${table} SN=${sn} ip=${ip} bytes=${body.length} — ack`);
     }
 
     // ATTLOG ack: the device interprets "OK: N" as "server has records up to
@@ -837,7 +838,7 @@ export function registerAdmsRoutes(app: Express) {
         // Wrap around to avoid ever sending very large IDs
         if (nextCmdId > 9999) nextCmdId = 1;
         const cmdStr = cmds.join(" | ");
-        console.log(`[ADMS] DELIVER cmds=${cmds.length} SN=${sn}: ${cmdStr}`);
+        if (ADMS_DEBUG) console.log(`[ADMS] DELIVER cmds=${cmds.length} SN=${sn}: ${cmdStr}`);
         admsLog("OUT", sn, `CMDS: ${cmdStr}`);
         return res.type("text/plain").send(lines.join(NEW_LINE));
       }
@@ -862,7 +863,7 @@ export function registerAdmsRoutes(app: Express) {
         await touchDevice(device.id, ip);
         // Log the device's command result so we can see if commands execute
         if (body) {
-          console.log(`[ADMS] devicecmd result SN=${sn}: ${body.slice(0, 200)}`);
+          if (ADMS_DEBUG) console.log(`[ADMS] devicecmd result SN=${sn}: ${body.slice(0, 200)}`);
           admsLog("IN", sn, `devicecmd: ${body.slice(0, 200)}`);
         }
       }
@@ -875,7 +876,7 @@ export function registerAdmsRoutes(app: Express) {
   // literal response body "Test" — any other body causes the device to abort.
   app.get(["/iclock/test", "/iclock/ping"], (req: Request, res: Response) => {
     const sn = String(req.query.SN || req.query.sn || "?").trim();
-    console.log(`[ADMS] connectivity probe SN=${sn} path=${req.path}`);
+    if (ADMS_DEBUG) console.log(`[ADMS] connectivity probe SN=${sn} path=${req.path}`);
     res.type("text/plain").send("Test");
   });
 
@@ -899,7 +900,7 @@ export function registerAdmsRoutes(app: Express) {
     const bodyPreview = typeof req.body === "string" && req.body.length > 0
       ? ` BODY[${req.body.length}bytes]: ${req.body.slice(0, 400).replace(/\t/g, "·").replace(/\r?\n/g, " | ")}` : "";
     const entry = `${method} ${fullUrl}${bodyPreview} (ip:${ip})`;
-    console.log(`[ADMS-RAW-BARE] SN=${sn} ${entry}`);
+    if (ADMS_DEBUG) console.log(`[ADMS-RAW-BARE] SN=${sn} ${entry}`);
     admsLog("IN", sn, `(bare) ${entry}`);
     next();
   });
@@ -939,7 +940,7 @@ export function registerAdmsRoutes(app: Express) {
     await touchDevice(device.id, ip, { firmwareVersion: String(req.query.pushver || "") || undefined });
     const attlogStamp = device.lastAttlogStamp ?? 0;
 
-    console.log(`[ADMS] GET /cdata (bare) SN=${sn} ip=${ip} protocol=${isSpeedFace ? "SpeedFace" : "x2008"} ATTLOGStamp=${attlogStamp}`);
+    if (ADMS_DEBUG) console.log(`[ADMS] GET /cdata (bare) SN=${sn} ip=${ip} protocol=${isSpeedFace ? "SpeedFace" : "x2008"} ATTLOGStamp=${attlogStamp}`);
     admsLog("OUT", sn, `(bare) → 200 registration protocol=${isSpeedFace ? "SpeedFace" : "x2008"} ATTLOGStamp=${attlogStamp}`);
 
     if (isSpeedFace) {
@@ -1030,27 +1031,27 @@ export function registerAdmsRoutes(app: Express) {
       });
       await storage.updateBiometricDevice(device.id, { lastSync: new Date().toISOString() } as any);
       _invalidateDevice(device.id);
-      console.log(`[ADMS] POST bare ATTLOG SN=${sn} inserted=${r.inserted} dups=${r.duplicates} ackStamp=${ackStamp}`);
+      if (ADMS_DEBUG) console.log(`[ADMS] POST bare ATTLOG SN=${sn} inserted=${r.inserted} dups=${r.duplicates} ackStamp=${ackStamp}`);
     } else if (table === "OPERLOG" || table === "USERINFO" || table === "USER") {
       const r = await processUserRecords(device, body);
       await touchDevice(device.id, ip);
-      console.log(`[ADMS] POST bare ${table} SN=${sn} ip=${ip} users_upserted=${r.upserted} bad=${r.bad}`);
+      if (ADMS_DEBUG) console.log(`[ADMS] POST bare ${table} SN=${sn} ip=${ip} users_upserted=${r.upserted} bad=${r.bad}`);
     } else if (table === "TABLEDATA") {
       const tableName = String(req.query.tablename || req.query.tableName || "").toLowerCase();
       if (tableName === "user") {
         const r = await processUserRecords(device, body);
         await touchDevice(device.id, ip);
-        console.log(`[ADMS] POST bare TABLEDATA/user SN=${sn} ip=${ip} users_upserted=${r.upserted} bad=${r.bad}`);
+        if (ADMS_DEBUG) console.log(`[ADMS] POST bare TABLEDATA/user SN=${sn} ip=${ip} users_upserted=${r.upserted} bad=${r.bad}`);
       } else {
         await touchDevice(device.id, ip);
-        console.log(`[ADMS] POST bare TABLEDATA/${tableName} SN=${sn} ip=${ip} bytes=${body.length} — ack`);
+        if (ADMS_DEBUG) console.log(`[ADMS] POST bare TABLEDATA/${tableName} SN=${sn} ip=${ip} bytes=${body.length} — ack`);
       }
     } else if (table === "BIODATA" || table === "BIOPHOTO") {
       await touchDevice(device.id, ip);
-      console.log(`[ADMS] POST bare ${table} SN=${sn} ip=${ip} bytes=${body.length} — face data ack`);
+      if (ADMS_DEBUG) console.log(`[ADMS] POST bare ${table} SN=${sn} ip=${ip} bytes=${body.length} — face data ack`);
     } else {
       await touchDevice(device.id, ip);
-      console.log(`[ADMS] POST bare ${table} SN=${sn} ip=${ip} bytes=${body.length} — ack`);
+      if (ADMS_DEBUG) console.log(`[ADMS] POST bare ${table} SN=${sn} ip=${ip} bytes=${body.length} — ack`);
     }
     res.type("text/plain").send(`OK: ${ackStamp}`);
   });
@@ -1073,7 +1074,7 @@ export function registerAdmsRoutes(app: Express) {
         const lines = cmds.map((c) => `C:${nextCmdId++}:${c}`);
         if (nextCmdId > 9999) nextCmdId = 1;
         const cmdStr = cmds.join(" | ");
-        console.log(`[ADMS] DELIVER cmds=${cmds.length} SN=${sn} (bare): ${cmdStr}`);
+        if (ADMS_DEBUG) console.log(`[ADMS] DELIVER cmds=${cmds.length} SN=${sn} (bare): ${cmdStr}`);
         admsLog("OUT", sn, `CMDS(bare): ${cmdStr}`);
         return res.type("text/plain").send(lines.join(NEW_LINE));
       }
@@ -1096,7 +1097,7 @@ export function registerAdmsRoutes(app: Express) {
       if (authErr) return res.status(401).type("text/plain").send("ERROR: unauthorized");
       await touchDevice(device.id, ip);
       if (body) {
-        console.log(`[ADMS] devicecmd(bare) result SN=${sn}: ${body.slice(0, 200)}`);
+        if (ADMS_DEBUG) console.log(`[ADMS] devicecmd(bare) result SN=${sn}: ${body.slice(0, 200)}`);
         admsLog("IN", sn, `devicecmd(bare): ${body.slice(0, 200)}`);
       }
     }
@@ -1105,7 +1106,7 @@ export function registerAdmsRoutes(app: Express) {
 
   app.get(["/test", "/ping"], (req: Request, res: Response) => {
     const sn = String(req.query.SN || req.query.sn || "?").trim();
-    console.log(`[ADMS] connectivity probe (bare) SN=${sn} path=${req.path}`);
+    if (ADMS_DEBUG) console.log(`[ADMS] connectivity probe (bare) SN=${sn} path=${req.path}`);
     res.type("text/plain").send("Test");
   });
 
