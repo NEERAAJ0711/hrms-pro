@@ -988,13 +988,21 @@ export default function BiometricPage() {
                           </Badge>
                         </TableCell>
                         <TableCell className="text-xs text-muted-foreground">
-                          {device.lastPushAt
-                            ? new Date(device.lastPushAt).toLocaleString()
-                            : device.lastSync
-                              ? new Date(device.lastSync).toLocaleString()
-                              : "Never"}
+                          {(() => {
+                            const ts = device.lastPushAt || device.lastSync;
+                            if (!ts) return "Never";
+                            const date = new Date(ts);
+                            const minsAgo = Math.round((Date.now() - date.getTime()) / 60000);
+                            const agoLabel = minsAgo < 1 ? "just now" : minsAgo < 60 ? `${minsAgo}m ago` : `${Math.round(minsAgo / 60)}h ago`;
+                            return (
+                              <span title={date.toLocaleString()}>
+                                {date.toLocaleString()}
+                                <span className="ml-1 opacity-60">({agoLabel})</span>
+                              </span>
+                            );
+                          })()}
                           {device.pushTotal ? (
-                            <span className="ml-1 opacity-60">({device.pushTotal} punches)</span>
+                            <span className="ml-1 opacity-60">· {device.pushTotal} punches</span>
                           ) : null}
                         </TableCell>
                         <TableCell className="text-right">

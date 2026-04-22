@@ -7,7 +7,7 @@ import { storage } from "./storage";
  * recently. The actual punch ingestion happens in `server/adms.ts`.
  */
 const SWEEP_INTERVAL_MS = 60 * 1000; // every minute
-const ONLINE_WINDOW_MS = 15 * 60 * 1000; // device considered online for 15 min after last push
+const ONLINE_WINDOW_MS = 30 * 60 * 1000; // device considered online for 30 min after last push
 
 async function sweepDeviceFreshness() {
   try {
