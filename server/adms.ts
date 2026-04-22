@@ -1116,8 +1116,10 @@ const ADMS_PORT = parseInt(process.env.ADMS_PORT || "8181", 10);
 
 function buildAdmsApp() {
   const admsApp = express();
-  // Biometric devices send tab-separated payloads with no JSON content-type.
-  admsApp.use(express.text({ type: "*/*", limit: "5mb" }));
+  // ZKTeco devices often send POST bodies with no Content-Type header at all.
+  // type: () => true unconditionally parses every request body as plain text,
+  // which is more reliable than the "*/*" wildcard (which may skip headerless requests).
+  admsApp.use(express.text({ type: () => true, limit: "5mb" }));
   // Trust one proxy hop so req.ip is correct when the device pushes via NAT.
   admsApp.set("trust proxy", 1);
   // Mount all ZKTeco ADMS endpoints.
