@@ -968,8 +968,15 @@ export default function BiometricPage() {
                     Device Communication Log
                   </CardTitle>
                   <CardDescription>
-                    Live feed of every request the ZKTeco device sends to this server.
-                    Refreshes every 5 seconds. Shows last 200 entries.
+                    Live feed of ADMS traffic. Auto-refreshes every 5 s. Last 200 entries.
+                    <span className="ml-2 text-purple-600 dark:text-purple-400">↑OUT=server→device</span>
+                    {" · "}
+                    <span className="text-green-600 dark:text-green-400">green=ATTLOG</span>
+                    {" · "}
+                    <span className="text-blue-600 dark:text-blue-400">blue=USER</span>
+                    {" · "}
+                    <span className="text-red-600 dark:text-red-400">red=error</span>
+                    {" · "} Each line ends with the client IP — real device vs browser.
                   </CardDescription>
                 </div>
                 <Button variant="outline" size="sm" onClick={() => refetchAdmsLog()} data-testid="button-refresh-adms-log">
@@ -983,13 +990,29 @@ export default function BiometricPage() {
                   </div>
                 ) : (
                   <div className="font-mono text-xs bg-muted rounded-md p-3 overflow-auto max-h-[500px] space-y-0.5" data-testid="adms-log-container">
-                    {[...admsLog].reverse().map((entry, i) => (
-                      <div key={i} className={`flex gap-2 ${entry.line.includes("ATTLOG") ? "text-green-600 dark:text-green-400" : entry.line.includes("USERINFO") ? "text-blue-600 dark:text-blue-400" : "text-foreground/70"}`}>
-                        <span className="shrink-0 text-muted-foreground">{new Date(entry.ts).toLocaleTimeString("en-IN", { hour12: false })}</span>
-                        <span className="shrink-0 font-semibold">[{entry.sn}]</span>
-                        <span className="break-all">{entry.line}</span>
-                      </div>
-                    ))}
+                    {[...admsLog].reverse().map((entry, i) => {
+                      const isOut = entry.direction === "OUT";
+                      const isAttlog = entry.line.includes("ATTLOG");
+                      const isUserinfo = entry.line.includes("USERINFO") || entry.line.includes("USER");
+                      const isError = entry.line.includes("reject") || entry.line.includes("ERROR") || entry.line.includes("auth");
+                      const color = isError
+                        ? "text-red-600 dark:text-red-400"
+                        : isOut
+                          ? "text-purple-600 dark:text-purple-400"
+                          : isAttlog
+                            ? "text-green-600 dark:text-green-400"
+                            : isUserinfo
+                              ? "text-blue-600 dark:text-blue-400"
+                              : "text-foreground/70";
+                      return (
+                        <div key={i} className={`flex gap-2 ${color}`}>
+                          <span className="shrink-0 text-muted-foreground">{new Date(entry.ts).toLocaleTimeString("en-IN", { hour12: false })}</span>
+                          <span className="shrink-0 font-semibold">[{entry.sn}]</span>
+                          <span className="shrink-0 text-muted-foreground">{isOut ? "↑OUT" : "↓IN "}</span>
+                          <span className="break-all">{entry.line}</span>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </CardContent>

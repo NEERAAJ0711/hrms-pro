@@ -604,16 +604,18 @@ export function registerAdmsRoutes(app: Express) {
   // production PM2 logs on every 5-minute device heartbeat.
   app.use("/iclock", (req, _res, next) => {
     const sn = String(req.query.SN || req.query.sn || "?").trim();
+    const ip = clientIp(req);
     const method = req.method;
-    const url = req.path + (req.query.table ? `?table=${req.query.table}` : "");
+    const qs = new URLSearchParams(req.query as Record<string, string>).toString();
+    const fullUrl = req.path + (qs ? `?${qs}` : "");
     if (ADMS_DEBUG) {
       const bodyPreview = typeof req.body === "string" && req.body.length > 0
         ? ` BODY[${req.body.length}bytes]: ${req.body.slice(0, 400).replace(/\t/g, "·").replace(/\r?\n/g, " | ")}` : "";
-      const entry = `${method} ${url}${bodyPreview}`;
+      const entry = `${method} ${fullUrl}${bodyPreview} (ip:${ip})`;
       console.log(`[ADMS-RAW] SN=${sn} ${entry}`);
       admsLog("IN", sn, entry);
     } else {
-      admsLog("IN", sn, `${method} ${url}`);
+      admsLog("IN", sn, `${method} ${fullUrl} (ip:${ip})`);
     }
     next();
   });
@@ -671,6 +673,7 @@ export function registerAdmsRoutes(app: Express) {
     const transTimes = buildTransTimes();
 
     console.log(`[ADMS] GET /cdata SN=${sn} ip=${ip} ATTLOGStamp=${attlogStamp}`);
+    admsLog("OUT", sn, `→ 200 registration ATTLOGStamp=${attlogStamp}`);
     // SpeedFace-V5L / ZKTeco ADMS push-mode registration response.
     // TransTables=User Transaction instructs the device to push both its
     // enrolled-user list and attendance log to this server.
@@ -884,13 +887,17 @@ export function registerAdmsRoutes(app: Express) {
   // ---------------------------------------------------------------------------
 
   // Raw logger for bare paths (mirrors the /iclock middleware above).
+  // Always logs the full URL (with query string) and client IP so we can
+  // distinguish real device requests (has SN=...) from browser tests.
   app.use(["/cdata", "/getrequest", "/devicecmd", "/ping", "/test"], (req, _res, next) => {
     const sn = String(req.query.SN || req.query.sn || "?").trim();
+    const ip = clientIp(req);
     const method = req.method;
-    const url = req.path + (req.query.table ? `?table=${req.query.table}` : "");
+    const qs = new URLSearchParams(req.query as Record<string, string>).toString();
+    const fullUrl = req.path + (qs ? `?${qs}` : "");
     const bodyPreview = typeof req.body === "string" && req.body.length > 0
       ? ` BODY[${req.body.length}bytes]: ${req.body.slice(0, 400).replace(/\t/g, "·").replace(/\r?\n/g, " | ")}` : "";
-    const entry = `${method} ${url}${bodyPreview}`;
+    const entry = `${method} ${fullUrl}${bodyPreview} (ip:${ip})`;
     console.log(`[ADMS-RAW-BARE] SN=${sn} ${entry}`);
     admsLog("IN", sn, `(bare) ${entry}`);
     next();
@@ -909,15 +916,23 @@ export function registerAdmsRoutes(app: Express) {
         device = all[0];
         sn = device.deviceSerial || "";
         console.warn(`[ADMS] No-SN bare GET /cdata from ${ip} — matched sole device SN=${sn}`);
+        admsLog("IN", sn, `(bare) GET /cdata — no SN in query, auto-matched sole device (ip:${ip})`);
       }
     }
     if (!sn) return res.status(400).type("text/plain").send("ERROR: missing SN");
-    if (!device) return res.type("text/plain").send("OK");
+    if (!device) {
+      admsLog("IN", "?", `(bare) GET /cdata — unrecognised device (ip:${ip})`);
+      return res.type("text/plain").send("OK");
+    }
     const authErr = authenticateDevice(req, device, ip);
-    if (authErr) return res.status(401).type("text/plain").send("ERROR: unauthorized");
+    if (authErr) {
+      admsLog("IN", sn, `(bare) GET /cdata — auth rejected: ${authErr} (ip:${ip})`);
+      return res.status(401).type("text/plain").send("ERROR: unauthorized");
+    }
     await touchDevice(device.id, ip, { firmwareVersion: String(req.query.pushver || "") || undefined });
     const bareAttlogStamp = device.lastAttlogStamp ?? 0;
     console.log(`[ADMS] GET /cdata (bare) SN=${sn} ip=${ip} ATTLOGStamp=${bareAttlogStamp}`);
+    admsLog("OUT", sn, `(bare) → 200 registration ATTLOGStamp=${bareAttlogStamp}`);
     const lines = [
       `ServerVersion=2.4.1`,
       `ServerName=ADMS`,
@@ -1079,8 +1094,9 @@ function buildAdmsApp() {
   // then return a plain OK so the device doesn't stall on unexpected paths.
   admsApp.use((req, res) => {
     const sn = String(req.query.SN || req.query.sn || "?").trim();
-    console.warn(`[ADMS-UNKNOWN] SN=${sn} ${req.method} ${req.url}`);
-    admsLog("IN", sn, `UNKNOWN ${req.method} ${req.url}`);
+    const ip = clientIp(req);
+    console.warn(`[ADMS-UNKNOWN] SN=${sn} ip=${ip} ${req.method} ${req.url}`);
+    admsLog("IN", sn, `UNKNOWN ${req.method} ${req.url} (ip:${ip})`);
     res.type("text/plain").send("OK");
   });
   return admsApp;
