@@ -559,25 +559,27 @@ export function registerAdmsRoutes(app: Express) {
     // this firmware version. User data is obtained via the OPERLOGStamp=0
     // mechanism in the handshake config — the device will push OPERLOG data
     // (which includes enrollment events) at the next scheduled upload cycle.
-    if (!autoSyncQueued.has(device.id)) {
-      autoSyncQueued.add(device.id);
-      // Stamp=0 tells the device to re-upload ALL records from the very
-      // beginning, regardless of what stamp it thinks we already have.
-      enqueueDeviceCommand(device.id, "DATA UPDATE ATTLOG Stamp=0");
-      console.log(`[ADMS] Auto-queued "DATA UPDATE ATTLOG Stamp=0" for SN=${sn} on first handshake`);
-    }
+    // x2008 fw 2.4.x ignores Realtime/Delay after first boot.
+    // The reliable trigger is ATTLOGStamp=0 in every response — the device
+    // sees the server stamp is behind its own and immediately POSTs ATTLOG.
+    // We never advance the stamp so every handshake triggers a full upload;
+    // duplicates are silently discarded by processAttlog.
+    console.log(`[ADMS] Sending handshake config to SN=${sn} — ATTLOGStamp=0 will trigger immediate upload`);
 
-    // Standard ADMS config — no inline commands here (they break config parsing
-    // on older firmware). Commands are delivered via GET /iclock/getrequest.
-    //
-    // IMPORTANT notes for x2008 firmware compatibility:
-    //   - Do NOT include a bare "Stamp=0" — use the specific ATTLOGStamp /
-    //     OPERLOGStamp fields instead. A bare Stamp= can confuse some firmware
-    //     versions into thinking the server already has everything.
-    //   - TransFlag flags must be space-separated. Tabs break the parser on
-    //     some x2008 firmware builds.
-    //   - Delay=1 makes the device poll /getrequest every 1 second so commands
-    //     are picked up quickly.
+    // Build TransTimes: every minute of every hour (device uploads on each match).
+    // Keep it to every 5 minutes to avoid overflowing device config buffer.
+    const transTimes = Array.from({ length: 24 }, (_, h) =>
+      ["00", "05", "10", "15", "20", "25", "30", "35", "40", "45", "50", "55"].map(
+        (m) => `${String(h).padStart(2, "0")}:${m}`
+      ).join(";")
+    ).join(";");
+
+    // Embed a C: command directly in the cdata response.
+    // On x2008 fw 2.4.x this is the ONLY reliable way to trigger an immediate
+    // ATTLOG upload — the device reads the C: line, executes the DATA UPDATE
+    // command right after the handshake, then POSTs /cdata?table=ATTLOG.
+    const cmdId = nextCmdId++;
+    if (nextCmdId > 9999) nextCmdId = 1;
     const lines = [
       `GET OPTION FROM: ${sn}`,
       `ATTLOGStamp=0`,
@@ -585,14 +587,16 @@ export function registerAdmsRoutes(app: Express) {
       `ATTPHOTOStamp=0`,
       `ErrorDelay=30`,
       `Delay=1`,
-      `TransTimes=00:00;01:00;02:00;03:00;04:00;05:00;06:00;07:00;08:00;09:00;10:00;11:00;12:00;13:00;14:00;15:00;16:00;17:00;18:00;19:00;20:00;21:00;22:00;23:00`,
+      `TransTimes=${transTimes}`,
       `TransInterval=1`,
       `TransFlag=TransData AttLog OpLog AttPhoto EnrollUser ChgUser EnrollFP ChgFP FPImag`,
       `TimeZone=5.5`,
       `Realtime=1`,
       `Encrypt=None`,
+      `C:${cmdId}:DATA UPDATE ATTLOG Stamp=0`,
       ``,
     ];
+    console.log(`[ADMS] Embedded C:${cmdId}:DATA UPDATE ATTLOG Stamp=0 in cdata response for SN=${sn}`);
     res.type("text/plain").send(lines.join(NEW_LINE));
   });
 
@@ -793,19 +797,24 @@ export function registerAdmsRoutes(app: Express) {
     const authErr = authenticateDevice(req, device, ip);
     if (authErr) return res.status(401).type("text/plain").send("ERROR: unauthorized");
     await touchDevice(device.id, ip, { firmwareVersion: String(req.query.pushver || "") || undefined });
-    if (!autoSyncQueued.has(device.id)) {
-      autoSyncQueued.add(device.id);
-      enqueueDeviceCommand(device.id, "DATA UPDATE ATTLOG Stamp=0");
-      console.log(`[ADMS] Auto-queued "DATA UPDATE ATTLOG Stamp=0" for SN=${sn} (bare path)`);
-    }
+    const bareTransTimes = Array.from({ length: 24 }, (_, h) =>
+      ["00", "05", "10", "15", "20", "25", "30", "35", "40", "45", "50", "55"].map(
+        (m) => `${String(h).padStart(2, "0")}:${m}`
+      ).join(";")
+    ).join(";");
+    const bareCmdId = nextCmdId++;
+    if (nextCmdId > 9999) nextCmdId = 1;
+    console.log(`[ADMS] Embedded C:${bareCmdId}:DATA UPDATE ATTLOG Stamp=0 in bare /cdata response for SN=${sn}`);
     const lines = [
       `GET OPTION FROM: ${sn}`,
       `ATTLOGStamp=0`, `OPERLOGStamp=0`, `ATTPHOTOStamp=0`,
       `ErrorDelay=30`, `Delay=1`,
-      `TransTimes=00:00;01:00;02:00;03:00;04:00;05:00;06:00;07:00;08:00;09:00;10:00;11:00;12:00;13:00;14:00;15:00;16:00;17:00;18:00;19:00;20:00;21:00;22:00;23:00`,
+      `TransTimes=${bareTransTimes}`,
       `TransInterval=1`,
       `TransFlag=TransData AttLog OpLog AttPhoto EnrollUser ChgUser EnrollFP ChgFP FPImag`,
-      `TimeZone=5.5`, `Realtime=1`, `Encrypt=None`, ``,
+      `TimeZone=5.5`, `Realtime=1`, `Encrypt=None`,
+      `C:${bareCmdId}:DATA UPDATE ATTLOG Stamp=0`,
+      ``,
     ];
     res.type("text/plain").send(lines.join(NEW_LINE));
   });
