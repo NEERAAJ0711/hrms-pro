@@ -3,8 +3,8 @@ module.exports = {
     {
       name: "hrms-pro",
       script: "dist/index.cjs",
-      instances: "max",
-      exec_mode: "cluster",
+      instances: 1,
+      exec_mode: "fork",
       node_args: "--max-old-space-size=512",
       env: {
         NODE_ENV: "production",
