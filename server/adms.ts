@@ -979,9 +979,12 @@ export function registerAdmsRoutes(app: Express) {
       `Encrypt=0`,
       ``,
     ];
-    // Queue the command that triggers ATTLOG upload from the device.
-    // drainCommands() in the /getrequest handler will deliver it on the
-    // device's next poll (typically within seconds of registration).
+    // Queue commands delivered on the device's next /getrequest poll (seconds away).
+    // 1. Sync the device clock to server time — format must be "YYYY-MM-DD HH:MM:SS",
+    //    ZKTeco firmware does not accept the ISO 'T' separator or trailing 'Z'.
+    const deviceTime = new Date().toISOString().replace("T", " ").substring(0, 19);
+    await enqueueDeviceCommand(device.id, `SET TIME ${deviceTime}`);
+    // 2. Trigger ATTLOG upload (x2008 never self-initiates without this command).
     await enqueueDeviceCommand(device.id, `DATA UPDATE ATTLOG Stamp=${attlogStamp}`);
     return res.type("text/plain").send(x2008Lines.join(NEW_LINE));
   });
