@@ -6,6 +6,7 @@ import { timingSafeEqual, randomUUID } from "crypto";
 import { db } from "./db";
 import { sql } from "drizzle-orm";
 import { biometricPunchLogs } from "../shared/schema";
+import rateLimit from "express-rate-limit";
 
 // Verbose ADMS request/response logging — set DEBUG_ADMS=true in .env to enable.
 // Off by default in production to avoid flooding the PM2 log.
@@ -1129,6 +1130,17 @@ function buildAdmsApp() {
     });
     next();
   });
+  // Rate-limit: max 50 requests/second per IP.
+  // Protects against rogue devices, scanners, or firmware loops flooding the port.
+  // Legitimate ZKTeco devices poll at most every few seconds, well under this limit.
+  // Applied globally — every path on this server is device traffic (/iclock/* and bare).
+  admsApp.use(rateLimit({
+    windowMs: 1000,
+    max: 50,
+    standardHeaders: false,
+    legacyHeaders: false,
+    message: "Too many requests",
+  }));
   // Trust one proxy hop so req.ip is correct when the device pushes via NAT.
   admsApp.set("trust proxy", 1);
   // Mount all ZKTeco ADMS endpoints.
