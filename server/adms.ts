@@ -866,9 +866,13 @@ export function registerAdmsRoutes(app: Express) {
     res.type("text/plain").send("OK");
   });
 
-  // Some firmwares ping a plain root path on /iclock/ — keep it cheap.
-  app.get("/iclock/ping", (_req: Request, res: Response) => {
-    res.type("text/plain").send("OK");
+  // SpeedFace-V5L sends GET /iclock/test as a mandatory connectivity probe
+  // BEFORE it will start pushing attendance data. The protocol requires the
+  // literal response body "Test" — any other body causes the device to abort.
+  app.get(["/iclock/test", "/iclock/ping"], (req: Request, res: Response) => {
+    const sn = String(req.query.SN || req.query.sn || "?").trim();
+    console.log(`[ADMS] connectivity probe SN=${sn} path=${req.path}`);
+    res.type("text/plain").send("Test");
   });
 
   // ---------------------------------------------------------------------------
@@ -880,7 +884,7 @@ export function registerAdmsRoutes(app: Express) {
   // ---------------------------------------------------------------------------
 
   // Raw logger for bare paths (mirrors the /iclock middleware above).
-  app.use(["/cdata", "/getrequest", "/devicecmd", "/ping"], (req, _res, next) => {
+  app.use(["/cdata", "/getrequest", "/devicecmd", "/ping", "/test"], (req, _res, next) => {
     const sn = String(req.query.SN || req.query.sn || "?").trim();
     const method = req.method;
     const url = req.path + (req.query.table ? `?table=${req.query.table}` : "");
@@ -1048,7 +1052,11 @@ export function registerAdmsRoutes(app: Express) {
     res.type("text/plain").send("OK");
   });
 
-  app.get("/ping", (_req: Request, res: Response) => res.type("text/plain").send("OK"));
+  app.get(["/test", "/ping"], (req: Request, res: Response) => {
+    const sn = String(req.query.SN || req.query.sn || "?").trim();
+    console.log(`[ADMS] connectivity probe (bare) SN=${sn} path=${req.path}`);
+    res.type("text/plain").send("Test");
+  });
 }
 
 // ---------------------------------------------------------------------------
