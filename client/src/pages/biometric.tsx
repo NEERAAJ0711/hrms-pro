@@ -672,6 +672,37 @@ export default function BiometricPage() {
         </TabsContent>
 
         <TabsContent value="devices" className="mt-4 space-y-4">
+          {/* ADMS Server Port Status Banner */}
+          {canViewAdmsLog && admsServerStatus && (
+            <div className={`flex items-start gap-3 rounded-md border p-3 text-sm ${
+              admsServerStatus.running
+                ? "border-green-300 bg-green-50 text-green-900 dark:border-green-800 dark:bg-green-950 dark:text-green-200"
+                : "border-red-300 bg-red-50 text-red-900 dark:border-red-800 dark:bg-red-950 dark:text-red-200"
+            }`} data-testid="adms-server-status-banner">
+              {admsServerStatus.running
+                ? <CheckCircle className="h-4 w-4 mt-0.5 shrink-0" />
+                : <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />}
+              <div className="space-y-0.5">
+                <p className="font-medium">
+                  {admsServerStatus.running
+                    ? `ADMS server is running on port ${admsServerStatus.port}`
+                    : `ADMS server is NOT running on port ${admsServerStatus.port}`}
+                </p>
+                {admsServerStatus.running && admsServerStatus.boundAt && (
+                  <p className="text-xs opacity-75">
+                    Bound at {new Date(admsServerStatus.boundAt).toLocaleString()}. Devices should connect to <code className="font-mono">http://VPS-IP:{admsServerStatus.port}</code>
+                  </p>
+                )}
+                {!admsServerStatus.running && admsServerStatus.error && (
+                  <p className="text-xs font-mono opacity-90">{admsServerStatus.error}</p>
+                )}
+                {!admsServerStatus.running && (
+                  <p className="text-xs">Run <code className="font-mono">pm2 logs hrms-pro</code> on the VPS to see the error. Device pushes will fail until port {admsServerStatus.port} is available.</p>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* ADMS Server Setup Instructions */}
           <Card className="border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950">
             <CardHeader className="pb-2">
@@ -883,20 +914,31 @@ export default function BiometricPage() {
                         <TableCell className="text-xs text-muted-foreground">
                           {(() => {
                             const ts = device.lastPushAt || device.lastSync;
-                            if (!ts) return "Never";
+                            if (!ts) return <span className="text-amber-600 dark:text-amber-400 font-medium">Never connected</span>;
                             const date = new Date(ts);
                             const minsAgo = Math.round((Date.now() - date.getTime()) / 60000);
                             const agoLabel = minsAgo < 1 ? "just now" : minsAgo < 60 ? `${minsAgo}m ago` : `${Math.round(minsAgo / 60)}h ago`;
                             return (
-                              <span title={date.toLocaleString()}>
-                                {date.toLocaleString()}
-                                <span className="ml-1 opacity-60">({agoLabel})</span>
-                              </span>
+                              <div className="space-y-0.5">
+                                <span title={date.toLocaleString()}>
+                                  {date.toLocaleString()}
+                                  <span className="ml-1 opacity-60">({agoLabel})</span>
+                                </span>
+                                {device.lastPushIp && (
+                                  <div className="opacity-60 font-mono">ip: {device.lastPushIp}</div>
+                                )}
+                                <div className="flex items-center gap-1 font-mono">
+                                  <span className="opacity-60">stamp:</span>
+                                  <span className={device.lastAttlogStamp === 0 ? "text-amber-600 dark:text-amber-400" : "text-green-600 dark:text-green-400"}>
+                                    {device.lastAttlogStamp ?? 0}
+                                  </span>
+                                  {(device.lastAttlogStamp ?? 0) === 0 && (
+                                    <span className="opacity-60">(full re-upload pending)</span>
+                                  )}
+                                </div>
+                              </div>
                             );
                           })()}
-                          {device.pushTotal ? (
-                            <span className="ml-1 opacity-60">· {device.pushTotal} punches</span>
-                          ) : null}
                         </TableCell>
                         <TableCell className="text-right">
                           <TooltipProvider delayDuration={200}>
