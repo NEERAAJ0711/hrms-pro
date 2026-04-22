@@ -637,13 +637,17 @@ export function registerAdmsRoutes(app: Express) {
     // accidentally clearing the stored serial in the DB.
     let device = sn ? await findDeviceBySerial(sn) : undefined;
 
-    // No-SN firmware probe: fall back to sole registered device.
-    if (!device && !sn) {
+    // Sole-device fallback: match the only registered device when either no SN
+    // was sent OR the SN sent doesn't match any registered device (e.g. the DB
+    // entry still has the placeholder serial "TEST123" instead of the real one).
+    if (!device) {
       const all = await storage.getAllBiometricDevices();
       if (all.length === 1) {
         device = all[0];
-        sn = device.deviceSerial || "";
-        console.warn(`[ADMS] No-SN probe from ${ip} — matched sole device SN=${sn}`);
+        if (sn && sn !== device.deviceSerial) {
+          console.warn(`[ADMS] SN="${sn}" not in DB (registered: "${device.deviceSerial}") — sole-device fallback. Update the serial in Device Management.`);
+        }
+        sn = sn || device.deviceSerial || "";
       }
     }
 
@@ -735,14 +739,16 @@ export function registerAdmsRoutes(app: Express) {
     const stamp = String(req.query.Stamp || req.query.stamp || "0");
     const ip = clientIp(req);
 
-    // Same no-SN firmware probe fallback as GET /iclock/cdata.
+    // Sole-device fallback — same logic as GET /iclock/cdata.
     let device = sn ? await findDeviceBySerial(sn) : undefined;
-    if (!device && !sn) {
+    if (!device) {
       const all = await storage.getAllBiometricDevices();
       if (all.length === 1) {
         device = all[0];
-        sn = device.deviceSerial || "";
-        console.warn(`[ADMS] POST cdata no-SN from ${ip} table=${table} — matched sole device SN=${sn}`);
+        if (sn && sn !== device.deviceSerial) {
+          console.warn(`[ADMS] POST cdata SN="${sn}" not in DB (registered: "${device.deviceSerial}") — sole-device fallback. Update the serial in Device Management.`);
+        }
+        sn = sn || device.deviceSerial || "";
       }
     }
 
@@ -839,13 +845,16 @@ export function registerAdmsRoutes(app: Express) {
     let sn = String(req.query.SN || req.query.sn || "").trim();
     const ip = clientIp(req);
 
-    // No-SN firmware probe: resolve sole registered device so commands are delivered.
+    // Sole-device fallback so commands are delivered even when SN is wrong/absent.
     let device = sn ? await findDeviceBySerial(sn) : undefined;
-    if (!device && !sn) {
+    if (!device) {
       const all = await storage.getAllBiometricDevices();
       if (all.length === 1) {
         device = all[0];
-        sn = device.deviceSerial || "";
+        if (sn && sn !== device.deviceSerial) {
+          console.warn(`[ADMS] getrequest SN="${sn}" not in DB (registered: "${device.deviceSerial}") — sole-device fallback. Update the serial in Device Management.`);
+        }
+        sn = sn || device.deviceSerial || "";
       }
     }
 
@@ -943,13 +952,14 @@ export function registerAdmsRoutes(app: Express) {
     let sn = String(req.query.SN || req.query.sn || "").trim();
     const ip = clientIp(req);
     let device = sn ? await findDeviceBySerial(sn) : undefined;
-    if (!device && !sn) {
+    if (!device) {
       const all = await storage.getAllBiometricDevices();
       if (all.length === 1) {
         device = all[0];
-        sn = device.deviceSerial || "";
-        console.warn(`[ADMS] No-SN bare GET /cdata from ${ip} — matched sole device SN=${sn}`);
-        admsLog("IN", sn, `(bare) GET /cdata — no SN in query, auto-matched sole device (ip:${ip})`);
+        if (sn && sn !== device.deviceSerial) {
+          console.warn(`[ADMS] bare GET /cdata SN="${sn}" not in DB (registered: "${device.deviceSerial}") — sole-device fallback. Update the serial in Device Management.`);
+        }
+        sn = sn || device.deviceSerial || "";
       }
     }
     if (!sn) return res.status(400).type("text/plain").send("ERROR: missing SN");
@@ -1024,12 +1034,14 @@ export function registerAdmsRoutes(app: Express) {
     const stamp = String(req.query.Stamp || req.query.stamp || "0");
     const ip = clientIp(req);
     let device = sn ? await findDeviceBySerial(sn) : undefined;
-    if (!device && !sn) {
+    if (!device) {
       const all = await storage.getAllBiometricDevices();
       if (all.length === 1) {
         device = all[0];
-        sn = device.deviceSerial || "";
-        console.warn(`[ADMS] POST bare /cdata no-SN from ${ip} table=${table} — matched sole device SN=${sn}`);
+        if (sn && sn !== device.deviceSerial) {
+          console.warn(`[ADMS] bare POST /cdata SN="${sn}" not in DB (registered: "${device.deviceSerial}") — sole-device fallback. Update the serial in Device Management.`);
+        }
+        sn = sn || device.deviceSerial || "";
       }
     }
     if (!sn) return res.status(400).type("text/plain").send("ERROR: missing SN");
@@ -1088,9 +1100,15 @@ export function registerAdmsRoutes(app: Express) {
     let sn = String(req.query.SN || req.query.sn || "").trim();
     const ip = clientIp(req);
     let device = sn ? await findDeviceBySerial(sn) : undefined;
-    if (!device && !sn) {
+    if (!device) {
       const all = await storage.getAllBiometricDevices();
-      if (all.length === 1) { device = all[0]; sn = device.deviceSerial || ""; }
+      if (all.length === 1) {
+        device = all[0];
+        if (sn && sn !== device.deviceSerial) {
+          console.warn(`[ADMS] bare getrequest SN="${sn}" not in DB (registered: "${device.deviceSerial}") — sole-device fallback. Update the serial in Device Management.`);
+        }
+        sn = sn || device.deviceSerial || "";
+      }
     }
     if (device) {
       const authErr = authenticateDevice(req, device, ip);
@@ -1115,9 +1133,15 @@ export function registerAdmsRoutes(app: Express) {
     const ip = clientIp(req);
     const body = typeof req.body === "string" ? req.body : "";
     let device = sn ? await findDeviceBySerial(sn) : undefined;
-    if (!device && !sn) {
+    if (!device) {
       const all = await storage.getAllBiometricDevices();
-      if (all.length === 1) { device = all[0]; sn = device.deviceSerial || ""; }
+      if (all.length === 1) {
+        device = all[0];
+        if (sn && sn !== device.deviceSerial) {
+          console.warn(`[ADMS] bare devicecmd SN="${sn}" not in DB (registered: "${device.deviceSerial}") — sole-device fallback. Update the serial in Device Management.`);
+        }
+        sn = sn || device.deviceSerial || "";
+      }
     }
     if (device) {
       const authErr = authenticateDevice(req, device, ip);
