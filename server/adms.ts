@@ -85,24 +85,72 @@ export function resetAutoSyncGuard(deviceId: string): void {
   autoSyncQueued.delete(deviceId);
 }
 
-export function enqueueDeviceCommand(deviceId: string, cmd: string): void {
+export async function enqueueDeviceCommand(deviceId: string, cmd: string): Promise<void> {
+  // Update in-memory queue first (zero-latency for the current request cycle).
   const list = pendingCommands.get(deviceId) || [];
-  // Skip if the same command is already pending — repeated clicks while the
-  // device is offline shouldn't pile up duplicate work.
-  if (list.includes(cmd)) return;
-  if (list.length >= MAX_QUEUE_PER_DEVICE) {
-    console.warn(`[ADMS] queue full for device=${deviceId}, dropping cmd: ${cmd}`);
-    return;
+  if (!list.includes(cmd)) {
+    if (list.length >= MAX_QUEUE_PER_DEVICE) {
+      console.warn(`[ADMS] queue full for device=${deviceId}, dropping cmd: ${cmd}`);
+    } else {
+      list.push(cmd);
+      pendingCommands.set(deviceId, list);
+    }
   }
-  list.push(cmd);
-  pendingCommands.set(deviceId, list);
+
+  // Persist to DB so commands survive server restarts.
+  // Atomic: appends only when cmd is not already present and queue < limit.
+  // Silently falls back to in-memory-only when the column doesn't exist yet
+  // (before migration 012 has been applied on this DB instance).
+  try {
+    await db.execute(sql`
+      UPDATE biometric_devices
+      SET pending_commands = (
+        CASE
+          WHEN jsonb_array_length(COALESCE(pending_commands, '[]'::jsonb)) >= ${MAX_QUEUE_PER_DEVICE}
+            OR COALESCE(pending_commands, '[]'::jsonb) @> jsonb_build_array(${cmd}::text)
+          THEN COALESCE(pending_commands, '[]'::jsonb)
+          ELSE COALESCE(pending_commands, '[]'::jsonb) || jsonb_build_array(${cmd}::text)
+        END
+      )
+      WHERE id = ${deviceId}
+    `);
+  } catch {
+    // Best-effort: in-memory queue is already updated above.
+  }
 }
 
-function drainCommands(deviceId: string): string[] {
-  const list = pendingCommands.get(deviceId);
-  if (!list || list.length === 0) return [];
+async function drainCommands(deviceId: string): Promise<string[]> {
+  // Drain in-memory queue immediately.
+  const memCmds = pendingCommands.get(deviceId) || [];
   pendingCommands.delete(deviceId);
-  return list;
+
+  // Atomically read + clear the DB queue in a single CTE so nothing is lost
+  // even if two requests arrive simultaneously.
+  try {
+    const result = await db.execute(sql`
+      WITH snapshot AS (
+        SELECT COALESCE(pending_commands, '[]'::jsonb) AS cmds
+        FROM biometric_devices WHERE id = ${deviceId}
+      ),
+      cleared AS (
+        UPDATE biometric_devices
+        SET pending_commands = '[]'::jsonb
+        WHERE id = ${deviceId}
+      )
+      SELECT cmds FROM snapshot
+    `);
+    const dbCmds: string[] = (result.rows[0] as any)?.cmds ?? [];
+    // Merge DB + in-memory, preserving insertion order and deduplicating.
+    const seen = new Set<string>();
+    const merged: string[] = [];
+    for (const c of [...dbCmds, ...memCmds]) {
+      if (!seen.has(c)) { seen.add(c); merged.push(c); }
+    }
+    return merged;
+  } catch {
+    // Fall back to in-memory only (e.g. column not yet added by migration).
+    return memCmds;
+  }
 }
 
 // Source IP for ADMS auth. We deliberately do NOT parse the raw
@@ -601,7 +649,7 @@ export function registerAdmsRoutes(app: Express) {
     // in /getrequest responses. Embedding them here breaks the device parser.
     if (!autoSyncQueued.has(device.id)) {
       autoSyncQueued.add(device.id);
-      enqueueDeviceCommand(device.id, "DATA UPDATE ATTLOG Stamp=0");
+      await enqueueDeviceCommand(device.id, "DATA UPDATE ATTLOG Stamp=0");
       if (ADMS_DEBUG) console.log(`[ADMS] Queued "DATA UPDATE ATTLOG Stamp=0" for SN=${sn}`);
     }
 
@@ -675,6 +723,11 @@ export function registerAdmsRoutes(app: Express) {
     }
 
     const body = typeof req.body === "string" ? req.body : "";
+    // ackStamp is the stamp value we will send back in the OK: response.
+    // For ATTLOG this advances to the highest timestamp we processed; for
+    // other tables we echo the incoming stamp.
+    let ackStamp: number | string = stamp;
+
     if (table === "ATTLOG") {
       const lineCount = body.split(/\r?\n/).filter((l) => l.trim()).length;
       if (ADMS_DEBUG) {
@@ -685,11 +738,13 @@ export function registerAdmsRoutes(app: Express) {
         console.log(`[ADMS] POST ATTLOG SN=${sn} ip=${ip} Stamp=${stamp} lines=${lineCount}`);
       }
       const r = await processAttlog(device, body);
-      // Advance the per-device stamp to the highest record we just processed.
-      // On next GET /cdata we return this as ATTLOGStamp so the device only
-      // pushes records newer than this point. Fall back to current stored value
-      // if this batch yielded no parseable timestamps (e.g. empty or all-bad).
-      const newStamp = r.maxStamp > (device.lastAttlogStamp ?? 0) ? r.maxStamp : (device.lastAttlogStamp ?? 0);
+      // Advance the stamp to the highest timestamp in this batch. If no valid
+      // timestamps were parsed (r.maxStamp === 0) keep the stored value so we
+      // never regress — the device will re-push the same batch next cycle and
+      // our upsert will handle dedup safely.
+      const storedStamp = device.lastAttlogStamp ?? 0;
+      const newStamp = r.maxStamp > storedStamp ? r.maxStamp : storedStamp;
+      ackStamp = newStamp; // use local value — no extra DB read needed
       await touchDevice(device.id, ip, {
         addToTotal: r.inserted,
         lastAttlogStamp: newStamp > 0 ? newStamp : undefined,
@@ -697,7 +752,7 @@ export function registerAdmsRoutes(app: Express) {
       await storage.updateBiometricDevice(device.id, { lastSync: new Date().toISOString() } as any);
       _invalidateDevice(device.id);
       console.log(
-        `[ADMS] POST ATTLOG SN=${sn} ip=${ip} inserted=${r.inserted} dups=${r.duplicates} unmapped=${r.unmapped} bad=${r.bad} newStamp=${newStamp}`,
+        `[ADMS] POST ATTLOG SN=${sn} ip=${ip} inserted=${r.inserted} dups=${r.duplicates} unmapped=${r.unmapped} bad=${r.bad} ackStamp=${ackStamp}`,
       );
     } else if (table === "OPERLOG" || table === "USERINFO" || table === "USER") {
       // OPERLOG carries USER enrollments mixed with other op events; USERINFO
@@ -715,20 +770,10 @@ export function registerAdmsRoutes(app: Express) {
       console.log(`[ADMS] POST ${table} SN=${sn} ip=${ip} bytes=${body.length}`);
     }
 
-    // ATTLOG ack: respond with the latest stamp we stored for this device.
-    // The x2008 firmware stores this value and, on the next scheduled push,
-    // only sends records with a higher timestamp — eliminating redundant
-    // re-uploads. The bulk upsert still handles any overlap safely via
-    // ON CONFLICT DO NOTHING. When no stamp was set yet (device.lastAttlogStamp
-    // is 0) we echo 0 so the device re-sends everything (first-boot behaviour).
-    if (table === "ATTLOG") {
-      // Re-read from DB so we always ack the value we just persisted.
-      const freshDevice = await storage.getBiometricDevice(device.id);
-      const ackStamp = freshDevice?.lastAttlogStamp ?? 0;
-      res.type("text/plain").send(`OK: ${ackStamp}`);
-    } else {
-      res.type("text/plain").send(`OK: ${stamp}`);
-    }
+    // ATTLOG ack: the device interprets "OK: N" as "server has records up to
+    // timestamp N — don't re-send those next cycle." We use the highest epoch
+    // timestamp we just computed locally rather than doing another DB fetch.
+    res.type("text/plain").send(`OK: ${ackStamp}`);
   });
 
   // Device polling for queued commands.
@@ -756,7 +801,7 @@ export function registerAdmsRoutes(app: Express) {
       }
       await touchDevice(device.id, ip);
 
-      const cmds = drainCommands(device.id);
+      const cmds = await drainCommands(device.id);
       if (cmds.length > 0) {
         // Command IDs must be small sequential integers — x2008 firmware
         // silently ignores commands with large IDs (e.g. Date.now()).
@@ -845,7 +890,7 @@ export function registerAdmsRoutes(app: Express) {
     await touchDevice(device.id, ip, { firmwareVersion: String(req.query.pushver || "") || undefined });
     if (!autoSyncQueued.has(device.id)) {
       autoSyncQueued.add(device.id);
-      enqueueDeviceCommand(device.id, "DATA UPDATE ATTLOG Stamp=0");
+      await enqueueDeviceCommand(device.id, "DATA UPDATE ATTLOG Stamp=0");
       if (ADMS_DEBUG) console.log(`[ADMS] Queued "DATA UPDATE ATTLOG Stamp=0" for SN=${sn} (bare path)`);
     }
     const bareAttlogStamp = device.lastAttlogStamp ?? 0;
@@ -887,6 +932,8 @@ export function registerAdmsRoutes(app: Express) {
     const authErr = authenticateDevice(req, device, ip);
     if (authErr) return res.status(401).type("text/plain").send("ERROR: unauthorized");
     const body = typeof req.body === "string" ? req.body : "";
+    let ackStamp: number | string = stamp;
+
     if (table === "ATTLOG") {
       const lineCount = body.split(/\r?\n/).filter((l) => l.trim()).length;
       if (ADMS_DEBUG) {
@@ -897,22 +944,18 @@ export function registerAdmsRoutes(app: Express) {
         console.log(`[ADMS] POST bare ATTLOG SN=${sn} ip=${ip} Stamp=${stamp} lines=${lineCount}`);
       }
       const r = await processAttlog(device, body);
-      const newStamp = r.maxStamp > (device.lastAttlogStamp ?? 0) ? r.maxStamp : (device.lastAttlogStamp ?? 0);
+      const storedStamp = device.lastAttlogStamp ?? 0;
+      const newStamp = r.maxStamp > storedStamp ? r.maxStamp : storedStamp;
+      ackStamp = newStamp;
       await touchDevice(device.id, ip, {
         addToTotal: r.inserted,
         lastAttlogStamp: newStamp > 0 ? newStamp : undefined,
       });
       await storage.updateBiometricDevice(device.id, { lastSync: new Date().toISOString() } as any);
       _invalidateDevice(device.id);
-      console.log(`[ADMS] POST bare ATTLOG SN=${sn} inserted=${r.inserted} dups=${r.duplicates} newStamp=${newStamp}`);
+      console.log(`[ADMS] POST bare ATTLOG SN=${sn} inserted=${r.inserted} dups=${r.duplicates} ackStamp=${ackStamp}`);
     }
-    if (table === "ATTLOG") {
-      const freshDevice = await storage.getBiometricDevice(device.id);
-      const ackStamp = freshDevice?.lastAttlogStamp ?? 0;
-      res.type("text/plain").send(`OK: ${ackStamp}`);
-    } else {
-      res.type("text/plain").send(`OK: ${stamp}`);
-    }
+    res.type("text/plain").send(`OK: ${ackStamp}`);
   });
 
   // GET /getrequest → same as GET /iclock/getrequest (command polling)
@@ -928,7 +971,7 @@ export function registerAdmsRoutes(app: Express) {
       const authErr = authenticateDevice(req, device, ip);
       if (authErr) return res.status(401).type("text/plain").send("ERROR: unauthorized");
       await touchDevice(device.id, ip);
-      const cmds = drainCommands(device.id);
+      const cmds = await drainCommands(device.id);
       if (cmds.length > 0) {
         const lines = cmds.map((c) => `C:${nextCmdId++}:${c}`);
         if (nextCmdId > 9999) nextCmdId = 1;

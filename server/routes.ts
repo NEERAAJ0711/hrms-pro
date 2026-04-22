@@ -1289,8 +1289,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       for (const dev of devices) {
         await storage.updateBiometricDevice(dev.id, { lastAttlogStamp: 0 } as any);
         resetAutoSyncGuard(dev.id);
-        enqueueDeviceCommand(dev.id, "DATA UPDATE ATTLOG Stamp=0");
-        enqueueDeviceCommand(dev.id, "DATA UPDATE USERINFO");
+        await enqueueDeviceCommand(dev.id, "DATA UPDATE ATTLOG Stamp=0");
+        await enqueueDeviceCommand(dev.id, "DATA UPDATE USERINFO");
       }
 
       res.json({
@@ -1351,7 +1351,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ error: "Access denied" });
       }
       const { enqueueDeviceCommand } = await import("./adms");
-      enqueueDeviceCommand(device.id, "DATA UPDATE USERINFO");
+      await enqueueDeviceCommand(device.id, "DATA UPDATE USERINFO");
       res.json({
         success: true,
         message: "Sync requested. The device will push its user list on its next check-in (usually within 30 seconds). Refresh the View Users dialog after a minute.",
