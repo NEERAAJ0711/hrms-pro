@@ -383,14 +383,31 @@ export async function processAttlog(
   }
 
   for (const line of lines) {
-    // Parse ATTLOG line: ZKTeco firmware uses tab-separated fields.
-    // Some x2008 firmware versions use spaces. We try tab-split first;
-    // if that gives only 1 field we fall back to a regex that extracts
-    // PIN · YYYY-MM-DD HH:MM[:SS] · status from the raw text.
+    // Parse ATTLOG line. ZKTeco x2008 firmware 2.x emits tab-separated fields.
+    //
+    // Standard format:  PIN \t YYYY-MM-DD HH:MM:SS \t status \t verify ...
+    // Extended format:  PIN \t Name \t YYYY-MM-DD HH:MM:SS \t status \t ...
+    //   (some builds include the employee name as field[1])
+    //
+    // We auto-detect by checking whether field[1] looks like a datetime.
+    // If not, we treat it as the employee name and shift remaining fields.
+    // Fallback: regex scan for space-separated format when there are no tabs.
     let pin: string, ts: string, status: string = "0";
     const tabParts = line.split("\t");
     if (tabParts.length >= 2) {
-      pin = tabParts[0]; ts = tabParts[1]; status = tabParts[2] ?? "0";
+      pin = tabParts[0].trim();
+      // Detect extended format: field[1] is a name if it doesn't start with a digit sequence
+      // that looks like YYYY-MM-DD or YYYY/MM/DD.
+      const isDateField1 = /^\d{4}[-/]\d{2}[-/]\d{2}/.test(tabParts[1].trim());
+      if (isDateField1) {
+        // Standard: PIN \t DATE TIME \t status ...
+        ts     = tabParts[1].trim();
+        status = (tabParts[2] ?? "0").trim();
+      } else {
+        // Extended: PIN \t Name \t DATE TIME \t status ...
+        ts     = (tabParts[2] ?? "").trim();
+        status = (tabParts[3] ?? "0").trim();
+      }
     } else {
       // Regex fallback for space-separated ATTLOG.
       // Format: <PIN> <YYYY-MM-DD> <HH:MM[:SS]> <status> ...
@@ -399,12 +416,16 @@ export async function processAttlog(
         out.bad++;
         continue;
       }
-      pin = m[1];
-      ts  = `${m[2]} ${m[3]}`;
+      pin    = m[1];
+      ts     = `${m[2]} ${m[3]}`;
       status = m[4];
     }
     const split = splitTimestamp(ts);
     if (!split) {
+      // Log the first failure so we can see the raw field values in server logs.
+      if (out.bad === 0) {
+        console.warn(`[ADMS] ATTLOG parse fail — pin="${pin}" ts="${ts}" raw="${line.slice(0, 80)}"`);
+      }
       out.bad++;
       continue;
     }

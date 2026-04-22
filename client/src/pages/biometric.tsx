@@ -86,12 +86,6 @@ export default function BiometricPage() {
   // "Delete Device" confirmation state
   const [deviceToDelete, setDeviceToDelete] = useState<any | null>(null);
 
-  // Timezone correction state
-  const [tzFixOpen, setTzFixOpen] = useState(false);
-
-  // Clear & Re-Sync state
-  const [clearResyncOpen, setClearResyncOpen] = useState(false);
-
   // Direct Pull dialog state
   const [pullDirectDialogOpen, setPullDirectDialogOpen] = useState(false);
   const [pullDirectDevice, setPullDirectDevice] = useState<any | null>(null);
@@ -447,51 +441,6 @@ export default function BiometricPage() {
     },
   });
 
-  const clearResyncMutation = useMutation({
-    mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/biometric/clear-and-resync", {});
-      return res.json();
-    },
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/biometric/logs"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/biometric/devices"] });
-      toast({
-        title: "Cleared & Re-Sync Started",
-        description: typeof data?.message === "string" ? data.message : "All data cleared. Device is re-uploading.",
-      });
-      setClearResyncOpen(false);
-    },
-    onError: (error: any) => {
-      toast({
-        title: "Failed",
-        description: typeof error?.message === "string" ? error.message : "Clear & re-sync failed.",
-        variant: "destructive",
-      });
-    },
-  });
-
-  const tzFixMutation = useMutation({
-    mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/biometric/correct-timezone", { offsetMinutes: -150 });
-      return res.json();
-    },
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/biometric/logs"] });
-      toast({
-        title: "Timezone Corrected",
-        description: typeof data?.message === "string" ? data.message : "Punch times updated.",
-      });
-      setTzFixOpen(false);
-    },
-    onError: (error: any) => {
-      toast({
-        title: "Correction Failed",
-        description: typeof error?.message === "string" ? error.message : "Could not fix times.",
-        variant: "destructive",
-      });
-    },
-  });
-
   const mapPinMutation = useMutation({
     mutationFn: async ({ employeeId, devicePin, deviceId }: { employeeId: string; devicePin: string; deviceId?: string }) => {
       const res = await apiRequest("POST", "/api/biometric/map-pin", { employeeId, devicePin, deviceId });
@@ -671,18 +620,6 @@ export default function BiometricPage() {
           </p>
         </div>
         <div className="flex gap-2">
-          {isSuperAdmin && (
-            <Button variant="destructive" onClick={() => setClearResyncOpen(true)} data-testid="button-clear-resync">
-              <XCircle className="h-4 w-4 mr-2" />
-              Clear & Re-Sync
-            </Button>
-          )}
-          {isSuperAdmin && (
-            <Button variant="outline" onClick={() => setTzFixOpen(true)} data-testid="button-fix-timezone">
-              <Clock className="h-4 w-4 mr-2" />
-              Fix Old Times
-            </Button>
-          )}
           <Button variant="outline" onClick={() => { setImportFile(null); setImportDialogOpen(true); }} data-testid="button-import-attlog">
             <FileUp className="h-4 w-4 mr-2" />
             Import Attendance File
@@ -1740,32 +1677,6 @@ export default function BiometricPage() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Clear All Data & Re-Sync Confirmation */}
-      <AlertDialog open={clearResyncOpen} onOpenChange={setClearResyncOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Clear all punch data and re-sync?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This will <strong>permanently delete ALL stored punch logs</strong> and immediately
-              ask every biometric device to re-upload its complete attendance history with the
-              corrected IST time. The re-upload will start within seconds.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel data-testid="button-cancel-clear-resync">Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              data-testid="button-confirm-clear-resync"
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              onClick={() => clearResyncMutation.mutate()}
-              disabled={clearResyncMutation.isPending}
-            >
-              {clearResyncMutation.isPending ? "Clearing..." : "Yes, Clear & Re-Sync"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      {/* Timezone Correction Confirmation */}
       {/* Direct Pull Dialog */}
       <Dialog open={pullDirectDialogOpen} onOpenChange={setPullDirectDialogOpen}>
         <DialogContent className="max-w-md">
@@ -1936,28 +1847,6 @@ export default function BiometricPage() {
         </DialogContent>
       </Dialog>
 
-      <AlertDialog open={tzFixOpen} onOpenChange={setTzFixOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Fix stored punch times?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This will subtract <strong>2 hours 30 minutes</strong> from all stored punch records
-              (correcting UTC+8 China time → IST UTC+5:30). This is a <strong>one-time</strong> fix —
-              run it only once. Future punches from the device will already be in IST.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel data-testid="button-cancel-tz-fix">Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              data-testid="button-confirm-tz-fix"
-              onClick={() => tzFixMutation.mutate()}
-              disabled={tzFixMutation.isPending}
-            >
-              {tzFixMutation.isPending ? "Fixing..." : "Yes, Fix Times"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   );
 }
