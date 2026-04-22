@@ -1110,6 +1110,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const device = await storage.createBiometricDevice(data);
       res.status(201).json(device);
     } catch (error: any) {
+      if (error?.code === "23505" && error?.constraint?.includes("device_serial_unique")) {
+        return res.status(409).json({
+          error: "A device with this serial number already exists. Each machine must have a unique Device Serial / ID.",
+        });
+      }
       console.error("[biometric/devices POST] error:", error);
       res.status(500).json({ error: error?.message || "Failed to create biometric device", details: error?.errors });
     }
