@@ -599,13 +599,23 @@ export function registerAdmsRoutes(app: Express) {
   // The actual data push. Body is tab-separated lines; we got a `text`
   // body parser mounted under /iclock so `req.body` is always a string.
   app.post(["/iclock/cdata", "/iclock/cdata.aspx"], async (req: Request, res: Response) => {
-    const sn = String(req.query.SN || "").trim();
+    let sn = String(req.query.SN || req.query.sn || "").trim();
     const table = String(req.query.table || "").toUpperCase();
     const stamp = String(req.query.Stamp || req.query.stamp || "0");
     const ip = clientIp(req);
-    if (!sn) return res.status(400).type("text/plain").send("ERROR: missing SN");
 
-    const device = await findDeviceBySerial(sn);
+    // Same no-SN firmware probe fallback as GET /iclock/cdata.
+    let device = sn ? await findDeviceBySerial(sn) : undefined;
+    if (!device && !sn) {
+      const all = await storage.getAllBiometricDevices();
+      if (all.length === 1) {
+        device = all[0];
+        sn = device.deviceSerial || "";
+        console.warn(`[ADMS] POST cdata no-SN from ${ip} table=${table} — matched sole device SN=${sn}`);
+      }
+    }
+
+    if (!sn) return res.status(400).type("text/plain").send("ERROR: missing SN");
     if (!device) {
       console.warn(`[ADMS] POST cdata from UNKNOWN SN=${sn} ip=${ip} table=${table}`);
       // 200 OK + no-op so the device clears its queue rather than retrying
@@ -674,30 +684,38 @@ export function registerAdmsRoutes(app: Express) {
   // IMPORTANT: x2008 firmware polls /iclock/getrequest.aspx (with .aspx).
   // Both variants must be handled or commands are never delivered.
   app.get(["/iclock/getrequest", "/iclock/getrequest.aspx"], async (req: Request, res: Response) => {
-    const sn = String(req.query.SN || "").trim();
+    let sn = String(req.query.SN || req.query.sn || "").trim();
     const ip = clientIp(req);
-    if (sn) {
-      const device = await findDeviceBySerial(sn);
-      if (device) {
-        const authErr = authenticateDevice(req, device, ip);
-        if (authErr) {
-          console.warn(`[ADMS] REJECT GET getrequest SN=${sn} ip=${ip} reason="${authErr}"`);
-          return res.status(401).type("text/plain").send("ERROR: unauthorized");
-        }
-        await touchDevice(device.id, ip);
 
-        const cmds = drainCommands(device.id);
-        if (cmds.length > 0) {
-          // Command IDs must be small sequential integers — x2008 firmware
-          // silently ignores commands with large IDs (e.g. Date.now()).
-          const lines = cmds.map((c) => `C:${nextCmdId++}:${c}`);
-          // Wrap around to avoid ever sending very large IDs
-          if (nextCmdId > 9999) nextCmdId = 1;
-          const cmdStr = cmds.join(" | ");
-          console.log(`[ADMS] DELIVER cmds=${cmds.length} SN=${sn}: ${cmdStr}`);
-          admsLog("OUT", sn, `CMDS: ${cmdStr}`);
-          return res.type("text/plain").send(lines.join(NEW_LINE));
-        }
+    // No-SN firmware probe: resolve sole registered device so commands are delivered.
+    let device = sn ? await findDeviceBySerial(sn) : undefined;
+    if (!device && !sn) {
+      const all = await storage.getAllBiometricDevices();
+      if (all.length === 1) {
+        device = all[0];
+        sn = device.deviceSerial || "";
+      }
+    }
+
+    if (device) {
+      const authErr = authenticateDevice(req, device, ip);
+      if (authErr) {
+        console.warn(`[ADMS] REJECT GET getrequest SN=${sn} ip=${ip} reason="${authErr}"`);
+        return res.status(401).type("text/plain").send("ERROR: unauthorized");
+      }
+      await touchDevice(device.id, ip);
+
+      const cmds = drainCommands(device.id);
+      if (cmds.length > 0) {
+        // Command IDs must be small sequential integers — x2008 firmware
+        // silently ignores commands with large IDs (e.g. Date.now()).
+        const lines = cmds.map((c) => `C:${nextCmdId++}:${c}`);
+        // Wrap around to avoid ever sending very large IDs
+        if (nextCmdId > 9999) nextCmdId = 1;
+        const cmdStr = cmds.join(" | ");
+        console.log(`[ADMS] DELIVER cmds=${cmds.length} SN=${sn}: ${cmdStr}`);
+        admsLog("OUT", sn, `CMDS: ${cmdStr}`);
+        return res.type("text/plain").send(lines.join(NEW_LINE));
       }
     }
     res.type("text/plain").send("OK");
