@@ -903,10 +903,14 @@ export function registerAdmsRoutes(app: Express) {
     next();
   });
 
-  // GET /cdata → same as GET /iclock/cdata (handshake)
+  // GET /cdata → handshake.  Supports BOTH protocols:
+  //   • x2008 / legacy firmware: no "pushver" in query → "GET OPTION FROM:" format
+  //     The device does NOT self-initiate ATTLOG upload; it waits for a
+  //     "DATA UPDATE ATTLOG Stamp=X" command delivered via /getrequest.
+  //     We queue that command here so it is ready on the next poll.
+  //   • SpeedFace-V5L / newer push firmware: "pushver" present → "ServerVersion=" format
+  //     Device uploads automatically at TransTimes intervals; no extra command needed.
   app.get(["/cdata", "/cdata.aspx"], async (req: Request, res: Response) => {
-    // Reuse the /iclock/cdata logic by internally forwarding the request path
-    // and re-running the same handler. Simplest: just re-invoke the inline logic.
     let sn = String(req.query.SN || req.query.sn || "").trim();
     const ip = clientIp(req);
     let device = sn ? await findDeviceBySerial(sn) : undefined;
@@ -929,28 +933,56 @@ export function registerAdmsRoutes(app: Express) {
       admsLog("IN", sn, `(bare) GET /cdata — auth rejected: ${authErr} (ip:${ip})`);
       return res.status(401).type("text/plain").send("ERROR: unauthorized");
     }
+
+    const isSpeedFace = !!(req.query.pushver || req.query.PushVersion);
     await touchDevice(device.id, ip, { firmwareVersion: String(req.query.pushver || "") || undefined });
-    const bareAttlogStamp = device.lastAttlogStamp ?? 0;
-    console.log(`[ADMS] GET /cdata (bare) SN=${sn} ip=${ip} ATTLOGStamp=${bareAttlogStamp}`);
-    admsLog("OUT", sn, `(bare) → 200 registration ATTLOGStamp=${bareAttlogStamp}`);
-    const lines = [
-      `ServerVersion=2.4.1`,
-      `ServerName=ADMS`,
-      `PushVersion=2.6.1`,
-      `ATTLOGStamp=${bareAttlogStamp}`,
+    const attlogStamp = device.lastAttlogStamp ?? 0;
+
+    console.log(`[ADMS] GET /cdata (bare) SN=${sn} ip=${ip} protocol=${isSpeedFace ? "SpeedFace" : "x2008"} ATTLOGStamp=${attlogStamp}`);
+    admsLog("OUT", sn, `(bare) → 200 registration protocol=${isSpeedFace ? "SpeedFace" : "x2008"} ATTLOGStamp=${attlogStamp}`);
+
+    if (isSpeedFace) {
+      // SpeedFace-V5L / push mode — device uploads automatically at TransTimes
+      const lines = [
+        `ServerVersion=2.4.1`,
+        `ServerName=ADMS`,
+        `PushVersion=2.6.1`,
+        `ATTLOGStamp=${attlogStamp}`,
+        `OPERLOGStamp=9999999999`,
+        `ATTPHOTOStamp=0`,
+        `ErrorDelay=30`,
+        `RequestDelay=10`,
+        `TransTimes=${buildTransTimes()}`,
+        `TransInterval=1`,
+        `TransTables=User Transaction`,
+        `Realtime=1`,
+        `TimeoutSec=30`,
+        `Encrypt=None`,
+        ``,
+      ];
+      return res.type("text/plain").send(lines.join(NEW_LINE));
+    }
+
+    // x2008 / legacy mode — send "GET OPTION FROM:" registration response
+    // then queue DATA UPDATE ATTLOG command for delivery via /getrequest
+    const x2008Lines = [
+      `GET OPTION FROM: ${sn}`,
+      `ATTLOGStamp=${attlogStamp}`,
       `OPERLOGStamp=9999999999`,
-      `ATTPHOTOStamp=0`,
       `ErrorDelay=30`,
-      `RequestDelay=10`,
+      `Delay=10`,
       `TransTimes=${buildTransTimes()}`,
       `TransInterval=1`,
-      `TransTables=User Transaction`,
+      `TransFlag=TransData AttLog OpLog EnrollFP`,
       `Realtime=1`,
-      `TimeoutSec=30`,
-      `Encrypt=None`,
+      `Encrypt=0`,
       ``,
     ];
-    res.type("text/plain").send(lines.join(NEW_LINE));
+    // Queue the command that triggers ATTLOG upload from the device.
+    // drainCommands() in the /getrequest handler will deliver it on the
+    // device's next poll (typically within seconds of registration).
+    await enqueueDeviceCommand(device.id, `DATA UPDATE ATTLOG Stamp=${attlogStamp}`);
+    return res.type("text/plain").send(x2008Lines.join(NEW_LINE));
   });
 
   // POST /cdata → same as POST /iclock/cdata (attendance + user data push)
