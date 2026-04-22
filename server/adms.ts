@@ -723,41 +723,61 @@ export function registerAdmsRoutes(app: Express) {
 // ---------------------------------------------------------------------------
 const ADMS_PORT = parseInt(process.env.ADMS_PORT || "8181", 10);
 
-export function startAdmsServer() {
+function buildAdmsApp() {
   const admsApp = express();
-
   // Biometric devices send tab-separated payloads with no JSON content-type.
-  // Parse all /iclock bodies as plain text so req.body is always a string.
   admsApp.use(express.text({ type: "*/*", limit: "5mb" }));
-
-  // Trust one proxy hop — same as the main app so req.ip is correct when
-  // the device pushes through a load-balancer or NAT gateway.
+  // Trust one proxy hop so req.ip is correct when the device pushes via NAT.
   admsApp.set("trust proxy", 1);
-
-  // Mount all ZKTeco ADMS endpoints: /iclock/cdata, /iclock/getrequest, etc.
+  // Mount all ZKTeco ADMS endpoints.
   registerAdmsRoutes(admsApp);
+  // Catch-all health check so the device can verify connectivity on this port.
+  admsApp.use((_req, res) => res.type("text/plain").send("HRMS ADMS server OK"));
+  return admsApp;
+}
 
-  // Catch-all health check so the device can verify connectivity to this port.
-  admsApp.use((_req, res) => {
-    res.type("text/plain").send("HRMS ADMS server OK");
-  });
+/**
+ * Try to bind the ADMS server to ADMS_PORT.
+ * If port is already in use (e.g. rolling restart), retry up to maxRetries times
+ * with a short delay so the old process has time to release the socket.
+ */
+export function startAdmsServer(maxRetries = 6, retryDelayMs = 5000) {
+  const server = createServer(buildAdmsApp());
 
-  const server = createServer(admsApp);
-  server.listen({ port: ADMS_PORT, host: "0.0.0.0" }, () => {
+  let attempt = 0;
+
+  function tryListen() {
+    attempt++;
+    server.listen({ port: ADMS_PORT, host: "0.0.0.0" });
+  }
+
+  server.on("listening", () => {
     console.log(`[ADMS] Dedicated ADMS server listening on port ${ADMS_PORT}`);
     console.log(`[ADMS] ZKTeco devices should push to http://<server-ip>:${ADMS_PORT}/iclock/cdata`);
   });
 
   server.on("error", (err: NodeJS.ErrnoException) => {
     if (err.code === "EADDRINUSE") {
-      console.warn(
-        `[ADMS] Port ${ADMS_PORT} already in use — ADMS-only server not started. ` +
-        `Devices can still push to port 5000 via /iclock/cdata.`
-      );
+      if (attempt < maxRetries) {
+        console.warn(
+          `[ADMS] Port ${ADMS_PORT} in use (attempt ${attempt}/${maxRetries}) — ` +
+          `retrying in ${retryDelayMs / 1000}s…`
+        );
+        // Must close before re-listening
+        server.close(() => {
+          setTimeout(tryListen, retryDelayMs);
+        });
+      } else {
+        console.error(
+          `[ADMS] Port ${ADMS_PORT} still in use after ${maxRetries} attempts. ` +
+          `Devices can still push via the main app port.`
+        );
+      }
     } else {
       console.error("[ADMS] Server error:", err);
     }
   });
 
+  tryListen();
   return server;
 }
