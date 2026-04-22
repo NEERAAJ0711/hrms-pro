@@ -1,4 +1,6 @@
+import express from "express";
 import type { Express, Request, Response } from "express";
+import { createServer } from "http";
 import { storage } from "./storage";
 import { timingSafeEqual } from "crypto";
 import { db } from "./db";
@@ -711,4 +713,51 @@ export function registerAdmsRoutes(app: Express) {
   app.get("/iclock/ping", (_req: Request, res: Response) => {
     res.type("text/plain").send("OK");
   });
+}
+
+// ---------------------------------------------------------------------------
+// Dedicated HTTP server on port 8181 for ZKTeco ADMS push protocol.
+// ZKTeco devices default to port 8181, so this lets them work without any
+// port reconfiguration. The /iclock/* routes are also registered on the main
+// app (port 5000) for reverse-proxy setups that forward all traffic to one port.
+// ---------------------------------------------------------------------------
+const ADMS_PORT = parseInt(process.env.ADMS_PORT || "8181", 10);
+
+export function startAdmsServer() {
+  const admsApp = express();
+
+  // Biometric devices send tab-separated payloads with no JSON content-type.
+  // Parse all /iclock bodies as plain text so req.body is always a string.
+  admsApp.use(express.text({ type: "*/*", limit: "5mb" }));
+
+  // Trust one proxy hop — same as the main app so req.ip is correct when
+  // the device pushes through a load-balancer or NAT gateway.
+  admsApp.set("trust proxy", 1);
+
+  // Mount all ZKTeco ADMS endpoints: /iclock/cdata, /iclock/getrequest, etc.
+  registerAdmsRoutes(admsApp);
+
+  // Catch-all health check so the device can verify connectivity to this port.
+  admsApp.use((_req, res) => {
+    res.type("text/plain").send("HRMS ADMS server OK");
+  });
+
+  const server = createServer(admsApp);
+  server.listen({ port: ADMS_PORT, host: "0.0.0.0" }, () => {
+    console.log(`[ADMS] Dedicated ADMS server listening on port ${ADMS_PORT}`);
+    console.log(`[ADMS] ZKTeco devices should push to http://<server-ip>:${ADMS_PORT}/iclock/cdata`);
+  });
+
+  server.on("error", (err: NodeJS.ErrnoException) => {
+    if (err.code === "EADDRINUSE") {
+      console.warn(
+        `[ADMS] Port ${ADMS_PORT} already in use — ADMS-only server not started. ` +
+        `Devices can still push to port 5000 via /iclock/cdata.`
+      );
+    } else {
+      console.error("[ADMS] Server error:", err);
+    }
+  });
+
+  return server;
 }

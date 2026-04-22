@@ -4,7 +4,7 @@ import connectPgSimple from "connect-pg-simple";
 import pg from "pg";
 import { registerRoutes } from "./routes";
 import { setupBiometricSync } from "./biometric-sync";
-import { startAdmsServer } from "./adms-server";
+import { startAdmsServer } from "./adms";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 
