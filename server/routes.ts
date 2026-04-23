@@ -33,7 +33,7 @@ import {
   insertWageGradeSchema
 } from "@shared/schema";
 import { z } from "zod";
-import { registerAdmsRoutes, getAdmsActivityLog, getAdmsServerStatus, processAttlog, processUserRecords } from './adms';
+import { registerAdmsRoutes, getAdmsActivityLog, getAdmsActivityLogFromDB, getAdmsServerStatus, processAttlog, processUserRecords } from './adms';
 import * as dnsPromises from 'dns/promises';
 import multer from 'multer';
 import * as XLSX from 'xlsx';
@@ -1387,9 +1387,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // ===== Biometric Punch Log Routes =====
   // ADMS device communication log — shows last 200 raw requests from device.
-  // Useful to diagnose why old ATTLOG data isn't being pushed.
+  // Reads from DB (persistent, survives restarts) merged with in-memory entries.
   app.get("/api/biometric/adms-log", requireAuth, requireRole("super_admin", "company_admin"), async (_req, res) => {
-    res.json(getAdmsActivityLog());
+    const dbEntries = await getAdmsActivityLogFromDB();
+    const memEntries = getAdmsActivityLog();
+    // Merge: prefer DB (it has persisted entries); overlay recent in-memory ones
+    // that haven't been flushed yet by deduping by ts+line.
+    const seen = new Set(dbEntries.map((e) => `${e.ts}|${e.line}`));
+    const extra = memEntries.filter((e) => !seen.has(`${e.ts}|${e.line}`));
+    // DB entries come newest-first; reverse for chronological merge, then sort.
+    const all = [...dbEntries.reverse(), ...extra].sort(
+      (a, b) => new Date(a.ts).getTime() - new Date(b.ts).getTime()
+    );
+    res.json(all.slice(-200));
   });
 
   // ADMS server status — shows whether port 8181 is bound, when it started,

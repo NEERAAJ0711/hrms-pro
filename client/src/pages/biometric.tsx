@@ -1103,7 +1103,7 @@ export default function BiometricPage() {
                     Device Communication Log
                   </CardTitle>
                   <CardDescription>
-                    Live feed of ADMS traffic. Auto-refreshes every 5 s. Last 200 entries.
+                    Key events persisted to DB — survives server restarts. Auto-refreshes every 5 s. Last 200 entries.
                     <span className="ml-2 text-purple-600 dark:text-purple-400">↑OUT=server→device</span>
                     {" · "}
                     <span className="text-green-600 dark:text-green-400">green=ATTLOG</span>

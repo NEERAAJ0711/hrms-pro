@@ -394,11 +394,37 @@ export async function processUserRecords(
 }
 
 // ─── Activity log ─────────────────────────────────────────────────────────────
+// In-memory ring buffer for the live 5-second UI refresh — fast, no DB round-trip.
 const admsActivity: Array<{ ts: string; dir: "IN" | "OUT"; sn: string; line: string }> = [];
 
-function admsLog(dir: "IN" | "OUT", sn: string, line: string) {
-  admsActivity.push({ ts: new Date().toISOString(), dir, sn, line });
-  if (admsActivity.length > 300) admsActivity.shift();
+// Write a log entry to the in-memory ring buffer.
+// Key events (handshake, ATTLOG, command delivery) are ALSO persisted to the
+// `adms_activity_log` DB table so they survive server restarts.
+function admsLog(dir: "IN" | "OUT", sn: string, line: string, persist = false) {
+  const ts = new Date().toISOString();
+  admsActivity.push({ ts, dir, sn, line });
+  if (admsActivity.length > 500) admsActivity.shift();
+
+  if (persist) {
+    // Fire-and-forget DB insert; never block the request handler.
+    db.execute(sql`
+      INSERT INTO adms_activity_log (device_sn, direction, message, created_at)
+      VALUES (${sn}, ${dir}, ${line}, NOW())
+    `).then(async () => {
+      // Prune: keep only the newest 500 rows for this SN to bound table growth.
+      // Do this occasionally — whenever row count for the SN might exceed limit.
+      await db.execute(sql`
+        DELETE FROM adms_activity_log
+        WHERE device_sn = ${sn}
+          AND id NOT IN (
+            SELECT id FROM adms_activity_log
+            WHERE device_sn = ${sn}
+            ORDER BY id DESC
+            LIMIT 500
+          )
+      `);
+    }).catch(() => { /* best-effort */ });
+  }
 }
 
 export function getAdmsActivityLog() {
@@ -408,6 +434,31 @@ export function getAdmsActivityLog() {
     sn: e.sn,
     line: e.line,
   }));
+}
+
+// DB-backed version — survives server restarts.
+// Returns the most recent 200 entries across all devices.
+export async function getAdmsActivityLogFromDB(): Promise<Array<{
+  ts: string; direction: string; sn: string; line: string;
+}>> {
+  try {
+    const rows = await db.execute(sql`
+      SELECT device_sn AS sn, direction, message AS line,
+             created_at AS ts
+      FROM adms_activity_log
+      ORDER BY id DESC
+      LIMIT 200
+    `);
+    return (rows.rows as any[]).map((r) => ({
+      ts: r.ts instanceof Date ? r.ts.toISOString() : String(r.ts),
+      direction: String(r.direction),
+      sn: String(r.sn),
+      line: String(r.line),
+    }));
+  } catch {
+    // Table might not exist yet on older deployments — fall back to in-memory
+    return getAdmsActivityLog();
+  }
 }
 
 // ─── IP helpers ───────────────────────────────────────────────────────────────
@@ -549,7 +600,7 @@ export function registerAdmsRoutes(app: Express) {
 
     const isSpeedFace = !!fw;
     console.log(`[ADMS] HANDSHAKE SN="${effectiveSn}" ip=${ip} proto=${isSpeedFace ? "SpeedFace" : "x2008"} stamp=${stamp}`);
-    admsLog("OUT", effectiveSn, `→ 200 handshake proto=${isSpeedFace ? "SpeedFace" : "x2008"} stamp=${stamp}`);
+    admsLog("OUT", effectiveSn, `→ HANDSHAKE proto=${isSpeedFace ? "SpeedFace" : "x2008"} stamp=${stamp} ip=${ip}`, true);
 
     if (isSpeedFace) {
       const body = [
@@ -621,6 +672,7 @@ export function registerAdmsRoutes(app: Express) {
     if (table === "ATTLOG") {
       const lineCount = body.split(/\r?\n/).filter((l) => l.trim()).length;
       console.log(`[ADMS] POST ATTLOG SN="${effectiveSn}" ip=${ip} stamp=${stamp} lines=${lineCount}`);
+      admsLog("IN", effectiveSn, `← ATTLOG ${lineCount} lines stamp=${stamp} ip=${ip}`, true);
       if (ADMS_DEBUG && body) {
         console.log(`[ADMS]   body: ${body.slice(0, 500).replace(/\r?\n/g, " | ")}`);
       }
@@ -637,7 +689,7 @@ export function registerAdmsRoutes(app: Express) {
       await storage.updateBiometricDevice(device.id, { lastSync: new Date().toISOString() } as any);
       cacheDel(device.id);
 
-      admsLog("OUT", effectiveSn, `→ OK:${ackStamp} ATTLOG ins=${r.inserted} dups=${r.duplicates} bad=${r.bad}`);
+      admsLog("OUT", effectiveSn, `→ ATTLOG ins=${r.inserted} dups=${r.duplicates} bad=${r.bad} lines=${lineCount} stamp=${ackStamp}`, true);
 
     } else if (["OPERLOG","USERINFO","USER"].includes(table)) {
       const r = await processUserRecords(device, body);
@@ -688,7 +740,7 @@ export function registerAdmsRoutes(app: Express) {
       const lines = cmds.map((c) => `C:${nextCmdId++}:${c}`);
       if (nextCmdId > 9999) nextCmdId = 1;
       console.log(`[ADMS] DELIVER ${cmds.length} cmd(s) to SN="${effectiveSn}": ${cmds.join(" | ")}`);
-      admsLog("OUT", effectiveSn, `→ CMDS: ${cmds.join(" | ")}`);
+      admsLog("OUT", effectiveSn, `→ CMDS (${cmds.length}): ${cmds.join(" | ")}`, true);
       return res.type("text/plain").send(lines.join(CRLF));
     }
     admsLog("OUT", effectiveSn, "→ OK (no cmds)");
