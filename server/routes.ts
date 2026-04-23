@@ -1364,6 +1364,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Reset ATTLOGStamp to 0 on a single device so it re-uploads ALL stored records.
+  // Also enqueues DATA UPDATE ATTLOG Stamp=0 so the command is delivered on the
+  // device's next /getrequest poll (within seconds when device is online).
+  app.post("/api/biometric/devices/:id/reset-stamp", requireAuth, requireRole("super_admin", "company_admin"), async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const device = await storage.getBiometricDevice(req.params.id);
+      if (!device) return res.status(404).json({ error: "Device not found" });
+      if (user.role !== "super_admin" && device.companyId && device.companyId !== user.companyId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      await storage.updateBiometricDevice(device.id, { lastAttlogStamp: 0 } as any);
+      const { enqueueDeviceCommand } = await import("./adms");
+      await enqueueDeviceCommand(device.id, "DATA UPDATE ATTLOG Stamp=0");
+      res.json({ success: true, message: "ATTLOGStamp reset to 0. The device will re-upload all stored records on its next connection (within 5 minutes)." });
+    } catch (error: any) {
+      console.error("[biometric/devices/:id/reset-stamp] error:", error);
+      res.status(500).json({ error: String(error?.message || "Failed to reset stamp") });
+    }
+  });
+
   // ===== Biometric Punch Log Routes =====
   // ADMS device communication log — shows last 200 raw requests from device.
   // Useful to diagnose why old ATTLOG data isn't being pushed.

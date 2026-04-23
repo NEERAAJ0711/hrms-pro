@@ -3,7 +3,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { 
   Fingerprint, Upload, RefreshCw, AlertTriangle, CheckCircle, 
   Clock, XCircle, Settings, Plus, Trash2, Signal, SignalLow, Download, Users,
-  ShieldAlert, ShieldCheck, Pencil, KeyRound, Activity, UserCheck, FileUp
+  ShieldAlert, ShieldCheck, Pencil, KeyRound, Activity, UserCheck, FileUp, RotateCcw
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -398,6 +398,20 @@ export default function BiometricPage() {
         description: err?.message || "Could not request user sync",
         variant: "destructive",
       });
+    },
+  });
+
+  const resetStampMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await apiRequest("POST", `/api/biometric/devices/${id}/reset-stamp`, {});
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/biometric/devices"] });
+      toast({ title: "Stamp reset", description: typeof data?.message === "string" ? data.message : "Device will re-upload all records on next connection." });
+    },
+    onError: (err: any) => {
+      toast({ title: "Reset failed", description: err?.message || "Could not reset stamp", variant: "destructive" });
     },
   });
 
@@ -1023,6 +1037,21 @@ export default function BiometricPage() {
                                   </Button>
                                 </TooltipTrigger>
                                 <TooltipContent>Sync users from device</TooltipContent>
+                              </Tooltip>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    variant="outline"
+                                    size="icon"
+                                    className="text-amber-600 hover:text-amber-700"
+                                    onClick={() => resetStampMutation.mutate(device.id)}
+                                    disabled={resetStampMutation.isPending}
+                                    data-testid={`button-reset-stamp-${device.id}`}
+                                  >
+                                    <RotateCcw className={`h-4 w-4 ${resetStampMutation.isPending ? "animate-spin" : ""}`} />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>Force full re-upload (reset stamp to 0)</TooltipContent>
                               </Tooltip>
                               <Tooltip>
                                 <TooltipTrigger asChild>
