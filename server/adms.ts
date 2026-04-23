@@ -533,13 +533,18 @@ function authDevice(req: Request, device: any, ip: string): string | null {
   return token && cidr ? "neither token nor IP matched" : token ? "wrong token" : "IP not in CIDR";
 }
 
-// ─── TransTimes: every 5 minutes across all 24 hours ─────────────────────────
+// ─── TransTimes: every 30 minutes across 24 hours ────────────────────────────
+// x2008 firmware has a small HTTP response buffer (~2 KB total).
+// Sending all 288 five-minute slots overflows it and causes the device to
+// silently fail and fall back to only fetching /favicon.ico.
+// 48 half-hour slots (≈ 285 chars) fits comfortably.
 function buildTransTimes(): string {
-  return Array.from({ length: 24 }, (_, h) =>
-    ["00","05","10","15","20","25","30","35","40","45","50","55"]
-      .map((m) => `${String(h).padStart(2,"0")}:${m}`)
-      .join(";")
-  ).join(";");
+  const slots: string[] = [];
+  for (let h = 0; h < 24; h++) {
+    const hh = String(h).padStart(2, "0");
+    slots.push(`${hh}:00`, `${hh}:30`);
+  }
+  return slots.join(";");
 }
 
 // ─── ADMS server status ───────────────────────────────────────────────────────
@@ -623,16 +628,19 @@ export function registerAdmsRoutes(app: Express) {
       return res.type("text/plain").send(body);
     }
 
-    // x2008 — "GET OPTION FROM:" format, then queue commands for next poll
+    // x2008 — "GET OPTION FROM:" format, then queue commands for next poll.
+    // Keep this response small: x2008 firmware has a ~2 KB HTTP response buffer.
+    // TransFlag: AttLog only — OpLog/EnrollFP confuse older firmware and waste bytes.
+    // Delay=30: seconds between reconnect attempts (10 was too aggressive).
     const body = [
       `GET OPTION FROM: ${effectiveSn}`,
       `ATTLOGStamp=${stamp}`,
       "OPERLOGStamp=9999999999",
       "ErrorDelay=30",
-      "Delay=10",
+      "Delay=30",
       `TransTimes=${times}`,
       "TransInterval=1",
-      "TransFlag=TransData AttLog OpLog EnrollFP",
+      "TransFlag=TransData AttLog",
       "Realtime=1",
       "Encrypt=0",
       "",
