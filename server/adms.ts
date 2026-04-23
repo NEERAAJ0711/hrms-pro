@@ -32,11 +32,10 @@ import { sql } from "drizzle-orm";
 import { biometricPunchLogs } from "../shared/schema";
 import rateLimit from "express-rate-limit";
 
-// ─── Debug flag ──────────────────────────────────────────────────────────────
-// Key events (new device, ATTLOG insert, errors) are ALWAYS logged.
-// Verbose per-request noise is gated behind ADMS_DEBUG.
-const ADMS_DEBUG =
-  process.env.DEBUG_ADMS === "true" || process.env.NODE_ENV !== "production";
+// ─── Logging ─────────────────────────────────────────────────────────────────
+// ALL ADMS events are logged unconditionally — no debug gate.
+// This is a biometric system; visibility into every request is essential.
+const ADMS_DEBUG = true; // always on
 
 const CRLF = "\r\n";
 
@@ -743,16 +742,32 @@ export function registerAdmsRoutes(app: Express) {
     }
 
     await touchDevice(device.id, ip);
-    const cmds = await drainCommands(device.id);
-    if (cmds.length > 0) {
-      const lines = cmds.map((c) => `C:${nextCmdId++}:${c}`);
-      if (nextCmdId > 9999) nextCmdId = 1;
-      console.log(`[ADMS] DELIVER ${cmds.length} cmd(s) to SN="${effectiveSn}": ${cmds.join(" | ")}`);
-      admsLog("OUT", effectiveSn, `→ CMDS (${cmds.length}): ${cmds.join(" | ")}`, true);
-      return res.type("text/plain").send(lines.join(CRLF));
-    }
-    admsLog("OUT", effectiveSn, "→ OK (no cmds)");
-    res.type("text/plain").send("OK");
+
+    // Drain any explicitly queued commands first (SET TIME, CLEAR DATA, etc.)
+    const queued = await drainCommands(device.id);
+
+    // Build command list.
+    // CRITICAL: We ALWAYS include DATA UPDATE ATTLOG so the x2008 pushes its
+    // records regardless of whether it went through a full handshake cycle.
+    // The stamp tells the device which records to send: 0 = all records.
+    const stamp = device.lastAttlogStamp ?? 0;
+    const attlogCmd = `DATA UPDATE ATTLOG Stamp=${stamp}`;
+
+    // Merge: queued commands first (excluding any stale ATTLOG variant),
+    // then the always-fresh ATTLOG command. This guarantees exactly one
+    // DATA UPDATE ATTLOG in the response, with the correct current stamp.
+    const allCmds = [
+      ...queued.filter((c) => !c.startsWith("DATA UPDATE ATTLOG")),
+      attlogCmd,
+    ];
+
+    const lines = allCmds.map((c) => `C:${nextCmdId++}:${c}`);
+    if (nextCmdId > 9999) nextCmdId = 1;
+
+    const responseBody = lines.join(CRLF) + CRLF;
+    console.log(`[ADMS] GETREQUEST SN="${effectiveSn}" stamp=${stamp} → ${allCmds.length} cmd(s): ${allCmds.join(" | ")}`);
+    admsLog("OUT", effectiveSn, `→ CMDS (${allCmds.length}): ${allCmds.join(" | ")}`, true);
+    res.type("text/plain").send(responseBody);
   }
 
   // Shared POST /devicecmd handler
