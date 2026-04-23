@@ -46,12 +46,14 @@ declare module "http" {
 }
 
 // Biometric devices in ADMS push mode send tab-separated payloads with a
-// non-JSON content type. Mount a text parser scoped to /iclock so those
-// requests reach the handlers as a plain string instead of an empty body.
-app.use(
-  "/iclock",
-  express.text({ type: "*/*", limit: "5mb" }),
-);
+// non-JSON content type. Parse ALL known ADMS paths as plain text so those
+// requests reach the handlers as a string instead of an empty body.
+// Covers both /iclock/cdata and bare /cdata paths (device may use either).
+const admsTextParser = express.text({ type: () => true, limit: "10mb" });
+app.use("/iclock", admsTextParser);
+app.use("/cdata", admsTextParser);
+app.use("/getrequest", admsTextParser);
+app.use("/devicecmd", admsTextParser);
 
 app.use(
   express.json({

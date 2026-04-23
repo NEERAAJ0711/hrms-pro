@@ -66,7 +66,7 @@ function cacheGet(key: string): any | null {
 }
 
 function cacheDel(deviceId: string): void {
-  for (const [k, v] of _cache) {
+  for (const [k, v] of Array.from(_cache.entries())) {
     if (v.device?.id === deviceId) _cache.delete(k);
   }
 }
@@ -275,8 +275,8 @@ function parseUserLine(line: string): Record<string, string> | null {
 export async function processAttlog(
   device: any,
   body: string
-): Promise<{ inserted: number; duplicates: number; bad: number; maxStamp: number }> {
-  const out = { inserted: 0, duplicates: 0, bad: 0, maxStamp: 0 };
+): Promise<{ inserted: number; duplicates: number; bad: number; unmapped: number; maxStamp: number }> {
+  const out = { inserted: 0, duplicates: 0, bad: 0, unmapped: 0, maxStamp: 0 };
   const lines = (body || "").split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
   if (!lines.length) return out;
 
@@ -336,10 +336,12 @@ export async function processAttlog(
 
     if (parsed.epoch > out.maxStamp) out.maxStamp = parsed.epoch;
 
+    const matchedEmployee = byPin.get(String(pin)) ?? null;
+    if (!matchedEmployee) out.unmapped++;
     rows.push({
       id:               randomUUID(),
       companyId,
-      employeeId:       byPin.get(String(pin))?.id ?? null,
+      employeeId:       matchedEmployee?.id ?? null,
       deviceEmployeeId: pin,
       punchTime:        parsed.time,
       punchDate:        parsed.date,
@@ -365,7 +367,7 @@ export async function processAttlog(
     out.duplicates = rows.length - inserted.length;
     console.log(
       `[ADMS] ATTLOG device=${device.deviceSerial} ` +
-      `inserted=${out.inserted} dups=${out.duplicates} bad=${out.bad} lines=${lines.length}`
+      `inserted=${out.inserted} dups=${out.duplicates} unmapped=${out.unmapped} bad=${out.bad} lines=${lines.length}`
     );
   } catch (err) {
     console.error("[ADMS] ATTLOG bulk insert failed:", err);
