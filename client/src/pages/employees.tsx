@@ -11,7 +11,9 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -61,7 +63,8 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useLocation } from "wouter";
 import { useAuth } from "@/lib/auth";
 import { Checkbox } from "@/components/ui/checkbox";
-import type { Employee, Company, TimeOfficePolicy } from "@shared/schema";
+import { HardHat, Briefcase } from "lucide-react";
+import type { Employee, Company, TimeOfficePolicy, ContractorEmployee } from "@shared/schema";
 
 // ─── Bulk-update field definitions ────────────────────────────────────────────
 const BULK_UPDATE_GROUPS: { group: string; fields: { label: string; hint?: string }[] }[] = [
@@ -182,6 +185,9 @@ export default function Employees() {
   const [linkedAccountOpen, setLinkedAccountOpen] = useState(false);
   const [linkedAccountEmployee, setLinkedAccountEmployee] = useState<Employee | null>(null);
 
+  // Contractor company filter: "own" | "c:<companyId>:<contractorId>" | "pe:<peCompanyId>:<currentCompanyId>"
+  const [contractorFilter, setContractorFilter] = useState("own");
+
   const { data: employees = [], isLoading } = useQuery<Employee[]>({
     queryKey: ["/api/employees"],
   });
@@ -189,6 +195,49 @@ export default function Employees() {
   const { data: companies = [] } = useQuery<Company[]>({
     queryKey: ["/api/companies"],
   });
+
+  // Contractors and principal employers for company admin filter dropdown
+  type ContractorRow = { id: string; companyId: string; contractorId: string; startDate: string; contractorName: string };
+  type PERow = { id: string; companyId: string; contractorId: string; startDate: string; companyName: string };
+
+  const { data: myContractors = [] } = useQuery<ContractorRow[]>({
+    queryKey: ["/api/companies", user?.companyId, "contractors"],
+    queryFn: async () => {
+      const res = await fetch(`/api/companies/${user?.companyId}/contractors`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed");
+      return res.json();
+    },
+    enabled: !isSuperAdmin && !!user?.companyId,
+  });
+
+  const { data: myPrincipalEmployers = [] } = useQuery<PERow[]>({
+    queryKey: ["/api/companies", user?.companyId, "principal-employers"],
+    queryFn: async () => {
+      const res = await fetch(`/api/companies/${user?.companyId}/principal-employers`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed");
+      return res.json();
+    },
+    enabled: !isSuperAdmin && !!user?.companyId,
+  });
+
+  // Parse filter value to determine tagged employee API params
+  const filterParts = contractorFilter.split(":");
+  const filterType = filterParts[0]; // "own" | "c" | "pe"
+  const filterCompanyId = filterParts[1] || "";
+  const filterContractorId = filterParts[2] || "";
+  const isContractorView = filterType !== "own";
+
+  const { data: taggedEmployeeRecords = [] } = useQuery<ContractorEmployee[]>({
+    queryKey: ["/api/companies", filterCompanyId, "contractors", filterContractorId, "employees"],
+    queryFn: async () => {
+      const res = await fetch(`/api/companies/${filterCompanyId}/contractors/${filterContractorId}/employees`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed");
+      return res.json();
+    },
+    enabled: isContractorView && !!filterCompanyId && !!filterContractorId,
+  });
+
+  const taggedEmployeeIds = new Set(taggedEmployeeRecords.map((r) => r.employeeId));
 
   const { data: timeOfficePolicies = [] } = useQuery<TimeOfficePolicy[]>({
     queryKey: ["/api/time-office-policies"],
@@ -326,10 +375,16 @@ export default function Employees() {
   };
 
   const filteredEmployees = employees.filter((employee) => {
-    // Company isolation: super_admin can filter; company_admin always scoped to their company
-    const matchesCompany = isSuperAdmin
-      ? (selectedCompany === "__all__" || employee.companyId === selectedCompany)
-      : employee.companyId === (user?.companyId || "");
+    // Company isolation logic
+    let matchesCompany: boolean;
+    if (isContractorView) {
+      // Show only tagged employees for the selected contractor/PE relationship
+      matchesCompany = taggedEmployeeIds.has(employee.id);
+    } else if (isSuperAdmin) {
+      matchesCompany = selectedCompany === "__all__" || employee.companyId === selectedCompany;
+    } else {
+      matchesCompany = employee.companyId === (user?.companyId || "");
+    }
     const matchesSearch =
       `${employee.firstName} ${employee.lastName}`.toLowerCase().includes(searchQuery.toLowerCase()) ||
       employee.employeeCode.toLowerCase().includes(searchQuery.toLowerCase());
@@ -612,6 +667,51 @@ export default function Employees() {
                 </SelectContent>
               </Select>
             )}
+
+            {/* Contractor / Principal Employer company filter — company admins only */}
+            {!isSuperAdmin && (myContractors.length > 0 || myPrincipalEmployers.length > 0) && (
+              <Select value={contractorFilter} onValueChange={setContractorFilter}>
+                <SelectTrigger className="w-56" data-testid="select-contractor-company-filter">
+                  <SelectValue placeholder="Own Company" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="own">Own Company</SelectItem>
+
+                  {myContractors.length > 0 && (
+                    <SelectGroup>
+                      <SelectLabel className="flex items-center gap-1.5 text-amber-600">
+                        <HardHat className="h-3.5 w-3.5" /> Contractors
+                      </SelectLabel>
+                      {myContractors.map((c) => (
+                        <SelectItem
+                          key={c.id}
+                          value={`c:${c.companyId}:${c.contractorId}`}
+                        >
+                          {c.contractorName}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  )}
+
+                  {myPrincipalEmployers.length > 0 && (
+                    <SelectGroup>
+                      <SelectLabel className="flex items-center gap-1.5 text-blue-600">
+                        <Briefcase className="h-3.5 w-3.5" /> Principal Employers
+                      </SelectLabel>
+                      {myPrincipalEmployers.map((pe) => (
+                        <SelectItem
+                          key={pe.id}
+                          value={`pe:${pe.companyId}:${pe.contractorId}`}
+                        >
+                          {pe.companyName}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  )}
+                </SelectContent>
+              </Select>
+            )}
+
             <div className="relative flex-1 min-w-[200px] max-w-sm">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
