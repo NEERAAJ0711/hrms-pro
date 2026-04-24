@@ -96,20 +96,21 @@ function AdminDashboard({ stats }: { stats: DashboardStats }) {
   const [, navigate] = useLocation();
   const isSuperAdmin = user?.role === "super_admin";
 
-  // Contractors page link: company admin goes to their own page; super admin goes to companies list
-  const contractorsHref = isSuperAdmin ? "/companies" : user?.companyId ? `/companies/${user.companyId}/contractors` : "/companies";
-
   return (
     <div className="space-y-6">
-      <div className={`grid gap-4 sm:grid-cols-2 ${isSuperAdmin ? "lg:grid-cols-3 xl:grid-cols-6" : "lg:grid-cols-5"}`}>
+      <div className={`grid gap-4 sm:grid-cols-2 ${isSuperAdmin ? "lg:grid-cols-4" : "lg:grid-cols-2 xl:grid-cols-4"}`}>
         {isSuperAdmin && (
           <StatCard title="Total Companies" value={stats.totalCompanies} icon={Building2} description="Registered organizations" color="primary" href="/companies" />
         )}
         <StatCard title="Total Employees" value={stats.totalEmployees} icon={Users} description="Across all companies" color="cyan" href="/employees" />
         <StatCard title="Active Employees" value={stats.activeEmployees} icon={UserCheck} description="Currently employed" trend="+12% this month" color="emerald" href="/employees" />
         <StatCard title="System Users" value={stats.totalUsers} icon={Star} description="With system access" color="violet" href="/users" />
-        <StatCard title="Contractors" value={stats.totalContractors} icon={HardHat} description="Linked contractor companies" color="amber" href={contractorsHref} />
-        <StatCard title="Principal Employers" value={stats.totalPrincipalEmployers} icon={Briefcase} description="Companies acting as principal" color="rose" href={contractorsHref} />
+        {!isSuperAdmin && user?.companyId && (
+          <StatCard title="Contractors" value={stats.totalContractors} icon={HardHat} description="Linked contractor companies" color="amber" href={`/companies/${user.companyId}/contractors`} />
+        )}
+        {!isSuperAdmin && user?.companyId && (
+          <StatCard title="Principal Employers" value={stats.totalPrincipalEmployers} icon={Briefcase} description="Companies acting as principal" color="rose" href={`/companies/${user.companyId}/contractors`} />
+        )}
       </div>
 
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
