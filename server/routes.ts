@@ -1399,8 +1399,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Queue the USERINFO fetch command so the device pushes its enrolled user list
       // (with names) on the next /getrequest poll (within seconds when online).
       const { enqueueDeviceCommand } = await import("./adms");
-      await enqueueDeviceCommand(device.id, "DATA UPDATE USERINFO");
-      console.log(`[biometric/sync-users] Queued DATA UPDATE USERINFO for device ${device.deviceSerial}`);
+      // Stamp=0 forces the device to re-upload ALL enrolled users (not just new ones)
+      await enqueueDeviceCommand(device.id, "DATA UPDATE USERINFO Stamp=0");
+      console.log(`[biometric/sync-users] Queued DATA UPDATE USERINFO Stamp=0 for device ${device.deviceSerial}`);
       res.json({
         success: true,
         message: "User sync command sent to device. Names will appear within 30 seconds — refresh the Users dialog after the device responds.",

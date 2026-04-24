@@ -879,89 +879,115 @@ export default function BiometricPage() {
                 <p className="text-sm text-center">Users appear once the device pushes its enrollment list or someone punches in</p>
               </div>
             ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 p-1">
-                {deviceUsers.users.map((u: any) => {
-                  const hrName = u.matched ? `${u.firstName || ""} ${u.lastName || ""}`.trim() : null;
-                  const displayName = u.deviceName || hrName;
+              <>
+                {/* Banner for card-only (punch-only unmapped) users */}
+                {(() => {
+                  const cardOnly = deviceUsers.users.filter((u: any) => !u.enrolled && !u.matched);
+                  if (!cardOnly.length) return null;
                   return (
-                    <div key={u.deviceEmployeeId} className={`rounded-xl border p-4 flex flex-col gap-3 transition-shadow hover:shadow-md ${u.matched ? "border-green-200 dark:border-green-800 bg-green-50/30 dark:bg-green-950/20" : "bg-card"}`}>
-                      {/* Photo + Name row */}
-                      <div className="flex items-center gap-3">
-                        <Avatar
-                          name={hrName || u.deviceName}
-                          photo={u.faceImage}
-                          size="lg"
-                        />
-                        <div className="flex-1 min-w-0">
-                          <p className="font-semibold text-sm leading-tight truncate">
-                            {u.deviceName || <span className="text-muted-foreground italic">No name on device</span>}
-                          </p>
-                          {u.privilege && u.privilege !== "0" && (
-                            <Badge variant="outline" className="text-[10px] mt-0.5">Admin</Badge>
-                          )}
-                          <div className="flex items-center gap-1.5 mt-1">
-                            <span className="text-[10px] bg-muted px-1.5 py-0.5 rounded font-mono text-muted-foreground">PIN: {u.deviceEmployeeId}</span>
-                            {u.enrolled ? (
-                              <Badge className="text-[10px] h-4 px-1.5 bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300 border-0">Enrolled</Badge>
-                            ) : (
-                              <Badge variant="outline" className="text-[10px] h-4 px-1.5">Punch only</Badge>
-                            )}
-                          </div>
-                        </div>
+                    <div className="mx-1 mb-3 flex items-start gap-2.5 rounded-lg border border-amber-300 bg-amber-50 dark:border-amber-800 dark:bg-amber-950 px-3 py-2.5 text-xs text-amber-900 dark:text-amber-200">
+                      <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+                      <div>
+                        <p className="font-semibold">{cardOnly.length} card/access punch user{cardOnly.length > 1 ? "s" : ""} need to be linked</p>
+                        <p className="mt-0.5 opacity-80">These PINs have punch records but are not face-enrolled on this device (they use an access card). Click <strong>Map to Employee</strong> on each to link them — their HR name and photo will then appear automatically.</p>
                       </div>
-
-                      {/* HR Employee link */}
-                      <div className={`rounded-lg px-3 py-2 text-xs ${u.matched ? "bg-green-100 dark:bg-green-900/40 border border-green-200 dark:border-green-800" : "bg-muted/60 border"}`}>
-                        {u.matched ? (
-                          <div className="flex items-center gap-1.5 text-green-800 dark:text-green-300">
-                            <BadgeCheck className="h-3.5 w-3.5 shrink-0" />
-                            <div className="min-w-0">
-                              <p className="font-medium truncate">{hrName}</p>
-                              {u.hrEmployeeCode && <p className="opacity-70">{u.hrEmployeeCode} {u.designation ? `· ${u.designation}` : ""}</p>}
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="flex items-center gap-1.5 text-muted-foreground">
-                            <Link2 className="h-3.5 w-3.5 shrink-0 opacity-50" />
-                            <span>Not linked to HR employee</span>
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Stats row */}
-                      <div className="flex items-center justify-between text-xs text-muted-foreground">
-                        <div className="flex items-center gap-1">
-                          <Clock className="h-3 w-3" />
-                          <span>{u.punchCount} punch{u.punchCount !== 1 ? "es" : ""}</span>
-                        </div>
-                        {u.lastSeenAt && (
-                          <span className="truncate ml-2" title={u.lastSeenAt}>
-                            Last: {u.lastSeenAt.substring(0, 10)}
-                          </span>
-                        )}
-                      </div>
-
-                      {/* Map button */}
-                      <Button
-                        data-testid={`button-map-pin-${u.deviceEmployeeId}`}
-                        size="sm"
-                        variant={u.matched ? "outline" : "default"}
-                        className="w-full h-8 text-xs"
-                        onClick={() => {
-                          setMapPinRow({ devicePin: u.deviceEmployeeId, deviceName: u.deviceName || u.deviceEmployeeId });
-                          setMapSelectedEmployee(u.employeeId || "");
-                        }}
-                      >
-                        {u.matched ? (
-                          <><Pencil className="h-3 w-3 mr-1.5" /> Remap Employee</>
-                        ) : (
-                          <><Link2 className="h-3 w-3 mr-1.5" /> Map to Employee</>
-                        )}
-                      </Button>
                     </div>
                   );
-                })}
-              </div>
+                })()}
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 p-1">
+                  {deviceUsers.users.map((u: any) => {
+                    const hrName = u.matched ? `${u.firstName || ""} ${u.lastName || ""}`.trim() : null;
+                    const isCardOnly = !u.enrolled && !u.deviceName;
+                    const cardClass = u.matched
+                      ? "border-green-200 dark:border-green-800 bg-green-50/30 dark:bg-green-950/20"
+                      : isCardOnly
+                        ? "border-amber-200 dark:border-amber-800 bg-amber-50/20 dark:bg-amber-950/10"
+                        : "bg-card";
+                    return (
+                      <div key={u.deviceEmployeeId} className={`rounded-xl border p-4 flex flex-col gap-3 transition-shadow hover:shadow-md ${cardClass}`}>
+                        {/* Photo + Name row */}
+                        <div className="flex items-center gap-3">
+                          <Avatar
+                            name={hrName || u.deviceName}
+                            photo={u.faceImage}
+                            size="lg"
+                          />
+                          <div className="flex-1 min-w-0">
+                            {u.deviceName ? (
+                              <p className="font-semibold text-sm leading-tight truncate">{u.deviceName}</p>
+                            ) : hrName ? (
+                              <p className="font-semibold text-sm leading-tight truncate">{hrName}</p>
+                            ) : (
+                              <p className="text-sm text-amber-700 dark:text-amber-400 font-medium">Card / Access PIN</p>
+                            )}
+                            {u.privilege && u.privilege !== "0" && (
+                              <Badge variant="outline" className="text-[10px] mt-0.5">Admin</Badge>
+                            )}
+                            <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                              <span className="text-[10px] bg-muted px-1.5 py-0.5 rounded font-mono text-muted-foreground">PIN: {u.deviceEmployeeId}</span>
+                              {u.enrolled ? (
+                                <Badge className="text-[10px] h-4 px-1.5 bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300 border-0">Face Enrolled</Badge>
+                              ) : (
+                                <Badge variant="outline" className="text-[10px] h-4 px-1.5 border-amber-400 text-amber-700 dark:text-amber-400">Card Punch</Badge>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* HR Employee link */}
+                        <div className={`rounded-lg px-3 py-2 text-xs ${u.matched ? "bg-green-100 dark:bg-green-900/40 border border-green-200 dark:border-green-800" : "bg-muted/60 border"}`}>
+                          {u.matched ? (
+                            <div className="flex items-center gap-1.5 text-green-800 dark:text-green-300">
+                              <BadgeCheck className="h-3.5 w-3.5 shrink-0" />
+                              <div className="min-w-0">
+                                <p className="font-medium truncate">{hrName}</p>
+                                {u.hrEmployeeCode && <p className="opacity-70">{u.hrEmployeeCode} {u.designation ? `· ${u.designation}` : ""}</p>}
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-1.5 text-muted-foreground">
+                              <Link2 className="h-3.5 w-3.5 shrink-0 opacity-50" />
+                              <span>{isCardOnly ? "Map to show HR name & photo" : "Not linked to HR employee"}</span>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Stats row */}
+                        <div className="flex items-center justify-between text-xs text-muted-foreground">
+                          <div className="flex items-center gap-1">
+                            <Clock className="h-3 w-3" />
+                            <span>{u.punchCount} punch{u.punchCount !== 1 ? "es" : ""}</span>
+                          </div>
+                          {u.lastSeenAt && (
+                            <span className="truncate ml-2" title={u.lastSeenAt}>
+                              Last: {u.lastSeenAt.substring(0, 10)}
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Map button */}
+                        <Button
+                          data-testid={`button-map-pin-${u.deviceEmployeeId}`}
+                          size="sm"
+                          variant={u.matched ? "outline" : isCardOnly ? "default" : "default"}
+                          className={`w-full h-8 text-xs ${isCardOnly && !u.matched ? "bg-amber-600 hover:bg-amber-700 text-white" : ""}`}
+                          onClick={() => {
+                            setMapPinRow({ devicePin: u.deviceEmployeeId, deviceName: u.deviceName || u.deviceEmployeeId });
+                            setMapSelectedEmployee(u.employeeId || "");
+                          }}
+                        >
+                          {u.matched ? (
+                            <><Pencil className="h-3 w-3 mr-1.5" /> Remap Employee</>
+                          ) : (
+                            <><Link2 className="h-3 w-3 mr-1.5" /> Map to Employee</>
+                          )}
+                        </Button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
             )}
           </div>
 

@@ -679,8 +679,8 @@ async function handleGetCdata(req: Request, res: Response) {
   // Queue SET TIME so the device clock stays accurate
   const devTime = new Date().toISOString().replace("T", " ").substring(0, 19);
   await enqueueDeviceCommand(device.id, `SET TIME ${devTime}`);
-  // Queue USERINFO fetch so enrolled employee names are pulled from the device
-  await enqueueDeviceCommand(device.id, "DATA UPDATE USERINFO");
+  // Queue USERINFO fetch — Stamp=0 forces device to re-upload ALL enrolled users
+  await enqueueDeviceCommand(device.id, "DATA UPDATE USERINFO Stamp=0");
 
   return res.type("text/plain").send(body);
 }
