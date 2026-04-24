@@ -1396,15 +1396,62 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (user.role !== "super_admin" && device.companyId && device.companyId !== user.companyId) {
         return res.status(403).json({ error: "Access denied" });
       }
-      // Queue the USERINFO fetch command so the device pushes its enrolled user list
-      // (with names) on the next /getrequest poll (within seconds when online).
-      const { enqueueDeviceCommand } = await import("./adms");
-      // Stamp=0 forces the device to re-upload ALL enrolled users (not just new ones)
+
+      const { enqueueDeviceCommand, pushHrUsernamesToDevice } = await import("./adms");
+
+      // 1. Tell the device to upload its full user list (so we get PIN roster + any names it has)
       await enqueueDeviceCommand(device.id, "DATA UPDATE USERINFO Stamp=0");
       console.log(`[biometric/sync-users] Queued DATA UPDATE USERINFO Stamp=0 for device ${device.deviceSerial}`);
+
+      // 2. Push HR employee names TO the device so the device learns the names it's missing.
+      //    This is the key fix: when users were enrolled without typing a name on the device
+      //    keyboard, the device stores empty names. We push the HRMS name so it gets stored.
+      const companyId = device.companyId;
+      const allEmps = companyId
+        ? await storage.getEmployeesByCompany(companyId)
+        : await storage.getAllEmployees();
+      const mappedEmps = (allEmps as any[]).filter(
+        (e: any) => e.biometricDeviceId && (e.firstName || e.lastName)
+      );
+      let pushed = 0;
+      let dbUpdated = 0;
+      if (mappedEmps.length > 0) {
+        pushed = await pushHrUsernamesToDevice(device.id, mappedEmps.map((e: any) => ({
+          biometricDeviceId: String(e.biometricDeviceId),
+          firstName: e.firstName || "",
+          lastName: e.lastName || "",
+        })));
+        console.log(`[biometric/sync-users] Queued ${pushed} HR name push commands for device ${device.deviceSerial}`);
+
+        // Also update biometric_device_users directly in the DB so names
+        // appear immediately in the UI even before the device responds.
+        for (const emp of mappedEmps) {
+          const pin = String((emp as any).biometricDeviceId);
+          const fullName = [(emp as any).firstName, (emp as any).lastName].filter(Boolean).join(" ").trim();
+          if (!fullName) continue;
+          try {
+            const r = await db.execute(sql`
+              UPDATE biometric_device_users
+              SET name = ${fullName}
+              WHERE device_id = ${device.id}
+                AND device_employee_id = ${pin}
+                AND (name IS NULL OR name = '')
+            `);
+            if ((r.rowCount ?? 0) > 0) dbUpdated++;
+          } catch { /* best-effort */ }
+        }
+        if (dbUpdated > 0) {
+          console.log(`[biometric/sync-users] Directly updated ${dbUpdated} empty names in DB from HR data`);
+        }
+      }
+
       res.json({
         success: true,
-        message: "User sync command sent to device. Names will appear within 30 seconds — refresh the Users dialog after the device responds.",
+        pushed,
+        dbUpdated,
+        message: `Sync requested. ${pushed > 0
+          ? `${pushed} employee name(s) queued for the device + ${dbUpdated} name(s) updated in the local records immediately.`
+          : "No mapped employees found to push names for — use 'Map to HR' to link device PINs to employees first."}`,
       });
     } catch (error: any) {
       console.error(`[biometric/devices/:id/sync-users] error:`, error);

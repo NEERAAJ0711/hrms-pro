@@ -135,7 +135,7 @@ async function resolveDevice(sn: string): Promise<any | null> {
  */
 const pendingCmds = new Map<string, string[]>();
 let nextCmdId = 1;
-const MAX_QUEUE = 8;
+const MAX_QUEUE = 120; // large enough to hold all employee records for a device
 
 /** Add a command to the device's pending queue (idempotent, max 8 slots). */
 export async function enqueueDeviceCommand(deviceId: string, cmd: string): Promise<void> {
@@ -403,27 +403,54 @@ export async function processUserRecords(
   const now = new Date().toISOString();
 
   console.log(`[ADMS] processUserRecords: ${lines.length} total lines from device ${device.deviceSerial}`);
+  // Log the FULL body so VPS PM2 logs capture exactly what the device sent
+  if (body) {
+    console.log(`[ADMS] USERINFO full body (${body.length} bytes):\n${body.slice(0, 4000)}`);
+    if (body.length > 4000) console.log(`[ADMS] USERINFO body truncated at 4000 chars (total ${body.length})`);
+  }
 
   for (const line of lines) {
     if (!/PIN=/i.test(line)) {
-      console.log(`[ADMS]   SKIP (no PIN=): ${line.slice(0, 120)}`);
+      console.log(`[ADMS]   SKIP (no PIN=): "${line.slice(0, 200)}"`);
       continue;
     }
     const rec = parseUserLine(line);
     if (!rec) {
-      console.log(`[ADMS]   BAD (parse fail): ${line.slice(0, 120)}`);
+      console.log(`[ADMS]   BAD (parse fail): "${line.slice(0, 200)}"`);
       out.bad++;
       continue;
     }
     const pin = String(rec.PIN || rec.Pin || rec.pin || "").trim();
     if (!pin) {
-      console.log(`[ADMS]   BAD (empty PIN): ${line.slice(0, 120)}`);
+      console.log(`[ADMS]   BAD (empty PIN): "${line.slice(0, 200)}"`);
       out.bad++;
       continue;
     }
 
-    const name = (rec.Name || rec.NAME || rec.name || "").trim() || null;
-    console.log(`[ADMS]   OK  PIN=${pin} Name=${name ?? "(empty)"}`);
+    let name = (rec.Name || rec.NAME || rec.name || "").trim() || null;
+
+    // If the device sent an empty name, fall back to the HR employee name
+    // so the device user page always shows something useful.
+    if (!name) {
+      try {
+        const empRow = await db.execute(sql`
+          SELECT first_name, last_name
+          FROM employees
+          WHERE biometric_device_id = ${pin}
+          LIMIT 1
+        `);
+        if (empRow.rows.length > 0) {
+          const emp = empRow.rows[0] as any;
+          const hrName = [emp.first_name, emp.last_name].filter(Boolean).join(" ").trim();
+          if (hrName) {
+            name = hrName;
+            console.log(`[ADMS]   name fallback from HR: PIN=${pin} HRName="${name}"`);
+          }
+        }
+      } catch { /* best-effort — don't block the upsert */ }
+    }
+
+    console.log(`[ADMS]   OK  PIN=${pin} Name=${name ?? "(empty — device sent no name)"}`);
 
     try {
       await db.execute(sql`
@@ -454,6 +481,30 @@ export async function processUserRecords(
 
   console.log(`[ADMS] processUserRecords done: upserted=${out.upserted} bad=${out.bad}`);
   return out;
+}
+
+/**
+ * Queue DATA UPDATE USERINFO commands to push HR employee names TO the device.
+ * Each command tells the device to store a user record (name, PIN, etc.).
+ * The device acknowledges via devicecmd, then future USERINFO uploads include the name.
+ */
+export async function pushHrUsernamesToDevice(
+  deviceId: string,
+  employees: Array<{ biometricDeviceId: string; firstName: string; lastName: string; privilege?: string }>
+): Promise<number> {
+  let queued = 0;
+  for (const emp of employees) {
+    const pin = (emp.biometricDeviceId || "").trim();
+    if (!pin) continue;
+    const fullName = [emp.firstName, emp.lastName].filter(Boolean).join(" ").trim();
+    if (!fullName) continue;
+    const pri = emp.privilege || "0";
+    // Tab-delimited USERINFO command — device stores this in its own user DB
+    const cmd = `DATA UPDATE USERINFO PIN=${pin}\tName=${fullName}\tPri=${pri}\tPasswd=\tCard=\tGrp=1\tTZ=0000000100000000\tVerify=0\tViceCard=`;
+    await enqueueDeviceCommand(deviceId, cmd);
+    queued++;
+  }
+  return queued;
 }
 
 // ─── Activity log ─────────────────────────────────────────────────────────────
@@ -747,8 +798,30 @@ async function handleGetRequest(req: Request, res: Response) {
   const stamp = device.lastAttlogStamp ?? 0;
   const attlogCmd = `DATA UPDATE ATTLOG Stamp=${stamp}`;
 
+  // Separate user-push commands from everything else.
+  // The x2008 has a ~4 KB HTTP response buffer — sending too many DATA UPDATE USERINFO
+  // lines at once causes the device to silently drop the response.
+  // Strategy: pass non-user commands + up to 5 user records per poll cycle.
+  // Remaining user records go back onto the queue for the next poll.
+  const userPushCmds = queued.filter((c) => c.startsWith("DATA UPDATE USERINFO PIN="));
+  const otherCmds = queued.filter(
+    (c) => !c.startsWith("DATA UPDATE ATTLOG") && !c.startsWith("DATA UPDATE USERINFO PIN=")
+  );
+
+  const MAX_USER_PUSH_PER_POLL = 5;
+  const userBatch = userPushCmds.slice(0, MAX_USER_PUSH_PER_POLL);
+  const userOverflow = userPushCmds.slice(MAX_USER_PUSH_PER_POLL);
+
+  // Re-queue any overflow for the next poll cycle
+  if (userOverflow.length > 0) {
+    for (const cmd of userOverflow) {
+      await enqueueDeviceCommand(device.id, cmd);
+    }
+  }
+
   const allCmds = [
-    ...queued.filter((c) => !c.startsWith("DATA UPDATE ATTLOG")),
+    ...otherCmds,
+    ...userBatch,
     attlogCmd,
   ];
 
@@ -762,9 +835,10 @@ async function handleGetRequest(req: Request, res: Response) {
 
   console.log(
     `[ADMS] GETREQUEST SN="${effectiveSn}" stamp=${stamp} ` +
-    `cmds=${allCmds.length}: ${allCmds.join(" | ")}`
+    `cmds=${allCmds.length} (userBatch=${userBatch.length} overflow=${userOverflow.length}): ` +
+    `${allCmds.map(c => c.slice(0, 60)).join(" | ")}`
   );
-  admsLog("OUT", effectiveSn, `CMDS(${allCmds.length}): ${allCmds.join(" | ")}`, true);
+  admsLog("OUT", effectiveSn, `CMDS(${allCmds.length}): ${allCmds.map(c => c.slice(0, 60)).join(" | ")}`, true);
 
   return res.type("text/plain").send(responseBody);
 }
