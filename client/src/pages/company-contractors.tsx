@@ -606,7 +606,15 @@ function ContractorsTab({
 }
 
 // ─── Principal Employer Tab ────────────────────────────────────────────────
-function PrincipalEmployerTab({ companyId }: { companyId: string }) {
+function PrincipalEmployerTab({
+  companyId,
+  companyName,
+}: {
+  companyId: string;
+  companyName: string;
+}) {
+  const [expandedEmployerId, setExpandedEmployerId] = useState<string | null>(null);
+
   const { data: employers = [], isLoading } = useQuery<PrincipalEmployerRow[]>({
     queryKey: ["/api/companies", companyId, "principal-employers"],
     queryFn: async () => {
@@ -652,40 +660,81 @@ function PrincipalEmployerTab({ companyId }: { companyId: string }) {
                 <TableHead>Principal Employer</TableHead>
                 <TableHead>Contractor Since</TableHead>
                 <TableHead>Status</TableHead>
+                <TableHead className="text-right pr-6">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {employers.map((emp, idx) => (
-                <TableRow key={emp.id} data-testid={`principal-employer-row-${emp.id}`}
-                  className="hover:bg-muted/30">
-                  <TableCell className="text-center pl-6 text-muted-foreground font-medium text-sm">
-                    {idx + 1}
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex items-center gap-3">
-                      <div className="h-9 w-9 rounded-md bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center shrink-0">
-                        <Briefcase className="h-4 w-4 text-blue-600 dark:text-blue-400" />
-                      </div>
-                      <div>
-                        <p className="font-medium">{emp.companyName}</p>
-                        <p className="text-xs text-muted-foreground">ID: {emp.companyId.slice(0, 8)}…</p>
-                      </div>
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex items-center gap-1.5 text-sm">
-                      <CalendarDays className="h-3.5 w-3.5 text-muted-foreground" />
-                      <span>{emp.startDate}</span>
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant="outline"
-                      className="text-xs text-blue-700 border-blue-300 bg-blue-50 dark:text-blue-400 dark:border-blue-700 dark:bg-blue-950/30">
-                      Active
-                    </Badge>
-                  </TableCell>
-                </TableRow>
-              ))}
+              {employers.map((emp, idx) => {
+                const isExpanded = expandedEmployerId === emp.id;
+                // Current company acts as contractor for this principal employer
+                const contractorRow: ContractorRow = {
+                  id: emp.id,
+                  companyId: emp.companyId,
+                  contractorId: companyId,
+                  startDate: emp.startDate,
+                  contractorName: companyName,
+                };
+                return (
+                  <>
+                    <TableRow key={emp.id} data-testid={`principal-employer-row-${emp.id}`}
+                      className="hover:bg-muted/30">
+                      <TableCell className="text-center pl-6 text-muted-foreground font-medium text-sm">
+                        {idx + 1}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-3">
+                          <div className="h-9 w-9 rounded-md bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center shrink-0">
+                            <Briefcase className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                          </div>
+                          <div>
+                            <p className="font-medium">{emp.companyName}</p>
+                            <p className="text-xs text-muted-foreground">ID: {emp.companyId.slice(0, 8)}…</p>
+                          </div>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-1.5 text-sm">
+                          <CalendarDays className="h-3.5 w-3.5 text-muted-foreground" />
+                          <span>{emp.startDate}</span>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline"
+                          className="text-xs text-blue-700 border-blue-300 bg-blue-50 dark:text-blue-400 dark:border-blue-700 dark:bg-blue-950/30">
+                          Active
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right pr-6">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          title="Tag Employees"
+                          onClick={() => setExpandedEmployerId(p => p === emp.id ? null : emp.id)}
+                          className={isExpanded
+                            ? "text-primary bg-primary/10"
+                            : "text-muted-foreground hover:text-primary hover:bg-primary/5"}
+                          data-testid={`button-tag-employees-pe-${emp.id}`}
+                        >
+                          {isExpanded ? <ChevronUp className="h-4 w-4" /> : <Users className="h-4 w-4" />}
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+
+                    {isExpanded && (
+                      <TableRow key={`${emp.id}-employees`} className="hover:bg-transparent">
+                        <TableCell colSpan={5} className="p-0">
+                          {/* companyId = principal employer's id (owns the contractor relationship record)
+                              contractor.contractorId = current company (acting as contractor here) */}
+                          <ContractorEmployeesPanel
+                            companyId={emp.companyId}
+                            contractor={contractorRow}
+                          />
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </>
+                );
+              })}
             </TableBody>
           </Table>
         )}
@@ -803,7 +852,7 @@ export default function CompanyContractorsPage() {
       {activeTab === "contractors" ? (
         <ContractorsTab companyId={id!} company={company} />
       ) : (
-        <PrincipalEmployerTab companyId={id!} />
+        <PrincipalEmployerTab companyId={id!} companyName={company?.companyName ?? ""} />
       )}
     </div>
   );
