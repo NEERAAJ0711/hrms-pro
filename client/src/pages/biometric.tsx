@@ -923,7 +923,7 @@ export default function BiometricPage() {
                         </TableCell>
                         <TableCell className="font-mono text-xs">{device.deviceSerial}</TableCell>
                         <TableCell className="text-xs font-mono text-muted-foreground">
-                          {networkInfo?.admsUrlIp ?? admsUrl}
+                          {networkInfo?.ip ?? "—"}:{admsPort}
                         </TableCell>
                         <TableCell>
                           {device.allowedIpCidr ? (
@@ -994,9 +994,6 @@ export default function BiometricPage() {
                                   {date.toLocaleString()}
                                   <span className="ml-1 opacity-60">({agoLabel})</span>
                                 </span>
-                                {device.lastPushIp && (
-                                  <div className="opacity-60 font-mono">ip: {device.lastPushIp}</div>
-                                )}
                                 <div className="flex items-center gap-1 font-mono">
                                   <span className="opacity-60">stamp:</span>
                                   <span className={device.lastAttlogStamp === 0 ? "text-amber-600 dark:text-amber-400" : "text-green-600 dark:text-green-400"}>
