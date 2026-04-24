@@ -226,16 +226,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Returns the server's resolved public IP for ADMS device configuration.
-  // The ZKTeco device can be configured with either the domain name (port 443)
-  // or the raw IP (port 443) — both reach the same /iclock/* handlers.
+  // IMPORTANT: ZKTeco x2008 and virtually all biometric devices only support
+  // plain HTTP — never HTTPS. Always return http:// ADMS URLs regardless of
+  // whether the dashboard itself is served over HTTPS. The device talks
+  // directly to port 8181 (plain HTTP, dedicated ADMS listener).
   app.get("/api/server/network-info", requireAuth, async (req, res) => {
     try {
-      // Prefer the Replit dev domain env var — it's the guaranteed-accessible
-      // hostname for this server. In production the custom domain/replit.app
-      // domain takes precedence (req.hostname from the proxy).
       const replitDevDomain = process.env.REPLIT_DEV_DOMAIN || null;
-      const reqHost = req.hostname; // whatever the browser used
-      // Use Replit dev domain if the browser used localhost/127.0.0.1
+      const reqHost = req.hostname;
       const host = (reqHost === "localhost" || reqHost === "127.0.0.1")
         ? (replitDevDomain || reqHost)
         : reqHost;
@@ -258,16 +256,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
           ip = j.ip;
         } catch { /* ignore */ }
       }
-      const proto = (req.secure || req.headers["x-forwarded-proto"] === "https") ? "https" : "http";
-      const port  = proto === "https" ? "443" : (req.socket.localPort?.toString() || "5000");
+
+      // Dedicated ADMS port — device connects here over plain HTTP (no HTTPS).
+      const admsPort = parseInt(process.env.ADMS_PORT || "8181", 10);
+
+      // Always http:// — biometric devices do not support HTTPS/TLS.
+      const admsUrl   = `http://${host}:${admsPort}/iclock/cdata`;
+      const admsUrlIp = ip ? `http://${ip}:${admsPort}/iclock/cdata` : null;
+
       res.json({
         host,
         replitDevDomain,
         ip,
-        port,
-        proto,
-        admsUrl: `${proto}://${host}/iclock/cdata`,
-        admsUrlIp: ip ? `https://${ip}/iclock/cdata` : null,
+        port: String(admsPort),
+        proto: "http",
+        admsUrl,
+        admsUrlIp,
       });
     } catch (err: any) {
       res.status(500).json({ error: err?.message || "Failed to resolve network info" });
