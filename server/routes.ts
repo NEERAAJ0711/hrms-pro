@@ -1696,18 +1696,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Update the employee's biometric device PIN
       await storage.updateEmployee(employeeId, { biometricDeviceId: String(devicePin) });
 
-      // Retroactively link existing punch logs for this PIN
+      // Retroactively link existing punch logs for this PIN.
+      // Filter by device_id (not company_id) so that contractor employees who punch
+      // on a principal employer's device — where punch logs carry the device's
+      // company_id rather than the employee's — are correctly linked.
+      // We also fix company_id in the log so attendance processing works correctly.
+      // We cover both NULL employee_id (first-time map) and re-maps to a new employee.
+      const deviceClause = deviceId
+        ? sql`AND device_id = ${deviceId}`
+        : sql`AND company_id = ${employee.companyId}`;
       const updated = await db.execute(sql`
         UPDATE biometric_punch_logs
-        SET employee_id = ${employeeId}
+        SET employee_id = ${employeeId},
+            company_id  = ${employee.companyId}
         WHERE device_employee_id = ${String(devicePin)}
-          AND company_id = ${employee.companyId}
-          AND employee_id IS NULL
+          ${deviceClause}
+          AND (employee_id IS NULL OR employee_id != ${employeeId})
       `);
+
+      const linkedCount = (updated as any)?.rowCount ?? 0;
+
+      // Immediately process the newly linked punch logs so attendance records
+      // appear right away instead of waiting for the next 5-minute sweep.
+      if (linkedCount > 0) {
+        import("./biometric-attendance-sync")
+          .then(({ processBiometricAttendance }) =>
+            processBiometricAttendance(employee.companyId)
+          )
+          .catch((err) => console.error("[map-pin] post-map sync failed:", err));
+      }
 
       res.json({
         success: true,
-        message: `PIN ${devicePin} mapped to ${employee.firstName} ${employee.lastName}. ${(updated as any)?.rowCount ?? 0} existing punch records linked.`,
+        message: `PIN ${devicePin} mapped to ${employee.firstName} ${employee.lastName}. ${linkedCount} existing punch records linked.`,
       });
     } catch (error: any) {
       console.error("[biometric/map-pin] error:", error);

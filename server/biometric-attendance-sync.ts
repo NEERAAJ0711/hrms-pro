@@ -75,6 +75,7 @@ export async function processBiometricAttendance(
     const companyClause = companyFilter
       ? sql`AND bpl.company_id = ${companyFilter}`
       : sql``;
+    // Pass A: same-company match (employee_code OR biometric_device_id)
     await db.execute(sql`
       UPDATE biometric_punch_logs bpl
       SET employee_id = e.id
@@ -85,6 +86,21 @@ export async function processBiometricAttendance(
           e.biometric_device_id = bpl.device_employee_id
           OR e.employee_code    = bpl.device_employee_id
         )
+        ${companyClause}
+    `);
+    // Pass B: cross-company match via explicit biometric_device_id mapping.
+    // Handles contractor employees who punch on the principal employer's device —
+    // their punch logs carry the device's company_id, not their own.
+    // We also correct company_id in those logs so attendance is created under
+    // the right (employee's) company.
+    await db.execute(sql`
+      UPDATE biometric_punch_logs bpl
+      SET employee_id = e.id,
+          company_id  = e.company_id
+      FROM employees e
+      WHERE bpl.employee_id IS NULL
+        AND e.biometric_device_id = bpl.device_employee_id
+        AND e.company_id != bpl.company_id
         ${companyClause}
     `);
   } catch (err) {
