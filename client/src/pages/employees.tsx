@@ -239,6 +239,19 @@ export default function Employees() {
 
   const taggedEmployeeIds = new Set(taggedEmployeeRecords.map((r) => r.employeeId));
 
+  // When a CONTRACTOR is selected, tagged employees belong to the contractor company —
+  // they won't be in the current company's employee list, so fetch them separately.
+  const contractorCompanyId = filterType === "c" ? filterContractorId : "";
+  const { data: contractorCompanyEmployees = [] } = useQuery<Employee[]>({
+    queryKey: ["/api/companies", contractorCompanyId, "employees"],
+    queryFn: async () => {
+      const res = await fetch(`/api/companies/${contractorCompanyId}/employees`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed");
+      return res.json();
+    },
+    enabled: filterType === "c" && !!contractorCompanyId,
+  });
+
   const { data: timeOfficePolicies = [] } = useQuery<TimeOfficePolicy[]>({
     queryKey: ["/api/time-office-policies"],
     queryFn: async () => {
@@ -374,11 +387,17 @@ export default function Employees() {
     });
   };
 
-  const filteredEmployees = employees.filter((employee) => {
-    // Company isolation logic
+  // Pick the right employee pool depending on the active filter
+  // - Contractor view: employees belong to the contractor company (separate fetch)
+  // - PE view: tagged employees are from the current company (main list)
+  // - Own / super-admin: normal main list
+  const baseEmployeeList: Employee[] =
+    filterType === "c" ? contractorCompanyEmployees : employees;
+
+  const filteredEmployees = baseEmployeeList.filter((employee) => {
     let matchesCompany: boolean;
     if (isContractorView) {
-      // Show only tagged employees for the selected contractor/PE relationship
+      // Show only employees that are tagged for this contractor/PE relationship
       matchesCompany = taggedEmployeeIds.has(employee.id);
     } else if (isSuperAdmin) {
       matchesCompany = selectedCompany === "__all__" || employee.companyId === selectedCompany;
