@@ -72,6 +72,11 @@ function cacheDel(deviceId: string): void {
   }
 }
 
+/** Exported so callers outside adms.ts can bust a specific device's cache. */
+export function bustDeviceCache(deviceId: string): void {
+  cacheDel(deviceId);
+}
+
 // ─── Device resolution ───────────────────────────────────────────────────────
 
 /**
@@ -312,13 +317,20 @@ export async function processAttlog(
     return out;
   }
 
-  // Build PIN → employee map
+  // Build PIN → employee map.
+  // Priority: biometricDeviceId match wins over employee_code match.
   const employees = device.companyId
     ? await storage.getEmployeesByCompany(device.companyId)
     : await storage.getAllEmployees();
-  const byPin = new Map(
-    employees.filter((e) => e.biometricDeviceId).map((e) => [String(e.biometricDeviceId), e])
-  );
+  const byPin = new Map<string, typeof employees[number]>();
+  // First pass: employee_code match (lower priority)
+  for (const e of employees) {
+    if (e.employeeCode) byPin.set(String(e.employeeCode), e);
+  }
+  // Second pass: biometricDeviceId match (higher priority — overwrites code match)
+  for (const e of employees) {
+    if (e.biometricDeviceId) byPin.set(String(e.biometricDeviceId), e);
+  }
 
   const now = new Date().toISOString();
   const rows: any[] = [];

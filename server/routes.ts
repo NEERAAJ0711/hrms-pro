@@ -1528,8 +1528,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ error: "Access denied" });
       }
       await storage.updateBiometricDevice(device.id, { lastAttlogStamp: 0 } as any);
-      const { enqueueDeviceCommand } = await import("./adms");
-      await enqueueDeviceCommand(device.id, "DATA UPDATE ATTLOG Stamp=0");
+      // Bust the in-memory device cache so the NEXT getrequest poll reads
+      // lastAttlogStamp=0 from the DB instead of the stale cached value.
+      // Without this the device keeps receiving DATA UPDATE ATTLOG Stamp=<old>
+      // for up to 30 seconds and never re-uploads its history.
+      const { bustDeviceCache } = await import("./adms");
+      bustDeviceCache(device.id);
       res.json({ success: true, message: "ATTLOGStamp reset to 0. The device will re-upload all stored records on its next connection (within 5 minutes)." });
     } catch (error: any) {
       console.error("[biometric/devices/:id/reset-stamp] error:", error);
@@ -1714,49 +1718,93 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/biometric/logs", requireAuth, async (req, res) => {
     try {
       const user = (req as any).user;
-      const { companyId, date, status } = req.query;
-      
-      let logs;
+      const { companyId: qCompanyId, date } = req.query;
+
+      let targetCompanyId: string | null = null;
       if (user.role === "super_admin") {
-        if (companyId) {
-          logs = await storage.getBiometricPunchLogsByCompany(companyId as string);
-        } else {
-          logs = await storage.getAllBiometricPunchLogs();
-        }
+        targetCompanyId = (qCompanyId as string) || null;
       } else if (user.companyId) {
-        logs = await storage.getBiometricPunchLogsByCompany(user.companyId);
-      } else {
-        logs = [];
+        targetCompanyId = user.companyId;
       }
 
-      if (date) logs = logs.filter(l => l.punchDate === date);
+      // Single enriched query: punch logs + employee name resolved via 3 paths:
+      //   1. bpl.employee_id (explicitly mapped)
+      //   2. employees.biometric_device_id = device PIN (auto-matched by biometric ID)
+      //   3. employees.employee_code = device PIN (common in card-only deployments)
+      //   4. biometric_device_users.name (name the device itself reported via USERINFO)
+      const companyFilter = targetCompanyId
+        ? sql`AND bpl.company_id = ${targetCompanyId}`
+        : sql``;
+      const dateFilter = date
+        ? sql`AND bpl.punch_date = ${date as string}`
+        : sql``;
 
-      // Enrich each log with the name the biometric device has for that PIN
-      // (stored in biometric_device_users.name from the USERINFO upload).
-      // This lets the UI show a real name even for unmapped employees.
-      const deviceIds = [...new Set(logs.map((l: any) => l.deviceId).filter(Boolean))];
-      let nameMap = new Map<string, string>();
-      if (deviceIds.length > 0) {
-        try {
-          const rows = await db.execute(sql`
-            SELECT device_id, device_employee_id, name
-            FROM biometric_device_users
-            WHERE device_id = ANY(${deviceIds}::text[])
-              AND name IS NOT NULL AND name <> ''
-          `);
-          for (const row of rows.rows as any[]) {
-            nameMap.set(`${row.device_id}:${row.device_employee_id}`, row.name);
-          }
-        } catch { /* best-effort — don't block the response */ }
-      }
+      const rows = await db.execute(sql`
+        SELECT
+          bpl.id,
+          bpl.company_id          AS "companyId",
+          bpl.employee_id         AS "employeeId",
+          bpl.device_employee_id  AS "deviceEmployeeId",
+          bpl.punch_date          AS "punchDate",
+          bpl.punch_time          AS "punchTime",
+          bpl.punch_type          AS "punchType",
+          bpl.device_id           AS "deviceId",
+          bpl.is_processed        AS "isProcessed",
+          bpl.is_duplicate        AS "isDuplicate",
+          bpl.missing_punch       AS "missingPunch",
+          bpl.synced_at           AS "syncedAt",
+          bpl.created_at          AS "createdAt",
+          -- Resolved employee (mapped, or matched by biometricDeviceId/employeeCode)
+          COALESCE(e1.id,         e2.id,         e3.id)         AS "resolvedEmployeeId",
+          COALESCE(e1.first_name, e2.first_name, e3.first_name) AS "resolvedFirstName",
+          COALESCE(e1.last_name,  e2.last_name,  e3.last_name)  AS "resolvedLastName",
+          COALESCE(e1.employee_code, e2.employee_code, e3.employee_code) AS "resolvedEmployeeCode",
+          -- Device-provided name (from USERINFO) as final fallback
+          bdu.name AS "deviceName"
+        FROM biometric_punch_logs bpl
+        LEFT JOIN employees e1
+          ON e1.id = bpl.employee_id
+        LEFT JOIN employees e2
+          ON e2.biometric_device_id = bpl.device_employee_id
+         AND e2.company_id = bpl.company_id
+        LEFT JOIN employees e3
+          ON e3.employee_code = bpl.device_employee_id
+         AND e3.company_id = bpl.company_id
+        LEFT JOIN biometric_device_users bdu
+          ON bdu.device_id = bpl.device_id
+         AND bdu.device_employee_id = bpl.device_employee_id
+        WHERE TRUE
+          ${companyFilter}
+          ${dateFilter}
+        ORDER BY bpl.punch_date DESC, bpl.punch_time DESC
+        LIMIT 5000
+      `);
 
-      const enriched = logs.map((l: any) => ({
-        ...l,
-        deviceName: nameMap.get(`${l.deviceId}:${l.deviceEmployeeId}`) ?? null,
+      const enriched = (rows.rows as any[]).map((r) => ({
+        id:               r.id,
+        companyId:        r.companyId,
+        employeeId:       r.employeeId   || r.resolvedEmployeeId || null,
+        deviceEmployeeId: r.deviceEmployeeId,
+        punchDate:        r.punchDate,
+        punchTime:        r.punchTime,
+        punchType:        r.punchType,
+        deviceId:         r.deviceId,
+        isProcessed:      !!r.isProcessed,
+        isDuplicate:      !!r.isDuplicate,
+        missingPunch:     !!r.missingPunch,
+        syncedAt:         r.syncedAt,
+        createdAt:        r.createdAt,
+        // Resolved name — shown even when not explicitly mapped
+        resolvedEmployeeId:   r.resolvedEmployeeId   || null,
+        resolvedFirstName:    r.resolvedFirstName    || null,
+        resolvedLastName:     r.resolvedLastName     || null,
+        resolvedEmployeeCode: r.resolvedEmployeeCode || null,
+        deviceName:           r.deviceName           || null,
       }));
 
       res.json(enriched);
     } catch (error) {
+      console.error("[biometric/logs] error:", error);
       res.status(500).json({ error: "Failed to fetch biometric logs" });
     }
   });

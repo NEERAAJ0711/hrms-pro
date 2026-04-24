@@ -554,10 +554,19 @@ export default function BiometricPage() {
                     </TableHeader>
                     <TableBody>
                       {logs.map((log, idx) => {
-                        const emp = getEmployee(log.employeeId);
-                        const empName = emp ? `${emp.firstName} ${emp.lastName}` : null;
-                        const deviceName = (log as any).deviceName as string | null;
-                        const displayName = empName || deviceName;
+                        const r = log as any;
+                        // Name resolution priority:
+                        //   1. HR name from explicit employee map or auto-matched (server JOIN)
+                        //   2. Device-reported name (from USERINFO)
+                        //   3. Unmapped badge
+                        const resolvedName = (r.resolvedFirstName || r.resolvedLastName)
+                          ? `${r.resolvedFirstName || ""} ${r.resolvedLastName || ""}`.trim()
+                          : null;
+                        const resolvedCode = r.resolvedEmployeeCode || null;
+                        const deviceName   = r.deviceName as string | null;
+                        const displayName  = resolvedName || deviceName;
+                        // Matched by explicit map OR by biometricDeviceId/employeeCode auto-join
+                        const isAutoMatched = !log.employeeId && !!r.resolvedEmployeeId;
                         return (
                           <TableRow key={log.id} className={log.missingPunch ? "bg-amber-50/50 dark:bg-amber-950/20" : ""}>
                             <TableCell className="pl-4 text-xs text-muted-foreground">{idx + 1}</TableCell>
@@ -565,10 +574,13 @@ export default function BiometricPage() {
                               <div className="flex items-center gap-2.5">
                                 <Avatar name={displayName} size="sm" />
                                 <div>
-                                  {empName ? (
+                                  {resolvedName ? (
                                     <>
-                                      <p className="text-sm font-medium leading-none">{empName}</p>
-                                      {emp?.employeeCode && <p className="text-xs text-muted-foreground mt-0.5">{emp.employeeCode}</p>}
+                                      <p className="text-sm font-medium leading-none">{resolvedName}</p>
+                                      <p className="text-xs text-muted-foreground mt-0.5">
+                                        {resolvedCode || ""}
+                                        {isAutoMatched && <span className="ml-1 text-[10px] text-blue-500">(auto)</span>}
+                                      </p>
                                     </>
                                   ) : deviceName ? (
                                     <>

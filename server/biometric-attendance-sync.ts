@@ -68,6 +68,29 @@ export async function processBiometricAttendance(
 ): Promise<ProcessResult> {
   const result: ProcessResult = { processed: 0, skipped: 0, errors: 0 };
 
+  // 0. Retroactive backfill: for any punch log where employeeId is still null,
+  //    try to resolve via biometric_device_id OR employee_code = device PIN.
+  //    This self-heals records that arrived before the employee was configured.
+  try {
+    const companyClause = companyFilter
+      ? sql`AND bpl.company_id = ${companyFilter}`
+      : sql``;
+    await db.execute(sql`
+      UPDATE biometric_punch_logs bpl
+      SET employee_id = e.id
+      FROM employees e
+      WHERE bpl.employee_id IS NULL
+        AND e.company_id = bpl.company_id
+        AND (
+          e.biometric_device_id = bpl.device_employee_id
+          OR e.employee_code    = bpl.device_employee_id
+        )
+        ${companyClause}
+    `);
+  } catch (err) {
+    console.error("[BioAttSync] Backfill update failed:", err);
+  }
+
   // 1. Fetch all unprocessed logs where the employee has been resolved
   const logs = await db
     .select({
