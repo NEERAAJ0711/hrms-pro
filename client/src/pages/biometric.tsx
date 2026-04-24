@@ -922,7 +922,9 @@ export default function BiometricPage() {
                           )}
                         </TableCell>
                         <TableCell className="font-mono text-xs">{device.deviceSerial}</TableCell>
-                        <TableCell className="text-xs">{device.ipAddress || "-"}:{device.port}</TableCell>
+                        <TableCell className="text-xs font-mono text-muted-foreground">
+                          {networkInfo?.admsUrlIp ?? admsUrl}
+                        </TableCell>
                         <TableCell>
                           {device.allowedIpCidr ? (
                             <Badge
