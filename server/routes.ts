@@ -1664,7 +1664,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Update the employee's biometric device PIN
-      await storage.updateEmployee(employeeId, { biometricDeviceId: String(devicePin) } as any);
+      await storage.updateEmployee(employeeId, { biometricDeviceId: String(devicePin) });
 
       // Retroactively link existing punch logs for this PIN
       const updated = await db.execute(sql`
@@ -2121,6 +2121,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const dupError = await validateEmployeeDuplicates(req.body, existing.companyId, req.params.id);
       if (dupError) return res.status(400).json({ error: dupError });
       const updated = await storage.updateEmployee(req.params.id, req.body);
+
+      // If the biometric device ID changed, retroactively link all existing punch logs
+      // for that PIN so historical attendance immediately appears under this employee.
+      const newPin = req.body.biometricDeviceId ? String(req.body.biometricDeviceId) : null;
+      const oldPin = existing.biometricDeviceId ? String(existing.biometricDeviceId) : null;
+      if (newPin && newPin !== oldPin) {
+        try {
+          await db.execute(sql`
+            UPDATE biometric_punch_logs
+            SET employee_id = ${req.params.id}
+            WHERE device_employee_id = ${newPin}
+              AND company_id = ${existing.companyId}
+              AND employee_id IS NULL
+          `);
+        } catch { /* best-effort — don't block the employee update */ }
+      }
+
       res.json(updated);
     } catch (error: any) {
       res.status(400).json({ error: error?.message || "Failed to update employee" });

@@ -264,6 +264,9 @@ export default function BiometricDeviceUsersPage() {
     onSuccess: () => {
       toast({ title: "PIN mapped", description: "Employee linked successfully." });
       queryClient.invalidateQueries({ queryKey: ["/api/biometric/devices", deviceId, "users"] });
+      // Also refresh employees (biometricDeviceId is now filled) and punch logs (employee name appears).
+      queryClient.invalidateQueries({ queryKey: ["/api/employees"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/biometric/logs"] });
       setMapPinRow(null);
       setMapSelectedEmployee("");
     },
