@@ -1396,9 +1396,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (user.role !== "super_admin" && device.companyId && device.companyId !== user.companyId) {
         return res.status(403).json({ error: "Access denied" });
       }
+      // Queue the USERINFO fetch command so the device pushes its enrolled user list
+      // (with names) on the next /getrequest poll (within seconds when online).
+      const { enqueueDeviceCommand } = await import("./adms");
+      await enqueueDeviceCommand(device.id, "DATA UPDATE USERINFO");
+      console.log(`[biometric/sync-users] Queued DATA UPDATE USERINFO for device ${device.deviceSerial}`);
       res.json({
         success: true,
-        message: "The SpeedFace-V5L pushes its enrolled-user list automatically on every scheduled connection (up to every 5 minutes). Refresh the View Users dialog after the next device check-in.",
+        message: "User sync command sent to device. Names will appear within 30 seconds — refresh the Users dialog after the device responds.",
       });
     } catch (error: any) {
       console.error(`[biometric/devices/:id/sync-users] error:`, error);

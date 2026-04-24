@@ -787,9 +787,14 @@ async function handlePostCdata(req: Request, res: Response) {
       `ATTLOG ack ins=${r.inserted} dups=${r.duplicates} bad=${r.bad} stamp=${ackStamp}`, true);
 
   } else if (["OPERLOG", "USERINFO", "USER"].includes(table)) {
+    const lineCount = body.split(/\r?\n/).filter((l) => l.trim()).length;
+    console.log(`[ADMS] POST ${table} SN="${effectiveSn}" ip=${ip} lines=${lineCount}`);
+    if (body) console.log(`[ADMS]   preview: ${body.slice(0, 600).replace(/\r?\n/g, " | ")}`);
+    admsLog("IN", effectiveSn, `${table} ${lineCount} lines`, true);
     const r = await processUserRecords(device, body);
+    console.log(`[ADMS] ${table} upserted=${r.upserted} bad=${r.bad} SN="${effectiveSn}"`);
     await touchDevice(device.id, ip);
-    admsLog("OUT", effectiveSn, `${table} users=${r.upserted} bad=${r.bad}`);
+    admsLog("OUT", effectiveSn, `${table} upserted=${r.upserted} bad=${r.bad}`, true);
 
   } else if (table === "TABLEDATA") {
     const tname = String(req.query.tablename || req.query.tableName || "").toLowerCase();
