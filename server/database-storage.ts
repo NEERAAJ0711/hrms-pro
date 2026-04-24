@@ -161,9 +161,9 @@ export class DatabaseStorage implements IStorage {
         contractorName: companies.companyName,
       })
       .from(companyContractors)
-      .innerJoin(companies, eq(companies.id, companyContractors.contractorId))
+      .leftJoin(companies, eq(companies.id, companyContractors.contractorId))
       .where(eq(companyContractors.companyId, companyId));
-    return rows;
+    return rows.map((r) => ({ ...r, contractorName: r.contractorName ?? "(Unknown Company)" }));
   }
 
   async addCompanyContractor(data: InsertCompanyContractor): Promise<CompanyContractor> {
@@ -181,7 +181,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getPrincipalEmployers(contractorId: string): Promise<(CompanyContractor & { companyName: string })[]> {
-    return await db
+    const rows = await db
       .select({
         id: companyContractors.id,
         companyId: companyContractors.companyId,
@@ -190,8 +190,10 @@ export class DatabaseStorage implements IStorage {
         companyName: companies.companyName,
       })
       .from(companyContractors)
-      .innerJoin(companies, eq(companies.id, companyContractors.companyId))
+      .leftJoin(companies, eq(companies.id, companyContractors.companyId))
       .where(eq(companyContractors.contractorId, contractorId));
+    // Ensure companyName is always a string (leftJoin may produce null)
+    return rows.map((r) => ({ ...r, companyName: r.companyName ?? "(Unknown Company)" }));
   }
 
   async getContractorEmployees(companyId: string, contractorId: string): Promise<(Employee & { contractorEmployeeId: string; taggedDate: string | null })[]> {
