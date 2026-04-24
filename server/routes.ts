@@ -1537,6 +1537,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Manual trigger: process unprocessed biometric logs → attendance records
+  app.post("/api/biometric/process-attendance", requireAuth, requireRole("super_admin", "company_admin"), async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const companyId = user.role === "super_admin" ? undefined : user.companyId;
+      const { processBiometricAttendance } = await import("./biometric-attendance-sync");
+      const result = await processBiometricAttendance(companyId);
+      res.json({ success: true, ...result });
+    } catch (error: any) {
+      console.error("[biometric/process-attendance] error:", error);
+      res.status(500).json({ error: String(error?.message || "Failed to process attendance") });
+    }
+  });
+
   // ===== Biometric Punch Log Routes =====
   // ADMS device communication log — shows last 200 raw requests from device.
   // Reads from DB (persistent, survives restarts) merged with in-memory entries.

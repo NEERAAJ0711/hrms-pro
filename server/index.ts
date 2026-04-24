@@ -7,6 +7,7 @@ import pg from "pg";
 import { registerRoutes } from "./routes";
 import { setupBiometricSync } from "./biometric-sync";
 import { startAdmsServer } from "./adms";
+import { startBiometricAttendanceSync } from "./biometric-attendance-sync";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 
@@ -134,6 +135,7 @@ app.use((req, res, next) => {
 
   const httpServer = await registerRoutes(app);
   setupBiometricSync();
+  startBiometricAttendanceSync();
   startAdmsServer();
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {

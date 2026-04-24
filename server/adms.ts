@@ -40,6 +40,7 @@ import { storage } from "./storage";
 import { db } from "./db";
 import { sql } from "drizzle-orm";
 import { biometricPunchLogs } from "../shared/schema";
+import { triggerBiometricAttendanceSync } from "./biometric-attendance-sync";
 import rateLimit from "express-rate-limit";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -895,6 +896,11 @@ async function handlePostCdata(req: Request, res: Response) {
     });
     await storage.updateBiometricDevice(device.id, { lastSync: new Date().toISOString() } as any);
     cacheDel(device.id);
+
+    // Auto-push new punches into the attendance table
+    if (r.inserted > 0) {
+      triggerBiometricAttendanceSync(device.companyId);
+    }
 
     admsLog("OUT", effectiveSn,
       `ATTLOG ack ins=${r.inserted} dups=${r.duplicates} bad=${r.bad} stamp=${ackStamp}`, true);

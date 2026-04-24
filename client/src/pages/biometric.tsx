@@ -6,7 +6,7 @@ import {
   Clock, XCircle, Settings, Plus, Trash2, Signal, SignalLow, Download, Users,
   ShieldAlert, ShieldCheck, Pencil, KeyRound, Activity, UserCheck, FileUp,
   RotateCcw, ChevronDown, ChevronUp, User, CalendarDays, Timer, Wifi, WifiOff,
-  Building2, BadgeCheck, Link2
+  Building2, BadgeCheck, Link2, Zap
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -212,6 +212,7 @@ export default function BiometricPage() {
   /* ── Stats ────────────────────────────────────────────────────── */
   const totalLogs = logs.length;
   const processedLogs = logs.filter(l => l.isProcessed).length;
+  const unprocessedLogs = logs.filter(l => !l.isProcessed && l.employeeId).length;
   const missingPunchLogs = logs.filter(l => l.missingPunch).length;
   const unmappedLogs = logs.filter(l => !l.employeeId).length;
 
@@ -341,6 +342,22 @@ export default function BiometricPage() {
     onError: (err: any) => toast({ title: "Reset failed", description: err?.message, variant: "destructive" }),
   });
 
+  const processAttendanceMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/biometric/process-attendance", {});
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/attendance"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/biometric/logs"] });
+      const msg = data?.processed
+        ? `${data.processed} day-record(s) written to attendance.`
+        : "No new punch logs to process.";
+      toast({ title: "Attendance synced", description: msg });
+    },
+    onError: (err: any) => toast({ title: "Sync failed", description: err?.message, variant: "destructive" }),
+  });
+
   const deleteDeviceMutation = useMutation({
     mutationFn: async (id: string) => { await apiRequest("DELETE", `/api/biometric/devices/${id}`); },
     onSuccess: () => {
@@ -408,6 +425,23 @@ export default function BiometricPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => processAttendanceMutation.mutate()}
+            disabled={processAttendanceMutation.isPending}
+            className="relative"
+            data-testid="button-process-attendance"
+            title="Convert unprocessed biometric punch logs into HRMS attendance records"
+          >
+            <Zap className={`h-4 w-4 mr-1.5 ${processAttendanceMutation.isPending ? "animate-spin" : ""}`} />
+            {processAttendanceMutation.isPending ? "Processing…" : "Sync Attendance"}
+            {unprocessedLogs > 0 && !processAttendanceMutation.isPending && (
+              <span className="ml-1.5 inline-flex items-center justify-center rounded-full bg-amber-500 text-white text-[10px] font-bold h-4 min-w-4 px-1">
+                {unprocessedLogs}
+              </span>
+            )}
+          </Button>
           <Button variant="outline" size="sm" onClick={() => { setImportFile(null); setImportDialogOpen(true); }} data-testid="button-import-attlog">
             <FileUp className="h-4 w-4 mr-1.5" /> Import File
           </Button>
