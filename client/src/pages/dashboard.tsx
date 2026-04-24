@@ -204,7 +204,6 @@ function AdminDashboard({ stats }: { stats: DashboardStats }) {
           <CardContent className="space-y-3">
             {[
               { label: "Active Employees", sub: "Currently working", value: stats.activeEmployees, icon: UserCheck, color: "text-emerald-600 bg-emerald-500/10", show: true, href: "/employees" },
-              { label: "Companies", sub: "Registered orgs", value: stats.totalCompanies, icon: Building2, color: "text-primary bg-primary/10", show: isSuperAdmin, href: "/companies" },
               { label: "System Users", sub: "Total accounts", value: stats.totalUsers, icon: Users, color: "text-violet-600 bg-violet-500/10", show: true, href: "/users" },
             ].filter(item => item.show).map((item) => (
               <div
