@@ -336,6 +336,8 @@ export interface DashboardStats {
   totalEmployees: number;
   totalUsers: number;
   activeEmployees: number;
+  totalContractors: number;
+  totalPrincipalEmployers: number;
   departmentDistribution: { department: string; count: number }[];
   recentEmployees: Employee[];
 }

@@ -263,6 +263,8 @@ export class DatabaseStorage implements IStorage {
     const [employeesCount] = await db.select({ value: count() }).from(employees);
     const [usersCount] = await db.select({ value: count() }).from(users);
     const [activeCount] = await db.select({ value: count() }).from(employees).where(eq(employees.status, "active"));
+    const [contractorsCount] = await db.select({ value: count() }).from(companyContractors);
+    const [principalEmployersCount] = await db.select({ value: count() }).from(companyContractors);
 
     const deptRows = await db
       .select({ department: employees.department, count: count() })
@@ -285,6 +287,8 @@ export class DatabaseStorage implements IStorage {
       totalEmployees: employeesCount.value,
       totalUsers: usersCount.value,
       activeEmployees: activeCount.value,
+      totalContractors: contractorsCount.value,
+      totalPrincipalEmployers: principalEmployersCount.value,
       departmentDistribution,
       recentEmployees,
     };
@@ -295,6 +299,10 @@ export class DatabaseStorage implements IStorage {
     const [employeesCount] = await db.select({ value: count() }).from(employees).where(eq(employees.companyId, companyId));
     const [usersCount] = await db.select({ value: count() }).from(users).where(eq(users.companyId, companyId));
     const [activeCount] = await db.select({ value: count() }).from(employees).where(and(eq(employees.companyId, companyId), eq(employees.status, "active")));
+    // Contractors this company has hired
+    const [contractorsCount] = await db.select({ value: count() }).from(companyContractors).where(eq(companyContractors.companyId, companyId));
+    // Companies that have hired this company as a contractor
+    const [principalEmployersCount] = await db.select({ value: count() }).from(companyContractors).where(eq(companyContractors.contractorId, companyId));
 
     const deptRows = await db
       .select({ department: employees.department, count: count() })
@@ -319,6 +327,8 @@ export class DatabaseStorage implements IStorage {
       totalEmployees: employeesCount.value,
       totalUsers: usersCount.value,
       activeEmployees: activeCount.value,
+      totalContractors: contractorsCount.value,
+      totalPrincipalEmployers: principalEmployersCount.value,
       departmentDistribution,
       recentEmployees,
     };

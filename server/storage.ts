@@ -609,6 +609,8 @@ export class MemStorage implements IStorage {
       totalEmployees: employees.length,
       totalUsers: users.length,
       activeEmployees: activeEmployees.length,
+      totalContractors: 0,
+      totalPrincipalEmployers: 0,
       departmentDistribution,
       recentEmployees,
     };
@@ -638,6 +640,8 @@ export class MemStorage implements IStorage {
       totalEmployees: employees.length,
       totalUsers: users.length,
       activeEmployees: activeEmployees.length,
+      totalContractors: 0,
+      totalPrincipalEmployers: 0,
       departmentDistribution,
       recentEmployees,
     };

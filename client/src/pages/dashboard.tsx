@@ -13,6 +13,7 @@ import {
   CalendarDays,
   TrendingUp,
   Briefcase,
+  HardHat,
   CheckCircle2,
   XCircle,
   AlertCircle,
@@ -85,13 +86,15 @@ function AdminDashboard({ stats }: { stats: DashboardStats }) {
 
   return (
     <div className="space-y-6">
-      <div className={`grid gap-4 sm:grid-cols-2 ${isSuperAdmin ? "lg:grid-cols-4" : "lg:grid-cols-3"}`}>
+      <div className={`grid gap-4 sm:grid-cols-2 ${isSuperAdmin ? "lg:grid-cols-3 xl:grid-cols-6" : "lg:grid-cols-5"}`}>
         {isSuperAdmin && (
           <StatCard title="Total Companies" value={stats.totalCompanies} icon={Building2} description="Registered organizations" color="primary" />
         )}
         <StatCard title="Total Employees" value={stats.totalEmployees} icon={Users} description="Across all companies" color="cyan" />
         <StatCard title="Active Employees" value={stats.activeEmployees} icon={UserCheck} description="Currently employed" trend="+12% this month" color="emerald" />
         <StatCard title="System Users" value={stats.totalUsers} icon={Star} description="With system access" color="violet" />
+        <StatCard title="Contractors" value={stats.totalContractors} icon={HardHat} description="Linked contractor companies" color="amber" />
+        <StatCard title="Principal Employers" value={stats.totalPrincipalEmployers} icon={Briefcase} description="Companies acting as principal" color="rose" />
       </div>
 
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
@@ -610,7 +613,7 @@ export default function Dashboard() {
       ) : isEmployee ? (
         <EmployeeDashboard />
       ) : (
-        <AdminDashboard stats={stats || { totalCompanies: 0, totalEmployees: 0, totalUsers: 0, activeEmployees: 0, departmentDistribution: [], recentEmployees: [] }} />
+        <AdminDashboard stats={stats || { totalCompanies: 0, totalEmployees: 0, totalUsers: 0, activeEmployees: 0, totalContractors: 0, totalPrincipalEmployers: 0, departmentDistribution: [], recentEmployees: [] }} />
       )}
     </div>
   );
