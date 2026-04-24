@@ -1412,6 +1412,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Delete a user from the physical biometric device (sends DATA DELETE USERINFO PIN=X
+  // via the ADMS command queue) and removes them from local biometric_device_users.
+  // Punch logs are NOT deleted — historical attendance records are preserved.
+  app.delete("/api/biometric/devices/:id/users/:pin", requireAuth, requireRole("super_admin", "company_admin"), async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const device = await storage.getBiometricDevice(req.params.id);
+      if (!device) return res.status(404).json({ error: "Device not found" });
+      if (user.role !== "super_admin" && device.companyId && device.companyId !== user.companyId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      const pin = String(req.params.pin).trim();
+      if (!pin) return res.status(400).json({ error: "PIN is required" });
+
+      // 1. Send delete command to the physical device
+      const { enqueueDeviceCommand } = await import("./adms");
+      await enqueueDeviceCommand(device.id, `DATA DELETE USERINFO PIN=${pin}`);
+
+      // 2. Remove from local biometric_device_users (punch logs remain)
+      await db.execute(sql`
+        DELETE FROM biometric_device_users
+        WHERE device_id = ${device.id} AND device_employee_id = ${pin}
+      `);
+
+      console.log(`[biometric/remove-user] PIN=${pin} deleted from device ${device.deviceSerial} and local DB`);
+      res.json({
+        success: true,
+        message: `User PIN ${pin} removed from device. The delete command has been queued and will execute on the device's next connection.`,
+      });
+    } catch (error: any) {
+      console.error(`[biometric/devices/:id/users/:pin DELETE] error:`, error);
+      res.status(500).json({ error: String(error?.message || "Failed to delete user") });
+    }
+  });
+
   // Reset ATTLOGStamp to 0 on a single device so it re-uploads ALL stored records.
   // Also enqueues DATA UPDATE ATTLOG Stamp=0 so the command is delivered on the
   // device's next /getrequest poll (within seconds when device is online).

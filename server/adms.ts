@@ -256,18 +256,33 @@ function parseTimestamp(ts: string): { date: string; time: string; epoch: number
 
 /**
  * Parse a USERINFO / OPLOG USER line into a key=value map.
+ * Handles both tab-delimited and space-delimited key=value pairs.
  * Returns null if no PIN field is found.
  */
 function parseUserLine(line: string): Record<string, string> | null {
   const s = (line || "").trim().replace(/^(?:OPLOG\s+)?USER\s+/i, "");
   if (!s) return null;
+
   const out: Record<string, string> = {};
-  for (const part of s.split(/\t+/)) {
-    const eq = part.indexOf("=");
-    if (eq <= 0) continue;
-    out[part.slice(0, eq).trim()] = part.slice(eq + 1).trim();
+
+  // Primary: tab-delimited  (PIN=X\tName=Y\tPri=Z…)
+  if (s.includes("\t")) {
+    for (const part of s.split(/\t+/)) {
+      const eq = part.indexOf("=");
+      if (eq <= 0) continue;
+      out[part.slice(0, eq).trim()] = part.slice(eq + 1).trim();
+    }
+  } else {
+    // Fallback: space-delimited  (PIN=X Name=Y Pri=Z…)
+    // Use a greedy key=value regex so values can include spaces until the next key
+    const pairs = s.matchAll(/([A-Za-z]\w*)\s*=\s*((?:(?![A-Za-z]\w*\s*=).)*)/g);
+    for (const m of pairs) {
+      out[m[1].trim()] = m[2].trim();
+    }
   }
-  return out.PIN || out.Pin || out.pin ? out : null;
+
+  if (!(out.PIN || out.Pin || out.pin)) return null;
+  return out;
 }
 
 // ─── ATTLOG processor ─────────────────────────────────────────────────────────
@@ -387,12 +402,28 @@ export async function processUserRecords(
   const lines = (body || "").split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
   const now = new Date().toISOString();
 
+  console.log(`[ADMS] processUserRecords: ${lines.length} total lines from device ${device.deviceSerial}`);
+
   for (const line of lines) {
-    if (!/PIN=/i.test(line)) continue;
+    if (!/PIN=/i.test(line)) {
+      console.log(`[ADMS]   SKIP (no PIN=): ${line.slice(0, 120)}`);
+      continue;
+    }
     const rec = parseUserLine(line);
-    if (!rec) { out.bad++; continue; }
+    if (!rec) {
+      console.log(`[ADMS]   BAD (parse fail): ${line.slice(0, 120)}`);
+      out.bad++;
+      continue;
+    }
     const pin = String(rec.PIN || rec.Pin || rec.pin || "").trim();
-    if (!pin) { out.bad++; continue; }
+    if (!pin) {
+      console.log(`[ADMS]   BAD (empty PIN): ${line.slice(0, 120)}`);
+      out.bad++;
+      continue;
+    }
+
+    const name = (rec.Name || rec.NAME || rec.name || "").trim() || null;
+    console.log(`[ADMS]   OK  PIN=${pin} Name=${name ?? "(empty)"}`);
 
     try {
       await db.execute(sql`
@@ -401,7 +432,7 @@ export async function processUserRecords(
            password_set, fingerprint_count, first_seen_at, last_seen_at)
         VALUES (
           ${device.id}, ${pin},
-          ${(rec.Name || rec.NAME || rec.name || "").trim() || null},
+          ${name},
           ${(rec.Pri  || rec.Privilege || "").trim() || null},
           ${(rec.Card || rec.CARD || "").trim() || null},
           ${!!(rec.Passwd || rec.Password || rec.PWD)},
@@ -421,6 +452,7 @@ export async function processUserRecords(
     }
   }
 
+  console.log(`[ADMS] processUserRecords done: upserted=${out.upserted} bad=${out.bad}`);
   return out;
 }
 

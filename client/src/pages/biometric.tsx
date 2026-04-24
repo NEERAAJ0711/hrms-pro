@@ -348,6 +348,21 @@ export default function BiometricPage() {
     onError: (err: any) => toast({ title: "Delete failed", description: err?.message, variant: "destructive" }),
   });
 
+  // Delete a user from the physical device (and local DB)
+  const [deleteUserConfirm, setDeleteUserConfirm] = useState<{ deviceId: string; pin: string; name: string } | null>(null);
+  const deleteUserMutation = useMutation({
+    mutationFn: async ({ deviceId, pin }: { deviceId: string; pin: string }) => {
+      const res = await apiRequest("DELETE", `/api/biometric/devices/${deviceId}/users/${pin}`);
+      return res.json();
+    },
+    onSuccess: (data) => {
+      toast({ title: "User removed from device", description: data?.message });
+      queryClient.invalidateQueries({ queryKey: ["/api/biometric/devices", usersDialogDevice?.id, "users"] });
+      setDeleteUserConfirm(null);
+    },
+    onError: (err: any) => toast({ title: "Delete failed", description: err?.message, variant: "destructive" }),
+  });
+
   const handleAddDevice = () => {
     if (!deviceName || !deviceSerial) { toast({ title: "Name and serial are required", variant: "destructive" }); return; }
     const resolvedCompanyId = isSuperAdmin ? (deviceCompanyId || null) : (user?.companyId || null);
@@ -966,23 +981,39 @@ export default function BiometricPage() {
                           )}
                         </div>
 
-                        {/* Map button */}
-                        <Button
-                          data-testid={`button-map-pin-${u.deviceEmployeeId}`}
-                          size="sm"
-                          variant={u.matched ? "outline" : isCardOnly ? "default" : "default"}
-                          className={`w-full h-8 text-xs ${isCardOnly && !u.matched ? "bg-amber-600 hover:bg-amber-700 text-white" : ""}`}
-                          onClick={() => {
-                            setMapPinRow({ devicePin: u.deviceEmployeeId, deviceName: u.deviceName || u.deviceEmployeeId });
-                            setMapSelectedEmployee(u.employeeId || "");
-                          }}
-                        >
-                          {u.matched ? (
-                            <><Pencil className="h-3 w-3 mr-1.5" /> Remap Employee</>
-                          ) : (
-                            <><Link2 className="h-3 w-3 mr-1.5" /> Map to Employee</>
-                          )}
-                        </Button>
+                        {/* Action buttons row */}
+                        <div className="flex gap-2">
+                          <Button
+                            data-testid={`button-map-pin-${u.deviceEmployeeId}`}
+                            size="sm"
+                            variant={u.matched ? "outline" : "default"}
+                            className={`flex-1 h-8 text-xs ${isCardOnly && !u.matched ? "bg-amber-600 hover:bg-amber-700 text-white border-0" : ""}`}
+                            onClick={() => {
+                              setMapPinRow({ devicePin: u.deviceEmployeeId, deviceName: u.deviceName || u.deviceEmployeeId });
+                              setMapSelectedEmployee(u.employeeId || "");
+                            }}
+                          >
+                            {u.matched ? (
+                              <><Pencil className="h-3 w-3 mr-1.5" /> Remap</>
+                            ) : (
+                              <><Link2 className="h-3 w-3 mr-1.5" /> Map to HR</>
+                            )}
+                          </Button>
+                          <Button
+                            data-testid={`button-delete-user-${u.deviceEmployeeId}`}
+                            size="sm"
+                            variant="outline"
+                            className="h-8 w-8 p-0 text-destructive hover:bg-destructive hover:text-white border-destructive/40 shrink-0"
+                            title="Remove user from device"
+                            onClick={() => setDeleteUserConfirm({
+                              deviceId: usersDialogDevice!.id,
+                              pin: u.deviceEmployeeId,
+                              name: u.deviceName || hrName || `PIN ${u.deviceEmployeeId}`,
+                            })}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
                       </div>
                     );
                   })}
@@ -1272,7 +1303,7 @@ export default function BiometricPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Delete confirm dialog */}
+      {/* Delete device confirm dialog */}
       <AlertDialog open={!!deviceToDelete} onOpenChange={(open) => { if (!open) setDeviceToDelete(null); }}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -1293,6 +1324,44 @@ export default function BiometricPage() {
               }}
             >
               Delete Device
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Delete user from device confirm dialog */}
+      <AlertDialog open={!!deleteUserConfirm} onOpenChange={(open) => { if (!open) setDeleteUserConfirm(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <Trash2 className="h-4 w-4 text-destructive" />
+              Remove user from device?
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2 text-sm">
+                <p>
+                  This will permanently delete <strong>{deleteUserConfirm?.name}</strong> (PIN: {deleteUserConfirm?.pin}) from the biometric device.
+                </p>
+                <ul className="list-disc pl-4 space-y-1 text-muted-foreground">
+                  <li>Their face/fingerprint enrollment will be erased from the machine.</li>
+                  <li>Historical punch logs are <strong>not</strong> deleted — attendance records remain.</li>
+                  <li>The delete command is sent on the device's next connection (within seconds if online).</li>
+                </ul>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteUserMutation.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 hover:bg-red-700"
+              disabled={deleteUserMutation.isPending}
+              onClick={() => {
+                if (deleteUserConfirm) {
+                  deleteUserMutation.mutate({ deviceId: deleteUserConfirm.deviceId, pin: deleteUserConfirm.pin });
+                }
+              }}
+            >
+              {deleteUserMutation.isPending ? "Removing…" : "Remove from Device"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
