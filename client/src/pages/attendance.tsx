@@ -488,10 +488,11 @@ export default function AttendancePage() {
   };
 
   const todayStr = format(new Date(), "yyyy-MM-dd");
-  const presentCount = attendance.filter(a => a.status === "present" && a.date === todayStr).length;
-  const absentCount = attendance.filter(a => a.status === "absent" && a.date === todayStr).length;
-  const leaveCount = attendance.filter(a => a.status === "on_leave" && a.date === todayStr).length
-    + approvedLeaves.filter(lr => todayStr >= lr.startDate && todayStr <= lr.endDate).length;
+  const filteredEmployeeIds = new Set(filteredEmployees.map(e => e.id));
+  const presentCount = attendance.filter(a => filteredEmployeeIds.has(a.employeeId) && a.status === "present" && a.date === todayStr).length;
+  const absentCount = attendance.filter(a => filteredEmployeeIds.has(a.employeeId) && a.status === "absent" && a.date === todayStr).length;
+  const leaveCount = attendance.filter(a => filteredEmployeeIds.has(a.employeeId) && a.status === "on_leave" && a.date === todayStr).length
+    + approvedLeaves.filter(lr => filteredEmployeeIds.has(lr.employeeId) && todayStr >= lr.startDate && todayStr <= lr.endDate).length;
 
   const selectedEmpObj = selectedEmployee ? employees.find(e => e.id === selectedEmployee) : null;
   const employeeAttendance = selectedEmployee
