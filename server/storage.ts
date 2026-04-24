@@ -52,7 +52,9 @@ import {
   type LoanAdvance,
   type InsertLoanAdvance,
   type InsertPreviousExperience,
-  type UserPermission
+  type UserPermission,
+  type CompanyContractor,
+  type InsertCompanyContractor,
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 
@@ -72,6 +74,11 @@ export interface IStorage {
   updateCompany(id: string, company: Partial<InsertCompany>): Promise<Company | undefined>;
   deleteCompany(id: string): Promise<boolean>;
   getAllCompanies(): Promise<Company[]>;
+
+  // Company Contractors
+  getCompanyContractors(companyId: string): Promise<(CompanyContractor & { contractorName: string })[]>;
+  addCompanyContractor(data: InsertCompanyContractor): Promise<CompanyContractor>;
+  removeCompanyContractor(companyId: string, contractorId: string): Promise<boolean>;
 
   // Employees
   getEmployee(id: string): Promise<Employee | undefined>;
@@ -476,6 +483,24 @@ export class MemStorage implements IStorage {
 
   async getAllCompanies(): Promise<Company[]> {
     return Array.from(this.companies.values());
+  }
+
+  // Company Contractors (stub — not used; DatabaseStorage handles this)
+  private contractorsMap = new Map<string, CompanyContractor>();
+  async getCompanyContractors(companyId: string): Promise<(CompanyContractor & { contractorName: string })[]> {
+    const all = Array.from(this.contractorsMap.values()).filter(c => c.companyId === companyId);
+    return all.map(c => ({ ...c, contractorName: this.companies.get(c.contractorId)?.companyName ?? c.contractorId }));
+  }
+  async addCompanyContractor(data: InsertCompanyContractor): Promise<CompanyContractor> {
+    const id = randomUUID();
+    const record: CompanyContractor = { id, ...data };
+    this.contractorsMap.set(id, record);
+    return record;
+  }
+  async removeCompanyContractor(companyId: string, contractorId: string): Promise<boolean> {
+    const entry = Array.from(this.contractorsMap.values()).find(c => c.companyId === companyId && c.contractorId === contractorId);
+    if (!entry) return false;
+    return this.contractorsMap.delete(entry.id);
   }
 
   // Employee methods

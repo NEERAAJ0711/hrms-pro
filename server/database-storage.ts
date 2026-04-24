@@ -53,6 +53,9 @@ import {
   type LoanAdvance,
   type InsertLoanAdvance,
   type UserPermission,
+  type CompanyContractor,
+  type InsertCompanyContractor,
+  companyContractors,
   companies,
   users,
   employees,
@@ -145,6 +148,35 @@ export class DatabaseStorage implements IStorage {
 
   async getAllCompanies(): Promise<Company[]> {
     return await db.select().from(companies);
+  }
+
+  async getCompanyContractors(companyId: string): Promise<(CompanyContractor & { contractorName: string })[]> {
+    const rows = await db
+      .select({
+        id: companyContractors.id,
+        companyId: companyContractors.companyId,
+        contractorId: companyContractors.contractorId,
+        startDate: companyContractors.startDate,
+        contractorName: companies.companyName,
+      })
+      .from(companyContractors)
+      .innerJoin(companies, eq(companies.id, companyContractors.contractorId))
+      .where(eq(companyContractors.companyId, companyId));
+    return rows;
+  }
+
+  async addCompanyContractor(data: InsertCompanyContractor): Promise<CompanyContractor> {
+    const id = randomUUID();
+    const result = await db.insert(companyContractors).values({ ...data, id }).returning();
+    return result[0];
+  }
+
+  async removeCompanyContractor(companyId: string, contractorId: string): Promise<boolean> {
+    const result = await db
+      .delete(companyContractors)
+      .where(and(eq(companyContractors.companyId, companyId), eq(companyContractors.contractorId, contractorId)))
+      .returning();
+    return result.length > 0;
   }
 
   async getEmployee(id: string): Promise<Employee | undefined> {

@@ -4478,6 +4478,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Company Contractors
+  app.get("/api/companies/:id/contractors", requireAuth, async (req, res) => {
+    try {
+      const contractors = await storage.getCompanyContractors(req.params.id);
+      res.json(contractors);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch contractors" });
+    }
+  });
+
+  app.post("/api/companies/:id/contractors", requireAuth, requireRole("super_admin", "company_admin"), async (req, res) => {
+    try {
+      const { contractorId, startDate } = req.body;
+      if (!contractorId || !startDate) return res.status(400).json({ error: "contractorId and startDate are required" });
+      const record = await storage.addCompanyContractor({ companyId: req.params.id, contractorId, startDate });
+      res.status(201).json(record);
+    } catch (error: any) {
+      if (String(error?.message || "").includes("unique")) {
+        return res.status(409).json({ error: "This company is already added as a contractor" });
+      }
+      res.status(500).json({ error: "Failed to add contractor" });
+    }
+  });
+
+  app.delete("/api/companies/:id/contractors/:contractorId", requireAuth, requireRole("super_admin", "company_admin"), async (req, res) => {
+    try {
+      const success = await storage.removeCompanyContractor(req.params.id, req.params.contractorId);
+      if (!success) return res.status(404).json({ error: "Contractor association not found" });
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to remove contractor" });
+    }
+  });
+
   // ─── Loan & Advance Routes ───────────────────────────────────────────────────
 
   app.get("/api/loan-advances", requireAuth, async (req, res) => {

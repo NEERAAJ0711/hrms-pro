@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -42,19 +42,30 @@ import { useToast } from "@/hooks/use-toast";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Switch } from "@/components/ui/switch";
-import { 
-  Plus, 
-  Search, 
-  Building2, 
-  Edit, 
+import {
+  Plus,
+  Search,
+  Building2,
+  Edit,
   Trash2,
   MapPin,
-  HardHat
+  HardHat,
+  X,
+  CalendarDays,
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Company, InsertCompany } from "@shared/schema";
 
+// ─── Types ────────────────────────────────────────────────────────────────────
+type ContractorRow = {
+  id: string;
+  companyId: string;
+  contractorId: string;
+  startDate: string;
+  contractorName: string;
+};
+
+// ─── Company Form ─────────────────────────────────────────────────────────────
 const companyFormSchema = z.object({
   companyName: z.string().min(1, "Company name is required"),
   legalName: z.string().min(1, "Legal name is required"),
@@ -68,18 +79,17 @@ const companyFormSchema = z.object({
   registeredAddress: z.string().optional(),
   financialYear: z.string().optional(),
   status: z.enum(["active", "inactive"]).default("active"),
-  isContractor: z.boolean().default(false),
 });
 
 type CompanyFormValues = z.infer<typeof companyFormSchema>;
 
-function CompanyForm({ 
-  onSubmit, 
-  defaultValues, 
+function CompanyForm({
+  onSubmit,
+  defaultValues,
   isLoading,
-  submitLabel = "Create Company"
-}: { 
-  onSubmit: (data: CompanyFormValues) => void; 
+  submitLabel = "Create Company",
+}: {
+  onSubmit: (data: CompanyFormValues) => void;
   defaultValues?: Partial<CompanyFormValues>;
   isLoading: boolean;
   submitLabel?: string;
@@ -99,7 +109,6 @@ function CompanyForm({
       registeredAddress: "",
       financialYear: "",
       status: "active",
-      isContractor: false,
       ...defaultValues,
     },
   });
@@ -246,39 +255,15 @@ function CompanyForm({
 
         <FormField
           control={form.control}
-          name="isContractor"
-          render={({ field }) => (
-            <FormItem className="flex items-center gap-3 rounded-lg border p-3">
-              <FormControl>
-                <Switch
-                  checked={field.value ?? false}
-                  onCheckedChange={field.onChange}
-                  data-testid="switch-is-contractor"
-                />
-              </FormControl>
-              <div>
-                <FormLabel className="text-sm font-medium leading-none cursor-pointer">
-                  Contractor Company
-                </FormLabel>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  Mark this company as a contractor / manpower supplier
-                </p>
-              </div>
-            </FormItem>
-          )}
-        />
-
-        <FormField
-          control={form.control}
           name="registeredAddress"
           render={({ field }) => (
             <FormItem>
               <FormLabel>Registered Address</FormLabel>
               <FormControl>
-                <Textarea 
-                  placeholder="Enter registered address" 
-                  className="resize-none" 
-                  {...field} 
+                <Textarea
+                  placeholder="Enter registered address"
+                  className="resize-none"
+                  {...field}
                   data-testid="textarea-address"
                 />
               </FormControl>
@@ -297,6 +282,255 @@ function CompanyForm({
   );
 }
 
+// ─── Contractor Management Dialog ─────────────────────────────────────────────
+function ContractorsDialog({
+  company,
+  allCompanies,
+  open,
+  onClose,
+}: {
+  company: Company;
+  allCompanies: Company[];
+  open: boolean;
+  onClose: () => void;
+}) {
+  const { toast } = useToast();
+  const [search, setSearch] = useState("");
+  const [showDropdown, setShowDropdown] = useState(false);
+  const [selected, setSelected] = useState<Company | null>(null);
+  const [startDate, setStartDate] = useState("");
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Fetch existing contractors for this company
+  const { data: contractors = [], isLoading } = useQuery<ContractorRow[]>({
+    queryKey: ["/api/companies", company.id, "contractors"],
+    queryFn: async () => {
+      const res = await fetch(`/api/companies/${company.id}/contractors`, { credentials: "include" });
+      return res.json();
+    },
+    enabled: open,
+  });
+
+  const addMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/companies/${company.id}/contractors`, {
+        contractorId: selected!.id,
+        startDate,
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Failed to add contractor");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/companies", company.id, "contractors"] });
+      setSelected(null);
+      setSearch("");
+      setStartDate("");
+      toast({ title: "Contractor added" });
+    },
+    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const removeMutation = useMutation({
+    mutationFn: async (contractorId: string) => {
+      const res = await apiRequest("DELETE", `/api/companies/${company.id}/contractors/${contractorId}`);
+      if (!res.ok) throw new Error("Failed to remove");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/companies", company.id, "contractors"] });
+      toast({ title: "Contractor removed" });
+    },
+    onError: () => toast({ title: "Error", description: "Failed to remove contractor", variant: "destructive" }),
+  });
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setShowDropdown(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  const existingIds = new Set(contractors.map(c => c.contractorId));
+
+  const filtered = allCompanies.filter(
+    c =>
+      c.id !== company.id &&
+      c.companyName.toLowerCase().includes(search.toLowerCase())
+  ).slice(0, 8);
+
+  const canAdd = selected && startDate;
+
+  function handleSelect(c: Company) {
+    setSelected(c);
+    setSearch(c.companyName);
+    setShowDropdown(false);
+  }
+
+  function handleSearchChange(val: string) {
+    setSearch(val);
+    setSelected(null);
+    setShowDropdown(val.length > 0);
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent className="sm:max-w-[540px]">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <HardHat className="h-5 w-5 text-amber-600" />
+            Contractors — {company.companyName}
+          </DialogTitle>
+          <DialogDescription>
+            Search and select a company to tag as a contractor, then set a start date.
+          </DialogDescription>
+        </DialogHeader>
+
+        {/* Existing contractors */}
+        <div className="space-y-2">
+          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+            Current Contractors ({contractors.length})
+          </p>
+          {isLoading ? (
+            <div className="space-y-1.5">
+              <Skeleton className="h-8 w-full" />
+              <Skeleton className="h-8 w-3/4" />
+            </div>
+          ) : contractors.length === 0 ? (
+            <p className="text-sm text-muted-foreground py-2">No contractors added yet.</p>
+          ) : (
+            <div className="flex flex-wrap gap-2 max-h-28 overflow-y-auto pr-1">
+              {contractors.map((c) => (
+                <div
+                  key={c.contractorId}
+                  className="flex items-center gap-1.5 rounded-full border border-amber-300 bg-amber-50 dark:border-amber-700 dark:bg-amber-950/30 px-3 py-1 text-sm"
+                  data-testid={`contractor-chip-${c.contractorId}`}
+                >
+                  <HardHat className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+                  <span className="font-medium text-amber-800 dark:text-amber-300">{c.contractorName}</span>
+                  <span className="text-amber-500 dark:text-amber-500 text-xs">
+                    <CalendarDays className="inline h-3 w-3 mr-0.5" />
+                    {c.startDate}
+                  </span>
+                  <button
+                    onClick={() => removeMutation.mutate(c.contractorId)}
+                    disabled={removeMutation.isPending}
+                    className="ml-0.5 rounded-full hover:bg-amber-200 dark:hover:bg-amber-800 p-0.5 transition-colors"
+                    data-testid={`remove-contractor-${c.contractorId}`}
+                  >
+                    <X className="h-3 w-3 text-amber-700 dark:text-amber-400" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <hr className="border-dashed" />
+
+        {/* Add contractor */}
+        <div className="space-y-3">
+          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+            Add Contractor
+          </p>
+
+          {/* Searchable company picker */}
+          <div className="relative" ref={dropdownRef}>
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+              <Input
+                placeholder="Type company name to search..."
+                value={search}
+                onChange={(e) => handleSearchChange(e.target.value)}
+                onFocus={() => search.length > 0 && setShowDropdown(true)}
+                className="pl-9"
+                data-testid="input-contractor-search"
+              />
+              {search && (
+                <button
+                  onClick={() => { setSearch(""); setSelected(null); setShowDropdown(false); }}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
+
+            {showDropdown && filtered.length > 0 && (
+              <div className="absolute z-50 mt-1 w-full rounded-md border bg-popover shadow-lg">
+                {filtered.map((c) => {
+                  const alreadyAdded = existingIds.has(c.id);
+                  return (
+                    <button
+                      key={c.id}
+                      onClick={() => !alreadyAdded && handleSelect(c)}
+                      disabled={alreadyAdded}
+                      className={`w-full flex items-center gap-2.5 px-3 py-2 text-left text-sm transition-colors
+                        ${alreadyAdded
+                          ? "opacity-40 cursor-not-allowed"
+                          : "hover:bg-accent hover:text-accent-foreground cursor-pointer"}`}
+                      data-testid={`contractor-option-${c.id}`}
+                    >
+                      <Building2 className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      <div>
+                        <span className="font-medium">{c.companyName}</span>
+                        {alreadyAdded && (
+                          <span className="ml-2 text-xs text-muted-foreground">(already added)</span>
+                        )}
+                      </div>
+                    </button>
+                  );
+                })}
+                {filtered.length === 0 && (
+                  <p className="px-3 py-2 text-sm text-muted-foreground">No companies found</p>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Start date — shown after a company is selected */}
+          <div className="flex items-end gap-3">
+            <div className="flex-1 space-y-1.5">
+              <label className="text-sm font-medium">Start Date</label>
+              <Input
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                data-testid="input-contractor-start-date"
+              />
+            </div>
+            <Button
+              onClick={() => addMutation.mutate()}
+              disabled={!canAdd || addMutation.isPending}
+              data-testid="button-add-contractor"
+            >
+              <Plus className="h-4 w-4 mr-1" />
+              {addMutation.isPending ? "Adding..." : "Add"}
+            </Button>
+          </div>
+
+          {selected && (
+            <p className="text-xs text-muted-foreground">
+              Selected: <span className="font-medium text-foreground">{selected.companyName}</span>
+            </p>
+          )}
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Close</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ─── Skeleton ─────────────────────────────────────────────────────────────────
 function CompaniesTableSkeleton() {
   return (
     <div className="space-y-4">
@@ -314,10 +548,12 @@ function CompaniesTableSkeleton() {
   );
 }
 
+// ─── Main Page ────────────────────────────────────────────────────────────────
 export default function Companies() {
   const [searchQuery, setSearchQuery] = useState("");
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [editingCompany, setEditingCompany] = useState<Company | null>(null);
+  const [contractorsCompany, setContractorsCompany] = useState<Company | null>(null);
   const { toast } = useToast();
 
   const { data: companies = [], isLoading } = useQuery<Company[]>({
@@ -333,17 +569,10 @@ export default function Companies() {
       queryClient.invalidateQueries({ queryKey: ["/api/companies"] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
       setIsCreateOpen(false);
-      toast({
-        title: "Company Created",
-        description: "The company has been successfully created.",
-      });
+      toast({ title: "Company Created", description: "The company has been successfully created." });
     },
     onError: (error: Error) => {
-      toast({
-        title: "Error",
-        description: error.message,
-        variant: "destructive",
-      });
+      toast({ title: "Error", description: error.message, variant: "destructive" });
     },
   });
 
@@ -355,17 +584,10 @@ export default function Companies() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/companies"] });
       setEditingCompany(null);
-      toast({
-        title: "Company Updated",
-        description: "The company has been successfully updated.",
-      });
+      toast({ title: "Company Updated", description: "The company has been successfully updated." });
     },
     onError: (error: Error) => {
-      toast({
-        title: "Error",
-        description: error.message,
-        variant: "destructive",
-      });
+      toast({ title: "Error", description: error.message, variant: "destructive" });
     },
   });
 
@@ -376,17 +598,10 @@ export default function Companies() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/companies"] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
-      toast({
-        title: "Company Deleted",
-        description: "The company has been successfully deleted.",
-      });
+      toast({ title: "Company Deleted", description: "The company has been successfully deleted." });
     },
     onError: (error: Error) => {
-      toast({
-        title: "Error",
-        description: error.message,
-        variant: "destructive",
-      });
+      toast({ title: "Error", description: error.message, variant: "destructive" });
     },
   });
 
@@ -413,9 +628,7 @@ export default function Companies() {
           <DialogContent className="sm:max-w-[600px]">
             <DialogHeader>
               <DialogTitle>Create Company</DialogTitle>
-              <DialogDescription>
-                Add a new company to your HRMS. Fill in the required details.
-              </DialogDescription>
+              <DialogDescription>Add a new company to your HRMS.</DialogDescription>
             </DialogHeader>
             <CompanyForm
               onSubmit={(data) => createMutation.mutate(data)}
@@ -480,20 +693,11 @@ export default function Companies() {
                       <TableCell className="text-center text-muted-foreground font-medium text-sm">{idx + 1}</TableCell>
                       <TableCell>
                         <div className="flex items-center gap-3">
-                          <div className={`h-10 w-10 rounded-md flex items-center justify-center ${company.isContractor ? "bg-amber-100 dark:bg-amber-900/30" : "bg-primary/10"}`}>
-                            {company.isContractor
-                              ? <HardHat className="h-5 w-5 text-amber-600 dark:text-amber-400" />
-                              : <Building2 className="h-5 w-5 text-primary" />}
+                          <div className="h-10 w-10 rounded-md bg-primary/10 flex items-center justify-center">
+                            <Building2 className="h-5 w-5 text-primary" />
                           </div>
                           <div>
-                            <div className="flex items-center gap-2">
-                              <span className="font-medium">{company.companyName}</span>
-                              {company.isContractor && (
-                                <Badge variant="outline" className="text-xs text-amber-700 border-amber-400 bg-amber-50 dark:text-amber-400 dark:border-amber-600 dark:bg-amber-950/30 py-0 px-1.5">
-                                  Contractor
-                                </Badge>
-                              )}
-                            </div>
+                            <div className="font-medium">{company.companyName}</div>
                             {company.registeredAddress && (
                               <div className="flex items-center gap-1 text-xs text-muted-foreground">
                                 <MapPin className="h-3 w-3" />
@@ -516,7 +720,17 @@ export default function Companies() {
                         </Badge>
                       </TableCell>
                       <TableCell className="text-right">
-                        <div className="flex items-center justify-end gap-2">
+                        <div className="flex items-center justify-end gap-1">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            title="Manage Contractors"
+                            onClick={() => setContractorsCompany(company)}
+                            className="text-amber-600 hover:text-amber-700 hover:bg-amber-50 dark:hover:bg-amber-950/30"
+                            data-testid={`button-contractors-${company.id}`}
+                          >
+                            <HardHat className="h-4 w-4" />
+                          </Button>
                           <Button
                             variant="ghost"
                             size="icon"
@@ -553,15 +767,11 @@ export default function Companies() {
         <DialogContent className="sm:max-w-[600px]">
           <DialogHeader>
             <DialogTitle>Edit Company</DialogTitle>
-            <DialogDescription>
-              Update the company information.
-            </DialogDescription>
+            <DialogDescription>Update the company information.</DialogDescription>
           </DialogHeader>
           {editingCompany && (
             <CompanyForm
-              onSubmit={(data) =>
-                updateMutation.mutate({ id: editingCompany.id, data })
-              }
+              onSubmit={(data) => updateMutation.mutate({ id: editingCompany.id, data })}
               defaultValues={{
                 companyName: editingCompany.companyName,
                 legalName: editingCompany.legalName,
@@ -575,7 +785,6 @@ export default function Companies() {
                 registeredAddress: editingCompany.registeredAddress || "",
                 financialYear: editingCompany.financialYear || "",
                 status: editingCompany.status as "active" | "inactive",
-                isContractor: editingCompany.isContractor ?? false,
               }}
               isLoading={updateMutation.isPending}
               submitLabel="Update Company"
@@ -583,6 +792,16 @@ export default function Companies() {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Contractors Dialog */}
+      {contractorsCompany && (
+        <ContractorsDialog
+          company={contractorsCompany}
+          allCompanies={companies}
+          open={!!contractorsCompany}
+          onClose={() => setContractorsCompany(null)}
+        />
+      )}
     </div>
   );
 }
