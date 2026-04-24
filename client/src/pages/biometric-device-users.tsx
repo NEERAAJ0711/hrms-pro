@@ -4,7 +4,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import {
   ArrowLeft, RefreshCw, Users, UserCheck, CreditCard, Link2,
   BadgeCheck, Pencil, Trash2, Search, Filter, SlidersHorizontal,
-  AlertTriangle, CheckCircle, Clock, RotateCcw, Fingerprint,
+  AlertTriangle, CheckCircle, Clock, RotateCcw, Fingerprint, History,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -267,6 +267,21 @@ export default function BiometricDeviceUsersPage() {
     onError: (err: any) => toast({ title: "Sync failed", description: err?.message, variant: "destructive" }),
   });
 
+  const fetchHistoryMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/biometric/devices/${deviceId}/reset-stamp`, {});
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({
+        title: "Historical data requested",
+        description: "The stamp has been reset to 0. The device will re-upload ALL stored punch records on its next connection (usually within a few minutes). Refresh the punch log page after that to see old attendance data.",
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/biometric/logs"] });
+    },
+    onError: (err: any) => toast({ title: "Failed", description: err?.message, variant: "destructive" }),
+  });
+
   const mapPinMutation = useMutation({
     mutationFn: async ({ employeeId, devicePin }: { employeeId: string; devicePin: string }) => {
       const res = await apiRequest("POST", "/api/biometric/map-pin", { employeeId, devicePin, deviceId });
@@ -328,6 +343,18 @@ export default function BiometricDeviceUsersPage() {
           variant="outline"
           size="sm"
           className="gap-1.5 shrink-0"
+          disabled={fetchHistoryMutation.isPending}
+          onClick={() => fetchHistoryMutation.mutate()}
+          data-testid="button-fetch-history"
+          title="Reset stamp to 0 — device will re-upload all stored punch records on its next connection"
+        >
+          <History className={`h-3.5 w-3.5 ${fetchHistoryMutation.isPending ? "animate-spin" : ""}`} />
+          {fetchHistoryMutation.isPending ? "Requesting…" : "Fetch History"}
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          className="gap-1.5 shrink-0"
           disabled={syncMutation.isPending}
           onClick={() => syncMutation.mutate()}
           data-testid="button-sync-users"
@@ -343,12 +370,15 @@ export default function BiometricDeviceUsersPage() {
         {cardOnly.length > 0 && (
           <div className="flex items-start gap-2.5 rounded-xl border border-amber-300 bg-amber-50 dark:border-amber-800 dark:bg-amber-950 px-4 py-3 text-sm text-amber-900 dark:text-amber-200">
             <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
-            <div>
+            <div className="flex-1">
               <p className="font-semibold">
                 {cardOnly.length} card/access punch user{cardOnly.length > 1 ? "s" : ""} need{cardOnly.length === 1 ? "s" : ""} to be linked
               </p>
               <p className="mt-0.5 text-xs opacity-80">
                 These PINs have punch records but are not face-enrolled on this device. Click <strong>Map to HR</strong> on each card to link them — their HR name and photo will then appear automatically.
+              </p>
+              <p className="mt-1 text-xs opacity-80">
+                <strong>Missing old punch data?</strong> Click <strong>Fetch History</strong> above to ask the device to re-upload all stored attendance records.
               </p>
             </div>
           </div>
