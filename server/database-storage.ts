@@ -56,6 +56,7 @@ import {
   type CompanyContractor,
   type InsertCompanyContractor,
   companyContractors,
+  contractorEmployees,
   companies,
   users,
   employees,
@@ -175,6 +176,36 @@ export class DatabaseStorage implements IStorage {
     const result = await db
       .delete(companyContractors)
       .where(and(eq(companyContractors.companyId, companyId), eq(companyContractors.contractorId, contractorId)))
+      .returning();
+    return result.length > 0;
+  }
+
+  async getContractorEmployees(companyId: string, contractorId: string): Promise<(Employee & { contractorEmployeeId: string })[]> {
+    const junction = await db.select().from(companyContractors)
+      .where(and(eq(companyContractors.companyId, companyId), eq(companyContractors.contractorId, contractorId)));
+    if (!junction.length) return [];
+    const rows = await db
+      .select({ ...employees, contractorEmployeeId: contractorEmployees.id } as any)
+      .from(contractorEmployees)
+      .innerJoin(employees, eq(employees.id, contractorEmployees.employeeId))
+      .where(eq(contractorEmployees.companyContractorId, junction[0].id));
+    return rows as any;
+  }
+
+  async addContractorEmployee(companyId: string, contractorId: string, employeeId: string): Promise<void> {
+    const junction = await db.select().from(companyContractors)
+      .where(and(eq(companyContractors.companyId, companyId), eq(companyContractors.contractorId, contractorId)));
+    if (!junction.length) throw new Error("Contractor relationship not found");
+    const id = randomUUID();
+    await db.insert(contractorEmployees).values({ id, companyContractorId: junction[0].id, employeeId });
+  }
+
+  async removeContractorEmployee(companyId: string, contractorId: string, employeeId: string): Promise<boolean> {
+    const junction = await db.select().from(companyContractors)
+      .where(and(eq(companyContractors.companyId, companyId), eq(companyContractors.contractorId, contractorId)));
+    if (!junction.length) return false;
+    const result = await db.delete(contractorEmployees)
+      .where(and(eq(contractorEmployees.companyContractorId, junction[0].id), eq(contractorEmployees.employeeId, employeeId)))
       .returning();
     return result.length > 0;
   }

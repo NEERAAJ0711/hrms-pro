@@ -54,6 +54,17 @@ export const insertCompanyContractorSchema = createInsertSchema(companyContracto
 export type InsertCompanyContractor = z.infer<typeof insertCompanyContractorSchema>;
 export type CompanyContractor = typeof companyContractors.$inferSelect;
 
+// Contractor → Employee tagging
+export const contractorEmployees = pgTable("contractor_employees", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  companyContractorId: varchar("company_contractor_id", { length: 36 }).notNull(),
+  employeeId: varchar("employee_id", { length: 36 }).notNull(),
+});
+
+export const insertContractorEmployeeSchema = createInsertSchema(contractorEmployees).omit({ id: true });
+export type InsertContractorEmployee = z.infer<typeof insertContractorEmployeeSchema>;
+export type ContractorEmployee = typeof contractorEmployees.$inferSelect;
+
 // Users table
 export const users = pgTable("users", {
   id: varchar("id", { length: 36 }).primaryKey(),

@@ -4522,6 +4522,50 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ─── Contractor Employee Tagging ──────────────────────────────────────────────
+
+  app.get("/api/companies/:companyId/employees", requireAuth, async (req, res) => {
+    try {
+      const emps = await storage.getEmployeesByCompany(req.params.companyId);
+      res.json(emps);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch employees" });
+    }
+  });
+
+  app.get("/api/companies/:id/contractors/:contractorId/employees", requireAuth, async (req, res) => {
+    try {
+      const tagged = await storage.getContractorEmployees(req.params.id, req.params.contractorId);
+      res.json(tagged);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch contractor employees" });
+    }
+  });
+
+  app.post("/api/companies/:id/contractors/:contractorId/employees", requireAuth, requireRole("super_admin", "company_admin"), async (req, res) => {
+    try {
+      const { employeeId } = req.body;
+      if (!employeeId) return res.status(400).json({ error: "employeeId is required" });
+      await storage.addContractorEmployee(req.params.id, req.params.contractorId, employeeId);
+      res.status(201).json({ success: true });
+    } catch (error: any) {
+      if (String(error?.message || "").includes("unique")) {
+        return res.status(409).json({ error: "Employee is already tagged to this contractor" });
+      }
+      res.status(500).json({ error: "Failed to tag employee" });
+    }
+  });
+
+  app.delete("/api/companies/:id/contractors/:contractorId/employees/:employeeId", requireAuth, requireRole("super_admin", "company_admin"), async (req, res) => {
+    try {
+      const success = await storage.removeContractorEmployee(req.params.id, req.params.contractorId, req.params.employeeId);
+      if (!success) return res.status(404).json({ error: "Tagged employee not found" });
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to remove employee tag" });
+    }
+  });
+
   // ─── Loan & Advance Routes ───────────────────────────────────────────────────
 
   app.get("/api/loan-advances", requireAuth, async (req, res) => {
