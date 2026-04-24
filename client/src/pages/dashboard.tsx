@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/lib/auth";
+import { useLocation } from "wouter";
 import { format, isAfter, parseISO, startOfMonth, endOfMonth } from "date-fns";
 import {
   Building2,
@@ -36,6 +37,7 @@ function StatCard({
   description,
   trend,
   color = "primary",
+  href,
 }: {
   title: string;
   value: number | string;
@@ -43,7 +45,9 @@ function StatCard({
   description?: string;
   trend?: string;
   color?: "primary" | "emerald" | "amber" | "violet" | "rose" | "cyan";
+  href?: string;
 }) {
+  const [, navigate] = useLocation();
   const colorMap: Record<string, string> = {
     primary: "bg-primary/10 text-primary",
     emerald: "bg-emerald-500/10 text-emerald-600",
@@ -53,7 +57,11 @@ function StatCard({
     cyan: "bg-cyan-500/10 text-cyan-600",
   };
   return (
-    <Card className="overflow-hidden">
+    <Card
+      className={`overflow-hidden transition-all ${href ? "cursor-pointer hover:shadow-md hover:border-primary/30 hover:-translate-y-0.5" : ""}`}
+      onClick={href ? () => navigate(href) : undefined}
+      data-testid={`stat-card-${title.toLowerCase().replace(/\s+/g, "-")}`}
+    >
       <CardContent className="p-5">
         <div className="flex items-start justify-between">
           <div className="space-y-1">
@@ -67,8 +75,11 @@ function StatCard({
               </div>
             )}
           </div>
-          <div className={`h-10 w-10 rounded-xl flex items-center justify-center ${colorMap[color]}`}>
-            <Icon className="h-5 w-5" />
+          <div className="flex flex-col items-end gap-2">
+            <div className={`h-10 w-10 rounded-xl flex items-center justify-center ${colorMap[color]}`}>
+              <Icon className="h-5 w-5" />
+            </div>
+            {href && <ArrowUpRight className="h-3.5 w-3.5 text-muted-foreground/50" />}
           </div>
         </div>
       </CardContent>
@@ -82,28 +93,37 @@ function AdminDashboard({ stats }: { stats: DashboardStats }) {
   const colors = ["bg-primary", "bg-emerald-500", "bg-amber-500", "bg-violet-500", "bg-cyan-500", "bg-rose-500"];
   const total = stats.departmentDistribution.reduce((s, d) => s + d.count, 0);
   const { user } = useAuth();
+  const [, navigate] = useLocation();
   const isSuperAdmin = user?.role === "super_admin";
+
+  // Contractors page link: company admin goes to their own page; super admin goes to companies list
+  const contractorsHref = isSuperAdmin ? "/companies" : user?.companyId ? `/companies/${user.companyId}/contractors` : "/companies";
 
   return (
     <div className="space-y-6">
       <div className={`grid gap-4 sm:grid-cols-2 ${isSuperAdmin ? "lg:grid-cols-3 xl:grid-cols-6" : "lg:grid-cols-5"}`}>
         {isSuperAdmin && (
-          <StatCard title="Total Companies" value={stats.totalCompanies} icon={Building2} description="Registered organizations" color="primary" />
+          <StatCard title="Total Companies" value={stats.totalCompanies} icon={Building2} description="Registered organizations" color="primary" href="/companies" />
         )}
-        <StatCard title="Total Employees" value={stats.totalEmployees} icon={Users} description="Across all companies" color="cyan" />
-        <StatCard title="Active Employees" value={stats.activeEmployees} icon={UserCheck} description="Currently employed" trend="+12% this month" color="emerald" />
-        <StatCard title="System Users" value={stats.totalUsers} icon={Star} description="With system access" color="violet" />
-        <StatCard title="Contractors" value={stats.totalContractors} icon={HardHat} description="Linked contractor companies" color="amber" />
-        <StatCard title="Principal Employers" value={stats.totalPrincipalEmployers} icon={Briefcase} description="Companies acting as principal" color="rose" />
+        <StatCard title="Total Employees" value={stats.totalEmployees} icon={Users} description="Across all companies" color="cyan" href="/employees" />
+        <StatCard title="Active Employees" value={stats.activeEmployees} icon={UserCheck} description="Currently employed" trend="+12% this month" color="emerald" href="/employees" />
+        <StatCard title="System Users" value={stats.totalUsers} icon={Star} description="With system access" color="violet" href="/users" />
+        <StatCard title="Contractors" value={stats.totalContractors} icon={HardHat} description="Linked contractor companies" color="amber" href={contractorsHref} />
+        <StatCard title="Principal Employers" value={stats.totalPrincipalEmployers} icon={Briefcase} description="Companies acting as principal" color="rose" href={contractorsHref} />
       </div>
 
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
         {/* Department Distribution */}
-        <Card>
+        <Card
+          className="cursor-pointer hover:shadow-md hover:border-primary/30 transition-all hover:-translate-y-0.5"
+          onClick={() => navigate("/employees")}
+          data-testid="card-department-distribution"
+        >
           <CardHeader className="pb-3">
             <CardTitle className="text-base font-semibold flex items-center gap-2">
               <Activity className="h-4 w-4 text-primary" />
               Department Distribution
+              <ArrowUpRight className="h-3.5 w-3.5 text-muted-foreground/50 ml-auto" />
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -131,11 +151,15 @@ function AdminDashboard({ stats }: { stats: DashboardStats }) {
         </Card>
 
         {/* Recent Employees */}
-        <Card>
+        <Card data-testid="card-recent-employees">
           <CardHeader className="pb-3">
-            <CardTitle className="text-base font-semibold flex items-center gap-2">
+            <CardTitle
+              className="text-base font-semibold flex items-center gap-2 cursor-pointer hover:text-primary transition-colors"
+              onClick={() => navigate("/employees")}
+            >
               <Users className="h-4 w-4 text-primary" />
               Recent Employees
+              <ArrowUpRight className="h-3.5 w-3.5 text-muted-foreground/50 ml-auto" />
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -144,7 +168,12 @@ function AdminDashboard({ stats }: { stats: DashboardStats }) {
             ) : (
               <div className="space-y-3">
                 {stats.recentEmployees.map((emp) => (
-                  <div key={emp.id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-muted/50 transition-colors">
+                  <div
+                    key={emp.id}
+                    className="flex items-center gap-3 p-2 rounded-lg hover:bg-muted/50 transition-colors cursor-pointer"
+                    onClick={() => navigate(`/employees/${emp.id}/edit`)}
+                    data-testid={`row-recent-employee-${emp.id}`}
+                  >
                     <Avatar className="h-9 w-9">
                       <AvatarFallback className="bg-primary/10 text-primary text-xs font-semibold">
                         {emp.firstName[0]}{emp.lastName[0]}
@@ -165,7 +194,7 @@ function AdminDashboard({ stats }: { stats: DashboardStats }) {
         </Card>
 
         {/* Quick Overview */}
-        <Card>
+        <Card data-testid="card-quick-overview">
           <CardHeader className="pb-3">
             <CardTitle className="text-base font-semibold flex items-center gap-2">
               <ArrowUpRight className="h-4 w-4 text-primary" />
@@ -174,11 +203,16 @@ function AdminDashboard({ stats }: { stats: DashboardStats }) {
           </CardHeader>
           <CardContent className="space-y-3">
             {[
-              { label: "Active Employees", sub: "Currently working", value: stats.activeEmployees, icon: UserCheck, color: "text-emerald-600 bg-emerald-500/10", show: true },
-              { label: "Companies", sub: "Registered orgs", value: stats.totalCompanies, icon: Building2, color: "text-primary bg-primary/10", show: isSuperAdmin },
-              { label: "System Users", sub: "Total accounts", value: stats.totalUsers, icon: Users, color: "text-violet-600 bg-violet-500/10", show: true },
+              { label: "Active Employees", sub: "Currently working", value: stats.activeEmployees, icon: UserCheck, color: "text-emerald-600 bg-emerald-500/10", show: true, href: "/employees" },
+              { label: "Companies", sub: "Registered orgs", value: stats.totalCompanies, icon: Building2, color: "text-primary bg-primary/10", show: isSuperAdmin, href: "/companies" },
+              { label: "System Users", sub: "Total accounts", value: stats.totalUsers, icon: Users, color: "text-violet-600 bg-violet-500/10", show: true, href: "/users" },
             ].filter(item => item.show).map((item) => (
-              <div key={item.label} className="flex items-center justify-between p-3 rounded-xl bg-muted/40">
+              <div
+                key={item.label}
+                className="flex items-center justify-between p-3 rounded-xl bg-muted/40 cursor-pointer hover:bg-muted/70 transition-colors"
+                onClick={() => navigate(item.href)}
+                data-testid={`overview-row-${item.label.toLowerCase().replace(/\s+/g, "-")}`}
+              >
                 <div className="flex items-center gap-3">
                   <div className={`h-9 w-9 rounded-lg flex items-center justify-center ${item.color}`}>
                     <item.icon className="h-4 w-4" />
@@ -188,7 +222,10 @@ function AdminDashboard({ stats }: { stats: DashboardStats }) {
                     <p className="text-xs text-muted-foreground">{item.sub}</p>
                   </div>
                 </div>
-                <span className="text-xl font-bold">{item.value}</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-xl font-bold">{item.value}</span>
+                  <ArrowUpRight className="h-3.5 w-3.5 text-muted-foreground/40" />
+                </div>
               </div>
             ))}
           </CardContent>
