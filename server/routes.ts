@@ -328,14 +328,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
   await db.execute(sql`
     ALTER TABLE biometric_devices ADD COLUMN IF NOT EXISTS allowed_ip_cidr text;
   `).catch((err) => console.error("[migrations] add allowed_ip_cidr failed:", err));
+  // NOTE: The old backfill that set allowed_ip_cidr = last_push_ip/32 has been
+  // intentionally removed. Locking devices to a /32 CIDR by default causes
+  // silent auth failures when the device's public IP changes (e.g. DHCP/NAT).
+  // Devices remain in open mode (pushToken=null, allowedIpCidr=null) unless
+  // an admin explicitly configures auth in the Biometric Devices UI.
+  // Reset any accidentally-backfilled CIDR locks back to open mode:
   await db.execute(sql`
     UPDATE biometric_devices
-       SET allowed_ip_cidr = last_push_ip || '/32'
-     WHERE allowed_ip_cidr IS NULL
-       AND push_token IS NULL
-       AND last_push_ip IS NOT NULL
-       AND last_push_ip <> '';
-  `).catch((err) => console.error("[migrations] backfill allowed_ip_cidr failed:", err));
+       SET allowed_ip_cidr = NULL
+     WHERE push_token IS NULL
+       AND allowed_ip_cidr IS NOT NULL
+       AND allowed_ip_cidr LIKE '%.%.%.%/32';
+  `).catch((err) => console.error("[migrations] clear backfilled allowed_ip_cidr failed:", err));
 
   // Mirror of migrations/008: per-device enrolled-user roster, populated
   // from USERINFO/USER records pushed via ADMS. Powers the View Users
