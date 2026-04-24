@@ -11,6 +11,7 @@ import { AppSidebar } from "@/components/app-sidebar";
 import { AuthProvider, useAuth } from "@/lib/auth";
 import Dashboard from "@/pages/dashboard";
 import Companies from "@/pages/companies";
+import CompanyContractorsPage from "@/pages/company-contractors";
 import Employees from "@/pages/employees";
 import AddEmployee from "@/pages/add-employee";
 import Users from "@/pages/users";
@@ -96,6 +97,7 @@ function ProtectedRouter() {
     <Switch>
       <Route path="/dashboard" component={EmployeeHomePage} />
       <Route path="/companies" component={Companies} />
+      <Route path="/companies/:id/contractors" component={CompanyContractorsPage} />
       <Route path="/employees" component={Employees} />
       <Route path="/employees/new" component={AddEmployee} />
       <Route path="/employees/:id/edit" component={AddEmployee} />
