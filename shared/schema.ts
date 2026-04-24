@@ -1,4 +1,4 @@
-import { pgTable, text, varchar, boolean, timestamp, integer, numeric } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, boolean, timestamp, integer, numeric, bigserial, json } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -585,6 +585,8 @@ export const biometricDevices = pgTable("biometric_devices", {
   // Returned as ATTLOGStamp in GET /cdata so the device only pushes new records.
   // Set to 0 to force a full re-upload on next connection.
   lastAttlogStamp: integer("last_attlog_stamp").notNull().default(0),
+  // Pending ADMS commands queued for the device (persisted across restarts).
+  pendingCommands: json("pending_commands").$type<string[]>().default([]),
 });
 
 export const insertBiometricDeviceSchema = createInsertSchema(biometricDevices).omit({ id: true });
@@ -629,6 +631,18 @@ export const biometricDeviceUsers = pgTable("biometric_device_users", {
 });
 
 export type BiometricDeviceUser = typeof biometricDeviceUsers.$inferSelect;
+
+// ADMS activity log — persistent event log for ZKTeco device push sessions.
+// Survives server restarts; powers the live activity feed in the UI.
+export const admsActivityLog = pgTable("adms_activity_log", {
+  id: bigserial("id", { mode: "number" }).primaryKey(),
+  deviceSn: text("device_sn").notNull(),
+  direction: text("direction").notNull(), // "IN" | "OUT"
+  message: text("message").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
+
+export type AdmsActivityLog = typeof admsActivityLog.$inferSelect;
 
 // Job Posting statuses
 export const jobPostingStatuses = ["draft", "open", "closed", "on_hold"] as const;

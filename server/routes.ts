@@ -396,6 +396,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
     ALTER TABLE wage_grades ADD COLUMN IF NOT EXISTS effective_to TEXT
   `).catch((err) => console.error("[migrations] add wage_grades.effective_to failed:", err));
 
+  // Mirror of migrations/010: pending command queue persisted in DB so commands
+  // survive server restarts. Used by ADMS /getrequest handler.
+  await db.execute(sql`
+    ALTER TABLE biometric_devices ADD COLUMN IF NOT EXISTS pending_commands JSONB DEFAULT '[]'::jsonb
+  `).catch((err) => console.error("[migrations] add pending_commands failed:", err));
+
+  // Mirror of migrations/011: persistent ADMS activity log — survives server
+  // restarts, powers the live activity feed in the Biometric Integration UI.
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS adms_activity_log (
+      id         BIGSERIAL    PRIMARY KEY,
+      device_sn  TEXT         NOT NULL,
+      direction  TEXT         NOT NULL,
+      message    TEXT         NOT NULL,
+      created_at TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+    )
+  `).catch((err) => console.error("[migrations] create adms_activity_log failed:", err));
+  await db.execute(sql`
+    CREATE INDEX IF NOT EXISTS adms_activity_log_sn_idx ON adms_activity_log (device_sn, id DESC)
+  `).catch(() => {});
+
   // Create employee_documents table if not exists
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS employee_documents (
