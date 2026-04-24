@@ -35,6 +35,7 @@ export const companies = pgTable("companies", {
   officeRadiusMeters: integer("office_radius_meters").default(100),
   faceVerificationEnabled: boolean("face_verification_enabled").default(true),
   gpsVerificationEnabled: boolean("gps_verification_enabled").default(true),
+  isContractor: boolean("is_contractor").default(false),
 });
 
 export const insertCompanySchema = createInsertSchema(companies).omit({ id: true });

@@ -42,6 +42,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+import { Switch } from "@/components/ui/switch";
 import { 
   Plus, 
   Search, 
@@ -49,7 +50,7 @@ import {
   Edit, 
   Trash2,
   MapPin,
-  FileText
+  HardHat
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Company, InsertCompany } from "@shared/schema";
@@ -67,6 +68,7 @@ const companyFormSchema = z.object({
   registeredAddress: z.string().optional(),
   financialYear: z.string().optional(),
   status: z.enum(["active", "inactive"]).default("active"),
+  isContractor: z.boolean().default(false),
 });
 
 type CompanyFormValues = z.infer<typeof companyFormSchema>;
@@ -97,6 +99,7 @@ function CompanyForm({
       registeredAddress: "",
       financialYear: "",
       status: "active",
+      isContractor: false,
       ...defaultValues,
     },
   });
@@ -240,6 +243,30 @@ function CompanyForm({
             )}
           />
         </div>
+
+        <FormField
+          control={form.control}
+          name="isContractor"
+          render={({ field }) => (
+            <FormItem className="flex items-center gap-3 rounded-lg border p-3">
+              <FormControl>
+                <Switch
+                  checked={field.value ?? false}
+                  onCheckedChange={field.onChange}
+                  data-testid="switch-is-contractor"
+                />
+              </FormControl>
+              <div>
+                <FormLabel className="text-sm font-medium leading-none cursor-pointer">
+                  Contractor Company
+                </FormLabel>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Mark this company as a contractor / manpower supplier
+                </p>
+              </div>
+            </FormItem>
+          )}
+        />
 
         <FormField
           control={form.control}
@@ -453,11 +480,20 @@ export default function Companies() {
                       <TableCell className="text-center text-muted-foreground font-medium text-sm">{idx + 1}</TableCell>
                       <TableCell>
                         <div className="flex items-center gap-3">
-                          <div className="h-10 w-10 rounded-md bg-primary/10 flex items-center justify-center">
-                            <Building2 className="h-5 w-5 text-primary" />
+                          <div className={`h-10 w-10 rounded-md flex items-center justify-center ${company.isContractor ? "bg-amber-100 dark:bg-amber-900/30" : "bg-primary/10"}`}>
+                            {company.isContractor
+                              ? <HardHat className="h-5 w-5 text-amber-600 dark:text-amber-400" />
+                              : <Building2 className="h-5 w-5 text-primary" />}
                           </div>
                           <div>
-                            <div className="font-medium">{company.companyName}</div>
+                            <div className="flex items-center gap-2">
+                              <span className="font-medium">{company.companyName}</span>
+                              {company.isContractor && (
+                                <Badge variant="outline" className="text-xs text-amber-700 border-amber-400 bg-amber-50 dark:text-amber-400 dark:border-amber-600 dark:bg-amber-950/30 py-0 px-1.5">
+                                  Contractor
+                                </Badge>
+                              )}
+                            </div>
                             {company.registeredAddress && (
                               <div className="flex items-center gap-1 text-xs text-muted-foreground">
                                 <MapPin className="h-3 w-3" />
@@ -539,6 +575,7 @@ export default function Companies() {
                 registeredAddress: editingCompany.registeredAddress || "",
                 financialYear: editingCompany.financialYear || "",
                 status: editingCompany.status as "active" | "inactive",
+                isContractor: editingCompany.isContractor ?? false,
               }}
               isLoading={updateMutation.isPending}
               submitLabel="Update Company"
