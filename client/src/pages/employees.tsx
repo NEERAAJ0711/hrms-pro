@@ -237,7 +237,8 @@ export default function Employees() {
     enabled: isContractorView && !!filterCompanyId && !!filterContractorId,
   });
 
-  const taggedEmployeeIds = new Set(taggedEmployeeRecords.map((r) => r.employeeId));
+  // The API returns merged Employee objects (id = employee UUID, employeeId is not in the response).
+  const taggedEmployeeIds = new Set(taggedEmployeeRecords.map((r) => (r as any).id ?? r.employeeId));
 
   // When a CONTRACTOR is selected, tagged employees belong to the contractor company —
   // they won't be in the current company's employee list, so fetch them separately.
