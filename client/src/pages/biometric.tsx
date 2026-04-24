@@ -522,17 +522,24 @@ export default function BiometricPage() {
                       {logs.map((log, idx) => {
                         const emp = getEmployee(log.employeeId);
                         const empName = emp ? `${emp.firstName} ${emp.lastName}` : null;
+                        const deviceName = (log as any).deviceName as string | null;
+                        const displayName = empName || deviceName;
                         return (
                           <TableRow key={log.id} className={log.missingPunch ? "bg-amber-50/50 dark:bg-amber-950/20" : ""}>
                             <TableCell className="pl-4 text-xs text-muted-foreground">{idx + 1}</TableCell>
                             <TableCell>
                               <div className="flex items-center gap-2.5">
-                                <Avatar name={empName} size="sm" />
+                                <Avatar name={displayName} size="sm" />
                                 <div>
                                   {empName ? (
                                     <>
                                       <p className="text-sm font-medium leading-none">{empName}</p>
                                       {emp?.employeeCode && <p className="text-xs text-muted-foreground mt-0.5">{emp.employeeCode}</p>}
+                                    </>
+                                  ) : deviceName ? (
+                                    <>
+                                      <p className="text-sm font-medium leading-none">{deviceName}</p>
+                                      <p className="text-[10px] text-amber-600 dark:text-amber-400 mt-0.5">From device · not mapped</p>
                                     </>
                                   ) : (
                                     <Badge variant="destructive" className="text-xs">Unmapped</Badge>

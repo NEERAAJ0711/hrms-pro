@@ -1704,7 +1704,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       if (date) logs = logs.filter(l => l.punchDate === date);
-      res.json(logs);
+
+      // Enrich each log with the name the biometric device has for that PIN
+      // (stored in biometric_device_users.name from the USERINFO upload).
+      // This lets the UI show a real name even for unmapped employees.
+      const deviceIds = [...new Set(logs.map((l: any) => l.deviceId).filter(Boolean))];
+      let nameMap = new Map<string, string>();
+      if (deviceIds.length > 0) {
+        try {
+          const rows = await db.execute(sql`
+            SELECT device_id, device_employee_id, name
+            FROM biometric_device_users
+            WHERE device_id = ANY(${deviceIds}::text[])
+              AND name IS NOT NULL AND name <> ''
+          `);
+          for (const row of rows.rows as any[]) {
+            nameMap.set(`${row.device_id}:${row.device_employee_id}`, row.name);
+          }
+        } catch { /* best-effort — don't block the response */ }
+      }
+
+      const enriched = logs.map((l: any) => ({
+        ...l,
+        deviceName: nameMap.get(`${l.deviceId}:${l.deviceEmployeeId}`) ?? null,
+      }));
+
+      res.json(enriched);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch biometric logs" });
     }

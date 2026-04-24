@@ -260,7 +260,11 @@ function parseTimestamp(ts: string): { date: string; time: string; epoch: number
  * Returns null if no PIN field is found.
  */
 function parseUserLine(line: string): Record<string, string> | null {
-  const s = (line || "").trim().replace(/^(?:OPLOG\s+)?USER\s+/i, "");
+  // Strip any leading table-name prefix the device may include:
+  //   "USER PIN=1\t..."     → "PIN=1\t..."
+  //   "USERINFO PIN=1\t..."  → "PIN=1\t..."   ← tab-delimited bug was here
+  //   "OPLOG USER PIN=1\t..." → "PIN=1\t..."
+  const s = (line || "").trim().replace(/^(?:OPLOG\s+)?(?:USERINFO|USER)\s+/i, "");
   if (!s) return null;
 
   const out: Record<string, string> = {};
