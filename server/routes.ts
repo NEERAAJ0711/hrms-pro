@@ -1269,7 +1269,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           COALESCE(emap.first_name, e.first_name)      AS first_name,
           COALESCE(emap.last_name,  e.last_name)       AS last_name,
           COALESCE(emap.employee_code, e.employee_code)   AS hr_employee_code,
-          COALESCE(emap.official_email, e.official_email) AS email
+          COALESCE(emap.official_email, e.official_email) AS email,
+          COALESCE(emap.registered_face_image, e.registered_face_image) AS face_image,
+          COALESCE(emap.designation, e.designation) AS designation,
+          COALESCE(emap.department, e.department) AS department
         FROM pin_union p
         LEFT JOIN biometric_device_users du
           ON du.device_id = ${req.params.id}
@@ -1292,6 +1295,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         lastName: r.last_name || null,
         hrEmployeeCode: r.hr_employee_code || null,
         email: r.email || null,
+        faceImage: r.face_image || null,
+        designation: r.designation || null,
+        department: r.department || null,
         deviceName: r.device_name || null,
         privilege: r.device_privilege || null,
         card: r.device_card || null,

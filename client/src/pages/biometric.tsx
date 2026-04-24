@@ -1,9 +1,11 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { 
-  Fingerprint, Upload, RefreshCw, AlertTriangle, CheckCircle, 
+import {
+  Fingerprint, Upload, RefreshCw, AlertTriangle, CheckCircle,
   Clock, XCircle, Settings, Plus, Trash2, Signal, SignalLow, Download, Users,
-  ShieldAlert, ShieldCheck, Pencil, KeyRound, Activity, UserCheck, FileUp, RotateCcw
+  ShieldAlert, ShieldCheck, Pencil, KeyRound, Activity, UserCheck, FileUp,
+  RotateCcw, ChevronDown, ChevronUp, User, CalendarDays, Timer, Wifi, WifiOff,
+  Building2, BadgeCheck, Link2
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,14 +15,8 @@ import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
@@ -31,36 +27,70 @@ import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth";
 import type { BiometricPunchLog, Company, Employee, BiometricDevice } from "@shared/schema";
 
+/* ─── Avatar helper ──────────────────────────────────────────────── */
+function Avatar({
+  name, photo, size = "md",
+}: { name?: string | null; photo?: string | null; size?: "sm" | "md" | "lg" }) {
+  const sz = size === "sm" ? "h-7 w-7 text-[10px]" : size === "lg" ? "h-14 w-14 text-lg" : "h-9 w-9 text-sm";
+  const colors = [
+    "bg-blue-100 text-blue-700", "bg-green-100 text-green-700",
+    "bg-purple-100 text-purple-700", "bg-orange-100 text-orange-700",
+    "bg-teal-100 text-teal-700", "bg-rose-100 text-rose-700",
+    "bg-indigo-100 text-indigo-700", "bg-amber-100 text-amber-700",
+  ];
+  const initials = name ? name.split(" ").filter(Boolean).map(w => w[0].toUpperCase()).slice(0, 2).join("") : "?";
+  const color = name ? colors[name.charCodeAt(0) % colors.length] : "bg-muted text-muted-foreground";
+  if (photo) {
+    return (
+      <img
+        src={photo.startsWith("data:") ? photo : `data:image/jpeg;base64,${photo}`}
+        alt={name || "photo"}
+        className={`${sz} rounded-full object-cover ring-2 ring-white dark:ring-gray-800 shrink-0`}
+        onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+      />
+    );
+  }
+  return (
+    <div className={`${sz} rounded-full flex items-center justify-center font-semibold shrink-0 ${color}`}>
+      {initials}
+    </div>
+  );
+}
 
+/* ─── Stat chip ──────────────────────────────────────────────────── */
+function StatChip({ icon: Icon, value, label, color }: { icon: any; value: number; label: string; color: string }) {
+  return (
+    <div className={`flex items-center gap-2 px-4 py-2.5 rounded-lg border ${color}`}>
+      <Icon className="h-4 w-4 shrink-0" />
+      <div>
+        <p className="text-lg font-bold leading-none">{value}</p>
+        <p className="text-[11px] opacity-75 mt-0.5">{label}</p>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════ */
 export default function BiometricPage() {
   const { toast } = useToast();
   const { user } = useAuth();
   const isSuperAdmin = user?.role === "super_admin";
+  const canViewAdmsLog = isSuperAdmin || user?.role === "company_admin";
 
-  // "domain" = use hostname + port 443 (recommended)
-  // "ip"     = use resolved IPv4 (for devices that can't use domain)
   const [admsMode, setAdmsMode] = useState<"domain" | "ip">("ip");
+  const [setupExpanded, setSetupExpanded] = useState(false);
 
   const { data: networkInfo, isLoading: networkLoading } = useQuery<{
     host: string; replitDevDomain: string | null; ip: string | null;
     port: string; proto: string; admsUrl: string; admsUrlIp: string | null;
-  }>({
-    queryKey: ["/api/server/network-info"],
-    staleTime: 5 * 60 * 1000,
-    retry: false,
-  });
+  }>({ queryKey: ["/api/server/network-info"], staleTime: 5 * 60 * 1000, retry: false });
 
-  // Prefer Replit dev domain (guaranteed accessible) over browser hostname
   const fallbackHost = window.location.hostname;
-  const fallbackPort = window.location.protocol === "https:" ? "443" : (window.location.port || "5000");
-  // The best hostname: replitDevDomain > req.hostname > browser hostname
-  const admsHost  = networkInfo?.replitDevDomain ?? networkInfo?.host ?? fallbackHost;
-  const admsIp    = networkInfo?.ip ?? null;
-  const admsPort  = "8181";
-  const admsProto = "http";
-
-  const admsAddr  = admsMode === "ip" ? (admsIp ?? admsHost) : admsHost;
-  const admsUrl   = `http://${admsAddr}:8181/iclock/cdata`;
+  const admsHost = networkInfo?.replitDevDomain ?? networkInfo?.host ?? fallbackHost;
+  const admsIp = networkInfo?.ip ?? null;
+  const admsPort = "8181";
+  const admsAddr = admsMode === "ip" ? (admsIp ?? admsHost) : admsHost;
+  const admsUrl = `http://${admsAddr}:8181/iclock/cdata`;
 
   const [selectedCompany, setSelectedCompany] = useState<string>(isSuperAdmin ? "__all__" : (user?.companyId || ""));
   const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split("T")[0]);
@@ -69,8 +99,8 @@ export default function BiometricPage() {
   const [deviceDialogOpen, setDeviceDialogOpen] = useState(false);
   const [pushData, setPushData] = useState("");
   const [syncCompanyId, setSyncCompanyId] = useState("");
-  
-  // Device Form State
+
+  // Device form
   const [deviceName, setDeviceName] = useState("");
   const [deviceCode, setDeviceCode] = useState("");
   const [deviceSerial, setDeviceSerial] = useState("");
@@ -81,36 +111,17 @@ export default function BiometricPage() {
   const [devicePushToken, setDevicePushToken] = useState("");
   const [deviceAllowedCidr, setDeviceAllowedCidr] = useState("");
 
-  // "View Users on Machine" dialog state
   const [usersDialogDevice, setUsersDialogDevice] = useState<any | null>(null);
-
-  // "Delete Device" confirmation state
   const [deviceToDelete, setDeviceToDelete] = useState<any | null>(null);
-
-  // Import attendance file state
   const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [importFile, setImportFile] = useState<File | null>(null);
   const [importDeviceId, setImportDeviceId] = useState("");
   const [importType, setImportType] = useState<"attlog" | "userinfo">("attlog");
-
-  // Map PIN → HR Employee dialog state
   const [mapPinRow, setMapPinRow] = useState<{ devicePin: string; deviceName: string } | null>(null);
   const [mapSelectedEmployee, setMapSelectedEmployee] = useState("");
-
-  // "Edit Device" dialog state — same shape as the Add form, plus the device id.
   const [detectingIp, setDetectingIp] = useState(false);
 
-  const autoDetectSourceIp = async (setter: (v: string) => void) => {
-    setDetectingIp(true);
-    try {
-      const res = await fetch("/api/server/my-ip", { credentials: "include" });
-      const { ip } = await res.json();
-      if (ip) setter(`${ip}/32`);
-    } catch { /* ignore */ } finally {
-      setDetectingIp(false);
-    }
-  };
-
+  // Edit device
   const [editDevice, setEditDevice] = useState<any | null>(null);
   const [editName, setEditName] = useState("");
   const [editCode, setEditCode] = useState("");
@@ -135,26 +146,27 @@ export default function BiometricPage() {
     setEditAllowedCidr(d.allowedIpCidr || "");
   };
 
-  // Generate a strong random push token. 32 chars from a URL-safe alphabet
-  // gives ~190 bits of entropy — plenty for an HMAC-style shared secret and
-  // well above the server's 12-char minimum.
+  const autoDetectSourceIp = async (setter: (v: string) => void) => {
+    setDetectingIp(true);
+    try {
+      const res = await fetch("/api/server/my-ip", { credentials: "include" });
+      const { ip } = await res.json();
+      if (ip) setter(`${ip}/32`);
+    } catch { } finally { setDetectingIp(false); }
+  };
+
   const generateToken = (setter: (v: string) => void) => {
     const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-    const cryptoApi: Crypto | undefined = globalThis.crypto;
-    if (!cryptoApi || typeof cryptoApi.getRandomValues !== "function") {
-      toast({
-        title: "Cannot generate token",
-        description: "Secure random generator is unavailable in this browser.",
-        variant: "destructive",
-      });
-      return;
-    }
     const bytes = new Uint8Array(32);
-    cryptoApi.getRandomValues(bytes);
-    let out = "";
-    for (let i = 0; i < bytes.length; i++) out += alphabet[bytes[i] % alphabet.length];
-    setter(out);
+    crypto.getRandomValues(bytes);
+    setter(Array.from(bytes).map(b => alphabet[b % alphabet.length]).join(""));
   };
+
+  /* ── Queries ──────────────────────────────────────────────────── */
+  const { data: companies = [] } = useQuery<Company[]>({ queryKey: ["/api/companies"] });
+  const { data: employees = [] } = useQuery<Employee[]>({ queryKey: ["/api/employees"] });
+  const { data: devices = [] } = useQuery<BiometricDevice[]>({ queryKey: ["/api/biometric/devices"] });
+
   const { data: deviceUsers, isLoading: usersLoading } = useQuery<any>({
     queryKey: ["/api/biometric/devices", usersDialogDevice?.id, "users"],
     enabled: !!usersDialogDevice?.id,
@@ -162,18 +174,6 @@ export default function BiometricPage() {
       const res = await apiRequest("GET", `/api/biometric/devices/${usersDialogDevice.id}/users`);
       return res.json();
     },
-  });
-
-  const { data: companies = [] } = useQuery<Company[]>({
-    queryKey: ["/api/companies"],
-  });
-
-  const { data: employees = [] } = useQuery<Employee[]>({
-    queryKey: ["/api/employees"],
-  });
-
-  const { data: devices = [] } = useQuery<BiometricDevice[]>({
-    queryKey: ["/api/biometric/devices"],
   });
 
   const effectiveCompanyId = isSuperAdmin ? (selectedCompany === "__all__" ? "" : selectedCompany) : (user?.companyId || "");
@@ -190,9 +190,6 @@ export default function BiometricPage() {
     },
   });
 
-  // ADMS raw device communication log — visible to super_admin and company_admin,
-  // auto-refreshes every 5s so incoming ATTLOG data appears immediately.
-  const canViewAdmsLog = isSuperAdmin || user?.role === "company_admin";
   const { data: admsLog = [], refetch: refetchAdmsLog } = useQuery<Array<{
     ts: string; direction: "IN" | "OUT"; sn: string; line: string;
   }>>({
@@ -201,7 +198,6 @@ export default function BiometricPage() {
     refetchInterval: canViewAdmsLog ? 5000 : false,
   });
 
-  // ADMS server health — checks whether port 8181 is bound on the VPS.
   const { data: admsServerStatus } = useQuery<{
     running: boolean; port: number; boundAt: string | null; error: string | null;
   }>({
@@ -211,6 +207,24 @@ export default function BiometricPage() {
     staleTime: 20000,
   });
 
+  /* ── Stats ────────────────────────────────────────────────────── */
+  const totalLogs = logs.length;
+  const processedLogs = logs.filter(l => l.isProcessed).length;
+  const missingPunchLogs = logs.filter(l => l.missingPunch).length;
+  const unmappedLogs = logs.filter(l => !l.employeeId).length;
+
+  /* ── Helpers ──────────────────────────────────────────────────── */
+  const getCompanyName = (id: string) => companies.find(c => c.id === id)?.companyName || id;
+  const getEmployee = (id: string | null) => id ? employees.find(e => e.id === id) : null;
+
+  const shiftDate = (delta: number) => {
+    if (!selectedDate) return;
+    const d = new Date(selectedDate);
+    d.setDate(d.getDate() + delta);
+    setSelectedDate(d.toISOString().split("T")[0]);
+  };
+
+  /* ── Mutations ────────────────────────────────────────────────── */
   const pushMutation = useMutation({
     mutationFn: async (data: { punches: any[]; companyId: string }) => {
       const res = await apiRequest("POST", "/api/biometric/push", data);
@@ -218,44 +232,23 @@ export default function BiometricPage() {
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/biometric/logs"] });
-      toast({
-        title: "Punch Data Uploaded",
-        description: `Inserted: ${data.results.inserted}, Duplicates: ${data.results.duplicates}, Unmapped: ${data.results.unmapped}, Errors: ${data.results.errors}`,
-      });
-      setPushDialogOpen(false);
-      setPushData("");
+      toast({ title: "Punch Data Uploaded", description: `Inserted: ${data.results.inserted}, Duplicates: ${data.results.duplicates}` });
+      setPushDialogOpen(false); setPushData("");
     },
-    onError: () => {
-      toast({ title: "Error", description: "Failed to upload punch data", variant: "destructive" });
-    },
+    onError: () => toast({ title: "Upload Failed", variant: "destructive" }),
   });
 
   const deviceMutation = useMutation({
-    mutationFn: async (data: any) => {
-      const res = await apiRequest("POST", "/api/biometric/devices", data);
-      return res.json();
-    },
+    mutationFn: async (data: any) => { const res = await apiRequest("POST", "/api/biometric/devices", data); return res.json(); },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/biometric/devices"] });
-      toast({ title: "Success", description: "Biometric device added successfully" });
+      toast({ title: "Device added successfully" });
       setDeviceDialogOpen(false);
-      setDeviceName("");
-      setDeviceCode("");
-      setDeviceSerial("");
-      setDeviceIp("");
-      setDeviceServerIp("");
-      setDevicePort("8181");
-      setDeviceCompanyId("");
-      setDevicePushToken("");
-      setDeviceAllowedCidr("");
+      setDeviceName(""); setDeviceCode(""); setDeviceSerial(""); setDeviceIp("");
+      setDeviceServerIp(""); setDevicePort("8181"); setDeviceCompanyId("");
+      setDevicePushToken(""); setDeviceAllowedCidr("");
     },
-    onError: (err: any) => {
-      toast({
-        title: "Failed to add device",
-        description: err?.message || "Could not add device",
-        variant: "destructive",
-      });
-    },
+    onError: (err: any) => toast({ title: "Failed to add device", description: err?.message, variant: "destructive" }),
   });
 
   const editDeviceMutation = useMutation({
@@ -265,58 +258,34 @@ export default function BiometricPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/biometric/devices"] });
-      toast({ title: "Device updated", description: "Changes saved." });
-      setEditDevice(null);
+      toast({ title: "Device updated" }); setEditDevice(null);
     },
-    onError: (err: any) => {
-      toast({
-        title: "Failed to update device",
-        description: err?.message || "Could not save changes",
-        variant: "destructive",
-      });
-    },
+    onError: (err: any) => toast({ title: "Update failed", description: err?.message, variant: "destructive" }),
   });
 
   const handleSaveEdit = () => {
     if (!editDevice) return;
     if (!editName.trim() || !editSerial.trim()) {
-      toast({ title: "Error", description: "Name and serial number are required", variant: "destructive" });
-      return;
+      toast({ title: "Name and serial are required", variant: "destructive" }); return;
     }
     const tokenTrim = editPushToken.trim();
     const cidrTrim = editAllowedCidr.trim();
     if (!tokenTrim && !cidrTrim) {
-      toast({
-        title: "Authentication required",
-        description: "Set a push token (shared secret) or pinned source IP/CIDR so spoofed pushes are rejected.",
-        variant: "destructive",
-      });
-      return;
+      toast({ title: "Set a push token or IP/CIDR", variant: "destructive" }); return;
     }
     if (tokenTrim && tokenTrim.length < 12) {
-      toast({
-        title: "Push token too short",
-        description: "Use at least 12 characters. Click Generate for a strong random one.",
-        variant: "destructive",
-      });
-      return;
+      toast({ title: "Push token too short (min 12 chars)", variant: "destructive" }); return;
     }
     editDeviceMutation.mutate({
       id: editDevice.id,
       patch: {
-        name: editName.trim(),
-        code: editCode.trim() || null,
-        deviceSerial: editSerial.trim(),
-        ipAddress: editIp.trim() || null,
-        admsServerIp: editServerIp.trim() || null,
-        port: editPort === "" ? null : Number(editPort),
-        companyId: editCompanyId || null,
-        pushToken: tokenTrim || null,
-        allowedIpCidr: cidrTrim || null,
+        name: editName.trim(), code: editCode.trim() || null, deviceSerial: editSerial.trim(),
+        ipAddress: editIp.trim() || null, admsServerIp: editServerIp.trim() || null,
+        port: editPort === "" ? null : Number(editPort), companyId: editCompanyId || null,
+        pushToken: tokenTrim || null, allowedIpCidr: cidrTrim || null,
       },
     });
   };
-
 
   const importFileMutation = useMutation({
     mutationFn: async ({ file, deviceId, type }: { file: File; deviceId: string; type: "attlog" | "userinfo" }) => {
@@ -324,34 +293,17 @@ export default function BiometricPage() {
       form.append("file", file);
       if (deviceId) form.append("deviceId", deviceId);
       const endpoint = type === "userinfo" ? "/api/biometric/import-userinfo" : "/api/biometric/import-attlog";
-      const res = await fetch(endpoint, {
-        method: "POST",
-        body: form,
-        credentials: "include",
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.error || "Import failed");
-      }
+      const res = await fetch(endpoint, { method: "POST", body: form, credentials: "include" });
+      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || "Import failed"); }
       return res.json();
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/biometric/logs"] });
       queryClient.invalidateQueries({ queryKey: ["/api/biometric/devices"] });
-      setImportDialogOpen(false);
-      setImportFile(null);
-      toast({
-        title: "Import Complete",
-        description: data?.message || "Import completed successfully.",
-      });
+      setImportDialogOpen(false); setImportFile(null);
+      toast({ title: "Import Complete", description: data?.message });
     },
-    onError: (error: any) => {
-      toast({
-        title: "Import Failed",
-        description: error?.message || "Could not import the file.",
-        variant: "destructive",
-      });
-    },
+    onError: (error: any) => toast({ title: "Import Failed", description: error?.message, variant: "destructive" }),
   });
 
   const mapPinMutation = useMutation({
@@ -362,381 +314,234 @@ export default function BiometricPage() {
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/employees"] });
       queryClient.invalidateQueries({ queryKey: ["/api/biometric/logs"] });
-      if (usersDialogDevice?.id) {
-        queryClient.invalidateQueries({ queryKey: ["/api/biometric/devices", usersDialogDevice.id, "users"] });
-      }
-      toast({
-        title: "Mapped Successfully",
-        description: typeof data?.message === "string" ? data.message : "PIN mapped to employee.",
-      });
-      setMapPinRow(null);
-      setMapSelectedEmployee("");
+      if (usersDialogDevice?.id) queryClient.invalidateQueries({ queryKey: ["/api/biometric/devices", usersDialogDevice.id, "users"] });
+      toast({ title: "Mapped Successfully", description: data?.message });
+      setMapPinRow(null); setMapSelectedEmployee("");
     },
-    onError: (error: any) => {
-      toast({
-        title: "Mapping Failed",
-        description: typeof error?.message === "string" ? error.message : "Could not map PIN.",
-        variant: "destructive",
-      });
-    },
+    onError: (error: any) => toast({ title: "Mapping Failed", description: error?.message, variant: "destructive" }),
   });
 
   const syncUsersMutation = useMutation({
-    mutationFn: async (id: string) => {
-      const res = await apiRequest("POST", `/api/biometric/devices/${id}/sync-users`, {});
-      return res.json();
-    },
+    mutationFn: async (id: string) => { const res = await apiRequest("POST", `/api/biometric/devices/${id}/sync-users`, {}); return res.json(); },
     onSuccess: (data) => {
-      toast({
-        title: "Sync requested",
-        description: typeof data?.message === "string"
-          ? data.message
-          : "Device will push its user list shortly.",
-      });
-      setTimeout(() => {
-        queryClient.invalidateQueries({ queryKey: ["/api/biometric/devices"] });
-      }, 60_000);
+      toast({ title: "Sync requested", description: data?.message || "Device will push its user list shortly." });
+      setTimeout(() => queryClient.invalidateQueries({ queryKey: ["/api/biometric/devices"] }), 60_000);
     },
-    onError: (err: any) => {
-      toast({
-        title: "Sync failed",
-        description: err?.message || "Could not request user sync",
-        variant: "destructive",
-      });
-    },
+    onError: (err: any) => toast({ title: "Sync failed", description: err?.message, variant: "destructive" }),
   });
 
   const resetStampMutation = useMutation({
-    mutationFn: async (id: string) => {
-      const res = await apiRequest("POST", `/api/biometric/devices/${id}/reset-stamp`, {});
-      return res.json();
-    },
+    mutationFn: async (id: string) => { const res = await apiRequest("POST", `/api/biometric/devices/${id}/reset-stamp`, {}); return res.json(); },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/biometric/devices"] });
-      toast({ title: "Stamp reset", description: typeof data?.message === "string" ? data.message : "Device will re-upload all records on next connection." });
+      toast({ title: "Stamp reset", description: data?.message });
     },
-    onError: (err: any) => {
-      toast({ title: "Reset failed", description: err?.message || "Could not reset stamp", variant: "destructive" });
-    },
+    onError: (err: any) => toast({ title: "Reset failed", description: err?.message, variant: "destructive" }),
   });
 
   const deleteDeviceMutation = useMutation({
-    mutationFn: async (id: string) => {
-      await apiRequest("DELETE", `/api/biometric/devices/${id}`);
-    },
+    mutationFn: async (id: string) => { await apiRequest("DELETE", `/api/biometric/devices/${id}`); },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/biometric/devices"] });
-      toast({ title: "Success", description: "Device removed" });
+      toast({ title: "Device removed" });
     },
-    onError: (err: any) => {
-      toast({
-        title: "Delete failed",
-        description: err?.message || "Could not remove device",
-        variant: "destructive",
-      });
-    },
+    onError: (err: any) => toast({ title: "Delete failed", description: err?.message, variant: "destructive" }),
   });
+
+  const handleAddDevice = () => {
+    if (!deviceName || !deviceSerial) { toast({ title: "Name and serial are required", variant: "destructive" }); return; }
+    const resolvedCompanyId = isSuperAdmin ? (deviceCompanyId || null) : (user?.companyId || null);
+    if (!resolvedCompanyId) { toast({ title: "Please select a company", variant: "destructive" }); return; }
+    const tokenTrim = devicePushToken.trim();
+    const cidrTrim = deviceAllowedCidr.trim();
+    if (!tokenTrim && !cidrTrim) { toast({ title: "Set a push token or IP/CIDR for security", variant: "destructive" }); return; }
+    if (tokenTrim && tokenTrim.length < 12) { toast({ title: "Push token too short (min 12 chars)", variant: "destructive" }); return; }
+    deviceMutation.mutate({
+      companyId: resolvedCompanyId, name: deviceName, code: deviceCode.trim() || null,
+      deviceSerial, ipAddress: deviceIp, admsServerIp: deviceServerIp.trim() || null,
+      port: parseInt(devicePort), pushToken: tokenTrim || null, allowedIpCidr: cidrTrim || null,
+    });
+  };
 
   const handlePushData = () => {
     try {
       const parsed = JSON.parse(pushData);
       const punches = Array.isArray(parsed) ? parsed : [parsed];
       const companyId = isSuperAdmin ? syncCompanyId : (user?.companyId || "");
-      if (!companyId) {
-        toast({ title: "Error", description: "Please select a company", variant: "destructive" });
-        return;
-      }
+      if (!companyId) { toast({ title: "Please select a company", variant: "destructive" }); return; }
       pushMutation.mutate({ punches, companyId });
     } catch {
-      toast({ title: "Error", description: "Invalid JSON format. Please check your data.", variant: "destructive" });
+      toast({ title: "Invalid JSON format", variant: "destructive" });
     }
   };
 
-  const handleAddDevice = () => {
-    if (!deviceName || !deviceSerial) {
-      toast({ title: "Error", description: "Please fill all required fields", variant: "destructive" });
-      return;
-    }
-    const resolvedCompanyId = isSuperAdmin ? (deviceCompanyId || null) : (user?.companyId || null);
-    if (!resolvedCompanyId) {
-      toast({ title: "Error", description: "Please select a company for this device", variant: "destructive" });
-      return;
-    }
-    const tokenTrim = devicePushToken.trim();
-    const cidrTrim = deviceAllowedCidr.trim();
-    if (!tokenTrim && !cidrTrim) {
-      toast({
-        title: "Authentication required",
-        description: "Set a push token (shared secret) or pinned source IP/CIDR so spoofed pushes are rejected.",
-        variant: "destructive",
-      });
-      return;
-    }
-    if (tokenTrim && tokenTrim.length < 12) {
-      toast({
-        title: "Push token too short",
-        description: "Use at least 12 characters. A long random token is best.",
-        variant: "destructive",
-      });
-      return;
-    }
-    deviceMutation.mutate({
-      companyId: resolvedCompanyId,
-      name: deviceName,
-      code: deviceCode.trim() || null,
-      deviceSerial,
-      ipAddress: deviceIp,
-      admsServerIp: deviceServerIp.trim() || null,
-      port: parseInt(devicePort),
-      pushToken: devicePushToken.trim() || null,
-      allowedIpCidr: deviceAllowedCidr.trim() || null,
-    });
-  };
-
-  const getCompanyName = (companyId: string) => {
-    return companies.find(c => c.id === companyId)?.companyName || companyId;
-  };
-
-  const getEmployeeName = (employeeId: string | null) => {
-    if (!employeeId) return "Unmapped";
-    const emp = employees.find(e => e.id === employeeId);
-    return emp ? `${emp.firstName} ${emp.lastName} (${emp.employeeCode})` : employeeId;
-  };
-
-  const totalLogs = logs.length;
-  const processedLogs = logs.filter(l => l.isProcessed).length;
-  const missingPunchLogs = logs.filter(l => l.missingPunch).length;
-  const unmappedLogs = logs.filter(l => !l.employeeId).length;
-
+  /* ═══════════════ RENDER ═══════════════════════════════════════ */
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <Fingerprint className="h-7 w-7 text-blue-600" />
-            Biometric Integration
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Manage biometric devices — punch data is auto-pulled every 5 minutes
-          </p>
+    <div className="p-6 space-y-5 max-w-[1400px]">
+
+      {/* ── Page header ── */}
+      <div className="flex items-start justify-between">
+        <div className="flex items-center gap-3">
+          <div className="p-2.5 rounded-xl bg-blue-50 dark:bg-blue-950 border border-blue-100 dark:border-blue-900">
+            <Fingerprint className="h-6 w-6 text-blue-600 dark:text-blue-400" />
+          </div>
+          <div>
+            <h1 className="text-xl font-semibold tracking-tight">Biometric Integration</h1>
+            <p className="text-sm text-muted-foreground">Devices connect via ADMS — attendance is synced automatically</p>
+          </div>
         </div>
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={() => { setImportFile(null); setImportDialogOpen(true); }} data-testid="button-import-attlog">
-            <FileUp className="h-4 w-4 mr-2" />
-            Import Attendance File
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={() => { setImportFile(null); setImportDialogOpen(true); }} data-testid="button-import-attlog">
+            <FileUp className="h-4 w-4 mr-1.5" /> Import File
           </Button>
-          <Button variant="outline" onClick={() => setPushDialogOpen(true)}>
-            <Upload className="h-4 w-4 mr-2" />
-            Push Punch Data
+          <Button variant="outline" size="sm" onClick={() => setPushDialogOpen(true)}>
+            <Upload className="h-4 w-4 mr-1.5" /> Push Data
           </Button>
         </div>
       </div>
 
+      {/* ── Tabs ── */}
       <Tabs defaultValue="logs" className="w-full">
-        <TabsList className={`grid w-full ${isSuperAdmin ? "grid-cols-3 max-w-[600px]" : "grid-cols-2 max-w-[400px]"}`}>
-          <TabsTrigger value="logs" className="flex items-center gap-2">
-            <Clock className="h-4 w-4" />
-            Punch Logs
+        <TabsList className={`grid ${canViewAdmsLog ? "grid-cols-3 max-w-[480px]" : "grid-cols-2 max-w-[320px]"}`}>
+          <TabsTrigger value="logs" className="gap-1.5 text-sm">
+            <Clock className="h-3.5 w-3.5" /> Punch Logs
           </TabsTrigger>
-          <TabsTrigger value="devices" className="flex items-center gap-2">
-            <Settings className="h-4 w-4" />
-            Device Management
+          <TabsTrigger value="devices" className="gap-1.5 text-sm">
+            <Settings className="h-3.5 w-3.5" /> Devices
           </TabsTrigger>
           {canViewAdmsLog && (
-            <TabsTrigger value="adms-debug" className="flex items-center gap-2" data-testid="tab-adms-debug">
-              <Activity className="h-4 w-4" />
-              Device Log
+            <TabsTrigger value="adms-debug" className="gap-1.5 text-sm" data-testid="tab-adms-debug">
+              <Activity className="h-3.5 w-3.5" /> Comm Log
             </TabsTrigger>
           )}
         </TabsList>
 
-        <TabsContent value="logs" className="space-y-6 mt-4">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <Card>
-              <CardContent className="pt-4">
-                <div className="flex items-center gap-2">
-                  <Clock className="h-5 w-5 text-blue-500" />
-                  <div>
-                    <p className="text-2xl font-bold">{totalLogs}</p>
-                    <p className="text-xs text-muted-foreground">Total Punches</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="pt-4">
-                <div className="flex items-center gap-2">
-                  <CheckCircle className="h-5 w-5 text-green-500" />
-                  <div>
-                    <p className="text-2xl font-bold">{processedLogs}</p>
-                    <p className="text-xs text-muted-foreground">Processed</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="pt-4">
-                <div className="flex items-center gap-2">
-                  <AlertTriangle className="h-5 w-5 text-yellow-500" />
-                  <div>
-                    <p className="text-2xl font-bold">{missingPunchLogs}</p>
-                    <p className="text-xs text-muted-foreground">Missing Punches</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="pt-4">
-                <div className="flex items-center gap-2">
-                  <XCircle className="h-5 w-5 text-red-500" />
-                  <div>
-                    <p className="text-2xl font-bold">{unmappedLogs}</p>
-                    <p className="text-xs text-muted-foreground">Unmapped IDs</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+        {/* ══════════ TAB 1: PUNCH LOGS ══════════ */}
+        <TabsContent value="logs" className="space-y-4 mt-4">
+
+          {/* Stats row */}
+          <div className="flex flex-wrap gap-2">
+            <StatChip icon={Clock} value={totalLogs} label="Total Punches" color="border-blue-200 bg-blue-50 text-blue-800 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-300" />
+            <StatChip icon={CheckCircle} value={processedLogs} label="Synced" color="border-green-200 bg-green-50 text-green-800 dark:border-green-800 dark:bg-green-950 dark:text-green-300" />
+            <StatChip icon={AlertTriangle} value={missingPunchLogs} label="Missing Punch" color="border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300" />
+            <StatChip icon={XCircle} value={unmappedLogs} label="Unmapped IDs" color="border-red-200 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-300" />
           </div>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Punch Logs</CardTitle>
-              <CardDescription>View and manage biometric punch data</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="flex flex-wrap gap-4 mb-4">
-                {isSuperAdmin && (
-                  <div className="w-48">
-                    <Label className="text-xs">Company</Label>
-                    <Select value={selectedCompany} onValueChange={setSelectedCompany}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="__all__">All Companies</SelectItem>
-                        {companies.map(c => (
-                          <SelectItem key={c.id} value={c.id}>{c.companyName}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                )}
-                <div>
-                  <Label className="text-xs">Date</Label>
-                  <div className="flex items-center gap-1">
-                    {/* ◀ previous day */}
-                    <button
-                      type="button"
-                      title="Previous day"
-                      disabled={!selectedDate}
-                      onClick={() => {
-                        if (!selectedDate) return;
-                        const d = new Date(selectedDate);
-                        d.setDate(d.getDate() - 1);
-                        setSelectedDate(d.toISOString().split("T")[0]);
-                      }}
-                      className="px-1.5 py-1 rounded border border-input bg-background text-xs text-muted-foreground hover:bg-accent disabled:opacity-30"
-                    >◀</button>
-                    <Input
-                      type="date"
-                      value={selectedDate}
-                      onChange={e => setSelectedDate(e.target.value)}
-                      placeholder="All dates"
-                      className="w-36"
-                    />
-                    {/* ▶ next day */}
-                    <button
-                      type="button"
-                      title="Next day"
-                      disabled={!selectedDate}
-                      onClick={() => {
-                        if (!selectedDate) return;
-                        const d = new Date(selectedDate);
-                        d.setDate(d.getDate() + 1);
-                        setSelectedDate(d.toISOString().split("T")[0]);
-                      }}
-                      className="px-1.5 py-1 rounded border border-input bg-background text-xs text-muted-foreground hover:bg-accent disabled:opacity-30"
-                    >▶</button>
-                    {/* All-dates toggle */}
-                    <button
-                      type="button"
-                      title={selectedDate ? "Clear date — show all dates" : "Set to today"}
-                      onClick={() => setSelectedDate(selectedDate ? "" : new Date().toISOString().split("T")[0])}
-                      className={`px-2 py-1 rounded border text-xs transition-colors ${selectedDate ? "border-input bg-background text-muted-foreground hover:bg-accent" : "border-blue-400 bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300"}`}
-                      data-testid="button-toggle-all-dates"
-                    >{selectedDate ? "All" : "Today"}</button>
-                  </div>
-                </div>
-                <div className="w-40">
-                  <Label className="text-xs">Status</Label>
-                  <Select value={statusFilter} onValueChange={setStatusFilter}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All</SelectItem>
-                      <SelectItem value="unprocessed">Unprocessed</SelectItem>
-                      <SelectItem value="processed">Processed</SelectItem>
-                      <SelectItem value="missing">Missing Punch</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
+          {/* Filters toolbar */}
+          <div className="flex flex-wrap items-end gap-3 p-3 bg-muted/40 rounded-lg border">
+            {isSuperAdmin && (
+              <div className="min-w-[160px]">
+                <Label className="text-xs mb-1 block text-muted-foreground">Company</Label>
+                <Select value={selectedCompany} onValueChange={setSelectedCompany}>
+                  <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__all__">All Companies</SelectItem>
+                    {companies.map(c => <SelectItem key={c.id} value={c.id}>{c.companyName}</SelectItem>)}
+                  </SelectContent>
+                </Select>
               </div>
+            )}
+            <div>
+              <Label className="text-xs mb-1 block text-muted-foreground">Date</Label>
+              <div className="flex items-center gap-1">
+                <button onClick={() => shiftDate(-1)} className="h-8 px-2 rounded border bg-background text-muted-foreground hover:bg-accent text-xs">◀</button>
+                <Input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)} className="h-8 w-36 text-sm" />
+                <button onClick={() => shiftDate(1)} className="h-8 px-2 rounded border bg-background text-muted-foreground hover:bg-accent text-xs">▶</button>
+                <button
+                  onClick={() => setSelectedDate(selectedDate ? "" : new Date().toISOString().split("T")[0])}
+                  className={`h-8 px-2.5 rounded border text-xs transition-colors ${selectedDate ? "bg-background text-muted-foreground hover:bg-accent" : "border-blue-400 bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300"}`}
+                  data-testid="button-toggle-all-dates"
+                >{selectedDate ? "All" : "Today"}</button>
+              </div>
+            </div>
+            <div className="min-w-[140px]">
+              <Label className="text-xs mb-1 block text-muted-foreground">Status</Label>
+              <Select value={statusFilter} onValueChange={setStatusFilter}>
+                <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Status</SelectItem>
+                  <SelectItem value="unprocessed">Pending</SelectItem>
+                  <SelectItem value="processed">Synced</SelectItem>
+                  <SelectItem value="missing">Missing Punch</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
 
+          {/* Table */}
+          <Card className="shadow-sm">
+            <CardContent className="p-0">
               {isLoading ? (
-                <p className="text-center py-8 text-muted-foreground">Loading...</p>
+                <div className="flex items-center justify-center py-16 text-muted-foreground">
+                  <RefreshCw className="h-5 w-5 animate-spin mr-2" /> Loading punch logs…
+                </div>
               ) : logs.length === 0 ? (
-                <div className="text-center py-8 space-y-2">
-                  <p className="text-muted-foreground">No punch logs found for the selected filters.</p>
+                <div className="flex flex-col items-center justify-center py-16 gap-2 text-muted-foreground">
+                  <Clock className="h-10 w-10 opacity-20" />
+                  <p className="font-medium">No punch records found</p>
                   {selectedDate && (
-                    <p className="text-sm text-muted-foreground">
-                      Historical records from the device may be on different dates.{" "}
-                      <button
-                        type="button"
-                        onClick={() => setSelectedDate("")}
-                        className="text-blue-600 dark:text-blue-400 underline hover:no-underline"
-                      >Click here to show all dates</button>
+                    <p className="text-sm">
+                      Try{" "}
+                      <button onClick={() => setSelectedDate("")} className="text-blue-600 underline">viewing all dates</button>
                     </p>
                   )}
                 </div>
               ) : (
-                <div className="overflow-auto max-h-[500px]">
+                <div className="overflow-auto">
                   <Table>
                     <TableHeader>
-                      <TableRow>
-                        <TableHead>Device ID</TableHead>
+                      <TableRow className="bg-muted/30">
+                        <TableHead className="w-8 pl-4">#</TableHead>
                         <TableHead>Employee</TableHead>
+                        <TableHead>Device PIN</TableHead>
                         <TableHead>Date</TableHead>
-                        <TableHead>Punch Time</TableHead>
+                        <TableHead>Time</TableHead>
                         <TableHead>Type</TableHead>
                         <TableHead>Status</TableHead>
                         {isSuperAdmin && <TableHead>Company</TableHead>}
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {logs.map(log => (
-                        <TableRow key={log.id} className={log.missingPunch ? "bg-yellow-50 dark:bg-yellow-950" : ""}>
-                          <TableCell className="font-mono text-sm">{log.deviceEmployeeId}</TableCell>
-                          <TableCell>
-                            {log.employeeId ? (
-                              <span>{getEmployeeName(log.employeeId)}</span>
-                            ) : (
-                              <Badge variant="destructive" className="text-xs">Unmapped</Badge>
-                            )}
-                          </TableCell>
-                          <TableCell>{log.punchDate}</TableCell>
-                          <TableCell className="font-mono">{log.punchTime}</TableCell>
-                          <TableCell>
-                            <Badge variant="outline" className="text-xs capitalize">{log.punchType}</Badge>
-                          </TableCell>
-                          <TableCell>
-                            {log.isProcessed ? (
-                              <Badge className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300 text-xs">Synced</Badge>
-                            ) : log.missingPunch ? (
-                              <Badge className="bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300 text-xs">Missing Punch</Badge>
-                            ) : (
-                              <Badge variant="secondary" className="text-xs">Pending</Badge>
-                            )}
-                          </TableCell>
-                          {isSuperAdmin && <TableCell className="text-xs">{getCompanyName(log.companyId)}</TableCell>}
-                        </TableRow>
-                      ))}
+                      {logs.map((log, idx) => {
+                        const emp = getEmployee(log.employeeId);
+                        const empName = emp ? `${emp.firstName} ${emp.lastName}` : null;
+                        return (
+                          <TableRow key={log.id} className={log.missingPunch ? "bg-amber-50/50 dark:bg-amber-950/20" : ""}>
+                            <TableCell className="pl-4 text-xs text-muted-foreground">{idx + 1}</TableCell>
+                            <TableCell>
+                              <div className="flex items-center gap-2.5">
+                                <Avatar name={empName} size="sm" />
+                                <div>
+                                  {empName ? (
+                                    <>
+                                      <p className="text-sm font-medium leading-none">{empName}</p>
+                                      {emp?.employeeCode && <p className="text-xs text-muted-foreground mt-0.5">{emp.employeeCode}</p>}
+                                    </>
+                                  ) : (
+                                    <Badge variant="destructive" className="text-xs">Unmapped</Badge>
+                                  )}
+                                </div>
+                              </div>
+                            </TableCell>
+                            <TableCell className="font-mono text-xs text-muted-foreground">{log.deviceEmployeeId}</TableCell>
+                            <TableCell className="text-sm">{log.punchDate}</TableCell>
+                            <TableCell className="font-mono text-sm font-medium">{log.punchTime}</TableCell>
+                            <TableCell>
+                              <Badge variant="outline" className="text-xs capitalize">{log.punchType}</Badge>
+                            </TableCell>
+                            <TableCell>
+                              {log.isProcessed ? (
+                                <Badge className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300 text-xs border-0">Synced</Badge>
+                              ) : log.missingPunch ? (
+                                <Badge className="bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-300 text-xs border-0">Missing Punch</Badge>
+                              ) : (
+                                <Badge variant="secondary" className="text-xs">Pending</Badge>
+                              )}
+                            </TableCell>
+                            {isSuperAdmin && <TableCell className="text-xs text-muted-foreground">{getCompanyName(log.companyId)}</TableCell>}
+                          </TableRow>
+                        );
+                      })}
                     </TableBody>
                   </Table>
                 </div>
@@ -745,378 +550,271 @@ export default function BiometricPage() {
           </Card>
         </TabsContent>
 
-        <TabsContent value="devices" className="mt-4 space-y-4">
-          {/* ADMS Server Port Status Banner */}
+        {/* ══════════ TAB 2: DEVICES ══════════ */}
+        <TabsContent value="devices" className="space-y-4 mt-4">
+
+          {/* ADMS server health banner */}
           {canViewAdmsLog && admsServerStatus && (
-            <div className={`flex items-start gap-3 rounded-md border p-3 text-sm ${
-              admsServerStatus.running
-                ? "border-green-300 bg-green-50 text-green-900 dark:border-green-800 dark:bg-green-950 dark:text-green-200"
-                : "border-red-300 bg-red-50 text-red-900 dark:border-red-800 dark:bg-red-950 dark:text-red-200"
+            <div className={`flex items-center gap-3 rounded-lg border px-4 py-3 text-sm ${admsServerStatus.running
+              ? "border-green-300 bg-green-50 text-green-900 dark:border-green-800 dark:bg-green-950 dark:text-green-200"
+              : "border-red-300 bg-red-50 text-red-900 dark:border-red-800 dark:bg-red-950 dark:text-red-200"
             }`} data-testid="adms-server-status-banner">
               {admsServerStatus.running
-                ? <CheckCircle className="h-4 w-4 mt-0.5 shrink-0" />
-                : <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />}
-              <div className="space-y-0.5">
-                <p className="font-medium">
+                ? <CheckCircle className="h-4 w-4 shrink-0" />
+                : <AlertTriangle className="h-4 w-4 shrink-0" />}
+              <div>
+                <span className="font-medium">
                   {admsServerStatus.running
-                    ? `ADMS server is running on port ${admsServerStatus.port}`
-                    : `ADMS server is NOT running on port ${admsServerStatus.port}`}
-                </p>
+                    ? `ADMS server running on port ${admsServerStatus.port}`
+                    : `ADMS server NOT running on port ${admsServerStatus.port}`}
+                </span>
                 {admsServerStatus.running && admsServerStatus.boundAt && (
-                  <p className="text-xs opacity-75">
-                    Bound at {new Date(admsServerStatus.boundAt).toLocaleString()}. Devices should connect to <code className="font-mono">http://VPS-IP:{admsServerStatus.port}</code>
-                  </p>
+                  <span className="ml-2 text-xs opacity-70">
+                    · Active since {new Date(admsServerStatus.boundAt).toLocaleTimeString()}
+                  </span>
                 )}
                 {!admsServerStatus.running && admsServerStatus.error && (
-                  <p className="text-xs font-mono opacity-90">{admsServerStatus.error}</p>
-                )}
-                {!admsServerStatus.running && (
-                  <p className="text-xs">Run <code className="font-mono">pm2 logs hrms-pro</code> on the VPS to see the error. Device pushes will fail until port {admsServerStatus.port} is available.</p>
+                  <span className="ml-2 text-xs font-mono opacity-90"> · {admsServerStatus.error}</span>
                 )}
               </div>
             </div>
           )}
 
-          {/* ADMS Server Setup Instructions */}
-          <Card className="border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm text-blue-900 dark:text-blue-200 flex items-center justify-between">
-                <span className="flex items-center gap-2"><Signal className="h-4 w-4" />ZKTeco ADMS Device Configuration</span>
-                <div className="flex items-center gap-1 text-[11px] font-normal">
-                  <button
-                    type="button"
-                    onClick={() => setAdmsMode("ip")}
-                    className={`px-2 py-0.5 rounded border text-[11px] transition-colors ${admsMode === "ip" ? "bg-blue-700 text-white border-blue-700" : "bg-white dark:bg-blue-900 border-blue-300 dark:border-blue-600 text-blue-700 dark:text-blue-300"}`}
-                  >Use IP</button>
-                  <button
-                    type="button"
-                    onClick={() => setAdmsMode("domain")}
-                    className={`px-2 py-0.5 rounded border text-[11px] transition-colors ${admsMode === "domain" ? "bg-blue-700 text-white border-blue-700" : "bg-white dark:bg-blue-900 border-blue-300 dark:border-blue-600 text-blue-700 dark:text-blue-300"}`}
-                  >Use Domain</button>
+          {/* ADMS Setup Guide — collapsible */}
+          <Card className="border-blue-200 dark:border-blue-800 shadow-sm">
+            <button
+              type="button"
+              className="w-full flex items-center justify-between px-4 py-3 text-sm font-medium text-blue-900 dark:text-blue-200 hover:bg-blue-50/50 dark:hover:bg-blue-950/50 rounded-t-lg transition-colors"
+              onClick={() => setSetupExpanded(v => !v)}
+            >
+              <span className="flex items-center gap-2">
+                <Signal className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                ZKTeco x2008 Device Configuration
+              </span>
+              {setupExpanded ? <ChevronUp className="h-4 w-4 opacity-60" /> : <ChevronDown className="h-4 w-4 opacity-60" />}
+            </button>
+            {setupExpanded && (
+              <CardContent className="text-sm border-t border-blue-100 dark:border-blue-900 pt-4 space-y-3">
+                <div className="flex items-center gap-2 text-xs mb-2">
+                  <button onClick={() => setAdmsMode("ip")} className={`px-2.5 py-1 rounded border text-xs transition-colors ${admsMode === "ip" ? "bg-blue-700 text-white border-blue-700" : "bg-white dark:bg-blue-900 border-blue-300 dark:border-blue-600 text-blue-700 dark:text-blue-300"}`}>Use IP</button>
+                  <button onClick={() => setAdmsMode("domain")} className={`px-2.5 py-1 rounded border text-xs transition-colors ${admsMode === "domain" ? "bg-blue-700 text-white border-blue-700" : "bg-white dark:bg-blue-900 border-blue-300 dark:border-blue-600 text-blue-700 dark:text-blue-300"}`}>Use Domain</button>
                 </div>
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="text-xs text-blue-800 dark:text-blue-300 space-y-2">
-
-              {/* RED PROXY WARNING */}
-              <div className="rounded bg-red-50 dark:bg-red-950 border-2 border-red-400 dark:border-red-600 p-2 text-red-800 dark:text-red-200 text-[11px]">
-                <p className="font-bold text-sm mb-1">🚫 Enable Proxy Server → must be OFF</p>
-                <p>On the device go to <strong>Cloud Server Settings</strong> and scroll down — make sure <strong>Enable Proxy Server is toggled OFF</strong>. When it is ON the device routes traffic through the wrong address and will never connect.</p>
-              </div>
-
-              {/* PRIMARY: correct server address box */}
-              <div className="rounded border-2 border-green-400 dark:border-green-600 bg-green-50 dark:bg-green-950 p-3 space-y-2">
-                <p className="font-bold text-green-800 dark:text-green-200 text-sm">Enter these exact values on the device:</p>
-                <p className="text-[11px] text-green-700 dark:text-green-300">Menu → Communication → Cloud Server Settings</p>
-                <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-[12px] font-mono bg-white dark:bg-green-900 rounded p-2 border border-green-200 dark:border-green-700">
-                  <span className="font-sans font-semibold not-italic text-gray-700 dark:text-gray-300">Server Mode</span>
-                  <span className="font-bold text-green-700 dark:text-green-300">ADMS</span>
-
-                  <span className="font-sans font-semibold not-italic text-gray-700 dark:text-gray-300">Enable Domain Name</span>
-                  {admsMode === "domain"
-                    ? <span className="font-bold text-green-700 dark:text-green-300">ON ✓</span>
-                    : <span className="font-bold text-orange-600 dark:text-orange-300">OFF</span>
-                  }
-
-                  <span className="font-sans font-semibold not-italic text-gray-700 dark:text-gray-300">Server Address</span>
-                  <div className="flex items-center gap-1">
-                    <span className="font-bold text-blue-700 dark:text-blue-200 break-all select-all">
-                      {networkLoading
-                        ? <span className="text-gray-400 italic">loading…</span>
-                        : admsMode === "ip"
-                          ? (admsIp ?? <span className="text-amber-600 italic">resolving…</span>)
-                          : admsHost
-                      }
-                    </span>
-                    <button
-                      type="button"
-                      className="shrink-0 text-blue-600 dark:text-blue-300 text-[10px] underline"
-                      onClick={() => { navigator.clipboard.writeText(admsAddr); toast({ title: "Address copied!" }); }}
-                    >copy</button>
+                <div className="rounded-lg border border-red-300 bg-red-50 dark:border-red-700 dark:bg-red-950 p-3 text-red-800 dark:text-red-200 text-xs">
+                  <strong>Enable Proxy Server → must be OFF</strong> on the device (Cloud Server Settings)
+                </div>
+                <div className="rounded-lg border-2 border-green-400 dark:border-green-600 bg-green-50 dark:bg-green-950 p-3 space-y-2">
+                  <p className="text-xs font-semibold text-green-800 dark:text-green-200">Menu → Communication → Cloud Server Settings</p>
+                  <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 text-xs font-mono bg-white dark:bg-green-900 rounded-lg p-3 border border-green-200 dark:border-green-700">
+                    <span className="font-sans font-medium text-gray-600 dark:text-gray-400">Server Mode</span>
+                    <span className="font-bold text-green-700 dark:text-green-300">ADMS</span>
+                    <span className="font-sans font-medium text-gray-600 dark:text-gray-400">Enable Domain Name</span>
+                    {admsMode === "domain"
+                      ? <span className="font-bold text-green-700 dark:text-green-300">ON ✓</span>
+                      : <span className="font-bold text-orange-600 dark:text-orange-300">OFF</span>}
+                    <span className="font-sans font-medium text-gray-600 dark:text-gray-400">Server Address</span>
+                    <div className="flex items-center gap-1">
+                      <span className="font-bold text-blue-700 dark:text-blue-200 break-all select-all">
+                        {networkLoading ? <span className="opacity-50 italic">loading…</span> : admsMode === "ip" ? (admsIp ?? <span className="text-amber-600 italic">resolving…</span>) : admsHost}
+                      </span>
+                      <button className="text-[10px] text-blue-600 underline shrink-0" onClick={() => { navigator.clipboard.writeText(admsAddr); toast({ title: "Copied!" }); }}>copy</button>
+                    </div>
+                    <span className="font-sans font-medium text-gray-600 dark:text-gray-400">Server Port</span>
+                    <span className="font-bold text-blue-700 dark:text-blue-200">{admsPort}</span>
+                    <span className="font-sans font-medium text-gray-600 dark:text-gray-400">Enable Proxy Server</span>
+                    <span className="font-bold text-red-600 dark:text-red-400">OFF 🚫</span>
                   </div>
-
-                  <span className="font-sans font-semibold not-italic text-gray-700 dark:text-gray-300">Server Port</span>
-                  <span className="font-bold text-blue-700 dark:text-blue-200">{admsPort}</span>
-
-                  <span className="font-sans font-semibold not-italic text-gray-700 dark:text-gray-300">Enable Proxy Server</span>
-                  <span className="font-bold text-red-600 dark:text-red-400">OFF 🚫</span>
                 </div>
-              </div>
-
-              <div className="flex items-center gap-2 text-[11px]">
-                <span className="text-muted-foreground shrink-0">Full URL:</span>
-                <code className="bg-white dark:bg-blue-900 border border-blue-200 dark:border-blue-700 px-2 py-0.5 rounded break-all select-all flex-1 text-[10px]">{admsUrl}</code>
-                <button
-                  type="button"
-                  className="shrink-0 text-blue-600 dark:text-blue-300 underline hover:no-underline"
-                  onClick={() => { navigator.clipboard.writeText(admsUrl); toast({ title: "Copied to clipboard" }); }}
-                >Copy</button>
-              </div>
-            </CardContent>
+                <div className="flex items-center gap-2 text-xs">
+                  <span className="text-muted-foreground shrink-0">Full URL:</span>
+                  <code className="bg-white dark:bg-muted border rounded px-2 py-0.5 flex-1 break-all select-all text-[10px]">{admsUrl}</code>
+                  <button className="shrink-0 text-blue-600 underline" onClick={() => { navigator.clipboard.writeText(admsUrl); toast({ title: "Copied!" }); }}>Copy</button>
+                </div>
+              </CardContent>
+            )}
           </Card>
 
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
+          {/* Devices list */}
+          <Card className="shadow-sm">
+            <CardHeader className="flex flex-row items-center justify-between py-4 px-5">
               <div>
-                <CardTitle>Biometric Devices</CardTitle>
-                <CardDescription>Manage and check status of linked biometric machines</CardDescription>
+                <CardTitle className="text-base">Connected Machines</CardTitle>
+                <CardDescription className="text-xs mt-0.5">Biometric devices linked to this system</CardDescription>
               </div>
               <Button size="sm" onClick={() => setDeviceDialogOpen(true)}>
-                <Plus className="h-4 w-4 mr-2" />
-                Add Machine
+                <Plus className="h-4 w-4 mr-1.5" /> Add Machine
               </Button>
             </CardHeader>
-            <CardContent>
+            <CardContent className="px-0 pb-0">
               {(() => {
-                const unauth = devices.filter(
-                  (d: any) => !d.pushToken && !d.allowedIpCidr,
-                );
-                if (unauth.length === 0) return null;
+                const unauth = devices.filter((d: any) => !d.pushToken && !d.allowedIpCidr);
+                if (!unauth.length) return null;
                 return (
-                  <div
-                    className="mb-4 flex items-start gap-3 rounded-md border border-yellow-300 bg-yellow-50 p-3 text-sm text-yellow-900 dark:border-yellow-800 dark:bg-yellow-950 dark:text-yellow-200"
-                    data-testid="banner-devices-missing-auth"
-                  >
-                    <ShieldAlert className="h-5 w-5 mt-0.5 shrink-0" />
-                    <div className="space-y-1">
-                      <p className="font-medium">
-                        {unauth.length === 1
-                          ? "1 device has no anti-spoofing setup"
-                          : `${unauth.length} devices have no anti-spoofing setup`}
-                        : {unauth.map((d: any) => d.name).join(", ")}
-                      </p>
-                      <p className="text-xs">
-                        These devices have no push token and no pinned source
-                        IP/CIDR, so their pushes will start failing with 401
-                        once the new check rolls out. Click the pencil icon
-                        next to each device to set a push token (shared
-                        secret) or a pinned source IP/CIDR.
-                      </p>
-                    </div>
+                  <div className="mx-5 mb-4 flex items-center gap-3 rounded-lg border border-amber-300 bg-amber-50 dark:border-amber-800 dark:bg-amber-950 p-3 text-sm text-amber-900 dark:text-amber-200" data-testid="banner-devices-missing-auth">
+                    <ShieldAlert className="h-4 w-4 shrink-0" />
+                    <p>{unauth.length} device{unauth.length > 1 ? "s" : ""} without security ({unauth.map((d: any) => d.name).join(", ")}) — add a push token to prevent spoofing</p>
                   </div>
                 );
               })()}
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Machine Name</TableHead>
-                    <TableHead>Code</TableHead>
-                    <TableHead>Serial Number</TableHead>
-                    <TableHead>ADMS Server</TableHead>
-                    <TableHead>Authentication</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Last Push</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {devices.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
-                        No biometric machines linked.
-                      </TableCell>
+
+              <div className="overflow-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-muted/30">
+                      <TableHead className="pl-5">Device</TableHead>
+                      <TableHead>Connection</TableHead>
+                      <TableHead>Security</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Last Connected</TableHead>
+                      <TableHead className="text-right pr-4">Actions</TableHead>
                     </TableRow>
-                  ) : (
-                    devices.map((device: any) => (
-                      <TableRow key={device.id}>
-                        <TableCell className="font-medium">{device.name}</TableCell>
-                        <TableCell>
-                          {device.code ? (
-                            <Badge variant="outline" className="font-mono">{device.code}</Badge>
-                          ) : (
-                            <span className="text-xs text-muted-foreground">—</span>
-                          )}
-                        </TableCell>
-                        <TableCell className="font-mono text-xs">{device.deviceSerial}</TableCell>
-                        <TableCell className="text-xs font-mono text-muted-foreground">
-                          {device.admsServerIp || networkInfo?.ip || "—"}:{device.port || admsPort}
-                        </TableCell>
-                        <TableCell>
-                          {device.allowedIpCidr ? (
-                            <Badge
-                              variant="outline"
-                              className="text-xs gap-1 border-green-300 text-green-800 dark:border-green-800 dark:text-green-300"
-                              data-testid={`auth-status-${device.id}`}
-                            >
-                              <ShieldCheck className="h-3 w-3" />
-                              IP-pinned ({device.allowedIpCidr})
-                            </Badge>
-                          ) : device.pushToken ? (
-                            <Badge
-                              variant="outline"
-                              className="text-xs gap-1 border-green-300 text-green-800 dark:border-green-800 dark:text-green-300"
-                              data-testid={`auth-status-${device.id}`}
-                            >
-                              <ShieldCheck className="h-3 w-3" />
-                              Token set
-                            </Badge>
-                          ) : (
-                            <Badge
-                              variant="outline"
-                              className="text-xs gap-1 border-amber-400 text-amber-700 dark:border-amber-600 dark:text-amber-400"
-                              data-testid={`auth-status-${device.id}`}
-                              title="No pushToken or IP CIDR set — device is in open (unauthenticated) mode. Add a Push Token to secure it."
-                            >
-                              <ShieldAlert className="h-3 w-3" />
-                              Open mode
-                            </Badge>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          {device.status === "online" ? (
-                            <Badge className="bg-green-100 text-green-800 hover:bg-green-100">
-                              <Signal className="h-3 w-3 mr-1" />
-                              online
-                            </Badge>
-                          ) : (
-                            <TooltipProvider delayDuration={100}>
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Badge variant="secondary" className="cursor-help">
-                                    <SignalLow className="h-3 w-3 mr-1" />
-                                    offline
-                                  </Badge>
-                                </TooltipTrigger>
-                                <TooltipContent className="max-w-xs text-xs leading-relaxed">
-                                  {device.lastPushAt
-                                    ? `No push received in ${Math.round((Date.now() - new Date(device.lastPushAt).getTime()) / 60000)}m. Possible causes: device or network is down; ADMS server restarted and port 8181 wasn't free (check VPS logs). Device will reconnect automatically once it can reach ${device.admsServerUrl || "the server"}.`
-                                    : `This device has never pushed data. On the device set: Server Mode = ADMS, Server Address = ${(device.admsServerUrl || "").split(":")[0] || "VPS IP"}, Port = 8181. Make sure the serial number matches ${device.deviceSerial}.`
-                                  }
-                                </TooltipContent>
-                              </Tooltip>
-                            </TooltipProvider>
-                          )}
-                        </TableCell>
-                        <TableCell className="text-xs text-muted-foreground">
-                          {(() => {
-                            const ts = device.lastPushAt || device.lastSync;
-                            if (!ts) return <span className="text-amber-600 dark:text-amber-400 font-medium">Never connected</span>;
-                            const date = new Date(ts);
-                            const minsAgo = Math.round((Date.now() - date.getTime()) / 60000);
-                            const agoLabel = minsAgo < 1 ? "just now" : minsAgo < 60 ? `${minsAgo}m ago` : `${Math.round(minsAgo / 60)}h ago`;
-                            return (
-                              <div className="space-y-0.5">
-                                <span title={date.toLocaleString()}>
-                                  {date.toLocaleString()}
-                                  <span className="ml-1 opacity-60">({agoLabel})</span>
-                                </span>
-                                <div className="flex items-center gap-1 font-mono">
-                                  <span className="opacity-60">stamp:</span>
-                                  <span className={device.lastAttlogStamp === 0 ? "text-amber-600 dark:text-amber-400" : "text-green-600 dark:text-green-400"}>
-                                    {device.lastAttlogStamp ?? 0}
-                                  </span>
-                                  {(device.lastAttlogStamp ?? 0) === 0 && (
-                                    <span className="opacity-60">(full re-upload pending)</span>
-                                  )}
-                                </div>
-                              </div>
-                            );
-                          })()}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <TooltipProvider delayDuration={200}>
-                            <div className="flex justify-end gap-1">
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Button
-                                    variant="outline"
-                                    size="icon"
-                                    onClick={() => setUsersDialogDevice(device)}
-                                    data-testid={`button-view-users-${device.id}`}
-                                  >
-                                    <UserCheck className="h-4 w-4" />
-                                  </Button>
-                                </TooltipTrigger>
-                                <TooltipContent>View enrolled users</TooltipContent>
-                              </Tooltip>
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Button
-                                    variant="outline"
-                                    size="icon"
-                                    onClick={() => syncUsersMutation.mutate(device.id)}
-                                    disabled={syncUsersMutation.isPending}
-                                    data-testid={`button-sync-users-${device.id}`}
-                                  >
-                                    <RefreshCw className={`h-4 w-4 ${syncUsersMutation.isPending ? "animate-spin" : ""}`} />
-                                  </Button>
-                                </TooltipTrigger>
-                                <TooltipContent>Sync users from device</TooltipContent>
-                              </Tooltip>
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Button
-                                    variant="outline"
-                                    size="icon"
-                                    className="text-amber-600 hover:text-amber-700"
-                                    onClick={() => resetStampMutation.mutate(device.id)}
-                                    disabled={resetStampMutation.isPending}
-                                    data-testid={`button-reset-stamp-${device.id}`}
-                                  >
-                                    <RotateCcw className={`h-4 w-4 ${resetStampMutation.isPending ? "animate-spin" : ""}`} />
-                                  </Button>
-                                </TooltipTrigger>
-                                <TooltipContent>Force full re-upload (reset stamp to 0)</TooltipContent>
-                              </Tooltip>
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    onClick={() => openEditDialog(device)}
-                                    data-testid={`button-edit-device-${device.id}`}
-                                  >
-                                    <Pencil className="h-4 w-4" />
-                                  </Button>
-                                </TooltipTrigger>
-                                <TooltipContent>Edit device</TooltipContent>
-                              </Tooltip>
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Button 
-                                    variant="ghost" 
-                                    size="icon"
-                                    className="text-red-600 hover:text-red-700"
-                                    onClick={() => setDeviceToDelete(device)}
-                                    data-testid={`button-delete-device-${device.id}`}
-                                  >
-                                    <Trash2 className="h-4 w-4" />
-                                  </Button>
-                                </TooltipTrigger>
-                                <TooltipContent>Delete device</TooltipContent>
-                              </Tooltip>
-                            </div>
-                          </TooltipProvider>
+                  </TableHeader>
+                  <TableBody>
+                    {devices.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={6} className="text-center py-12 text-muted-foreground">
+                          <Fingerprint className="h-8 w-8 mx-auto mb-2 opacity-20" />
+                          <p>No devices linked yet</p>
                         </TableCell>
                       </TableRow>
-                    ))
-                  )}
-                </TableBody>
-              </Table>
+                    ) : devices.map((device: any) => {
+                      const ts = device.lastPushAt || device.lastSync;
+                      const minsAgo = ts ? Math.round((Date.now() - new Date(ts).getTime()) / 60000) : null;
+                      const agoLabel = minsAgo === null ? null : minsAgo < 1 ? "just now" : minsAgo < 60 ? `${minsAgo}m ago` : `${Math.round(minsAgo / 60)}h ago`;
+                      return (
+                        <TableRow key={device.id}>
+                          <TableCell className="pl-5">
+                            <div className="space-y-0.5">
+                              <p className="font-medium text-sm">{device.name}</p>
+                              <div className="flex items-center gap-2">
+                                {device.code && <Badge variant="outline" className="text-[10px] font-mono px-1.5 py-0">{device.code}</Badge>}
+                                <span className="text-xs text-muted-foreground font-mono">{device.deviceSerial}</span>
+                              </div>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="text-xs space-y-0.5">
+                              <div className="flex items-center gap-1 text-muted-foreground">
+                                <span className="opacity-60">Server:</span>
+                                <span className="font-mono">{device.admsServerIp || networkInfo?.ip || "—"}:{device.port || admsPort}</span>
+                              </div>
+                              {device.ipAddress && (
+                                <div className="flex items-center gap-1 text-muted-foreground">
+                                  <span className="opacity-60">Machine:</span>
+                                  <span className="font-mono">{device.ipAddress}</span>
+                                </div>
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            {device.allowedIpCidr ? (
+                              <Badge variant="outline" className="text-xs gap-1 border-green-300 text-green-700 dark:border-green-700 dark:text-green-400" data-testid={`auth-status-${device.id}`}>
+                                <ShieldCheck className="h-3 w-3" /> IP-pinned
+                              </Badge>
+                            ) : device.pushToken ? (
+                              <Badge variant="outline" className="text-xs gap-1 border-green-300 text-green-700 dark:border-green-700 dark:text-green-400" data-testid={`auth-status-${device.id}`}>
+                                <ShieldCheck className="h-3 w-3" /> Token set
+                              </Badge>
+                            ) : (
+                              <Badge variant="outline" className="text-xs gap-1 border-amber-400 text-amber-700 dark:border-amber-600 dark:text-amber-400" data-testid={`auth-status-${device.id}`}>
+                                <ShieldAlert className="h-3 w-3" /> Open
+                              </Badge>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            {device.status === "online" ? (
+                              <div className="flex items-center gap-1.5 text-green-700 dark:text-green-400">
+                                <span className="h-2 w-2 rounded-full bg-green-500 animate-pulse inline-block" />
+                                <span className="text-xs font-medium">Online</span>
+                              </div>
+                            ) : (
+                              <TooltipProvider delayDuration={100}>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <div className="flex items-center gap-1.5 text-muted-foreground cursor-help">
+                                      <span className="h-2 w-2 rounded-full bg-gray-300 dark:bg-gray-600 inline-block" />
+                                      <span className="text-xs">Offline</span>
+                                    </div>
+                                  </TooltipTrigger>
+                                  <TooltipContent className="max-w-xs text-xs">
+                                    {ts ? `No push received in ${minsAgo}m` : `Never connected. Set Server Mode = ADMS, Address = ${device.admsServerIp || "VPS IP"}, Port = 8181`}
+                                  </TooltipContent>
+                                </Tooltip>
+                              </TooltipProvider>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            <div className="text-xs space-y-0.5">
+                              {ts ? (
+                                <>
+                                  <p className="text-muted-foreground" title={new Date(ts).toLocaleString()}>{agoLabel}</p>
+                                  <div className="flex items-center gap-1">
+                                    <span className="text-muted-foreground opacity-60">stamp:</span>
+                                    <span className={`font-mono ${(device.lastAttlogStamp ?? 0) === 0 ? "text-amber-600" : "text-green-600 dark:text-green-400"}`}>
+                                      {device.lastAttlogStamp ?? 0}
+                                    </span>
+                                  </div>
+                                </>
+                              ) : (
+                                <span className="text-amber-600 dark:text-amber-400 font-medium">Never</span>
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell className="pr-4">
+                            <TooltipProvider delayDuration={200}>
+                              <div className="flex justify-end gap-1">
+                                <Tooltip><TooltipTrigger asChild>
+                                  <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => setUsersDialogDevice(device)} data-testid={`button-view-users-${device.id}`}>
+                                    <Users className="h-3.5 w-3.5" />
+                                  </Button>
+                                </TooltipTrigger><TooltipContent>View enrolled users</TooltipContent></Tooltip>
+                                <Tooltip><TooltipTrigger asChild>
+                                  <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => syncUsersMutation.mutate(device.id)} disabled={syncUsersMutation.isPending} data-testid={`button-sync-users-${device.id}`}>
+                                    <RefreshCw className={`h-3.5 w-3.5 ${syncUsersMutation.isPending ? "animate-spin" : ""}`} />
+                                  </Button>
+                                </TooltipTrigger><TooltipContent>Sync users from device</TooltipContent></Tooltip>
+                                <Tooltip><TooltipTrigger asChild>
+                                  <Button variant="outline" size="icon" className="h-7 w-7 text-amber-600 hover:text-amber-700" onClick={() => resetStampMutation.mutate(device.id)} disabled={resetStampMutation.isPending} data-testid={`button-reset-stamp-${device.id}`}>
+                                    <RotateCcw className={`h-3.5 w-3.5 ${resetStampMutation.isPending ? "animate-spin" : ""}`} />
+                                  </Button>
+                                </TooltipTrigger><TooltipContent>Force full re-upload</TooltipContent></Tooltip>
+                                <Tooltip><TooltipTrigger asChild>
+                                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEditDialog(device)} data-testid={`button-edit-device-${device.id}`}>
+                                    <Pencil className="h-3.5 w-3.5" />
+                                  </Button>
+                                </TooltipTrigger><TooltipContent>Edit device</TooltipContent></Tooltip>
+                                <Tooltip><TooltipTrigger asChild>
+                                  <Button variant="ghost" size="icon" className="h-7 w-7 text-red-500 hover:text-red-600" onClick={() => setDeviceToDelete(device)} data-testid={`button-delete-device-${device.id}`}>
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  </Button>
+                                </TooltipTrigger><TooltipContent>Delete device</TooltipContent></Tooltip>
+                              </div>
+                            </TooltipProvider>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
 
-        {/* ADMS Device Communication Log — super_admin only */}
-        {isSuperAdmin && (
+        {/* ══════════ TAB 3: COMM LOG ══════════ */}
+        {canViewAdmsLog && (
           <TabsContent value="adms-debug" className="mt-4">
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <Card className="shadow-sm">
+              <CardHeader className="flex flex-row items-center justify-between py-4 px-5">
                 <div>
                   <CardTitle className="text-base flex items-center gap-2">
-                    <Activity className="h-4 w-4" />
-                    Device Communication Log
+                    <Activity className="h-4 w-4" /> Device Communication Log
                   </CardTitle>
-                  <CardDescription>
-                    Key events persisted to DB — survives server restarts. Auto-refreshes every 5 s. Last 200 entries.
+                  <CardDescription className="text-xs mt-0.5">
+                    Live event log — auto-refreshes every 5s · Last 200 entries
                     <span className="ml-2 text-purple-600 dark:text-purple-400">↑OUT=server→device</span>
-                    {" · "}
-                    <span className="text-green-600 dark:text-green-400">green=ATTLOG</span>
-                    {" · "}
-                    <span className="text-blue-600 dark:text-blue-400">blue=USER</span>
-                    {" · "}
-                    <span className="text-red-600 dark:text-red-400">red=error</span>
-                    {" · "} Each line ends with the client IP — real device vs browser.
+                    {" · "}<span className="text-green-600 dark:text-green-400">green=ATTLOG</span>
+                    {" · "}<span className="text-blue-600 dark:text-blue-400">blue=USER</span>
+                    {" · "}<span className="text-red-600 dark:text-red-400">red=error</span>
                   </CardDescription>
                 </div>
                 <Button variant="outline" size="sm" onClick={() => refetchAdmsLog()} data-testid="button-refresh-adms-log">
@@ -1129,21 +827,13 @@ export default function BiometricPage() {
                     No device activity yet. Device will appear here within 10 seconds of connecting.
                   </div>
                 ) : (
-                  <div className="font-mono text-xs bg-muted rounded-md p-3 overflow-auto max-h-[500px] space-y-0.5" data-testid="adms-log-container">
+                  <div className="font-mono text-xs bg-muted rounded-lg p-3 overflow-auto max-h-[500px] space-y-0.5" data-testid="adms-log-container">
                     {[...admsLog].reverse().map((entry, i) => {
                       const isOut = entry.direction === "OUT";
                       const isAttlog = entry.line.includes("ATTLOG");
                       const isUserinfo = entry.line.includes("USERINFO") || entry.line.includes("USER");
                       const isError = entry.line.includes("reject") || entry.line.includes("ERROR") || entry.line.includes("auth");
-                      const color = isError
-                        ? "text-red-600 dark:text-red-400"
-                        : isOut
-                          ? "text-purple-600 dark:text-purple-400"
-                          : isAttlog
-                            ? "text-green-600 dark:text-green-400"
-                            : isUserinfo
-                              ? "text-blue-600 dark:text-blue-400"
-                              : "text-foreground/70";
+                      const color = isError ? "text-red-600 dark:text-red-400" : isOut ? "text-purple-600 dark:text-purple-400" : isAttlog ? "text-green-600 dark:text-green-400" : isUserinfo ? "text-blue-600 dark:text-blue-400" : "text-foreground/70";
                       return (
                         <div key={i} className={`flex gap-2 ${color}`}>
                           <span className="shrink-0 text-muted-foreground">{new Date(entry.ts).toLocaleTimeString("en-IN", { hour12: false })}</span>
@@ -1161,484 +851,152 @@ export default function BiometricPage() {
         )}
       </Tabs>
 
-      {/* Existing Dialogs */}
-      <Dialog open={pushDialogOpen} onOpenChange={setPushDialogOpen}>
-        <DialogContent className="max-w-lg">
+      {/* ═══════════════ DIALOGS ═══════════════ */}
+
+      {/* Users on machine dialog — card grid with photo */}
+      <Dialog open={!!usersDialogDevice} onOpenChange={(open) => { if (!open) setUsersDialogDevice(null); }}>
+        <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col">
           <DialogHeader>
-            <DialogTitle>Push Biometric Punch Data</DialogTitle>
-            <DialogDescription>
-              Paste JSON data from your biometric device. Each punch needs: deviceEmployeeId, punchTime (HH:MM), punchDate (YYYY-MM-DD).
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            {isSuperAdmin && (
-              <div>
-                <Label>Company</Label>
-                <Select value={syncCompanyId} onValueChange={setSyncCompanyId}>
-                  <SelectTrigger><SelectValue placeholder="Select company" /></SelectTrigger>
-                  <SelectContent>
-                    {companies.map(c => (
-                      <SelectItem key={c.id} value={c.id}>{c.companyName}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-            <div>
-              <Label>Punch Data (JSON)</Label>
-              <Textarea
-                value={pushData}
-                onChange={e => setPushData(e.target.value)}
-                placeholder={`[\n  { "deviceEmployeeId": "1001", "punchTime": "09:05", "punchDate": "2026-02-14", "punchType": "in" },\n  { "deviceEmployeeId": "1001", "punchTime": "18:10", "punchDate": "2026-02-14", "punchType": "out" }\n]`}
-                rows={8}
-                className="font-mono text-sm"
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setPushDialogOpen(false)}>Cancel</Button>
-            <Button onClick={handlePushData} disabled={pushMutation.isPending}>
-              {pushMutation.isPending ? "Uploading..." : "Upload"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* New Device Dialog */}
-      <Dialog open={deviceDialogOpen} onOpenChange={setDeviceDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Add Biometric Machine</DialogTitle>
-            <DialogDescription>
-              Link a new biometric device to this company for status monitoring.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            {isSuperAdmin && (
-              <div>
-                <Label>Company <span className="text-red-500">*</span></Label>
-                <Select value={deviceCompanyId} onValueChange={setDeviceCompanyId}>
-                  <SelectTrigger data-testid="select-device-company">
-                    <SelectValue placeholder="Select company for this device" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {companies.map(c => (
-                      <SelectItem key={c.id} value={c.id}>{c.companyName}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <p className="text-xs text-muted-foreground mt-1">
-                  All punch data from this device will be stored under this company.
-                </p>
-              </div>
-            )}
-            <div>
-              <Label>Machine Name</Label>
-              <Input
-                value={deviceName}
-                onChange={e => setDeviceName(e.target.value)}
-                placeholder="Front Gate Machine"
-                data-testid="input-device-name"
-              />
-            </div>
-            <div>
-              <Label>Machine Code (optional)</Label>
-              <Input
-                value={deviceCode}
-                onChange={e => setDeviceCode(e.target.value)}
-                placeholder="M1, GATE-A, etc."
-                data-testid="input-device-code"
-              />
-              <p className="text-xs text-muted-foreground mt-1">
-                Short ID used when assigning employees to this machine.
-              </p>
-            </div>
-            <div>
-              <Label>Device Serial / ID</Label>
-              <Input
-                value={deviceSerial}
-                onChange={e => setDeviceSerial(e.target.value)}
-                placeholder="SN12345678"
-                data-testid="input-device-serial"
-              />
-            </div>
-            <div className="grid grid-cols-3 gap-2">
-              <div className="col-span-2">
-                <Label>Machine IP <span className="text-xs text-muted-foreground font-normal">(device's local network IP)</span></Label>
-                <Input 
-                  value={deviceIp} 
-                  onChange={e => setDeviceIp(e.target.value)} 
-                  placeholder="192.168.1.200"
-                />
-              </div>
-              <div>
-                <Label>Port</Label>
-                <Input 
-                  value={devicePort} 
-                  onChange={e => setDevicePort(e.target.value)} 
-                />
-              </div>
-            </div>
-            <div>
-              <Label>ADMS Server IP <span className="text-xs text-muted-foreground font-normal">(VPS/server public IP)</span></Label>
-              <Input
-                value={deviceServerIp}
-                onChange={e => setDeviceServerIp(e.target.value)}
-                placeholder="31.97.207.109"
-                data-testid="input-device-server-ip"
-              />
-            </div>
-            <div className="border-t pt-3 space-y-3">
-              <div className="rounded bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-700 p-2 text-xs text-amber-800 dark:text-amber-200 space-y-1">
-                <p className="font-semibold">Security — fill at least one of the two fields below</p>
-                <p>This prevents fake attendance punches from unknown sources. The easiest option is to click <strong>Auto-detect</strong> to fill your internet IP automatically, or click <strong>Generate</strong> to create a token.</p>
-              </div>
-
-              {/* Option 1: Source IP */}
-              <div>
-                <Label className="flex items-center gap-1">
-                  Your Internet IP
-                  <span className="text-xs text-muted-foreground font-normal ml-1">(the public IP of your office internet connection)</span>
-                </Label>
-                <div className="flex gap-2 mt-1">
-                  <Input
-                    value={deviceAllowedCidr}
-                    onChange={e => setDeviceAllowedCidr(e.target.value)}
-                    placeholder="Will be filled automatically — click Auto-detect"
-                    data-testid="input-add-device-cidr"
-                    className="font-mono text-xs"
-                  />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    disabled={detectingIp}
-                    onClick={() => autoDetectSourceIp(setDeviceAllowedCidr)}
-                    data-testid="button-add-detect-ip"
-                    title="Detect your current public IP automatically"
-                  >
-                    {detectingIp ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Signal className="h-4 w-4" />}
-                    <span className="ml-1">Auto-detect</span>
-                  </Button>
-                </div>
-                <p className="text-[11px] text-muted-foreground mt-1">
-                  This is your router's public internet IP — <strong>not</strong> the device's local IP (192.168.x.x). Click Auto-detect to fill it automatically.
-                </p>
-              </div>
-
-              {/* Option 2: Push Token */}
-              <div>
-                <Label>
-                  Push Token
-                  <span className="text-xs text-muted-foreground font-normal ml-1">(a secret password the device sends with every punch)</span>
-                </Label>
-                <div className="flex gap-2 mt-1">
-                  <Input
-                    value={devicePushToken}
-                    onChange={e => setDevicePushToken(e.target.value)}
-                    placeholder="At least 12 characters"
-                    data-testid="input-add-device-token"
-                    className="font-mono text-xs"
-                  />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => generateToken(setDevicePushToken)}
-                    data-testid="button-add-generate-token"
-                    title="Generate a strong random token"
-                  >
-                    <KeyRound className="h-4 w-4 mr-1" />
-                    Generate
-                  </Button>
-                </div>
-              </div>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDeviceDialogOpen(false)}>Cancel</Button>
-            <Button onClick={handleAddDevice} disabled={deviceMutation.isPending}>
-              {deviceMutation.isPending ? "Adding..." : "Add Machine"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Edit Device */}
-      <Dialog
-        open={!!editDevice}
-        onOpenChange={(open) => { if (!open) setEditDevice(null); }}
-      >
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Edit Device</DialogTitle>
-            <DialogDescription>
-              Update the device details. To rotate a leaked push token,
-              click Generate and save the new token to the device.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3 py-2">
-            {isSuperAdmin && (
-              <div>
-                <Label>Company <span className="text-red-500">*</span></Label>
-                <Select value={editCompanyId} onValueChange={setEditCompanyId}>
-                  <SelectTrigger data-testid="select-edit-device-company">
-                    <SelectValue placeholder="Select company" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {companies.map(c => (
-                      <SelectItem key={c.id} value={c.id}>{c.companyName}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-            <div>
-              <Label>Machine Name</Label>
-              <Input
-                value={editName}
-                onChange={(e) => setEditName(e.target.value)}
-                data-testid="input-edit-device-name"
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Label>Machine Code (optional)</Label>
-                <Input
-                  value={editCode}
-                  onChange={(e) => setEditCode(e.target.value)}
-                  placeholder="M1, GATE-A…"
-                  data-testid="input-edit-device-code"
-                />
-              </div>
-              <div>
-                <Label>Serial Number</Label>
-                <Input
-                  value={editSerial}
-                  onChange={(e) => setEditSerial(e.target.value)}
-                  data-testid="input-edit-device-serial"
-                />
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Label>Machine IP <span className="text-xs text-muted-foreground font-normal">(device local IP)</span></Label>
-                <Input
-                  value={editIp}
-                  onChange={(e) => setEditIp(e.target.value)}
-                  placeholder="192.168.1.200"
-                  data-testid="input-edit-device-ip"
-                />
-              </div>
-              <div>
-                <Label>Port</Label>
-                <Input
-                  value={editPort}
-                  onChange={(e) => setEditPort(e.target.value)}
-                  data-testid="input-edit-device-port"
-                />
-              </div>
-            </div>
-            <div>
-              <Label>ADMS Server IP <span className="text-xs text-muted-foreground font-normal">(VPS/server public IP)</span></Label>
-              <Input
-                value={editServerIp}
-                onChange={(e) => setEditServerIp(e.target.value)}
-                placeholder="31.97.207.109"
-                data-testid="input-edit-device-server-ip"
-              />
-            </div>
-            <div className="rounded-md border p-3 space-y-3">
-              <p className="text-xs font-medium text-muted-foreground">Security — set at least one to prevent fake punches</p>
-              <div>
-                <Label>
-                  Your Internet IP
-                  <span className="text-xs text-muted-foreground font-normal ml-1">(public IP of your office connection)</span>
-                </Label>
-                <div className="flex gap-2 mt-1">
-                  <Input
-                    value={editAllowedCidr}
-                    onChange={(e) => setEditAllowedCidr(e.target.value)}
-                    placeholder="Click Auto-detect to fill automatically"
-                    className="font-mono text-xs"
-                    data-testid="input-edit-device-cidr"
-                  />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    disabled={detectingIp}
-                    onClick={() => autoDetectSourceIp(setEditAllowedCidr)}
-                    title="Detect your current public IP automatically"
-                  >
-                    {detectingIp ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Signal className="h-4 w-4" />}
-                    <span className="ml-1">Auto-detect</span>
-                  </Button>
-                </div>
-                <p className="text-[11px] text-muted-foreground mt-1">
-                  This is your router's internet-facing IP — not the device's local 192.168.x.x address.
-                </p>
-              </div>
-              <div>
-                <Label>
-                  Push Token
-                  <span className="text-xs text-muted-foreground font-normal ml-1">(secret password the device sends with every punch)</span>
-                </Label>
-                <div className="flex gap-2 mt-1">
-                  <Input
-                    value={editPushToken}
-                    onChange={(e) => setEditPushToken(e.target.value)}
-                    placeholder="At least 12 characters"
-                    className="font-mono text-xs"
-                    data-testid="input-edit-device-token"
-                  />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => generateToken(setEditPushToken)}
-                    data-testid="button-edit-generate-token"
-                    title="Generate a strong random token"
-                  >
-                    <KeyRound className="h-4 w-4 mr-1" />
-                    Generate
-                  </Button>
-                </div>
-              </div>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setEditDevice(null)}>Cancel</Button>
-            <Button
-              onClick={handleSaveEdit}
-              disabled={editDeviceMutation.isPending}
-              data-testid="button-save-edit-device"
-            >
-              {editDeviceMutation.isPending ? "Saving…" : "Save Changes"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Users on this machine */}
-      <Dialog
-        open={!!usersDialogDevice}
-        onOpenChange={(open) => { if (!open) setUsersDialogDevice(null); }}
-      >
-        <DialogContent className="max-w-3xl">
-          <DialogHeader>
-            <DialogTitle>
+            <DialogTitle className="flex items-center gap-2">
+              <Users className="h-5 w-5 text-blue-600" />
               Users on {usersDialogDevice?.name}
-              {usersDialogDevice?.code ? (
-                <Badge variant="outline" className="ml-2 font-mono">{usersDialogDevice.code}</Badge>
-              ) : null}
+              {usersDialogDevice?.code && <Badge variant="outline" className="font-mono">{usersDialogDevice.code}</Badge>}
             </DialogTitle>
             <DialogDescription>
-              Employees who have punched on this machine, derived from stored
-              punch logs. The Device ID is the PIN the machine uses for that
-              employee — assign it on the Employees page to map punches.
+              Enrolled users and punch-only IDs from this machine. Use the Map button to link a Device PIN to an HR employee.
             </DialogDescription>
           </DialogHeader>
-          <div className="max-h-[60vh] overflow-auto">
+
+          <div className="flex-1 overflow-auto">
             {usersLoading ? (
-              <div className="p-6 text-center text-muted-foreground">Loading users...</div>
+              <div className="flex items-center justify-center py-16 text-muted-foreground">
+                <RefreshCw className="h-5 w-5 animate-spin mr-2" /> Loading users…
+              </div>
             ) : !deviceUsers || deviceUsers.users?.length === 0 ? (
-              <div className="p-6 text-center text-muted-foreground">
-                No users enrolled on this machine yet. Users appear here once
-                the device pushes its enrollment list or someone punches.
+              <div className="flex flex-col items-center justify-center py-16 gap-2 text-muted-foreground">
+                <Users className="h-10 w-10 opacity-20" />
+                <p className="font-medium">No users found on this machine</p>
+                <p className="text-sm text-center">Users appear once the device pushes its enrollment list or someone punches in</p>
               </div>
             ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Device ID</TableHead>
-                    <TableHead>Name on Device</TableHead>
-                    <TableHead>HR Employee</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead className="text-right">Punches</TableHead>
-                    <TableHead>Last Seen</TableHead>
-                    <TableHead></TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {deviceUsers.users.map((u: any) => (
-                    <TableRow key={u.deviceEmployeeId}>
-                      <TableCell className="font-mono text-xs">{u.deviceEmployeeId}</TableCell>
-                      <TableCell className="text-sm">
-                        {u.deviceName || <span className="text-muted-foreground">—</span>}
-                        {u.privilege && u.privilege !== "0" ? (
-                          <Badge variant="outline" className="ml-2 text-[10px]">Admin</Badge>
-                        ) : null}
-                      </TableCell>
-                      <TableCell>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 p-1">
+                {deviceUsers.users.map((u: any) => {
+                  const hrName = u.matched ? `${u.firstName || ""} ${u.lastName || ""}`.trim() : null;
+                  const displayName = u.deviceName || hrName;
+                  return (
+                    <div key={u.deviceEmployeeId} className={`rounded-xl border p-4 flex flex-col gap-3 transition-shadow hover:shadow-md ${u.matched ? "border-green-200 dark:border-green-800 bg-green-50/30 dark:bg-green-950/20" : "bg-card"}`}>
+                      {/* Photo + Name row */}
+                      <div className="flex items-center gap-3">
+                        <Avatar
+                          name={hrName || u.deviceName}
+                          photo={u.faceImage}
+                          size="lg"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <p className="font-semibold text-sm leading-tight truncate">
+                            {u.deviceName || <span className="text-muted-foreground italic">No name on device</span>}
+                          </p>
+                          {u.privilege && u.privilege !== "0" && (
+                            <Badge variant="outline" className="text-[10px] mt-0.5">Admin</Badge>
+                          )}
+                          <div className="flex items-center gap-1.5 mt-1">
+                            <span className="text-[10px] bg-muted px-1.5 py-0.5 rounded font-mono text-muted-foreground">PIN: {u.deviceEmployeeId}</span>
+                            {u.enrolled ? (
+                              <Badge className="text-[10px] h-4 px-1.5 bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300 border-0">Enrolled</Badge>
+                            ) : (
+                              <Badge variant="outline" className="text-[10px] h-4 px-1.5">Punch only</Badge>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* HR Employee link */}
+                      <div className={`rounded-lg px-3 py-2 text-xs ${u.matched ? "bg-green-100 dark:bg-green-900/40 border border-green-200 dark:border-green-800" : "bg-muted/60 border"}`}>
                         {u.matched ? (
-                          <span>
-                            {u.firstName} {u.lastName}
-                            {u.hrEmployeeCode ? (
-                              <span className="ml-1 text-xs text-muted-foreground">({u.hrEmployeeCode})</span>
-                            ) : null}
+                          <div className="flex items-center gap-1.5 text-green-800 dark:text-green-300">
+                            <BadgeCheck className="h-3.5 w-3.5 shrink-0" />
+                            <div className="min-w-0">
+                              <p className="font-medium truncate">{hrName}</p>
+                              {u.hrEmployeeCode && <p className="opacity-70">{u.hrEmployeeCode} {u.designation ? `· ${u.designation}` : ""}</p>}
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-1.5 text-muted-foreground">
+                            <Link2 className="h-3.5 w-3.5 shrink-0 opacity-50" />
+                            <span>Not linked to HR employee</span>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Stats row */}
+                      <div className="flex items-center justify-between text-xs text-muted-foreground">
+                        <div className="flex items-center gap-1">
+                          <Clock className="h-3 w-3" />
+                          <span>{u.punchCount} punch{u.punchCount !== 1 ? "es" : ""}</span>
+                        </div>
+                        {u.lastSeenAt && (
+                          <span className="truncate ml-2" title={u.lastSeenAt}>
+                            Last: {u.lastSeenAt.substring(0, 10)}
                           </span>
-                        ) : (
-                          <Badge variant="secondary">Unmapped</Badge>
                         )}
-                      </TableCell>
-                      <TableCell>
-                        {u.enrolled ? (
-                          <Badge variant="default" className="bg-green-600 hover:bg-green-600">Enrolled</Badge>
+                      </div>
+
+                      {/* Map button */}
+                      <Button
+                        data-testid={`button-map-pin-${u.deviceEmployeeId}`}
+                        size="sm"
+                        variant={u.matched ? "outline" : "default"}
+                        className="w-full h-8 text-xs"
+                        onClick={() => {
+                          setMapPinRow({ devicePin: u.deviceEmployeeId, deviceName: u.deviceName || u.deviceEmployeeId });
+                          setMapSelectedEmployee(u.employeeId || "");
+                        }}
+                      >
+                        {u.matched ? (
+                          <><Pencil className="h-3 w-3 mr-1.5" /> Remap Employee</>
                         ) : (
-                          <Badge variant="outline">Punch only</Badge>
+                          <><Link2 className="h-3 w-3 mr-1.5" /> Map to Employee</>
                         )}
-                      </TableCell>
-                      <TableCell className="text-right">{u.punchCount}</TableCell>
-                      <TableCell className="text-xs text-muted-foreground">
-                        {u.lastSeenAt || "—"}
-                      </TableCell>
-                      <TableCell>
-                        <Button
-                          data-testid={`button-map-pin-${u.deviceEmployeeId}`}
-                          size="sm"
-                          variant={u.matched ? "outline" : "default"}
-                          className="text-xs h-7 px-2"
-                          onClick={() => {
-                            setMapPinRow({ devicePin: u.deviceEmployeeId, deviceName: u.deviceName || u.deviceEmployeeId });
-                            setMapSelectedEmployee(u.employeeId || "");
-                          }}
-                        >
-                          {u.matched ? "Remap" : "Map"}
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                      </Button>
+                    </div>
+                  );
+                })}
+              </div>
             )}
           </div>
-          <DialogFooter>
+
+          <DialogFooter className="border-t pt-4">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground mr-auto">
+              {deviceUsers?.total != null && <span>{deviceUsers.total} user{deviceUsers.total !== 1 ? "s" : ""} total</span>}
+              <span>·</span>
+              <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-green-500 inline-block" />Mapped to HR</span>
+            </div>
             <Button variant="outline" onClick={() => setUsersDialogDevice(null)}>Close</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Map Device PIN → HR Employee dialog */}
+      {/* Map PIN → Employee dialog */}
       <Dialog open={!!mapPinRow} onOpenChange={(open) => { if (!open) { setMapPinRow(null); setMapSelectedEmployee(""); } }}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
             <DialogTitle>Map Device PIN to Employee</DialogTitle>
             <DialogDescription>
-              Select the HR employee for device PIN <strong className="font-mono">{mapPinRow?.devicePin}</strong>
-              {mapPinRow?.deviceName ? ` (${mapPinRow.deviceName})` : ""}. Existing punch records for this PIN will be retroactively linked.
+              Link device PIN <strong className="font-mono">{mapPinRow?.devicePin}</strong>
+              {mapPinRow?.deviceName ? ` (${mapPinRow.deviceName})` : ""} to an HR employee. All existing punch records for this PIN will be retroactively linked.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3 py-2">
-            <Select
-              value={mapSelectedEmployee}
-              onValueChange={setMapSelectedEmployee}
-            >
-              <SelectTrigger data-testid="select-map-employee" className="w-full">
-                <SelectValue placeholder="Select an HR employee..." />
+            <Select value={mapSelectedEmployee} onValueChange={setMapSelectedEmployee}>
+              <SelectTrigger data-testid="select-map-employee">
+                <SelectValue placeholder="Select employee…" />
               </SelectTrigger>
               <SelectContent>
-                {(employees as any[])
+                {employees
                   .filter((e: any) => !e.biometricDeviceId || e.biometricDeviceId === mapPinRow?.devicePin)
                   .map((e: any) => (
                     <SelectItem key={e.id} value={e.id}>
-                      {e.firstName} {e.lastName} — {e.employeeCode}
+                      {e.firstName} {e.lastName} ({e.employeeCode})
                     </SelectItem>
                   ))}
               </SelectContent>
@@ -1647,39 +1005,260 @@ export default function BiometricPage() {
           <DialogFooter>
             <Button variant="outline" onClick={() => { setMapPinRow(null); setMapSelectedEmployee(""); }}>Cancel</Button>
             <Button
-              data-testid="button-confirm-map-pin"
+              data-testid="button-confirm-map"
               disabled={!mapSelectedEmployee || mapPinMutation.isPending}
               onClick={() => {
                 if (mapPinRow && mapSelectedEmployee) {
-                  mapPinMutation.mutate({
-                    employeeId: mapSelectedEmployee,
-                    devicePin: mapPinRow.devicePin,
-                    deviceId: usersDialogDevice?.id,
-                  });
+                  mapPinMutation.mutate({ employeeId: mapSelectedEmployee, devicePin: mapPinRow.devicePin, deviceId: usersDialogDevice?.id });
                 }
               }}
             >
-              {mapPinMutation.isPending ? "Mapping..." : "Confirm Map"}
+              {mapPinMutation.isPending ? "Saving…" : "Confirm Mapping"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
+      {/* Import File dialog */}
+      <Dialog open={importDialogOpen} onOpenChange={setImportDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Import Attendance File</DialogTitle>
+            <DialogDescription>Upload an ATTLOG or USERINFO text file exported from the device.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label>File Type</Label>
+              <Select value={importType} onValueChange={(v: any) => setImportType(v)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="attlog">Attendance Log (ATTLOG)</SelectItem>
+                  <SelectItem value="userinfo">User List (USERINFO)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Device (optional)</Label>
+              <Select value={importDeviceId} onValueChange={setImportDeviceId}>
+                <SelectTrigger><SelectValue placeholder="Select device…" /></SelectTrigger>
+                <SelectContent>
+                  {devices.map((d: any) => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>File</Label>
+              <Input type="file" accept=".txt,.dat,.log" onChange={e => setImportFile(e.target.files?.[0] || null)} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setImportDialogOpen(false)}>Cancel</Button>
+            <Button
+              disabled={!importFile || importFileMutation.isPending}
+              onClick={() => { if (importFile) importFileMutation.mutate({ file: importFile, deviceId: importDeviceId, type: importType }); }}
+            >
+              {importFileMutation.isPending ? "Importing…" : "Import"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Push Punch Data dialog */}
+      <Dialog open={pushDialogOpen} onOpenChange={setPushDialogOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Push Biometric Punch Data</DialogTitle>
+            <DialogDescription>Paste JSON data from your biometric device.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            {isSuperAdmin && (
+              <div>
+                <Label>Company</Label>
+                <Select value={syncCompanyId} onValueChange={setSyncCompanyId}>
+                  <SelectTrigger><SelectValue placeholder="Select company" /></SelectTrigger>
+                  <SelectContent>{companies.map(c => <SelectItem key={c.id} value={c.id}>{c.companyName}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+            )}
+            <div>
+              <Label>Punch Data (JSON)</Label>
+              <Textarea value={pushData} onChange={e => setPushData(e.target.value)}
+                placeholder={`[\n  { "deviceEmployeeId": "1001", "punchTime": "09:05", "punchDate": "2026-04-24", "punchType": "in" }\n]`}
+                rows={6} className="font-mono text-sm" />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPushDialogOpen(false)}>Cancel</Button>
+            <Button onClick={handlePushData} disabled={pushMutation.isPending}>{pushMutation.isPending ? "Uploading…" : "Upload"}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add Device dialog */}
+      <Dialog open={deviceDialogOpen} onOpenChange={setDeviceDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Add Biometric Machine</DialogTitle>
+            <DialogDescription>Link a new ZKTeco device to the HRMS system.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-1">
+            {isSuperAdmin && (
+              <div>
+                <Label>Company <span className="text-red-500">*</span></Label>
+                <Select value={deviceCompanyId} onValueChange={setDeviceCompanyId}>
+                  <SelectTrigger data-testid="select-device-company"><SelectValue placeholder="Select company" /></SelectTrigger>
+                  <SelectContent>{companies.map(c => <SelectItem key={c.id} value={c.id}>{c.companyName}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+            )}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Machine Name <span className="text-red-500">*</span></Label>
+                <Input value={deviceName} onChange={e => setDeviceName(e.target.value)} placeholder="Front Gate" data-testid="input-device-name" />
+              </div>
+              <div>
+                <Label>Code <span className="text-xs text-muted-foreground">(optional)</span></Label>
+                <Input value={deviceCode} onChange={e => setDeviceCode(e.target.value)} placeholder="GATE-A" data-testid="input-device-code" />
+              </div>
+            </div>
+            <div>
+              <Label>Serial Number <span className="text-red-500">*</span></Label>
+              <Input value={deviceSerial} onChange={e => setDeviceSerial(e.target.value)} placeholder="NCD8250201712" data-testid="input-device-serial" />
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              <div className="col-span-2">
+                <Label>Machine IP</Label>
+                <Input value={deviceIp} onChange={e => setDeviceIp(e.target.value)} placeholder="192.168.1.200" />
+              </div>
+              <div>
+                <Label>Port</Label>
+                <Input value={devicePort} onChange={e => setDevicePort(e.target.value)} />
+              </div>
+            </div>
+            <div>
+              <Label>ADMS Server IP <span className="text-xs text-muted-foreground">(VPS public IP)</span></Label>
+              <Input value={deviceServerIp} onChange={e => setDeviceServerIp(e.target.value)} placeholder="31.97.207.109" data-testid="input-device-server-ip" />
+            </div>
+            <div className="border rounded-lg p-3 space-y-3 bg-muted/20">
+              <p className="text-xs font-medium text-muted-foreground">Security — fill at least one</p>
+              <div>
+                <Label>Office Internet IP (CIDR)</Label>
+                <div className="flex gap-2 mt-1">
+                  <Input value={deviceAllowedCidr} onChange={e => setDeviceAllowedCidr(e.target.value)} placeholder="Auto-detect or enter manually" className="font-mono text-xs" data-testid="input-add-device-cidr" />
+                  <Button type="button" variant="outline" size="sm" disabled={detectingIp} onClick={() => autoDetectSourceIp(setDeviceAllowedCidr)} data-testid="button-add-detect-ip">
+                    {detectingIp ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Signal className="h-3.5 w-3.5" />}
+                    <span className="ml-1">Detect</span>
+                  </Button>
+                </div>
+              </div>
+              <div>
+                <Label>Push Token</Label>
+                <div className="flex gap-2 mt-1">
+                  <Input value={devicePushToken} onChange={e => setDevicePushToken(e.target.value)} placeholder="Min 12 characters" className="font-mono text-xs" data-testid="input-add-device-token" />
+                  <Button type="button" variant="outline" size="sm" onClick={() => generateToken(setDevicePushToken)} data-testid="button-add-generate-token">
+                    <KeyRound className="h-3.5 w-3.5 mr-1" /> Gen
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeviceDialogOpen(false)}>Cancel</Button>
+            <Button onClick={handleAddDevice} disabled={deviceMutation.isPending}>{deviceMutation.isPending ? "Adding…" : "Add Machine"}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Device dialog */}
+      <Dialog open={!!editDevice} onOpenChange={(open) => { if (!open) setEditDevice(null); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Edit Device</DialogTitle>
+            <DialogDescription>Update device settings. To rotate a leaked token, click Gen and save to the device.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-1">
+            {isSuperAdmin && (
+              <div>
+                <Label>Company</Label>
+                <Select value={editCompanyId} onValueChange={setEditCompanyId}>
+                  <SelectTrigger data-testid="select-edit-device-company"><SelectValue placeholder="Select company" /></SelectTrigger>
+                  <SelectContent>{companies.map(c => <SelectItem key={c.id} value={c.id}>{c.companyName}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+            )}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Machine Name</Label>
+                <Input value={editName} onChange={e => setEditName(e.target.value)} data-testid="input-edit-device-name" />
+              </div>
+              <div>
+                <Label>Code</Label>
+                <Input value={editCode} onChange={e => setEditCode(e.target.value)} placeholder="M1, GATE-A…" data-testid="input-edit-device-code" />
+              </div>
+            </div>
+            <div>
+              <Label>Serial Number</Label>
+              <Input value={editSerial} onChange={e => setEditSerial(e.target.value)} data-testid="input-edit-device-serial" />
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              <div className="col-span-2">
+                <Label>Machine IP</Label>
+                <Input value={editIp} onChange={e => setEditIp(e.target.value)} placeholder="192.168.1.200" data-testid="input-edit-device-ip" />
+              </div>
+              <div>
+                <Label>Port</Label>
+                <Input value={editPort} onChange={e => setEditPort(e.target.value)} data-testid="input-edit-device-port" />
+              </div>
+            </div>
+            <div>
+              <Label>ADMS Server IP</Label>
+              <Input value={editServerIp} onChange={e => setEditServerIp(e.target.value)} placeholder="31.97.207.109" data-testid="input-edit-device-server-ip" />
+            </div>
+            <div className="border rounded-lg p-3 space-y-3 bg-muted/20">
+              <p className="text-xs font-medium text-muted-foreground">Security</p>
+              <div>
+                <Label>Office Internet IP (CIDR)</Label>
+                <div className="flex gap-2 mt-1">
+                  <Input value={editAllowedCidr} onChange={e => setEditAllowedCidr(e.target.value)} className="font-mono text-xs" data-testid="input-edit-device-cidr" />
+                  <Button type="button" variant="outline" size="sm" disabled={detectingIp} onClick={() => autoDetectSourceIp(setEditAllowedCidr)}>
+                    {detectingIp ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Signal className="h-3.5 w-3.5" />}
+                    <span className="ml-1">Detect</span>
+                  </Button>
+                </div>
+              </div>
+              <div>
+                <Label>Push Token</Label>
+                <div className="flex gap-2 mt-1">
+                  <Input value={editPushToken} onChange={e => setEditPushToken(e.target.value)} className="font-mono text-xs" data-testid="input-edit-device-token" />
+                  <Button type="button" variant="outline" size="sm" onClick={() => generateToken(setEditPushToken)} data-testid="button-edit-generate-token">
+                    <KeyRound className="h-3.5 w-3.5 mr-1" /> Gen
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditDevice(null)}>Cancel</Button>
+            <Button onClick={handleSaveEdit} disabled={editDeviceMutation.isPending} data-testid="button-save-edit-device">
+              {editDeviceMutation.isPending ? "Saving…" : "Save Changes"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete confirm dialog */}
       <AlertDialog open={!!deviceToDelete} onOpenChange={(open) => { if (!open) setDeviceToDelete(null); }}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete biometric device?</AlertDialogTitle>
+            <AlertDialogTitle>Remove {deviceToDelete?.name}?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will permanently delete <strong>{deviceToDelete?.name || "this device"}</strong>
-              {deviceToDelete?.code ? ` (${deviceToDelete.code})` : ""}. Punches from this machine
-              will stop being accepted until it's re-added.
+              This will remove the device and its configuration. Punch logs already imported will be kept.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel data-testid="button-cancel-delete-device">Cancel</AlertDialogCancel>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              className="bg-red-600 hover:bg-red-700 text-white"
-              data-testid="button-confirm-delete-device"
+              className="bg-red-600 hover:bg-red-700"
               onClick={() => {
                 if (deviceToDelete) {
                   deleteDeviceMutation.mutate(deviceToDelete.id);
@@ -1687,122 +1266,11 @@ export default function BiometricPage() {
                 }
               }}
             >
-              Delete device
+              Delete Device
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-
-      {/* ── Import from Device File Dialog ── */}
-      <Dialog open={importDialogOpen} onOpenChange={(open) => { setImportDialogOpen(open); if (!open) setImportFile(null); }}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <FileUp className="h-5 w-5 text-blue-600" />
-              Import from Device File (USB Export)
-            </DialogTitle>
-            <DialogDescription>
-              Upload a file exported from the ZKTeco device via USB to recover historical data.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-4 py-2">
-            {/* Type selector */}
-            <div>
-              <Label className="mb-1 block">What to import</Label>
-              <Select value={importType} onValueChange={(v) => { setImportType(v as any); setImportFile(null); }}>
-                <SelectTrigger data-testid="select-import-type">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="attlog">Attendance Records (attlog.dat)</SelectItem>
-                  <SelectItem value="userinfo">Enrolled Users (user.dat / userinfo.dat)</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* Instructions */}
-            <div className="rounded-md border bg-muted/40 p-3 text-xs text-muted-foreground space-y-1">
-              <p className="font-medium text-foreground">
-                How to export from ZKTeco x2008 via USB:
-              </p>
-              {importType === "attlog" ? (
-                <ol className="ml-4 list-decimal space-y-0.5">
-                  <li>Plug a USB drive into the device</li>
-                  <li>Press <strong>Menu → USB Manager → Download → Attendance Log</strong></li>
-                  <li>Wait for "Download Successful", remove USB</li>
-                  <li>Find <code>attlog.dat</code> on the USB and upload it here</li>
-                </ol>
-              ) : (
-                <ol className="ml-4 list-decimal space-y-0.5">
-                  <li>Plug a USB drive into the device</li>
-                  <li>Press <strong>Menu → USB Manager → Download → User Data</strong></li>
-                  <li>Wait for "Download Successful", remove USB</li>
-                  <li>Find <code>user.dat</code> or <code>userinfo.dat</code> on the USB and upload it here</li>
-                </ol>
-              )}
-            </div>
-
-            {/* File picker */}
-            <div>
-              <Label htmlFor="import-file-input" className="mb-1 block">
-                {importType === "attlog" ? "Attendance File (.dat / .txt)" : "User Data File (.dat / .txt)"}
-              </Label>
-              <Input
-                id="import-file-input"
-                type="file"
-                accept=".dat,.txt,.csv,.log"
-                data-testid="input-import-file"
-                onChange={(e) => setImportFile(e.target.files?.[0] ?? null)}
-                className="cursor-pointer"
-              />
-            </div>
-
-            {/* Device selector (only if multiple devices) */}
-            {devices && devices.length > 1 && (
-              <div>
-                <Label className="mb-1 block">Device (optional)</Label>
-                <Select value={importDeviceId} onValueChange={setImportDeviceId}>
-                  <SelectTrigger data-testid="select-import-device">
-                    <SelectValue placeholder="Auto-detect (first device)" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="">Auto-detect</SelectItem>
-                    {devices.map((d: any) => (
-                      <SelectItem key={d.id} value={d.id}>{d.name} ({d.serialNumber})</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-
-            {importFile && (
-              <p className="text-xs text-muted-foreground">
-                Selected: <strong>{importFile.name}</strong> ({(importFile.size / 1024).toFixed(1)} KB)
-              </p>
-            )}
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setImportDialogOpen(false)} disabled={importFileMutation.isPending}>
-              Cancel
-            </Button>
-            <Button
-              data-testid="button-confirm-import-file"
-              disabled={!importFile || importFileMutation.isPending}
-              onClick={() => {
-                if (importFile) {
-                  importFileMutation.mutate({ file: importFile, deviceId: importDeviceId, type: importType });
-                }
-              }}
-            >
-              <FileUp className="h-4 w-4 mr-2" />
-              {importFileMutation.isPending ? "Importing…" : "Import"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
     </div>
   );
 }
