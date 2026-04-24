@@ -1282,7 +1282,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           COALESCE(emap.official_email, e.official_email) AS email,
           COALESCE(emap.registered_face_image, e.registered_face_image) AS face_image,
           COALESCE(emap.designation, e.designation) AS designation,
-          COALESCE(emap.department, e.department) AS department
+          COALESCE(emap.department, e.department) AS department,
+          ecode.id                                                     AS code_matched_employee_id,
+          ecode.first_name                                             AS code_matched_first_name,
+          ecode.last_name                                              AS code_matched_last_name
         FROM pin_union p
         LEFT JOIN biometric_device_users du
           ON du.device_id = ${req.params.id}
@@ -1293,6 +1296,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
           ON emap.biometric_device_id = p.device_employee_id
         LEFT JOIN employees e
           ON e.id = pa.employee_id
+        -- Fallback: match by employee_code = device PIN (common ZKTeco deployment
+        -- where the operator uses the employee code as the device PIN)
+        LEFT JOIN employees ecode
+          ON ecode.employee_code = p.device_employee_id
+         AND ecode.company_id   = ${device.companyId ?? null}
         ORDER BY (du.device_employee_id IS NOT NULL) DESC,
                  pa.last_punch_at DESC NULLS LAST,
                  p.device_employee_id ASC
@@ -1309,6 +1317,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         designation: r.designation || null,
         department: r.department || null,
         deviceName: r.device_name || null,
+        // Fallback names from code-matched employee (no mapping required)
+        codeMatchedEmployeeId: (r as any).code_matched_employee_id || null,
+        codeMatchedFirstName: (r as any).code_matched_first_name || null,
+        codeMatchedLastName: (r as any).code_matched_last_name || null,
         privilege: r.device_privilege || null,
         card: r.device_card || null,
         enrolled: !!r.enrolled,

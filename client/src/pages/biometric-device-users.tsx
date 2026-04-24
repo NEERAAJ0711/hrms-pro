@@ -66,6 +66,10 @@ function UserCard({ u, onMap, onDelete }: {
   onDelete: (u: any) => void;
 }) {
   const hrName = u.matched ? `${u.firstName || ""} ${u.lastName || ""}`.trim() : null;
+  const codeMatchName = (!u.matched && !u.deviceName && u.codeMatchedFirstName)
+    ? `${u.codeMatchedFirstName || ""} ${u.codeMatchedLastName || ""}`.trim()
+    : null;
+  const displayName = u.deviceName || hrName || codeMatchName;
   const isCardOnly = !u.enrolled && !u.deviceName;
   const cardClass = u.matched
     ? "border-green-200 dark:border-green-800 bg-green-50/30 dark:bg-green-950/20"
@@ -77,13 +81,18 @@ function UserCard({ u, onMap, onDelete }: {
     <div className={`rounded-xl border p-4 flex flex-col gap-3 transition-shadow hover:shadow-md ${cardClass}`}>
       {/* Avatar + Name */}
       <div className="flex items-center gap-3">
-        <Avatar name={hrName || u.deviceName} photo={u.faceImage} size="lg" />
+        <Avatar name={displayName || undefined} photo={u.faceImage} size="lg" />
         <div className="flex-1 min-w-0">
-          {u.deviceName
-            ? <p className="font-semibold text-sm leading-tight truncate">{u.deviceName}</p>
-            : hrName
-              ? <p className="font-semibold text-sm leading-tight truncate">{hrName}</p>
-              : <p className="text-sm text-amber-700 dark:text-amber-400 font-medium">Card / Access PIN</p>
+          {displayName
+            ? (
+              <div className="flex items-center gap-1 min-w-0">
+                <p className="font-semibold text-sm leading-tight truncate">{displayName}</p>
+                {codeMatchName && (
+                  <span className="text-[10px] text-muted-foreground shrink-0">(by code)</span>
+                )}
+              </div>
+            )
+            : <p className="text-sm text-amber-700 dark:text-amber-400 font-medium">Card / Access PIN</p>
           }
           {u.privilege && u.privilege !== "0" && (
             <Badge variant="outline" className="text-[10px] mt-0.5">Admin</Badge>
@@ -237,7 +246,9 @@ export default function BiometricDeviceUsersPage() {
         (u.deviceEmployeeId || "").toLowerCase().includes(q) ||
         (u.firstName || "").toLowerCase().includes(q) ||
         (u.lastName || "").toLowerCase().includes(q) ||
-        (u.hrEmployeeCode || "").toLowerCase().includes(q)
+        (u.hrEmployeeCode || "").toLowerCase().includes(q) ||
+        (u.codeMatchedFirstName || "").toLowerCase().includes(q) ||
+        (u.codeMatchedLastName || "").toLowerCase().includes(q)
       );
     }
     return list;
@@ -455,7 +466,8 @@ export default function BiometricDeviceUsersPage() {
                 u={u}
                 onMap={u => {
                   setMapPinRow({ devicePin: u.deviceEmployeeId, deviceName: u.deviceName || u.deviceEmployeeId });
-                  setMapSelectedEmployee(u.employeeId || "");
+                  // Pre-select: already-mapped employee, or code-matched employee, or blank
+                  setMapSelectedEmployee(u.employeeId || u.codeMatchedEmployeeId || "");
                 }}
                 onDelete={u => setDeleteConfirm({
                   pin: u.deviceEmployeeId,

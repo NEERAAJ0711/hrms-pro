@@ -435,12 +435,15 @@ export async function processUserRecords(
 
     // If the device sent an empty name, fall back to the HR employee name
     // so the device user page always shows something useful.
+    // Try two lookups: (1) by biometricDeviceId, (2) by employee_code = PIN.
     if (!name) {
       try {
         const empRow = await db.execute(sql`
           SELECT first_name, last_name
           FROM employees
           WHERE biometric_device_id = ${pin}
+             OR employee_code = ${pin}
+          ORDER BY (biometric_device_id = ${pin}) DESC
           LIMIT 1
         `);
         if (empRow.rows.length > 0) {
