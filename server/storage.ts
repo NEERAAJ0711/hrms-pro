@@ -79,8 +79,8 @@ export interface IStorage {
   getCompanyContractors(companyId: string): Promise<(CompanyContractor & { contractorName: string })[]>;
   addCompanyContractor(data: InsertCompanyContractor): Promise<CompanyContractor>;
   removeCompanyContractor(companyId: string, contractorId: string): Promise<boolean>;
-  getContractorEmployees(companyId: string, contractorId: string): Promise<(Employee & { contractorEmployeeId: string })[]>;
-  addContractorEmployee(companyId: string, contractorId: string, employeeId: string): Promise<void>;
+  getContractorEmployees(companyId: string, contractorId: string): Promise<(Employee & { contractorEmployeeId: string; taggedDate: string | null })[]>;
+  addContractorEmployee(companyId: string, contractorId: string, employeeId: string, taggedDate?: string): Promise<void>;
   removeContractorEmployee(companyId: string, contractorId: string, employeeId: string): Promise<boolean>;
 
   // Employees
@@ -505,8 +505,8 @@ export class MemStorage implements IStorage {
     if (!entry) return false;
     return this.contractorsMap.delete(entry.id);
   }
-  async getContractorEmployees(_companyId: string, _contractorId: string): Promise<(Employee & { contractorEmployeeId: string })[]> { return []; }
-  async addContractorEmployee(_companyId: string, _contractorId: string, _employeeId: string): Promise<void> {}
+  async getContractorEmployees(_companyId: string, _contractorId: string): Promise<(Employee & { contractorEmployeeId: string; taggedDate: string | null })[]> { return []; }
+  async addContractorEmployee(_companyId: string, _contractorId: string, _employeeId: string, _taggedDate?: string): Promise<void> {}
   async removeContractorEmployee(_companyId: string, _contractorId: string, _employeeId: string): Promise<boolean> { return false; }
 
   // Employee methods

@@ -41,8 +41,6 @@ type ContractorRow = {
   contractorName: string;
 };
 
-type TaggedEmployee = Employee & { contractorEmployeeId: string };
-
 // ─── Searchable company picker ─────────────────────────────────────────────
 function CompanySearchPicker({
   companies,
@@ -196,6 +194,8 @@ function EmployeeSearchPicker({
   );
 }
 
+type TaggedEmployee = Employee & { contractorEmployeeId: string; taggedDate: string | null };
+
 // ─── Tagged Employees Sub-panel ────────────────────────────────────────────
 function ContractorEmployeesPanel({
   companyId,
@@ -206,8 +206,9 @@ function ContractorEmployeesPanel({
 }) {
   const { toast } = useToast();
   const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
+  const [taggedDate, setTaggedDate] = useState(() => new Date().toISOString().slice(0, 10));
 
-  const { data: contractorEmployeeList = [], isLoading } = useQuery<Employee[]>({
+  const { data: contractorEmployeeList = [], isLoading } = useQuery<TaggedEmployee[]>({
     queryKey: ["/api/companies", companyId, "contractors", contractor.contractorId, "employees"],
     queryFn: async () => {
       const res = await fetch(
@@ -229,11 +230,11 @@ function ContractorEmployeesPanel({
   });
 
   const tagMutation = useMutation({
-    mutationFn: async (employeeId: string) => {
+    mutationFn: async () => {
       const res = await apiRequest(
         "POST",
         `/api/companies/${companyId}/contractors/${contractor.contractorId}/employees`,
-        { employeeId }
+        { employeeId: selectedEmployee!.id, taggedDate }
       );
       if (!res.ok) {
         const err = await res.json();
@@ -267,63 +268,95 @@ function ContractorEmployeesPanel({
     onError: () => toast({ title: "Error", description: "Failed to untag employee", variant: "destructive" }),
   });
 
-  const taggedIds = new Set(contractorEmployeeList.map((e: any) => e.id));
+  const taggedIds = new Set(contractorEmployeeList.map((e) => e.id));
+  const canTag = selectedEmployee && taggedDate;
 
   return (
-    <div className="bg-muted/20 border-t px-6 py-4 space-y-4">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Users className="h-4 w-4 text-primary" />
-          <span className="text-sm font-semibold">Tagged Employees</span>
-          <Badge variant="secondary" className="text-xs">{contractorEmployeeList.length}</Badge>
-        </div>
-        <p className="text-xs text-muted-foreground">
-          From <span className="font-medium">{contractor.contractorName}</span>
-        </p>
+    <div className="bg-muted/20 border-t px-6 py-5 space-y-4">
+      {/* Header */}
+      <div className="flex items-center gap-2">
+        <Users className="h-4 w-4 text-primary" />
+        <span className="text-sm font-semibold">Tagged Employees</span>
+        <Badge variant="secondary" className="text-xs">{contractorEmployeeList.length}</Badge>
+        <span className="text-xs text-muted-foreground ml-1">
+          — from <span className="font-medium text-foreground">{contractor.contractorName}</span>
+        </span>
       </div>
 
-      {/* Tagged employee list */}
+      {/* Tagged employee table */}
       {isLoading ? (
-        <div className="space-y-2">
+        <div className="space-y-2 pl-1">
           {[1, 2].map(i => (
-            <div key={i} className="flex items-center gap-3">
-              <Skeleton className="h-8 w-8 rounded-full" />
-              <div className="flex-1 space-y-1"><Skeleton className="h-3 w-32" /><Skeleton className="h-2.5 w-20" /></div>
+            <div key={i} className="flex items-center gap-4">
+              <Skeleton className="h-3 w-20" />
+              <Skeleton className="h-3 w-36" />
+              <Skeleton className="h-3 w-24" />
             </div>
           ))}
         </div>
       ) : contractorEmployeeList.length === 0 ? (
-        <p className="text-sm text-muted-foreground italic">No employees tagged yet.</p>
+        <p className="text-sm text-muted-foreground italic pl-1">No employees tagged yet.</p>
       ) : (
-        <div className="flex flex-wrap gap-2">
-          {contractorEmployeeList.map((emp: any) => (
-            <div
-              key={emp.id}
-              className="flex items-center gap-2 rounded-full border border-primary/20 bg-primary/5 px-3 py-1.5 text-sm"
-              data-testid={`tagged-employee-chip-${emp.id}`}
-            >
-              <div className="h-5 w-5 rounded-full bg-primary/20 flex items-center justify-center text-[10px] font-bold text-primary shrink-0">
-                {emp.firstName?.[0]}{emp.lastName?.[0]}
-              </div>
-              <span className="font-medium text-sm">{emp.firstName} {emp.lastName}</span>
-              <span className="text-muted-foreground text-xs">{emp.employeeCode}</span>
-              <button
-                type="button"
-                onClick={() => untagMutation.mutate(emp.id)}
-                disabled={untagMutation.isPending}
-                className="rounded-full hover:bg-destructive/10 p-0.5 transition-colors ml-0.5"
-                data-testid={`untag-employee-${emp.id}`}
-              >
-                <X className="h-3 w-3 text-muted-foreground hover:text-destructive" />
-              </button>
-            </div>
-          ))}
+        <div className="rounded-md border bg-background overflow-hidden">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-muted/50 border-b">
+                <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide w-10">Sr.</th>
+                <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Employee Code</th>
+                <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Employee Name</th>
+                <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Date of Tagging</th>
+                <th className="text-right px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {contractorEmployeeList.map((emp, idx) => (
+                <tr key={emp.id} className="border-b last:border-0 hover:bg-muted/20 transition-colors"
+                  data-testid={`tagged-employee-row-${emp.id}`}>
+                  <td className="px-4 py-3 text-muted-foreground font-medium">{idx + 1}</td>
+                  <td className="px-4 py-3 font-mono text-xs font-semibold text-primary">{emp.employeeCode}</td>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-2.5">
+                      <div className="h-7 w-7 rounded-full bg-primary/10 flex items-center justify-center text-[10px] font-bold text-primary shrink-0">
+                        {emp.firstName?.[0]}{emp.lastName?.[0]}
+                      </div>
+                      <div>
+                        <p className="font-medium leading-tight">{emp.firstName} {emp.lastName}</p>
+                        {emp.designation && <p className="text-xs text-muted-foreground">{emp.designation}</p>}
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                      <CalendarDays className="h-3.5 w-3.5 shrink-0" />
+                      <span>{emp.taggedDate ?? "—"}</span>
+                    </div>
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (confirm(`Untag ${emp.firstName} ${emp.lastName}?`)) {
+                          untagMutation.mutate(emp.id);
+                        }
+                      }}
+                      disabled={untagMutation.isPending}
+                      className="inline-flex items-center justify-center h-7 w-7 rounded hover:bg-destructive/10 transition-colors"
+                      data-testid={`untag-employee-${emp.id}`}
+                    >
+                      <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
 
-      {/* Add employee */}
-      <div className="flex items-center gap-3 pt-1">
+      {/* Add employee row */}
+      <div className="flex items-end gap-3 pt-1">
         <div className="flex-1">
+          <label className="text-xs font-medium text-muted-foreground mb-1 block">Search Employee</label>
           <EmployeeSearchPicker
             employees={contractorCompanyEmployees}
             excludeIds={taggedIds}
@@ -331,14 +364,24 @@ function ContractorEmployeesPanel({
             onChange={setSelectedEmployee}
           />
         </div>
+        <div className="w-44 shrink-0">
+          <label className="text-xs font-medium text-muted-foreground mb-1 block">Date of Tagging <span className="text-destructive">*</span></label>
+          <Input
+            type="date"
+            value={taggedDate}
+            onChange={(e) => setTaggedDate(e.target.value)}
+            data-testid="input-tag-date"
+          />
+        </div>
         <Button
-          size="sm"
-          onClick={() => selectedEmployee && tagMutation.mutate(selectedEmployee.id)}
-          disabled={!selectedEmployee || tagMutation.isPending}
+          size="default"
+          onClick={() => tagMutation.mutate()}
+          disabled={!canTag || tagMutation.isPending}
           data-testid="button-tag-employee"
+          className="shrink-0"
         >
           <UserPlus className="h-3.5 w-3.5 mr-1.5" />
-          {tagMutation.isPending ? "Tagging..." : "Tag"}
+          {tagMutation.isPending ? "Tagging..." : "Tag Employee"}
         </Button>
       </div>
     </div>

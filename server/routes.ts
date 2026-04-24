@@ -4544,9 +4544,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/companies/:id/contractors/:contractorId/employees", requireAuth, requireRole("super_admin", "company_admin"), async (req, res) => {
     try {
-      const { employeeId } = req.body;
+      const { employeeId, taggedDate } = req.body;
       if (!employeeId) return res.status(400).json({ error: "employeeId is required" });
-      await storage.addContractorEmployee(req.params.id, req.params.contractorId, employeeId);
+      await storage.addContractorEmployee(req.params.id, req.params.contractorId, employeeId, taggedDate);
       res.status(201).json({ success: true });
     } catch (error: any) {
       if (String(error?.message || "").includes("unique")) {
