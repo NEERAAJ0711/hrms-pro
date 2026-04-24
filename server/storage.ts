@@ -1428,6 +1428,7 @@ export class MemStorage implements IStorage {
       lastSync: null,
       createdAt: new Date().toISOString(),
       ipAddress: insertDevice.ipAddress || null,
+      admsServerIp: insertDevice.admsServerIp ?? null,
       port: insertDevice.port ?? 8181,
       lastPushAt: insertDevice.lastPushAt ?? null,
       lastPushIp: insertDevice.lastPushIp ?? null,

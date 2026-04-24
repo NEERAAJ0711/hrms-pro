@@ -75,6 +75,7 @@ export default function BiometricPage() {
   const [deviceCode, setDeviceCode] = useState("");
   const [deviceSerial, setDeviceSerial] = useState("");
   const [deviceIp, setDeviceIp] = useState("");
+  const [deviceServerIp, setDeviceServerIp] = useState("");
   const [devicePort, setDevicePort] = useState("8181");
   const [deviceCompanyId, setDeviceCompanyId] = useState("");
   const [devicePushToken, setDevicePushToken] = useState("");
@@ -115,6 +116,7 @@ export default function BiometricPage() {
   const [editCode, setEditCode] = useState("");
   const [editSerial, setEditSerial] = useState("");
   const [editIp, setEditIp] = useState("");
+  const [editServerIp, setEditServerIp] = useState("");
   const [editPort, setEditPort] = useState("");
   const [editCompanyId, setEditCompanyId] = useState("");
   const [editPushToken, setEditPushToken] = useState("");
@@ -126,6 +128,7 @@ export default function BiometricPage() {
     setEditCode(d.code || "");
     setEditSerial(d.deviceSerial || "");
     setEditIp(d.ipAddress || "");
+    setEditServerIp(d.admsServerIp || "");
     setEditPort(d.port != null ? String(d.port) : "");
     setEditCompanyId(d.companyId || "");
     setEditPushToken(d.pushToken || "");
@@ -240,6 +243,7 @@ export default function BiometricPage() {
       setDeviceCode("");
       setDeviceSerial("");
       setDeviceIp("");
+      setDeviceServerIp("");
       setDevicePort("8181");
       setDeviceCompanyId("");
       setDevicePushToken("");
@@ -304,6 +308,7 @@ export default function BiometricPage() {
         code: editCode.trim() || null,
         deviceSerial: editSerial.trim(),
         ipAddress: editIp.trim() || null,
+        admsServerIp: editServerIp.trim() || null,
         port: editPort === "" ? null : Number(editPort),
         companyId: editCompanyId || null,
         pushToken: tokenTrim || null,
@@ -481,6 +486,7 @@ export default function BiometricPage() {
       code: deviceCode.trim() || null,
       deviceSerial,
       ipAddress: deviceIp,
+      admsServerIp: deviceServerIp.trim() || null,
       port: parseInt(devicePort),
       pushToken: devicePushToken.trim() || null,
       allowedIpCidr: deviceAllowedCidr.trim() || null,
@@ -923,7 +929,7 @@ export default function BiometricPage() {
                         </TableCell>
                         <TableCell className="font-mono text-xs">{device.deviceSerial}</TableCell>
                         <TableCell className="text-xs font-mono text-muted-foreground">
-                          {networkInfo?.ip ?? "—"}:{admsPort}
+                          {device.admsServerIp || networkInfo?.ip || "—"}:{device.port || admsPort}
                         </TableCell>
                         <TableCell>
                           {device.allowedIpCidr ? (
@@ -1258,11 +1264,11 @@ export default function BiometricPage() {
             </div>
             <div className="grid grid-cols-3 gap-2">
               <div className="col-span-2">
-                <Label>IP Address</Label>
+                <Label>Machine IP <span className="text-xs text-muted-foreground font-normal">(device's local network IP)</span></Label>
                 <Input 
                   value={deviceIp} 
                   onChange={e => setDeviceIp(e.target.value)} 
-                  placeholder="192.168.1.100"
+                  placeholder="192.168.1.200"
                 />
               </div>
               <div>
@@ -1272,6 +1278,15 @@ export default function BiometricPage() {
                   onChange={e => setDevicePort(e.target.value)} 
                 />
               </div>
+            </div>
+            <div>
+              <Label>ADMS Server IP <span className="text-xs text-muted-foreground font-normal">(VPS/server public IP)</span></Label>
+              <Input
+                value={deviceServerIp}
+                onChange={e => setDeviceServerIp(e.target.value)}
+                placeholder="31.97.207.109"
+                data-testid="input-device-server-ip"
+              />
             </div>
             <div className="border-t pt-3 space-y-3">
               <div className="rounded bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-700 p-2 text-xs text-amber-800 dark:text-amber-200 space-y-1">
@@ -1405,10 +1420,11 @@ export default function BiometricPage() {
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <Label>IP Address</Label>
+                <Label>Machine IP <span className="text-xs text-muted-foreground font-normal">(device local IP)</span></Label>
                 <Input
                   value={editIp}
                   onChange={(e) => setEditIp(e.target.value)}
+                  placeholder="192.168.1.200"
                   data-testid="input-edit-device-ip"
                 />
               </div>
@@ -1420,6 +1436,15 @@ export default function BiometricPage() {
                   data-testid="input-edit-device-port"
                 />
               </div>
+            </div>
+            <div>
+              <Label>ADMS Server IP <span className="text-xs text-muted-foreground font-normal">(VPS/server public IP)</span></Label>
+              <Input
+                value={editServerIp}
+                onChange={(e) => setEditServerIp(e.target.value)}
+                placeholder="31.97.207.109"
+                data-testid="input-edit-device-server-ip"
+              />
             </div>
             <div className="rounded-md border p-3 space-y-3">
               <p className="text-xs font-medium text-muted-foreground">Security — set at least one to prevent fake punches</p>

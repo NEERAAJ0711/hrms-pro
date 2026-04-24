@@ -411,6 +411,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     ALTER TABLE biometric_devices ADD COLUMN IF NOT EXISTS pending_commands JSONB DEFAULT '[]'::jsonb
   `).catch((err) => console.error("[migrations] add pending_commands failed:", err));
 
+  // migrations/012: store the ADMS server IP per device so it is part of
+  // the device record rather than derived at runtime from network-info.
+  await db.execute(sql`
+    ALTER TABLE biometric_devices ADD COLUMN IF NOT EXISTS adms_server_ip text
+  `).catch((err) => console.error("[migrations] add adms_server_ip failed:", err));
+
   // Mirror of migrations/011: persistent ADMS activity log — survives server
   // restarts, powers the live activity feed in the Biometric Integration UI.
   await db.execute(sql`
