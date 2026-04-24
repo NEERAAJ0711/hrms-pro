@@ -180,6 +180,20 @@ export class DatabaseStorage implements IStorage {
     return result.length > 0;
   }
 
+  async getPrincipalEmployers(contractorId: string): Promise<(CompanyContractor & { companyName: string })[]> {
+    return await db
+      .select({
+        id: companyContractors.id,
+        companyId: companyContractors.companyId,
+        contractorId: companyContractors.contractorId,
+        startDate: companyContractors.startDate,
+        companyName: companies.companyName,
+      })
+      .from(companyContractors)
+      .innerJoin(companies, eq(companies.id, companyContractors.companyId))
+      .where(eq(companyContractors.contractorId, contractorId));
+  }
+
   async getContractorEmployees(companyId: string, contractorId: string): Promise<(Employee & { contractorEmployeeId: string; taggedDate: string | null })[]> {
     const junction = await db.select().from(companyContractors)
       .where(and(eq(companyContractors.companyId, companyId), eq(companyContractors.contractorId, contractorId)));

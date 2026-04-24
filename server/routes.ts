@@ -4489,6 +4489,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Company Contractors
+  app.get("/api/companies/:id/principal-employers", requireAuth, async (req, res) => {
+    try {
+      const employers = await storage.getPrincipalEmployers(req.params.id);
+      res.json(employers);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch principal employers" });
+    }
+  });
+
   app.get("/api/companies/:id/contractors", requireAuth, async (req, res) => {
     try {
       const contractors = await storage.getCompanyContractors(req.params.id);

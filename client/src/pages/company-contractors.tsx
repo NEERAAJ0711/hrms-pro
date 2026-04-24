@@ -12,8 +12,8 @@ import {
   X,
   Users,
   UserPlus,
-  ChevronDown,
   ChevronUp,
+  Briefcase,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -30,7 +30,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import type { Company, Employee } from "@shared/schema";
+import type { Company, Employee, CompanyContractor } from "@shared/schema";
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 type ContractorRow = {
@@ -41,7 +41,11 @@ type ContractorRow = {
   contractorName: string;
 };
 
-// ─── Searchable company picker ─────────────────────────────────────────────
+type PrincipalEmployerRow = CompanyContractor & { companyName: string };
+
+type TaggedEmployee = Employee & { contractorEmployeeId: string; taggedDate: string | null };
+
+// ─── Searchable Company Picker ─────────────────────────────────────────────
 function CompanySearchPicker({
   companies,
   excludeIds,
@@ -178,12 +182,12 @@ function EmployeeSearchPicker({
                 onClick={() => { onChange(e); setText(`${e.firstName} ${e.lastName}`); setOpen(false); }}
                 className="w-full flex items-center gap-2.5 px-3 py-2.5 text-left text-sm hover:bg-accent hover:text-accent-foreground transition-colors"
                 data-testid={`employee-option-${e.id}`}>
-                <div className="h-7 w-7 rounded-full bg-primary/10 flex items-center justify-center shrink-0 text-xs font-bold text-primary">
+                <div className="h-7 w-7 rounded-full bg-primary/10 flex items-center justify-center text-[10px] font-bold text-primary shrink-0">
                   {e.firstName[0]}{e.lastName[0]}
                 </div>
                 <div>
                   <p className="font-medium">{e.firstName} {e.lastName}</p>
-                  <p className="text-xs text-muted-foreground">{e.employeeCode} {e.designation ? `· ${e.designation}` : ""}</p>
+                  <p className="text-xs text-muted-foreground">{e.employeeCode}{e.designation ? ` · ${e.designation}` : ""}</p>
                 </div>
               </button>
             ))
@@ -193,8 +197,6 @@ function EmployeeSearchPicker({
     </div>
   );
 }
-
-type TaggedEmployee = Employee & { contractorEmployeeId: string; taggedDate: string | null };
 
 // ─── Tagged Employees Sub-panel ────────────────────────────────────────────
 function ContractorEmployeesPanel({
@@ -268,12 +270,11 @@ function ContractorEmployeesPanel({
     onError: () => toast({ title: "Error", description: "Failed to untag employee", variant: "destructive" }),
   });
 
-  const taggedIds = new Set(contractorEmployeeList.map((e) => e.id));
+  const taggedIds = new Set(contractorEmployeeList.map(e => e.id));
   const canTag = selectedEmployee && taggedDate;
 
   return (
     <div className="bg-muted/20 border-t px-6 py-5 space-y-4">
-      {/* Header */}
       <div className="flex items-center gap-2">
         <Users className="h-4 w-4 text-primary" />
         <span className="text-sm font-semibold">Tagged Employees</span>
@@ -283,14 +284,11 @@ function ContractorEmployeesPanel({
         </span>
       </div>
 
-      {/* Tagged employee table */}
       {isLoading ? (
         <div className="space-y-2 pl-1">
           {[1, 2].map(i => (
             <div key={i} className="flex items-center gap-4">
-              <Skeleton className="h-3 w-20" />
-              <Skeleton className="h-3 w-36" />
-              <Skeleton className="h-3 w-24" />
+              <Skeleton className="h-3 w-20" /><Skeleton className="h-3 w-36" /><Skeleton className="h-3 w-24" />
             </div>
           ))}
         </div>
@@ -301,7 +299,7 @@ function ContractorEmployeesPanel({
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-muted/50 border-b">
-                <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide w-10">Sr.</th>
+                <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide w-12">Sr.</th>
                 <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Employee Code</th>
                 <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Employee Name</th>
                 <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Date of Tagging</th>
@@ -332,17 +330,11 @@ function ContractorEmployeesPanel({
                     </div>
                   </td>
                   <td className="px-4 py-3 text-right">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (confirm(`Untag ${emp.firstName} ${emp.lastName}?`)) {
-                          untagMutation.mutate(emp.id);
-                        }
-                      }}
+                    <button type="button"
+                      onClick={() => { if (confirm(`Untag ${emp.firstName} ${emp.lastName}?`)) untagMutation.mutate(emp.id); }}
                       disabled={untagMutation.isPending}
                       className="inline-flex items-center justify-center h-7 w-7 rounded hover:bg-destructive/10 transition-colors"
-                      data-testid={`untag-employee-${emp.id}`}
-                    >
+                      data-testid={`untag-employee-${emp.id}`}>
                       <Trash2 className="h-3.5 w-3.5 text-destructive" />
                     </button>
                   </td>
@@ -353,7 +345,6 @@ function ContractorEmployeesPanel({
         </div>
       )}
 
-      {/* Add employee row */}
       <div className="flex items-end gap-3 pt-1">
         <div className="flex-1">
           <label className="text-xs font-medium text-muted-foreground mb-1 block">Search Employee</label>
@@ -365,21 +356,14 @@ function ContractorEmployeesPanel({
           />
         </div>
         <div className="w-44 shrink-0">
-          <label className="text-xs font-medium text-muted-foreground mb-1 block">Date of Tagging <span className="text-destructive">*</span></label>
-          <Input
-            type="date"
-            value={taggedDate}
-            onChange={(e) => setTaggedDate(e.target.value)}
-            data-testid="input-tag-date"
-          />
+          <label className="text-xs font-medium text-muted-foreground mb-1 block">
+            Date of Tagging <span className="text-destructive">*</span>
+          </label>
+          <Input type="date" value={taggedDate} onChange={(e) => setTaggedDate(e.target.value)}
+            data-testid="input-tag-date" />
         </div>
-        <Button
-          size="default"
-          onClick={() => tagMutation.mutate()}
-          disabled={!canTag || tagMutation.isPending}
-          data-testid="button-tag-employee"
-          className="shrink-0"
-        >
+        <Button onClick={() => tagMutation.mutate()} disabled={!canTag || tagMutation.isPending}
+          className="shrink-0" data-testid="button-tag-employee">
           <UserPlus className="h-3.5 w-3.5 mr-1.5" />
           {tagMutation.isPending ? "Tagging..." : "Tag Employee"}
         </Button>
@@ -388,34 +372,26 @@ function ContractorEmployeesPanel({
   );
 }
 
-// ─── Page ──────────────────────────────────────────────────────────────────
-export default function CompanyContractorsPage() {
-  const { id } = useParams<{ id: string }>();
-  const [, setLocation] = useLocation();
+// ─── Contractors Tab ───────────────────────────────────────────────────────
+function ContractorsTab({
+  companyId,
+  company,
+}: {
+  companyId: string;
+  company: Company | undefined;
+}) {
   const { toast } = useToast();
-
   const [showAddForm, setShowAddForm] = useState(false);
   const [selectedCompany, setSelectedCompany] = useState<Company | null>(null);
   const [startDate, setStartDate] = useState("");
   const [expandedContractorId, setExpandedContractorId] = useState<string | null>(null);
 
-  const { data: company } = useQuery<Company>({
-    queryKey: ["/api/companies", id],
-    queryFn: async () => {
-      const res = await fetch(`/api/companies/${id}`, { credentials: "include" });
-      if (!res.ok) throw new Error("Not found");
-      return res.json();
-    },
-  });
-
-  const { data: allCompanies = [] } = useQuery<Company[]>({
-    queryKey: ["/api/companies"],
-  });
+  const { data: allCompanies = [] } = useQuery<Company[]>({ queryKey: ["/api/companies"] });
 
   const { data: contractors = [], isLoading } = useQuery<ContractorRow[]>({
-    queryKey: ["/api/companies", id, "contractors"],
+    queryKey: ["/api/companies", companyId, "contractors"],
     queryFn: async () => {
-      const res = await fetch(`/api/companies/${id}/contractors`, { credentials: "include" });
+      const res = await fetch(`/api/companies/${companyId}/contractors`, { credentials: "include" });
       if (!res.ok) throw new Error("Failed to fetch contractors");
       return res.json();
     },
@@ -423,7 +399,7 @@ export default function CompanyContractorsPage() {
 
   const addMutation = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest("POST", `/api/companies/${id}/contractors`, {
+      const res = await apiRequest("POST", `/api/companies/${companyId}/contractors`, {
         contractorId: selectedCompany!.id,
         startDate,
       });
@@ -434,84 +410,34 @@ export default function CompanyContractorsPage() {
       return res.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/companies", id, "contractors"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/companies", companyId, "contractors"] });
       setSelectedCompany(null);
       setStartDate("");
       setShowAddForm(false);
       toast({ title: "Contractor added successfully" });
     },
-    onError: (e: Error) =>
-      toast({ title: "Error", description: e.message, variant: "destructive" }),
+    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
   const removeMutation = useMutation({
     mutationFn: async (contractorId: string) => {
-      const res = await apiRequest("DELETE", `/api/companies/${id}/contractors/${contractorId}`);
+      const res = await apiRequest("DELETE", `/api/companies/${companyId}/contractors/${contractorId}`);
       if (!res.ok) throw new Error("Failed to remove");
       return res.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/companies", id, "contractors"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/companies", companyId, "contractors"] });
       toast({ title: "Contractor removed" });
     },
-    onError: () =>
-      toast({ title: "Error", description: "Failed to remove contractor", variant: "destructive" }),
+    onError: () => toast({ title: "Error", description: "Failed to remove contractor", variant: "destructive" }),
   });
 
-  const existingIds = new Set(contractors.map((c) => c.contractorId));
+  const existingIds = new Set(contractors.map(c => c.contractorId));
   const canAdd = selectedCompany && startDate;
 
-  function handleCancel() {
-    setShowAddForm(false);
-    setSelectedCompany(null);
-    setStartDate("");
-  }
-
-  function toggleExpanded(contractorId: string) {
-    setExpandedContractorId(prev => (prev === contractorId ? null : contractorId));
-  }
-
   return (
-    <div className="p-6 space-y-6" data-testid="company-contractors-page">
-      {/* ── Header ── */}
-      <div className="flex items-center gap-4">
-        <Button variant="ghost" size="icon" onClick={() => setLocation("/companies")}
-          data-testid="button-back-companies">
-          <ArrowLeft className="h-5 w-5" />
-        </Button>
-        <div className="flex-1">
-          <div className="flex items-center gap-2">
-            <HardHat className="h-6 w-6 text-amber-600" />
-            <h1 className="text-2xl font-bold">Contractors</h1>
-          </div>
-          {company && (
-            <p className="text-muted-foreground text-sm mt-0.5">
-              Managing contractors for{" "}
-              <span className="font-medium text-foreground">{company.companyName}</span>
-            </p>
-          )}
-        </div>
-        <Button onClick={() => setShowAddForm(true)} disabled={showAddForm}
-          data-testid="button-add-contractor">
-          <Plus className="h-4 w-4 mr-2" />
-          Add Contractor
-        </Button>
-      </div>
-
-      {/* ── Stat cards ── */}
-      <div className="flex items-center gap-3">
-        <div className="flex items-center gap-2.5 px-4 py-2.5 rounded-xl border bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800">
-          <Users className="h-4 w-4 text-amber-600 dark:text-amber-400" />
-          <div>
-            <p className="text-xl font-bold text-amber-800 dark:text-amber-300 leading-none">
-              {contractors.length}
-            </p>
-            <p className="text-[11px] text-amber-600 dark:text-amber-500 mt-0.5">Total Contractors</p>
-          </div>
-        </div>
-      </div>
-
-      {/* ── Add Contractor Form ── */}
+    <div className="space-y-4">
+      {/* Add form */}
       {showAddForm && (
         <Card className="border-amber-200 dark:border-amber-800 shadow-sm">
           <CardHeader className="pb-3">
@@ -523,32 +449,29 @@ export default function CompanyContractorsPage() {
           <CardContent className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-1.5">
-                <label className="text-sm font-medium">
-                  Company <span className="text-destructive">*</span>
-                </label>
+                <label className="text-sm font-medium">Company <span className="text-destructive">*</span></label>
                 <CompanySearchPicker
-                  companies={allCompanies.filter((c) => c.id !== id)}
+                  companies={allCompanies.filter(c => c.id !== companyId)}
                   excludeIds={existingIds}
                   value={selectedCompany}
                   onChange={setSelectedCompany}
                 />
                 {selectedCompany && (
                   <p className="text-xs text-muted-foreground flex items-center gap-1">
-                    <Building2 className="h-3 w-3" />
-                    {selectedCompany.legalName}
+                    <Building2 className="h-3 w-3" />{selectedCompany.legalName}
                   </p>
                 )}
               </div>
               <div className="space-y-1.5">
-                <label className="text-sm font-medium">
-                  Start Date <span className="text-destructive">*</span>
-                </label>
-                <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)}
+                <label className="text-sm font-medium">Start Date <span className="text-destructive">*</span></label>
+                <Input type="date" value={startDate} onChange={e => setStartDate(e.target.value)}
                   data-testid="input-contractor-start-date" />
               </div>
             </div>
             <div className="flex items-center justify-end gap-2 pt-1">
-              <Button variant="outline" onClick={handleCancel}>Cancel</Button>
+              <Button variant="outline" onClick={() => { setShowAddForm(false); setSelectedCompany(null); setStartDate(""); }}>
+                Cancel
+              </Button>
               <Button onClick={() => addMutation.mutate()} disabled={!canAdd || addMutation.isPending}
                 data-testid="button-submit-add-contractor">
                 {addMutation.isPending ? "Adding..." : "Add Contractor"}
@@ -558,14 +481,18 @@ export default function CompanyContractorsPage() {
         </Card>
       )}
 
-      {/* ── Contractors Table ── */}
+      {/* Table card */}
       <Card>
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between">
             <CardTitle className="text-base">Contractor List</CardTitle>
-            <Badge variant="secondary">
-              {contractors.length} contractor{contractors.length !== 1 ? "s" : ""}
-            </Badge>
+            <div className="flex items-center gap-2">
+              <Badge variant="secondary">{contractors.length} contractor{contractors.length !== 1 ? "s" : ""}</Badge>
+              <Button size="sm" onClick={() => setShowAddForm(true)} disabled={showAddForm}
+                data-testid="button-add-contractor-inline">
+                <Plus className="h-3.5 w-3.5 mr-1" />Add
+              </Button>
+            </div>
           </div>
         </CardHeader>
         <CardContent className="p-0">
@@ -586,7 +513,7 @@ export default function CompanyContractorsPage() {
               <HardHat className="h-12 w-12 mx-auto text-muted-foreground mb-4 opacity-40" />
               <h3 className="text-lg font-medium mb-1">No contractors yet</h3>
               <p className="text-sm text-muted-foreground mb-4">
-                Click "Add Contractor" to associate a company as a contractor.
+                Click "Add" to associate a company as a contractor.
               </p>
               <Button onClick={() => setShowAddForm(true)} variant="outline">
                 <Plus className="h-4 w-4 mr-2" />Add Contractor
@@ -606,11 +533,9 @@ export default function CompanyContractorsPage() {
               <TableBody>
                 {contractors.map((contractor, idx) => (
                   <>
-                    <TableRow
-                      key={contractor.contractorId}
+                    <TableRow key={contractor.contractorId}
                       data-testid={`contractor-row-${contractor.contractorId}`}
-                      className="hover:bg-muted/30"
-                    >
+                      className="hover:bg-muted/30">
                       <TableCell className="text-center pl-6 text-muted-foreground font-medium text-sm">
                         {idx + 1}
                       </TableCell>
@@ -622,7 +547,7 @@ export default function CompanyContractorsPage() {
                           <div>
                             <p className="font-medium">{contractor.contractorName}</p>
                             <p className="text-xs text-muted-foreground">
-                              Contractor ID: {contractor.contractorId.slice(0, 8)}…
+                              ID: {contractor.contractorId.slice(0, 8)}…
                             </p>
                           </div>
                         </div>
@@ -641,43 +566,31 @@ export default function CompanyContractorsPage() {
                       </TableCell>
                       <TableCell className="text-right pr-6">
                         <div className="flex items-center justify-end gap-1">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            title="Tag Employees"
-                            onClick={() => toggleExpanded(contractor.contractorId)}
+                          <Button variant="ghost" size="icon" title="Tag Employees"
+                            onClick={() => setExpandedContractorId(p => p === contractor.contractorId ? null : contractor.contractorId)}
                             className={expandedContractorId === contractor.contractorId
                               ? "text-primary bg-primary/10"
                               : "text-muted-foreground hover:text-primary hover:bg-primary/5"}
-                            data-testid={`button-tag-employees-${contractor.contractorId}`}
-                          >
+                            data-testid={`button-tag-employees-${contractor.contractorId}`}>
                             {expandedContractorId === contractor.contractorId
                               ? <ChevronUp className="h-4 w-4" />
                               : <Users className="h-4 w-4" />}
                           </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => {
-                              if (confirm(`Remove ${contractor.contractorName} as a contractor?`)) {
-                                removeMutation.mutate(contractor.contractorId);
-                              }
-                            }}
+                          <Button variant="ghost" size="icon"
+                            onClick={() => { if (confirm(`Remove ${contractor.contractorName} as a contractor?`)) removeMutation.mutate(contractor.contractorId); }}
                             disabled={removeMutation.isPending}
                             className="text-destructive hover:text-destructive hover:bg-destructive/10"
-                            data-testid={`button-remove-contractor-${contractor.contractorId}`}
-                          >
+                            data-testid={`button-remove-contractor-${contractor.contractorId}`}>
                             <Trash2 className="h-4 w-4" />
                           </Button>
                         </div>
                       </TableCell>
                     </TableRow>
 
-                    {/* ── Employee Tagging Sub-panel ── */}
                     {expandedContractorId === contractor.contractorId && (
                       <TableRow key={`${contractor.contractorId}-employees`} className="hover:bg-transparent">
                         <TableCell colSpan={5} className="p-0">
-                          <ContractorEmployeesPanel companyId={id!} contractor={contractor} />
+                          <ContractorEmployeesPanel companyId={companyId} contractor={contractor} />
                         </TableCell>
                       </TableRow>
                     )}
@@ -688,6 +601,210 @@ export default function CompanyContractorsPage() {
           )}
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+// ─── Principal Employer Tab ────────────────────────────────────────────────
+function PrincipalEmployerTab({ companyId }: { companyId: string }) {
+  const { data: employers = [], isLoading } = useQuery<PrincipalEmployerRow[]>({
+    queryKey: ["/api/companies", companyId, "principal-employers"],
+    queryFn: async () => {
+      const res = await fetch(`/api/companies/${companyId}/principal-employers`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch");
+      return res.json();
+    },
+  });
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-base">Principal Employer List</CardTitle>
+          <Badge variant="secondary">{employers.length} employer{employers.length !== 1 ? "s" : ""}</Badge>
+        </div>
+      </CardHeader>
+      <CardContent className="p-0">
+        {isLoading ? (
+          <div className="space-y-3 p-6">
+            {[...Array(3)].map((_, i) => (
+              <div key={i} className="flex items-center gap-4">
+                <Skeleton className="h-10 w-10 rounded-md" />
+                <div className="flex-1 space-y-1.5">
+                  <Skeleton className="h-4 w-48" /><Skeleton className="h-3 w-28" />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : employers.length === 0 ? (
+          <div className="text-center py-14">
+            <Briefcase className="h-12 w-12 mx-auto text-muted-foreground mb-4 opacity-40" />
+            <h3 className="text-lg font-medium mb-1">No principal employers</h3>
+            <p className="text-sm text-muted-foreground">
+              This company has not been tagged as a contractor by any other company yet.
+            </p>
+          </div>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow className="bg-muted/40">
+                <TableHead className="w-14 text-center pl-6">Sr.</TableHead>
+                <TableHead>Principal Employer</TableHead>
+                <TableHead>Contractor Since</TableHead>
+                <TableHead>Status</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {employers.map((emp, idx) => (
+                <TableRow key={emp.id} data-testid={`principal-employer-row-${emp.id}`}
+                  className="hover:bg-muted/30">
+                  <TableCell className="text-center pl-6 text-muted-foreground font-medium text-sm">
+                    {idx + 1}
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex items-center gap-3">
+                      <div className="h-9 w-9 rounded-md bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center shrink-0">
+                        <Briefcase className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                      </div>
+                      <div>
+                        <p className="font-medium">{emp.companyName}</p>
+                        <p className="text-xs text-muted-foreground">ID: {emp.companyId.slice(0, 8)}…</p>
+                      </div>
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex items-center gap-1.5 text-sm">
+                      <CalendarDays className="h-3.5 w-3.5 text-muted-foreground" />
+                      <span>{emp.startDate}</span>
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant="outline"
+                      className="text-xs text-blue-700 border-blue-300 bg-blue-50 dark:text-blue-400 dark:border-blue-700 dark:bg-blue-950/30">
+                      Active
+                    </Badge>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// ─── Page ──────────────────────────────────────────────────────────────────
+export default function CompanyContractorsPage() {
+  const { id } = useParams<{ id: string }>();
+  const [, setLocation] = useLocation();
+  const [activeTab, setActiveTab] = useState<"contractors" | "principal-employer">("contractors");
+
+  const { data: company } = useQuery<Company>({
+    queryKey: ["/api/companies", id],
+    queryFn: async () => {
+      const res = await fetch(`/api/companies/${id}`, { credentials: "include" });
+      if (!res.ok) throw new Error("Not found");
+      return res.json();
+    },
+  });
+
+  const { data: contractors = [] } = useQuery<ContractorRow[]>({
+    queryKey: ["/api/companies", id, "contractors"],
+    queryFn: async () => {
+      const res = await fetch(`/api/companies/${id}/contractors`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed");
+      return res.json();
+    },
+  });
+
+  const { data: employers = [] } = useQuery<PrincipalEmployerRow[]>({
+    queryKey: ["/api/companies", id, "principal-employers"],
+    queryFn: async () => {
+      const res = await fetch(`/api/companies/${id}/principal-employers`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed");
+      return res.json();
+    },
+  });
+
+  const tabs = [
+    {
+      key: "contractors" as const,
+      label: "Contractors",
+      icon: HardHat,
+      count: contractors.length,
+      color: "amber",
+    },
+    {
+      key: "principal-employer" as const,
+      label: "Principal Employer",
+      icon: Briefcase,
+      count: employers.length,
+      color: "blue",
+    },
+  ];
+
+  return (
+    <div className="p-6 space-y-6" data-testid="company-contractors-page">
+      {/* ── Header ── */}
+      <div className="flex items-center gap-4">
+        <Button variant="ghost" size="icon" onClick={() => setLocation("/companies")}
+          data-testid="button-back-companies">
+          <ArrowLeft className="h-5 w-5" />
+        </Button>
+        <div className="flex-1">
+          <div className="flex items-center gap-2">
+            <HardHat className="h-6 w-6 text-amber-600" />
+            <h1 className="text-2xl font-bold">Contractor Management</h1>
+          </div>
+          {company && (
+            <p className="text-muted-foreground text-sm mt-0.5">
+              Managing for{" "}
+              <span className="font-semibold text-foreground">{company.companyName}</span>
+            </p>
+          )}
+        </div>
+      </div>
+
+      {/* ── Tab Bar ── */}
+      <div className="flex gap-0 border-b">
+        {tabs.map(tab => {
+          const Icon = tab.icon;
+          const isActive = activeTab === tab.key;
+          const colorCls = tab.color === "amber"
+            ? "border-amber-500 text-amber-700 dark:text-amber-400"
+            : "border-blue-500 text-blue-700 dark:text-blue-400";
+          return (
+            <button
+              key={tab.key}
+              onClick={() => setActiveTab(tab.key)}
+              data-testid={`tab-${tab.key}`}
+              className={`flex items-center gap-2 px-5 py-3 text-sm font-medium border-b-2 transition-colors
+                ${isActive
+                  ? `${colorCls} bg-transparent`
+                  : "border-transparent text-muted-foreground hover:text-foreground hover:border-muted-foreground/40"}`}
+            >
+              <Icon className="h-4 w-4" />
+              {tab.label}
+              <span className={`inline-flex items-center justify-center rounded-full px-1.5 py-0.5 text-[11px] font-semibold min-w-[18px]
+                ${isActive
+                  ? tab.color === "amber"
+                    ? "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300"
+                    : "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300"
+                  : "bg-muted text-muted-foreground"}`}>
+                {tab.count}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* ── Tab Content ── */}
+      {activeTab === "contractors" ? (
+        <ContractorsTab companyId={id!} company={company} />
+      ) : (
+        <PrincipalEmployerTab companyId={id!} />
+      )}
     </div>
   );
 }
