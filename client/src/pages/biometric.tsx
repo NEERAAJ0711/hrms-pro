@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import {
   Fingerprint, Upload, RefreshCw, AlertTriangle, CheckCircle,
@@ -74,6 +75,7 @@ function StatChip({ icon: Icon, value, label, color }: { icon: any; value: numbe
 export default function BiometricPage() {
   const { toast } = useToast();
   const { user } = useAuth();
+  const [, setLocation] = useLocation();
   const isSuperAdmin = user?.role === "super_admin";
   const canViewAdmsLog = isSuperAdmin || user?.role === "company_admin";
 
@@ -778,7 +780,7 @@ export default function BiometricPage() {
                             <TooltipProvider delayDuration={200}>
                               <div className="flex justify-end gap-1">
                                 <Tooltip><TooltipTrigger asChild>
-                                  <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => setUsersDialogDevice(device)} data-testid={`button-view-users-${device.id}`}>
+                                  <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => setLocation(`/biometric/devices/${device.id}/users`)} data-testid={`button-view-users-${device.id}`}>
                                     <Users className="h-3.5 w-3.5" />
                                   </Button>
                                 </TooltipTrigger><TooltipContent>View enrolled users</TooltipContent></Tooltip>
@@ -868,214 +870,8 @@ export default function BiometricPage() {
 
       {/* ═══════════════ DIALOGS ═══════════════ */}
 
-      {/* Users on machine dialog — card grid with photo */}
-      <Dialog open={!!usersDialogDevice} onOpenChange={(open) => { if (!open) setUsersDialogDevice(null); }}>
-        <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Users className="h-5 w-5 text-blue-600" />
-              Users on {usersDialogDevice?.name}
-              {usersDialogDevice?.code && <Badge variant="outline" className="font-mono">{usersDialogDevice.code}</Badge>}
-            </DialogTitle>
-            <DialogDescription>
-              Enrolled users and punch-only IDs from this machine. Use the Map button to link a Device PIN to an HR employee.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="flex-1 overflow-auto">
-            {usersLoading ? (
-              <div className="flex items-center justify-center py-16 text-muted-foreground">
-                <RefreshCw className="h-5 w-5 animate-spin mr-2" /> Loading users…
-              </div>
-            ) : !deviceUsers || deviceUsers.users?.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-16 gap-2 text-muted-foreground">
-                <Users className="h-10 w-10 opacity-20" />
-                <p className="font-medium">No users found on this machine</p>
-                <p className="text-sm text-center">Users appear once the device pushes its enrollment list or someone punches in</p>
-              </div>
-            ) : (
-              <>
-                {/* Banner for card-only (punch-only unmapped) users */}
-                {(() => {
-                  const cardOnly = deviceUsers.users.filter((u: any) => !u.enrolled && !u.matched);
-                  if (!cardOnly.length) return null;
-                  return (
-                    <div className="mx-1 mb-3 flex items-start gap-2.5 rounded-lg border border-amber-300 bg-amber-50 dark:border-amber-800 dark:bg-amber-950 px-3 py-2.5 text-xs text-amber-900 dark:text-amber-200">
-                      <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
-                      <div>
-                        <p className="font-semibold">{cardOnly.length} card/access punch user{cardOnly.length > 1 ? "s" : ""} need to be linked</p>
-                        <p className="mt-0.5 opacity-80">These PINs have punch records but are not face-enrolled on this device (they use an access card). Click <strong>Map to Employee</strong> on each to link them — their HR name and photo will then appear automatically.</p>
-                      </div>
-                    </div>
-                  );
-                })()}
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 p-1">
-                  {deviceUsers.users.map((u: any) => {
-                    const hrName = u.matched ? `${u.firstName || ""} ${u.lastName || ""}`.trim() : null;
-                    const isCardOnly = !u.enrolled && !u.deviceName;
-                    const cardClass = u.matched
-                      ? "border-green-200 dark:border-green-800 bg-green-50/30 dark:bg-green-950/20"
-                      : isCardOnly
-                        ? "border-amber-200 dark:border-amber-800 bg-amber-50/20 dark:bg-amber-950/10"
-                        : "bg-card";
-                    return (
-                      <div key={u.deviceEmployeeId} className={`rounded-xl border p-4 flex flex-col gap-3 transition-shadow hover:shadow-md ${cardClass}`}>
-                        {/* Photo + Name row */}
-                        <div className="flex items-center gap-3">
-                          <Avatar
-                            name={hrName || u.deviceName}
-                            photo={u.faceImage}
-                            size="lg"
-                          />
-                          <div className="flex-1 min-w-0">
-                            {u.deviceName ? (
-                              <p className="font-semibold text-sm leading-tight truncate">{u.deviceName}</p>
-                            ) : hrName ? (
-                              <p className="font-semibold text-sm leading-tight truncate">{hrName}</p>
-                            ) : (
-                              <p className="text-sm text-amber-700 dark:text-amber-400 font-medium">Card / Access PIN</p>
-                            )}
-                            {u.privilege && u.privilege !== "0" && (
-                              <Badge variant="outline" className="text-[10px] mt-0.5">Admin</Badge>
-                            )}
-                            <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-                              <span className="text-[10px] bg-muted px-1.5 py-0.5 rounded font-mono text-muted-foreground">PIN: {u.deviceEmployeeId}</span>
-                              {u.enrolled ? (
-                                <Badge className="text-[10px] h-4 px-1.5 bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300 border-0">Face Enrolled</Badge>
-                              ) : (
-                                <Badge variant="outline" className="text-[10px] h-4 px-1.5 border-amber-400 text-amber-700 dark:text-amber-400">Card Punch</Badge>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* HR Employee link */}
-                        <div className={`rounded-lg px-3 py-2 text-xs ${u.matched ? "bg-green-100 dark:bg-green-900/40 border border-green-200 dark:border-green-800" : "bg-muted/60 border"}`}>
-                          {u.matched ? (
-                            <div className="flex items-center gap-1.5 text-green-800 dark:text-green-300">
-                              <BadgeCheck className="h-3.5 w-3.5 shrink-0" />
-                              <div className="min-w-0">
-                                <p className="font-medium truncate">{hrName}</p>
-                                {u.hrEmployeeCode && <p className="opacity-70">{u.hrEmployeeCode} {u.designation ? `· ${u.designation}` : ""}</p>}
-                              </div>
-                            </div>
-                          ) : (
-                            <div className="flex items-center gap-1.5 text-muted-foreground">
-                              <Link2 className="h-3.5 w-3.5 shrink-0 opacity-50" />
-                              <span>{isCardOnly ? "Map to show HR name & photo" : "Not linked to HR employee"}</span>
-                            </div>
-                          )}
-                        </div>
-
-                        {/* Stats row */}
-                        <div className="flex items-center justify-between text-xs text-muted-foreground">
-                          <div className="flex items-center gap-1">
-                            <Clock className="h-3 w-3" />
-                            <span>{u.punchCount} punch{u.punchCount !== 1 ? "es" : ""}</span>
-                          </div>
-                          {u.lastSeenAt && (
-                            <span className="truncate ml-2" title={u.lastSeenAt}>
-                              Last: {u.lastSeenAt.substring(0, 10)}
-                            </span>
-                          )}
-                        </div>
-
-                        {/* Action buttons row */}
-                        <div className="flex gap-2">
-                          <Button
-                            data-testid={`button-map-pin-${u.deviceEmployeeId}`}
-                            size="sm"
-                            variant={u.matched ? "outline" : "default"}
-                            className={`flex-1 h-8 text-xs ${isCardOnly && !u.matched ? "bg-amber-600 hover:bg-amber-700 text-white border-0" : ""}`}
-                            onClick={() => {
-                              setMapPinRow({ devicePin: u.deviceEmployeeId, deviceName: u.deviceName || u.deviceEmployeeId });
-                              setMapSelectedEmployee(u.employeeId || "");
-                            }}
-                          >
-                            {u.matched ? (
-                              <><Pencil className="h-3 w-3 mr-1.5" /> Remap</>
-                            ) : (
-                              <><Link2 className="h-3 w-3 mr-1.5" /> Map to HR</>
-                            )}
-                          </Button>
-                          <Button
-                            data-testid={`button-delete-user-${u.deviceEmployeeId}`}
-                            size="sm"
-                            variant="outline"
-                            className="h-8 w-8 p-0 text-destructive hover:bg-destructive hover:text-white border-destructive/40 shrink-0"
-                            title="Remove user from device"
-                            onClick={() => setDeleteUserConfirm({
-                              deviceId: usersDialogDevice!.id,
-                              pin: u.deviceEmployeeId,
-                              name: u.deviceName || hrName || `PIN ${u.deviceEmployeeId}`,
-                            })}
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </>
-            )}
-          </div>
-
-          <DialogFooter className="border-t pt-4">
-            <div className="flex items-center gap-2 text-xs text-muted-foreground mr-auto">
-              {deviceUsers?.total != null && <span>{deviceUsers.total} user{deviceUsers.total !== 1 ? "s" : ""} total</span>}
-              <span>·</span>
-              <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-green-500 inline-block" />Mapped to HR</span>
-            </div>
-            <Button variant="outline" onClick={() => setUsersDialogDevice(null)}>Close</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Map PIN → Employee dialog */}
-      <Dialog open={!!mapPinRow} onOpenChange={(open) => { if (!open) { setMapPinRow(null); setMapSelectedEmployee(""); } }}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Map Device PIN to Employee</DialogTitle>
-            <DialogDescription>
-              Link device PIN <strong className="font-mono">{mapPinRow?.devicePin}</strong>
-              {mapPinRow?.deviceName ? ` (${mapPinRow.deviceName})` : ""} to an HR employee. All existing punch records for this PIN will be retroactively linked.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3 py-2">
-            <Select value={mapSelectedEmployee} onValueChange={setMapSelectedEmployee}>
-              <SelectTrigger data-testid="select-map-employee">
-                <SelectValue placeholder="Select employee…" />
-              </SelectTrigger>
-              <SelectContent>
-                {employees
-                  .filter((e: any) => !e.biometricDeviceId || e.biometricDeviceId === mapPinRow?.devicePin)
-                  .map((e: any) => (
-                    <SelectItem key={e.id} value={e.id}>
-                      {e.firstName} {e.lastName} ({e.employeeCode})
-                    </SelectItem>
-                  ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => { setMapPinRow(null); setMapSelectedEmployee(""); }}>Cancel</Button>
-            <Button
-              data-testid="button-confirm-map"
-              disabled={!mapSelectedEmployee || mapPinMutation.isPending}
-              onClick={() => {
-                if (mapPinRow && mapSelectedEmployee) {
-                  mapPinMutation.mutate({ employeeId: mapSelectedEmployee, devicePin: mapPinRow.devicePin, deviceId: usersDialogDevice?.id });
-                }
-              }}
-            >
-              {mapPinMutation.isPending ? "Saving…" : "Confirm Mapping"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
+      {/* Users on machine → now a dedicated page at /biometric/devices/:id/users */}
+      {false && <Dialog open={false}><DialogContent></DialogContent></Dialog>}
       {/* Import File dialog */}
       <Dialog open={importDialogOpen} onOpenChange={setImportDialogOpen}>
         <DialogContent className="max-w-md">
