@@ -660,7 +660,7 @@ async function handleGetCdata(req: Request, res: Response) {
 
   // x2008 — compact "GET OPTION FROM:" format
   // IMPORTANT: Keep this small to avoid overflowing x2008's ~2 KB read buffer.
-  // TransFlag=TransData AttLog only — OpLog/EnrollFP confuse older firmware.
+  // TransFlag includes User so the device auto-pushes enrolled user names.
   const body = [
     `GET OPTION FROM: ${effectiveSn}`,
     `ATTLOGStamp=${stamp}`,
@@ -670,7 +670,7 @@ async function handleGetCdata(req: Request, res: Response) {
     "Delay=30",
     `TransTimes=${times}`,
     "TransInterval=1",
-    "TransFlag=TransData AttLog",
+    "TransFlag=TransData AttLog User",
     "Realtime=1",
     "Encrypt=0",
     "",
@@ -679,6 +679,8 @@ async function handleGetCdata(req: Request, res: Response) {
   // Queue SET TIME so the device clock stays accurate
   const devTime = new Date().toISOString().replace("T", " ").substring(0, 19);
   await enqueueDeviceCommand(device.id, `SET TIME ${devTime}`);
+  // Queue USERINFO fetch so enrolled employee names are pulled from the device
+  await enqueueDeviceCommand(device.id, "DATA UPDATE USERINFO");
 
   return res.type("text/plain").send(body);
 }
