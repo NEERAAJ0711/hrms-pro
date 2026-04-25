@@ -42,6 +42,7 @@ const statusColors: Record<string, string> = {
   on_leave: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300",
   holiday: "bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-300",
   weekend: "bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-300",
+  miss_punch: "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-300",
 };
 
 const statusLabels: Record<string, string> = {
@@ -51,6 +52,7 @@ const statusLabels: Record<string, string> = {
   on_leave: "On Leave",
   holiday: "Holiday",
   weekend: "Weekend/WO",
+  miss_punch: "Miss Punch",
 };
 
 export default function AttendancePage() {

@@ -4,6 +4,13 @@
  * Reads unprocessed biometric_punch_logs (where employeeId is resolved)
  * and upserts daily attendance records automatically.
  *
+ * Rules:
+ *  • First punch of the day  → clockIn  (regardless of punch type)
+ *  • Last punch of the day   → clockOut (regardless of punch type, only if different from first)
+ *  • Max work window = 12 hrs. If an employee has a clockIn but no clockOut
+ *    and 12 hours have elapsed (or it is a past day), the attendance record
+ *    is marked "miss_punch" by the periodic sweep.
+ *
  * Triggered:
  *  • Immediately after each ATTLOG batch is ingested (called from adms.ts)
  *  • Periodically every SWEEP_MS to catch logs whose employees were
@@ -11,7 +18,7 @@
  */
 
 import { randomUUID } from "crypto";
-import { and, eq, isNotNull, inArray, sql } from "drizzle-orm";
+import { and, eq, isNotNull, isNull, inArray, sql } from "drizzle-orm";
 import { db } from "./db";
 import {
   biometricPunchLogs,
@@ -23,12 +30,9 @@ import {
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const SWEEP_MS = 5 * 60 * 1000; // every 5 minutes
-let _sweepTimer: ReturnType<typeof setInterval> | null = null;
+const MAX_WORK_HOURS = 12;       // employee must punch out within 12 hours
 
-// Punch types that represent a clock-IN event
-const IN_TYPES  = new Set(["in", "break-in", "overtime-in"]);
-// Punch types that represent a clock-OUT event
-const OUT_TYPES = new Set(["out", "break-out", "overtime-out"]);
+let _sweepTimer: ReturnType<typeof setInterval> | null = null;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -45,14 +49,56 @@ function fromMinutes(totalMin: number): string {
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
 }
 
-/** Smallest HH:MM string in an array. */
-function minTime(times: string[]): string {
-  return times.reduce((a, b) => (toMinutes(a) <= toMinutes(b) ? a : b));
+/** Today's date as "YYYY-MM-DD" in local time. */
+function todayStr(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-/** Largest HH:MM string in an array. */
-function maxTime(times: string[]): string {
-  return times.reduce((a, b) => (toMinutes(a) >= toMinutes(b) ? a : b));
+/** "HH:MM" string for (now − MAX_WORK_HOURS). Used for the today-miss-punch check. */
+function cutoffTimeStr(): string {
+  const d = new Date(Date.now() - MAX_WORK_HOURS * 60 * 60 * 1000);
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
+// ─── Miss-punch sweep ──────────────────────────────────────────────────────────
+
+/**
+ * Mark attendance records as "miss_punch" when:
+ *  • clockIn is set, clockOut is null
+ *  • Either: the date is before today (past day with no out punch)
+ *  • Or:     the date is today AND clockIn is ≤ (now − 12 h)
+ * Does NOT overwrite leave / holiday / weekend / absent records.
+ */
+async function applyMissPunchRule(): Promise<void> {
+  const today   = todayStr();
+  const cutoff  = cutoffTimeStr();
+  const safe    = `status NOT IN ('absent','on_leave','holiday','weekend','miss_punch')`;
+
+  try {
+    // Past days with no clock-out
+    await db.execute(sql`
+      UPDATE attendance
+      SET status = 'miss_punch'
+      WHERE clock_in  IS NOT NULL
+        AND clock_out IS NULL
+        AND date      <  ${today}
+        AND ${sql.raw(safe)}
+    `);
+
+    // Today: clock-in was more than MAX_WORK_HOURS ago and still no clock-out
+    await db.execute(sql`
+      UPDATE attendance
+      SET status = 'miss_punch'
+      WHERE clock_in  IS NOT NULL
+        AND clock_out IS NULL
+        AND date      =  ${today}
+        AND clock_in  <= ${cutoff}
+        AND ${sql.raw(safe)}
+    `);
+  } catch (err) {
+    console.error("[BioAttSync] applyMissPunchRule failed:", err);
+  }
 }
 
 // ─── Core processor ───────────────────────────────────────────────────────────
@@ -107,6 +153,9 @@ export async function processBiometricAttendance(
     console.error("[BioAttSync] Backfill update failed:", err);
   }
 
+  // Run the miss-punch rule on every sweep cycle
+  await applyMissPunchRule();
+
   // 1. Fetch all unprocessed logs where the employee has been resolved
   const logs = await db
     .select({
@@ -138,7 +187,7 @@ export async function processBiometricAttendance(
       employeeId: string;
       punchDate:  string;
       logIds:     string[];
-      times:      { time: string; type: string }[];
+      times:      string[];   // HH:MM strings (all punches for this day)
     }
   >();
 
@@ -159,7 +208,7 @@ export async function processBiometricAttendance(
     }
     const g = groups.get(key)!;
     g.logIds.push(log.id);
-    g.times.push({ time: log.punchTime, type: log.punchType || "unknown" });
+    g.times.push(log.punchTime);
   }
 
   // 3. Pre-fetch timeOfficePolicy for each unique (companyId, employeeId) pair
@@ -167,13 +216,11 @@ export async function processBiometricAttendance(
 
   const uniqueEmpIds = [...new Set(logs.map((l) => l.employeeId!).filter(Boolean))];
   if (uniqueEmpIds.length) {
-    // Fetch all employees at once
     const empRows = await db
       .select({ id: employees.id, timeOfficePolicyId: employees.timeOfficePolicyId })
       .from(employees)
       .where(inArray(employees.id, uniqueEmpIds));
 
-    // Collect unique policy IDs
     const policyIds = [...new Set(empRows.map((e) => e.timeOfficePolicyId).filter(Boolean))] as string[];
     const policyMap = new Map<string, any>();
     if (policyIds.length) {
@@ -194,86 +241,93 @@ export async function processBiometricAttendance(
     try {
       const { companyId, employeeId, punchDate, logIds, times } = grp;
 
-      // Classify punches
-      const inPunches  = times.filter((t) => IN_TYPES.has(t.type)).map((t) => t.time);
-      const outPunches = times.filter((t) => OUT_TYPES.has(t.type)).map((t) => t.time);
-      const allTimes   = times.map((t) => t.time);
+      // ── Punch classification ───────────────────────────────────────────────
+      // Rule: first punch of the day = In Time; last punch = Out Time.
+      // Punch type (in / out / unknown) is intentionally ignored here — many
+      // devices send all events as the same type, so position in time is the
+      // only reliable signal.
+      const sorted = [...times].sort((a, b) => toMinutes(a) - toMinutes(b));
 
-      // If no typed punches, treat first as IN, last as OUT
-      let clockIn:  string | null = inPunches.length  ? minTime(inPunches)  : minTime(allTimes);
-      let clockOut: string | null = outPunches.length ? maxTime(outPunches) : null;
+      const clockIn:  string | null = sorted.length > 0 ? sorted[0] : null;
+      // Out is only set when there is a second, later punch
+      let   clockOut: string | null = sorted.length > 1 ? sorted[sorted.length - 1] : null;
 
-      // If clockIn and clockOut are the same (only one punch, or device bug) → no clockOut
-      if (clockOut && clockOut === clockIn) clockOut = null;
+      // Safety: discard out that is not strictly after in (shouldn't happen)
+      if (clockOut && clockIn && toMinutes(clockOut) <= toMinutes(clockIn)) {
+        clockOut = null;
+      }
 
-      // Don't use an "out" that is earlier than the "in" (shouldn't happen, but guard)
-      if (clockOut && toMinutes(clockOut) <= toMinutes(clockIn)) clockOut = null;
+      // ── OT / work-hours policy ─────────────────────────────────────────────
+      const policy         = empPolicyCache.get(employeeId);
+      const fullDayMinHours = policy?.fullDayMinHours ?? 8;
+      const halfDayMinHours = policy?.halfDayMinHours ?? 4;
+      const otAllowed       = policy?.otAllowed       ?? false;
+      const dutyEndTime     = policy?.dutyEndTime     ?? "18:00";
+      const dutyStartTime   = policy?.dutyStartTime   ?? "09:00";
+      const normalDutyMins  = toMinutes(dutyEndTime) - toMinutes(dutyStartTime);
 
-      // Calculate workHours / status
-      const policy = empPolicyCache.get(employeeId);
-      const fullDayMinHours  = policy?.fullDayMinHours  ?? 8;
-      const halfDayMinHours  = policy?.halfDayMinHours  ?? 4;
-      const otAllowed        = policy?.otAllowed        ?? false;
-      const dutyEndTime      = policy?.dutyEndTime      ?? "18:00";
-      const dutyStartTime    = policy?.dutyStartTime    ?? "09:00";
-      const normalDutyMins   = toMinutes(dutyEndTime) - toMinutes(dutyStartTime);
-
-      let workHours:  string | null = null;
-      let otHours:    string | null = null;
+      let workHours: string | null = null;
+      let otHours:   string | null = null;
       let status = "present";
 
       if (clockIn && clockOut) {
         const workMin = toMinutes(clockOut) - toMinutes(clockIn);
-        workHours = fromMinutes(Math.max(0, workMin));
+        // Cap at MAX_WORK_HOURS to ignore obviously bad data
+        const cappedMin = Math.min(workMin, MAX_WORK_HOURS * 60);
+        workHours = fromMinutes(Math.max(0, cappedMin));
 
         if (workMin >= fullDayMinHours * 60) {
           status = "present";
         } else if (workMin >= halfDayMinHours * 60) {
           status = "half_day";
         } else {
-          status = "present"; // still present, just short shift
+          status = "present"; // short shift still counts as present
         }
 
         if (otAllowed && normalDutyMins > 0 && workMin > normalDutyMins) {
           otHours = fromMinutes(workMin - normalDutyMins);
         }
       }
+      // If no clockOut: status starts as "present"; the miss-punch sweep will
+      // update it to "miss_punch" once 12 hours have elapsed.
 
       // 5. Check for existing attendance record
       const [existing] = await db
-        .select({ id: attendance.id, clockIn: attendance.clockIn, clockOut: attendance.clockOut, clockInMethod: attendance.clockInMethod })
+        .select({
+          id:            attendance.id,
+          clockIn:       attendance.clockIn,
+          clockOut:      attendance.clockOut,
+          clockInMethod: attendance.clockInMethod,
+        })
         .from(attendance)
         .where(
           and(
             eq(attendance.employeeId, employeeId),
-            eq(attendance.companyId, companyId),
-            eq(attendance.date, punchDate),
+            eq(attendance.companyId,  companyId),
+            eq(attendance.date,       punchDate),
           )
         )
         .limit(1);
 
       if (existing) {
-        // Update strategy:
-        // - Always update clockOut / workHours / status when we have new data
-        // - Preserve clockIn of non-biometric records (manual entries by HR)
         const updates: Record<string, any> = {};
 
         if (existing.clockInMethod === "biometric") {
           // Full overwrite — biometric owns this record
-          updates.clockIn      = clockIn;
-          updates.clockOut     = clockOut ?? existing.clockOut;
-          updates.workHours    = workHours ?? null;
-          updates.otHours      = otHours ?? null;
-          updates.status       = status;
-          updates.clockOutMethod = clockOut ? "biometric" : null;
+          updates.clockIn         = clockIn;
+          updates.clockOut        = clockOut ?? existing.clockOut;
+          updates.workHours       = workHours ?? null;
+          updates.otHours         = otHours ?? null;
+          updates.status          = status;
+          updates.clockOutMethod  = clockOut ? "biometric" : null;
         } else {
           // Non-biometric record: only fill in missing clockOut
           if (!existing.clockOut && clockOut) {
-            updates.clockOut     = clockOut;
-            updates.workHours    = workHours ?? null;
-            updates.otHours      = otHours ?? null;
-            updates.status       = status;
-            updates.clockOutMethod = "biometric";
+            updates.clockOut        = clockOut;
+            updates.workHours       = workHours ?? null;
+            updates.otHours         = otHours ?? null;
+            updates.status          = status;
+            updates.clockOutMethod  = "biometric";
           }
         }
 
@@ -286,18 +340,18 @@ export async function processBiometricAttendance(
       } else {
         // Insert new attendance record
         await db.insert(attendance).values({
-          id:              randomUUID(),
+          id:             randomUUID(),
           employeeId,
           companyId,
-          date:            punchDate,
-          clockIn:         clockIn ?? undefined,
-          clockOut:        clockOut ?? undefined,
+          date:           punchDate,
+          clockIn:        clockIn   ?? undefined,
+          clockOut:       clockOut  ?? undefined,
           status,
-          workHours:       workHours ?? undefined,
-          otHours:         otHours ?? undefined,
-          clockInMethod:   "biometric",
-          clockOutMethod:  clockOut ? "biometric" : undefined,
-          faceVerified:    false,
+          workHours:      workHours ?? undefined,
+          otHours:        otHours   ?? undefined,
+          clockInMethod:  "biometric",
+          clockOutMethod: clockOut  ? "biometric" : undefined,
+          faceVerified:   false,
         });
       }
 
@@ -334,7 +388,7 @@ export function startBiometricAttendanceSync() {
     `[BioAttSync] Started — periodic sweep every ${SWEEP_MS / 60_000} min`
   );
 
-  // Run once immediately on startup (catches any backlog)
+  // Run once immediately on startup (catches any backlog + applies miss-punch rule)
   setTimeout(() => processBiometricAttendance().catch(console.error), 5_000);
 
   _sweepTimer = setInterval(
