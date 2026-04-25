@@ -323,11 +323,22 @@ export async function processAttlog(
     ? await storage.getEmployeesByCompany(device.companyId)
     : await storage.getAllEmployees();
   const byPin = new Map<string, typeof employees[number]>();
-  // First pass: employee_code match (lower priority)
+  // First pass: full employee_code match (e.g. "7029" if code is exactly "7029")
   for (const e of employees) {
     if (e.employeeCode) byPin.set(String(e.employeeCode), e);
   }
-  // Second pass: biometricDeviceId match (higher priority — overwrites code match)
+  // Second pass: numeric-suffix of employee_code (e.g. "PSA7029" → "7029").
+  // Handles companies where codes have a letter prefix — the device stores only
+  // the numeric part as the PIN. Only set if not already mapped by exact code.
+  for (const e of employees) {
+    if (e.employeeCode) {
+      const numericSuffix = String(e.employeeCode).replace(/^[A-Za-z]+/, "");
+      if (numericSuffix && numericSuffix !== String(e.employeeCode) && !byPin.has(numericSuffix)) {
+        byPin.set(numericSuffix, e);
+      }
+    }
+  }
+  // Third pass: biometricDeviceId match (highest priority — overwrites any code match)
   for (const e of employees) {
     if (e.biometricDeviceId) byPin.set(String(e.biometricDeviceId), e);
   }

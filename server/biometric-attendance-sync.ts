@@ -326,7 +326,8 @@ export async function processBiometricAttendance(
     const companyClause = companyFilter
       ? sql`AND bpl.company_id = ${companyFilter}`
       : sql``;
-    // Pass A: same-company match (employee_code OR biometric_device_id)
+    // Pass A: same-company match (biometric_device_id OR exact employee_code OR
+    //         numeric-suffix of employee_code, e.g. "PSA7029" → "7029")
     await db.execute(sql`
       UPDATE biometric_punch_logs bpl
       SET employee_id = e.id
@@ -336,6 +337,7 @@ export async function processBiometricAttendance(
         AND (
           e.biometric_device_id = bpl.device_employee_id
           OR e.employee_code    = bpl.device_employee_id
+          OR REGEXP_REPLACE(e.employee_code, '^[A-Za-z]+', '') = bpl.device_employee_id
         )
         ${companyClause}
     `);
@@ -352,6 +354,18 @@ export async function processBiometricAttendance(
       WHERE bpl.employee_id IS NULL
         AND e.biometric_device_id = bpl.device_employee_id
         AND e.company_id != bpl.company_id
+        ${companyClause}
+    `);
+    // Pass C: cross-company numeric-suffix match for contractors whose code
+    //         has a letter prefix (e.g. "PSA7029" on another company's device)
+    await db.execute(sql`
+      UPDATE biometric_punch_logs bpl
+      SET employee_id = e.id,
+          company_id  = e.company_id
+      FROM employees e
+      WHERE bpl.employee_id IS NULL
+        AND e.company_id != bpl.company_id
+        AND REGEXP_REPLACE(e.employee_code, '^[A-Za-z]+', '') = bpl.device_employee_id
         ${companyClause}
     `);
   } catch (err) {
