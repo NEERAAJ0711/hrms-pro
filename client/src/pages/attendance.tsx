@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, parseISO } from "date-fns";
-import { Calendar, Clock, Plus, CheckCircle, XCircle, AlertCircle, Users, Zap, Eye, Pencil, Trash2, Download, Search, Lock } from "lucide-react";
+import { Calendar, Clock, Plus, CheckCircle, XCircle, AlertCircle, Users, Zap, Eye, Pencil, Trash2, Download, Search, Lock, FileClock } from "lucide-react";
 import * as XLSX from "xlsx";
 import { SearchableEmployeeSelect } from "@/components/searchable-employee-select";
 import { Button } from "@/components/ui/button";
@@ -73,6 +73,10 @@ export default function AttendancePage() {
   const [selectedDetailIds, setSelectedDetailIds] = useState<Set<string>>(new Set());
   const [isBulkDeleteOpen, setIsBulkDeleteOpen] = useState(false);
   const [attendanceSearch, setAttendanceSearch] = useState("");
+  const [missedLogRecord, setMissedLogRecord] = useState<Attendance | null>(null);
+  const [isMissedLogOpen, setIsMissedLogOpen] = useState(false);
+  const [missedLogTime, setMissedLogTime] = useState("");
+  const [missedLogNotes, setMissedLogNotes] = useState("");
   const [quickEntryData, setQuickEntryData] = useState({
     employeeId: "",
     companyId: isSuperAdmin ? "" : (user?.companyId || ""),
@@ -354,6 +358,28 @@ export default function AttendancePage() {
     setDeleteRecord(record);
     setIsDeleteOpen(true);
   };
+
+  const handleOpenMissedLog = (record: Attendance) => {
+    setMissedLogRecord(record);
+    setMissedLogTime("");
+    setMissedLogNotes("");
+    setIsMissedLogOpen(true);
+  };
+
+  const missedLogMutation = useMutation({
+    mutationFn: async ({ id, time, notes }: { id: string; time: string; notes: string }) => {
+      return apiRequest("POST", `/api/attendance/${id}/missed-log`, { time, notes });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/attendance"] });
+      setIsMissedLogOpen(false);
+      setMissedLogRecord(null);
+      toast({ title: "Missed log added", description: "Attendance updated and marked as Present." });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to add missed log.", variant: "destructive" });
+    },
+  });
 
   const getAttendanceForDay = (employeeId: string, date: Date) => {
     const dateStr = format(date, "yyyy-MM-dd");
@@ -1296,10 +1322,23 @@ export default function AttendancePage() {
                       {isAdmin && (
                         <TableCell className="text-right">
                           {record.clockInMethod === "biometric" && !isSuperAdmin ? (
-                            <div className="flex justify-end">
-                              <span title="From biometric device — only Super Admin can edit">
-                                <Lock className="h-3.5 w-3.5 text-muted-foreground" />
-                              </span>
+                            <div className="flex justify-end gap-1">
+                              {record.status === "miss_punch" ? (
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-7 w-7 text-orange-600 hover:text-orange-700"
+                                  title="Add missed punch log"
+                                  onClick={() => handleOpenMissedLog(record)}
+                                  data-testid={`btn-add-missed-log-${record.id}`}
+                                >
+                                  <FileClock className="h-3.5 w-3.5" />
+                                </Button>
+                              ) : (
+                                <span title="From biometric device — only Super Admin can edit">
+                                  <Lock className="h-3.5 w-3.5 text-muted-foreground" />
+                                </span>
+                              )}
                             </div>
                           ) : (
                             <div className="flex justify-end gap-1">
@@ -1453,6 +1492,64 @@ export default function AttendancePage() {
               disabled={deleteMutation.isPending}
             >
               {deleteMutation.isPending ? "Deleting..." : "Delete"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add Missed Punch Log Dialog */}
+      <Dialog open={isMissedLogOpen} onOpenChange={setIsMissedLogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add Missed Punch Log</DialogTitle>
+            <DialogDescription>
+              {missedLogRecord && (
+                <>
+                  {missedLogRecord.clockIn && !missedLogRecord.clockOut
+                    ? <>Clock-in recorded at <strong>{missedLogRecord.clockIn}</strong>. Enter the missing <strong>clock-out</strong> time.</>
+                    : missedLogRecord.clockOut && !missedLogRecord.clockIn
+                    ? <>Clock-out recorded at <strong>{missedLogRecord.clockOut}</strong>. Enter the missing <strong>clock-in</strong> time.</>
+                    : <>Enter the missing punch time for <strong>{missedLogRecord.date}</strong>.</>
+                  }
+                </>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">
+                {missedLogRecord?.clockIn && !missedLogRecord?.clockOut ? "Clock-Out Time" :
+                 missedLogRecord?.clockOut && !missedLogRecord?.clockIn ? "Clock-In Time" : "Punch Time"}
+              </label>
+              <Input
+                type="time"
+                value={missedLogTime}
+                onChange={e => setMissedLogTime(e.target.value)}
+                data-testid="input-missed-log-time"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Notes (optional)</label>
+              <Textarea
+                placeholder="Reason for manual entry..."
+                value={missedLogNotes}
+                onChange={e => setMissedLogNotes(e.target.value)}
+                data-testid="input-missed-log-notes"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsMissedLogOpen(false)}>Cancel</Button>
+            <Button
+              disabled={!missedLogTime || missedLogMutation.isPending}
+              onClick={() => {
+                if (missedLogRecord && missedLogTime) {
+                  missedLogMutation.mutate({ id: missedLogRecord.id, time: missedLogTime, notes: missedLogNotes });
+                }
+              }}
+              data-testid="btn-submit-missed-log"
+            >
+              {missedLogMutation.isPending ? "Saving..." : "Save Log"}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -3296,6 +3296,72 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Company admins can add the missing punch for biometric miss_punch records
+  app.post("/api/attendance/:id/missed-log", requireAuth, requireRole("super_admin", "company_admin", "hr_admin"), async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const existing = await storage.getAttendance(req.params.id);
+      if (!existing) return res.status(404).json({ error: "Attendance record not found" });
+      if (user.role !== "super_admin" && existing.companyId !== user.companyId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      if (existing.clockInMethod !== "biometric" || existing.status !== "miss_punch") {
+        return res.status(400).json({ error: "Only biometric miss_punch records can use this endpoint" });
+      }
+
+      const { time, notes } = req.body as { time: string; notes?: string };
+      if (!time || !/^\d{2}:\d{2}$/.test(time)) {
+        return res.status(400).json({ error: "Invalid time format — expected HH:MM" });
+      }
+
+      const clockIn  = existing.clockIn  || (existing.clockOut ? time : null);
+      const clockOut = existing.clockOut || (existing.clockIn  ? time : null);
+
+      // If only one punch existed we now need to decide which slot the new time fills
+      // If clockIn was missing → new time is clockIn; if clockOut was missing → new time is clockOut
+      const finalClockIn  = existing.clockIn  ?? time;
+      const finalClockOut = existing.clockOut ?? time;
+
+      const toMin = (t: string) => { const [h, m] = t.split(":").map(Number); return h * 60 + m; };
+      const fromMin = (m: number) => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+
+      const inMin  = toMin(finalClockIn);
+      const outMin = toMin(finalClockOut);
+      const diffMin = outMin > inMin ? outMin - inMin : 0;
+      const workHours = fromMin(Math.min(diffMin, 12 * 60));
+
+      const employee = await storage.getEmployee(existing.employeeId);
+      let otHours = "0";
+      if (employee) {
+        const policies = await storage.getTimeOfficePoliciesByCompany(existing.companyId);
+        const active = (policies as any[]).filter(p => p.status === "active");
+        let policy: any = (employee as any).timeOfficePolicyId
+          ? active.find(p => p.id === (employee as any).timeOfficePolicyId)
+          : null;
+        if (!policy) policy = active.find(p => p.isDefault) || active[0];
+
+        const normalDutyMin =
+          toMin((policy?.dutyEndTime) || "18:00") - toMin((policy?.dutyStartTime) || "09:00");
+        const cappedDiff = Math.min(diffMin, 12 * 60);
+        if (normalDutyMin > 0 && cappedDiff > normalDutyMin) {
+          otHours = fromMin(cappedDiff - normalDutyMin);
+        }
+      }
+
+      const updated = await storage.updateAttendance(req.params.id, {
+        clockIn:  finalClockIn,
+        clockOut: finalClockOut,
+        workHours,
+        otHours,
+        status:   "present",
+        ...(notes !== undefined ? { notes } : {}),
+      });
+      res.json(updated);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to add missed log" });
+    }
+  });
+
   app.delete("/api/attendance/:id", requireAuth, requireRole("super_admin", "company_admin", "hr_admin"), async (req, res) => {
     try {
       const user = (req as any).user;
