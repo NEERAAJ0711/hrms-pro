@@ -222,6 +222,90 @@ async function applyMissPunchRule(): Promise<void> {
   }
 }
 
+// ─── Retroactive miss-punch correction ────────────────────────────────────────
+
+/**
+ * For biometric attendance records that are currently status='miss_punch',
+ * fetch ALL punch logs for that employee+date (regardless of isProcessed flag)
+ * and recompute the attendance using first-punch=in / last-punch=out.
+ * This self-heals records that were incorrectly stamped because punches arrived
+ * in multiple sync waves (each wave only saw part of the day's punches).
+ */
+async function correctMissPunchFromAllLogs(): Promise<void> {
+  try {
+    // Find biometric miss_punch records
+    const missPunchRows = await db.execute<{
+      id: string;
+      employee_id: string;
+      company_id: string;
+      date: string;
+    }>(sql`
+      SELECT id, employee_id, company_id, date
+      FROM   attendance
+      WHERE  status            = 'miss_punch'
+        AND  clock_in_method   = 'biometric'
+        AND  clock_in          IS NOT NULL
+    `);
+
+    if (!missPunchRows.rows.length) return;
+
+    // Collect all unique (employeeId, date) pairs
+    const pairs = missPunchRows.rows.map(r => ({ attId: r.id, employeeId: r.employee_id, companyId: r.company_id, date: r.date }));
+
+    // Fetch all punch logs for those pairs (processed OR not)
+    // Build a single query using OR conditions
+    for (const pair of pairs) {
+      const logRows = await db.execute<{ punch_time: string }>(sql`
+        SELECT punch_time
+        FROM   biometric_punch_logs
+        WHERE  employee_id = ${pair.employeeId}
+          AND  company_id  = ${pair.companyId}
+          AND  punch_date  = ${pair.date}
+          AND  punch_time  IS NOT NULL
+        ORDER  BY punch_time ASC
+      `);
+
+      if (logRows.rows.length < 2) continue; // still only 1 punch → leave as miss_punch
+
+      const allTimes = logRows.rows.map(r => r.punch_time).filter(Boolean);
+      const sorted   = [...new Set(allTimes)].sort((a, b) => toMinutes(a) - toMinutes(b));
+
+      const mergedIn  = sorted[0];
+      const mergedOut = sorted[sorted.length - 1];
+
+      if (toMinutes(mergedOut) <= toMinutes(mergedIn)) continue; // degenerate data
+
+      const workMin   = toMinutes(mergedOut) - toMinutes(mergedIn);
+      const cappedMin = Math.min(workMin, MAX_WORK_HOURS * 60);
+      const workHours = fromMinutes(Math.max(0, cappedMin));
+      const newStatus = "present"; // has both in and out → present
+
+      await db.execute(sql`
+        UPDATE attendance
+        SET clock_in    = ${mergedIn},
+            clock_out   = ${mergedOut},
+            work_hours  = ${workHours},
+            status      = ${newStatus},
+            clock_out_method = 'biometric'
+        WHERE id = ${pair.attId}
+      `);
+
+      // Also mark all those logs as processed
+      await db.execute(sql`
+        UPDATE biometric_punch_logs
+        SET is_processed = true
+        WHERE employee_id = ${pair.employeeId}
+          AND company_id  = ${pair.companyId}
+          AND punch_date  = ${pair.date}
+      `);
+
+      console.log(`[BioAttSync] Corrected miss_punch → present for employee ${pair.employeeId} on ${pair.date} (${mergedIn}–${mergedOut})`);
+    }
+  } catch (err) {
+    console.error("[BioAttSync] correctMissPunchFromAllLogs failed:", err);
+  }
+}
+
 // ─── Core processor ───────────────────────────────────────────────────────────
 
 interface ProcessResult {
@@ -276,6 +360,10 @@ export async function processBiometricAttendance(
 
   // Run the miss-punch rule on every sweep cycle
   await applyMissPunchRule();
+
+  // Retroactively correct miss_punch records that now have enough punches to
+  // compute a valid in+out (handles staggered multi-wave sync arrivals).
+  await correctMissPunchFromAllLogs();
 
   // 1. Fetch all unprocessed logs where the employee has been resolved
   const logs = await db
@@ -434,13 +522,38 @@ export async function processBiometricAttendance(
         const updates: Record<string, any> = {};
 
         if (existing.clockInMethod === "biometric") {
-          // Full overwrite — biometric owns this record
-          updates.clockIn         = clockIn;
-          updates.clockOut        = clockOut ?? existing.clockOut;
-          updates.workHours       = workHours ?? null;
-          updates.otHours         = otHours ?? null;
-          updates.status          = status;
-          updates.clockOutMethod  = clockOut ? "biometric" : null;
+          // Merge this batch's punches with the already-stored biometric times so
+          // that arriving in multiple sync waves never loses the earliest clock-in
+          // or the latest clock-out captured in a previous wave.
+          const allTimes: string[] = [...times];
+          if (existing.clockIn)  allTimes.push(existing.clockIn);
+          if (existing.clockOut) allTimes.push(existing.clockOut);
+          const allSorted = [...new Set(allTimes)].sort((a, b) => toMinutes(a) - toMinutes(b));
+
+          const mergedIn:  string       = allSorted[0];
+          const mergedOut: string | null = allSorted.length > 1 ? allSorted[allSorted.length - 1] : null;
+
+          // Recalculate work/OT from the merged span
+          let mergedWork:   string | null = null;
+          let mergedOT:     string | null = null;
+          let mergedStatus               = "present";
+          if (mergedIn && mergedOut) {
+            const workMin   = toMinutes(mergedOut) - toMinutes(mergedIn);
+            const cappedMin = Math.min(workMin, MAX_WORK_HOURS * 60);
+            mergedWork = fromMinutes(Math.max(0, cappedMin));
+            if (workMin >= fullDayMinHours * 60)      mergedStatus = "present";
+            else if (workMin >= halfDayMinHours * 60) mergedStatus = "half_day";
+            else                                       mergedStatus = "present";
+            if (normalDutyMins > 0 && cappedMin > normalDutyMins)
+              mergedOT = fromMinutes(cappedMin - normalDutyMins);
+          }
+
+          updates.clockIn        = mergedIn;
+          updates.clockOut       = mergedOut;
+          updates.workHours      = mergedWork;
+          updates.otHours        = mergedOT;
+          updates.status         = mergedStatus;
+          updates.clockOutMethod = mergedOut ? "biometric" : null;
         } else {
           // Non-biometric record: only fill in missing clockOut
           if (!existing.clockOut && clockOut) {
