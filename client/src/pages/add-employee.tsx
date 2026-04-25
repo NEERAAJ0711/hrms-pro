@@ -375,8 +375,10 @@ export default function AddEmployee() {
     }
   }, [nextCodeData, isEditing]);
 
-  // Reset form when editing and employee data loads
-  if (isEditing && existingEmployee && form.getValues("employeeCode") !== existingEmployee.employeeCode) {
+  // Populate form once the existing employee record has loaded (edit mode only).
+  // Must be in useEffect — calling form.reset() during render is unreliable.
+  useEffect(() => {
+    if (!isEditing || !existingEmployee) return;
     form.reset({
       employeeCode: existingEmployee.employeeCode,
       companyId: existingEmployee.companyId,
@@ -418,7 +420,7 @@ export default function AddEmployee() {
       permanentPincode: existingEmployee.permanentPincode || "",
       sameAsPresentAddress: false,
     });
-  }
+  }, [existingEmployee?.id]);
 
   // Filter master data by selected company — use existingEmployee.companyId as fallback during editing
   const effectiveCompanyId = selectedCompanyId || (isEditing ? existingEmployee?.companyId : "") || "";
