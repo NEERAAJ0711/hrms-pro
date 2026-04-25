@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, parseISO } from "date-fns";
-import { Calendar, Clock, Plus, CheckCircle, XCircle, AlertCircle, Users, Zap, Eye, Pencil, Trash2, Download, Search, Lock, FileClock, HardHat, Briefcase } from "lucide-react";
+import { Calendar, Clock, Plus, CheckCircle, XCircle, AlertCircle, Users, Zap, Eye, Pencil, Trash2, Download, Search, Lock, FileClock, HardHat, Briefcase, RefreshCw } from "lucide-react";
 import * as XLSX from "xlsx";
 import { SearchableEmployeeSelect } from "@/components/searchable-employee-select";
 import { Button } from "@/components/ui/button";
@@ -418,6 +418,26 @@ export default function AttendancePage() {
     },
   });
 
+  const syncBiometricMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/biometric/process-attendance");
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/attendance"] });
+      const created = data?.created ?? 0;
+      const updated = data?.updated ?? 0;
+      const skipped = data?.skipped ?? 0;
+      toast({
+        title: "Biometric Sync Complete",
+        description: `Created: ${created}, Updated: ${updated}, Skipped: ${skipped}`,
+      });
+    },
+    onError: () => {
+      toast({ title: "Sync Failed", description: "Could not process biometric attendance.", variant: "destructive" });
+    },
+  });
+
   const getAttendanceForDay = (employeeId: string, date: Date) => {
     const dateStr = format(date, "yyyy-MM-dd");
     return attendance.find(a => a.employeeId === employeeId && a.date === dateStr);
@@ -768,6 +788,18 @@ export default function AttendancePage() {
           <p className="text-muted-foreground">Track employee attendance and work hours</p>
         </div>
         <div className="flex items-center gap-2">
+        {isAdmin && !isEmployee && (
+          <Button
+            variant="outline"
+            onClick={() => syncBiometricMutation.mutate()}
+            disabled={syncBiometricMutation.isPending}
+            data-testid="button-sync-biometric"
+            title="Re-process all pending biometric punch logs and create attendance records"
+          >
+            <RefreshCw className={`h-4 w-4 mr-2 ${syncBiometricMutation.isPending ? "animate-spin" : ""}`} />
+            {syncBiometricMutation.isPending ? "Syncing..." : "Sync Now"}
+          </Button>
+        )}
         <Button variant="outline" onClick={() => setIsQuickEntryOpen(true)} data-testid="button-quick-entry">
           <Zap className="h-4 w-4 mr-2" />
           Quick Entry
