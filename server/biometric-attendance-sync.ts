@@ -63,33 +63,57 @@ function cutoffTimeStr(): string {
 
 // ─── OT backfill ──────────────────────────────────────────────────────────────
 
+/** Returns true when a stored ot_hours value means "zero" in any representation. */
+function isZeroOt(v: string | null | undefined): boolean {
+  if (!v) return true;
+  const s = v.trim();
+  if (s === "" || s === "0") return true;
+  // Handle "HH:MM" format — zero if both parts are 0
+  const parts = s.split(":");
+  if (parts.length === 2) {
+    const h = parseInt(parts[0], 10);
+    const m = parseInt(parts[1], 10);
+    if (!isNaN(h) && !isNaN(m) && h === 0 && m === 0) return true;
+  }
+  return false;
+}
+
 /**
- * One-time backfill: recalculate OT hours for all biometric attendance records
- * that have both clockIn + clockOut but still show otHours = 0 / null.
- * Safe to run repeatedly — skips records that already have a non-zero OT value.
+ * Recalculate OT for biometric attendance records whose stored OT is zero/null
+ * but whose actual work hours exceed the normal duty duration.
+ *
+ * @param recentOnly  true  → only look at last 7 days (fast, called every sweep)
+ *                   false → scan all records (called once at startup)
  */
-async function backfillBiometricOtHours(): Promise<void> {
+async function backfillBiometricOtHours(recentOnly = false): Promise<void> {
   try {
-    // Fetch all biometric records with both punches but zero/null OT
+    // Fetch biometric records with both punches, reading stored ot_hours too
     const rows = await db.execute<{
       id: string;
       employee_id: string;
       company_id: string;
       clock_in: string;
       clock_out: string;
+      ot_hours: string | null;
     }>(sql`
-      SELECT id, employee_id, company_id, clock_in, clock_out
+      SELECT id, employee_id, company_id, clock_in, clock_out, ot_hours
       FROM   attendance
       WHERE  clock_in_method = 'biometric'
         AND  clock_in  IS NOT NULL
         AND  clock_out IS NOT NULL
-        AND  (ot_hours IS NULL OR ot_hours IN ('0', '00:00', '0:00'))
+        ${recentOnly
+          ? sql`AND date >= (CURRENT_DATE - INTERVAL '7 days')::text`
+          : sql``}
     `);
 
     if (!rows.rows.length) return;
 
+    // Keep only records where the stored OT looks like zero
+    const toFix = rows.rows.filter(r => isZeroOt(r.ot_hours));
+    if (!toFix.length) return;
+
     // Build employee → policy map
-    const empIds = Array.from(new Set(rows.rows.map(r => r.employee_id)));
+    const empIds = Array.from(new Set(toFix.map(r => r.employee_id)));
     const empRows = await db
       .select({ id: employees.id, timeOfficePolicyId: employees.timeOfficePolicyId, companyId: employees.companyId })
       .from(employees)
@@ -102,7 +126,7 @@ async function backfillBiometricOtHours(): Promise<void> {
       for (const p of pols) policyMap.set(p.id, p);
     }
 
-    // Also fetch company-default policies (for employees without an assigned policy)
+    // Also fetch company-default policies
     const companyIds = Array.from(new Set(empRows.map(e => e.companyId)));
     const defaultPolicies = new Map<string, any>();
     if (companyIds.length) {
@@ -127,7 +151,7 @@ async function backfillBiometricOtHours(): Promise<void> {
     const empMap = new Map(empRows.map(e => [e.id, e]));
 
     let updated = 0;
-    for (const row of rows.rows) {
+    for (const row of toFix) {
       const emp = empMap.get(row.employee_id);
       let policy: any = null;
       if (emp?.timeOfficePolicyId) policy = policyMap.get(emp.timeOfficePolicyId) ?? null;
@@ -140,10 +164,9 @@ async function backfillBiometricOtHours(): Promise<void> {
 
       const rawWorkMin = toMinutes(row.clock_out) - toMinutes(row.clock_in);
       const workMin = Math.min(rawWorkMin, MAX_WORK_HOURS * 60); // cap at 12h
-      if (workMin <= normalDutyMins) continue; // no OT
+      if (workMin <= normalDutyMins) continue; // genuinely no OT for this record
 
-      const otMin = workMin - normalDutyMins;
-      const otHoursStr = fromMinutes(otMin);
+      const otHoursStr = fromMinutes(workMin - normalDutyMins);
 
       await db.execute(sql`
         UPDATE attendance
@@ -153,7 +176,7 @@ async function backfillBiometricOtHours(): Promise<void> {
       updated++;
     }
 
-    if (updated) console.log(`[BioAttSync] OT backfill: updated ${updated} records`);
+    if (updated) console.log(`[BioAttSync] OT backfill${recentOnly ? " (recent)" : ""}: fixed ${updated} record(s)`);
   } catch (err) {
     console.error("[BioAttSync] backfillBiometricOtHours failed:", err);
   }
@@ -486,16 +509,19 @@ export function startBiometricAttendanceSync() {
     `[BioAttSync] Started — periodic sweep every ${SWEEP_MS / 60_000} min`
   );
 
-  // Run OT backfill once on startup to fix existing records with missing OT
-  setTimeout(() => backfillBiometricOtHours().catch(console.error), 8_000);
+  // Full OT backfill at startup — fixes ALL historical records with missing OT
+  setTimeout(() => backfillBiometricOtHours(false).catch(console.error), 8_000);
 
   // Run once immediately on startup (catches any backlog + applies miss-punch rule)
   setTimeout(() => processBiometricAttendance().catch(console.error), 5_000);
 
-  _sweepTimer = setInterval(
-    () => processBiometricAttendance().catch(console.error),
-    SWEEP_MS
-  );
+  // Every regular sweep: process new punches, then heal any recent records with OT=0
+  const runSweep = async () => {
+    await processBiometricAttendance().catch(console.error);
+    await backfillBiometricOtHours(true).catch(console.error); // last 7 days only
+  };
+
+  _sweepTimer = setInterval(() => runSweep(), SWEEP_MS);
 }
 
 /** One-shot trigger — called from adms.ts after each ATTLOG batch. */
