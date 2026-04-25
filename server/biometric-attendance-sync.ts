@@ -61,6 +61,104 @@ function cutoffTimeStr(): string {
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
+// ─── OT backfill ──────────────────────────────────────────────────────────────
+
+/**
+ * One-time backfill: recalculate OT hours for all biometric attendance records
+ * that have both clockIn + clockOut but still show otHours = 0 / null.
+ * Safe to run repeatedly — skips records that already have a non-zero OT value.
+ */
+async function backfillBiometricOtHours(): Promise<void> {
+  try {
+    // Fetch all biometric records with both punches but zero/null OT
+    const rows = await db.execute<{
+      id: string;
+      employee_id: string;
+      company_id: string;
+      clock_in: string;
+      clock_out: string;
+    }>(sql`
+      SELECT id, employee_id, company_id, clock_in, clock_out
+      FROM   attendance
+      WHERE  clock_in_method = 'biometric'
+        AND  clock_in  IS NOT NULL
+        AND  clock_out IS NOT NULL
+        AND  (ot_hours IS NULL OR ot_hours IN ('0', '00:00', '0:00'))
+    `);
+
+    if (!rows.rows.length) return;
+
+    // Build employee → policy map
+    const empIds = Array.from(new Set(rows.rows.map(r => r.employee_id)));
+    const empRows = await db
+      .select({ id: employees.id, timeOfficePolicyId: employees.timeOfficePolicyId, companyId: employees.companyId })
+      .from(employees)
+      .where(inArray(employees.id, empIds));
+
+    const policyIds = Array.from(new Set(empRows.map(e => e.timeOfficePolicyId).filter(Boolean))) as string[];
+    const policyMap = new Map<string, any>();
+    if (policyIds.length) {
+      const pols = await db.select().from(timeOfficePolicies).where(inArray(timeOfficePolicies.id, policyIds));
+      for (const p of pols) policyMap.set(p.id, p);
+    }
+
+    // Also fetch company-default policies (for employees without an assigned policy)
+    const companyIds = Array.from(new Set(empRows.map(e => e.companyId)));
+    const defaultPolicies = new Map<string, any>();
+    if (companyIds.length) {
+      const defs = await db
+        .select()
+        .from(timeOfficePolicies)
+        .where(and(
+          inArray(timeOfficePolicies.companyId, companyIds),
+          eq(timeOfficePolicies.status, "active"),
+        ));
+      for (const p of defs) {
+        if ((p as any).isDefault && !defaultPolicies.has(p.companyId)) {
+          defaultPolicies.set(p.companyId, p);
+        }
+      }
+      // fallback: first active policy per company
+      for (const p of defs) {
+        if (!defaultPolicies.has(p.companyId)) defaultPolicies.set(p.companyId, p);
+      }
+    }
+
+    const empMap = new Map(empRows.map(e => [e.id, e]));
+
+    let updated = 0;
+    for (const row of rows.rows) {
+      const emp = empMap.get(row.employee_id);
+      let policy: any = null;
+      if (emp?.timeOfficePolicyId) policy = policyMap.get(emp.timeOfficePolicyId) ?? null;
+      if (!policy && emp) policy = defaultPolicies.get(emp.companyId) ?? null;
+
+      const dutyStart = policy?.dutyStartTime ?? "09:00";
+      const dutyEnd   = policy?.dutyEndTime   ?? "18:00";
+      const normalDutyMins = toMinutes(dutyEnd) - toMinutes(dutyStart);
+      if (normalDutyMins <= 0) continue;
+
+      const rawWorkMin = toMinutes(row.clock_out) - toMinutes(row.clock_in);
+      const workMin = Math.min(rawWorkMin, MAX_WORK_HOURS * 60); // cap at 12h
+      if (workMin <= normalDutyMins) continue; // no OT
+
+      const otMin = workMin - normalDutyMins;
+      const otHoursStr = fromMinutes(otMin);
+
+      await db.execute(sql`
+        UPDATE attendance
+        SET ot_hours = ${otHoursStr}
+        WHERE id = ${row.id}
+      `);
+      updated++;
+    }
+
+    if (updated) console.log(`[BioAttSync] OT backfill: updated ${updated} records`);
+  } catch (err) {
+    console.error("[BioAttSync] backfillBiometricOtHours failed:", err);
+  }
+}
+
 // ─── Miss-punch sweep ──────────────────────────────────────────────────────────
 
 /**
@@ -284,8 +382,8 @@ export async function processBiometricAttendance(
           status = "present"; // short shift still counts as present
         }
 
-        if (normalDutyMins > 0 && workMin > normalDutyMins) {
-          otHours = fromMinutes(workMin - normalDutyMins);
+        if (normalDutyMins > 0 && cappedMin > normalDutyMins) {
+          otHours = fromMinutes(cappedMin - normalDutyMins);
         }
       }
       // If no clockOut: status starts as "present"; the miss-punch sweep will
@@ -387,6 +485,9 @@ export function startBiometricAttendanceSync() {
   console.log(
     `[BioAttSync] Started — periodic sweep every ${SWEEP_MS / 60_000} min`
   );
+
+  // Run OT backfill once on startup to fix existing records with missing OT
+  setTimeout(() => backfillBiometricOtHours().catch(console.error), 8_000);
 
   // Run once immediately on startup (catches any backlog + applies miss-punch rule)
   setTimeout(() => processBiometricAttendance().catch(console.error), 5_000);
