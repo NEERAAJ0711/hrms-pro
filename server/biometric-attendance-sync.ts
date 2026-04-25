@@ -265,15 +265,28 @@ async function correctMissPunchFromAllLogs(): Promise<void> {
         ORDER  BY punch_time ASC
       `);
 
-      if (logRows.rows.length < 2) continue; // still only 1 punch → leave as miss_punch
+      if (!logRows.rows.length) continue; // no punch data at all — nothing to heal
 
       const allTimes = logRows.rows.map(r => r.punch_time).filter(Boolean);
       const sorted   = [...new Set(allTimes)].sort((a, b) => toMinutes(a) - toMinutes(b));
 
       const mergedIn  = sorted[0];
-      const mergedOut = sorted[sorted.length - 1];
+      const mergedOut = sorted.length > 1 ? sorted[sorted.length - 1] : null;
 
-      if (toMinutes(mergedOut) <= toMinutes(mergedIn)) continue; // degenerate data
+      // If we only have one punch, restore to present (clock-in only).
+      // The employee did come to work — keep clock_in and mark as present.
+      if (!mergedOut || toMinutes(mergedOut) <= toMinutes(mergedIn)) {
+        await db.execute(sql`
+          UPDATE attendance
+          SET clock_in   = ${mergedIn},
+              clock_out  = NULL,
+              work_hours = NULL,
+              status     = 'present'
+          WHERE id = ${pair.attId}
+        `);
+        console.log(`[BioAttSync] Corrected miss_punch → present (in-only) for employee ${pair.employeeId} on ${pair.date}`);
+        continue;
+      }
 
       const workMin   = toMinutes(mergedOut) - toMinutes(mergedIn);
       const cappedMin = Math.min(workMin, MAX_WORK_HOURS * 60);

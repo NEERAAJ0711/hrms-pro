@@ -574,7 +574,16 @@ export default function AttendancePage() {
 
   const todayStr = format(new Date(), "yyyy-MM-dd");
   const filteredEmployeeIds = new Set(filteredEmployees.map(e => e.id));
-  const presentCount = attendance.filter(a => filteredEmployeeIds.has(a.employeeId) && a.status === "present" && a.date === todayStr).length;
+  // "Present Today" counts anyone who physically came to work today:
+  //  - "present"    = punched in (and optionally out), within normal window
+  //  - "half_day"   = short shift, still came to work
+  //  - "miss_punch" with today's date = punched in but hasn't punched out yet;
+  //                   should still count as "present" until the day ends
+  const presentCount = attendance.filter(a =>
+    filteredEmployeeIds.has(a.employeeId) &&
+    ["present", "half_day", "miss_punch"].includes(a.status) &&
+    a.date === todayStr
+  ).length;
   const absentCount = attendance.filter(a => filteredEmployeeIds.has(a.employeeId) && a.status === "absent" && a.date === todayStr).length;
   const leaveCount = attendance.filter(a => filteredEmployeeIds.has(a.employeeId) && a.status === "on_leave" && a.date === todayStr).length
     + approvedLeaves.filter(lr => filteredEmployeeIds.has(lr.employeeId) && todayStr >= lr.startDate && todayStr <= lr.endDate).length;
