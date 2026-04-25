@@ -647,7 +647,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (req.body.role === "super_admin" && user.role !== "super_admin") {
         return res.status(403).json({ error: "Only Super Admin can assign Super Admin role." });
       }
-      const updated = await storage.updateUser(req.params.id, req.body);
+      const updateData: Record<string, any> = { ...req.body };
+      if (!updateData.password || updateData.password === "") {
+        delete updateData.password;
+      }
+      if (user.role !== "super_admin") {
+        updateData.companyId = targetUser.companyId;
+      }
+      const updated = await storage.updateUser(req.params.id, updateData);
       res.json(updated);
     } catch (error) {
       res.status(500).json({ error: "Failed to update user" });

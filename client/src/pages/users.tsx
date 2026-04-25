@@ -200,7 +200,7 @@ function UserForm({
             render={({ field }) => (
               <FormItem>
                 <FormLabel>Role *</FormLabel>
-                <Select onValueChange={field.onChange} defaultValue={field.value}>
+                <Select onValueChange={field.onChange} value={field.value}>
                   <FormControl>
                     <SelectTrigger data-testid="select-role">
                       <SelectValue placeholder="Select role" />
@@ -227,7 +227,7 @@ function UserForm({
             render={({ field }) => (
               <FormItem>
                 <FormLabel>Status</FormLabel>
-                <Select onValueChange={field.onChange} defaultValue={field.value}>
+                <Select onValueChange={field.onChange} value={field.value}>
                   <FormControl>
                     <SelectTrigger data-testid="select-status">
                       <SelectValue placeholder="Select status" />
@@ -251,7 +251,7 @@ function UserForm({
             render={({ field }) => (
               <FormItem>
                 <FormLabel>Company</FormLabel>
-                <Select onValueChange={field.onChange} defaultValue={field.value}>
+                <Select onValueChange={field.onChange} value={field.value}>
                   <FormControl>
                     <SelectTrigger data-testid="select-company">
                       <SelectValue placeholder="Select company" />
