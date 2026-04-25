@@ -2,11 +2,11 @@ import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { format } from "date-fns";
-import { DollarSign, Plus, FileText, Users, Calculator, Download, Building2, Edit, Trash2, CheckCircle, Upload, FileSpreadsheet, Loader2, Eye, AlertTriangle, ShieldCheck } from "lucide-react";
+import { DollarSign, Plus, FileText, Users, Calculator, Download, Building2, Edit, Trash2, CheckCircle, Upload, FileSpreadsheet, Loader2, Eye, AlertTriangle, ShieldCheck, HardHat, Briefcase } from "lucide-react";
 import { SearchableEmployeeSelect } from "@/components/searchable-employee-select";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
@@ -123,6 +123,7 @@ export default function PayrollPage() {
   const [isPayrollEditOpen, setIsPayrollEditOpen] = useState(false);
   const [viewingPayrollRecord, setViewingPayrollRecord] = useState<Payroll | null>(null);
   const [selectedCompany, setSelectedCompany] = useState<string>(isSuperAdmin ? "__all__" : (user?.companyId || ""));
+  const [contractorFilter, setContractorFilter] = useState("own");
   const [selectedMonth, setSelectedMonth] = useState(months[new Date().getMonth()]);
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear().toString());
   const [bulkUploadOpen, setBulkUploadOpen] = useState(false);
@@ -139,6 +140,42 @@ export default function PayrollPage() {
   const { data: employees = [] } = useQuery<Employee[]>({
     queryKey: ["/api/employees"],
   });
+
+  type ContractorRow = { id: string; companyId: string; contractorId: string; startDate: string; contractorName: string };
+  type PERow = { id: string; companyId: string; contractorId: string; startDate: string; companyName: string };
+
+  const { data: myContractors = [] } = useQuery<ContractorRow[]>({
+    queryKey: ["/api/companies", user?.companyId, "contractors"],
+    queryFn: async () => {
+      const res = await fetch(`/api/companies/${user?.companyId}/contractors`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed");
+      return res.json();
+    },
+    enabled: !isSuperAdmin && !!user?.companyId,
+  });
+
+  const { data: myPrincipalEmployers = [] } = useQuery<PERow[]>({
+    queryKey: ["/api/companies", user?.companyId, "principal-employers"],
+    queryFn: async () => {
+      const res = await fetch(`/api/companies/${user?.companyId}/principal-employers`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed");
+      return res.json();
+    },
+    enabled: !isSuperAdmin && !!user?.companyId,
+  });
+
+  useEffect(() => {
+    if (isSuperAdmin) return;
+    const parts = contractorFilter.split(":");
+    const type = parts[0];
+    if (type === "own") {
+      setSelectedCompany(user?.companyId || "");
+    } else if (type === "c") {
+      setSelectedCompany(parts[2] || user?.companyId || "");
+    } else if (type === "pe") {
+      setSelectedCompany(parts[1] || user?.companyId || "");
+    }
+  }, [contractorFilter]);
 
   const { data: salaryStructures = [], isLoading: isLoadingStructures } = useQuery<SalaryStructure[]>({
     queryKey: ["/api/salary-structures"],
@@ -1375,6 +1412,39 @@ export default function PayrollPage() {
                         {companies.map((company) => (
                           <SelectItem key={company.id} value={company.id}>{company.companyName}</SelectItem>
                         ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (myContractors.length > 0 || myPrincipalEmployers.length > 0) ? (
+                    <Select value={contractorFilter} onValueChange={setContractorFilter}>
+                      <SelectTrigger className="w-52" data-testid="select-payroll-contractor-filter">
+                        <SelectValue placeholder="Own Company" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="own">Own Company</SelectItem>
+                        {myContractors.length > 0 && (
+                          <SelectGroup>
+                            <SelectLabel className="flex items-center gap-1.5 text-amber-600">
+                              <HardHat className="h-3.5 w-3.5" /> Contractors
+                            </SelectLabel>
+                            {myContractors.map((c) => (
+                              <SelectItem key={c.id} value={`c:${c.companyId}:${c.contractorId}`}>
+                                {c.contractorName}
+                              </SelectItem>
+                            ))}
+                          </SelectGroup>
+                        )}
+                        {myPrincipalEmployers.length > 0 && (
+                          <SelectGroup>
+                            <SelectLabel className="flex items-center gap-1.5 text-blue-600">
+                              <Briefcase className="h-3.5 w-3.5" /> Principal Employers
+                            </SelectLabel>
+                            {myPrincipalEmployers.map((pe) => (
+                              <SelectItem key={pe.id} value={`pe:${pe.companyId}:${pe.contractorId}`}>
+                                {pe.companyName}
+                              </SelectItem>
+                            ))}
+                          </SelectGroup>
+                        )}
                       </SelectContent>
                     </Select>
                   ) : (
