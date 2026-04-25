@@ -1,4 +1,4 @@
-import { pgTable, text, varchar, boolean, timestamp, integer, numeric, bigserial, json } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, boolean, timestamp, integer, real, numeric, bigserial, json } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -235,7 +235,7 @@ export const earningHeads = pgTable("earning_heads", {
   code: text("code").notNull(),
   type: text("type").notNull().default("fixed"), // fixed, percentage
   calculationBase: text("calculation_base"), // basic, gross
-  percentage: integer("percentage").default(0),
+  percentage: real("percentage").default(0),
   isTaxable: boolean("is_taxable").default(true),
   isPartOfCTC: boolean("is_part_of_ctc").default(true),
   status: text("status").notNull().default("active"),
@@ -253,7 +253,7 @@ export const deductionHeads = pgTable("deduction_heads", {
   code: text("code").notNull(),
   type: text("type").notNull().default("fixed"), // fixed, percentage
   calculationBase: text("calculation_base"), // basic, gross
-  percentage: integer("percentage").default(0),
+  percentage: real("percentage").default(0),
   isStatutory: boolean("is_statutory").default(false),
   status: text("status").notNull().default("active"),
 });
