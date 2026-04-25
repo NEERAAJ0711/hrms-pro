@@ -4359,10 +4359,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/earning-heads", requireAuth, async (req, res) => {
     try {
-      const data = insertEarningHeadSchema.parse(req.body);
+      const user = (req as any).user;
+      const body = { ...req.body };
+      if (!body.companyId && user.companyId) body.companyId = user.companyId;
+      const data = insertEarningHeadSchema.parse(body);
       const head = await storage.createEarningHead(data);
       res.status(201).json(head);
-    } catch (error) {
+    } catch (error: any) {
+      const msg = error?.errors ? JSON.stringify(error.errors) : (error?.message || String(error));
+      console.error("[earning-heads POST] ERROR:", msg);
       res.status(500).json({ error: "Failed to create earning head" });
     }
   });

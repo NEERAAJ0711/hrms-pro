@@ -128,6 +128,31 @@ app.use((req, res, next) => {
   const { seedDefaultData } = await import("./seed");
   await seedDefaultData();
 
+  // Auto-migration: ensure percentage columns are REAL (decimal) not INTEGER.
+  // Runs on every startup; is a no-op when the column is already the right type.
+  try {
+    const { db } = await import("./db");
+    const { sql } = await import("drizzle-orm");
+    await db.execute(sql`
+      DO $$
+      BEGIN
+        IF EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_name = 'earning_heads'
+            AND column_name = 'percentage'
+            AND data_type = 'integer'
+        ) THEN
+          ALTER TABLE earning_heads  ALTER COLUMN percentage TYPE real USING percentage::real;
+          ALTER TABLE deduction_heads ALTER COLUMN percentage TYPE real USING percentage::real;
+          RAISE NOTICE 'Migrated percentage columns from integer to real';
+        END IF;
+      END;
+      $$
+    `);
+  } catch (migErr) {
+    console.warn("[startup] percentage migration warning:", migErr);
+  }
+
   // Preload face recognition models in background so first punch is fast
   import("./face-match").then(({ loadFaceModels }) => {
     loadFaceModels().catch((err) => console.warn("[face-match] Background model load failed:", err));
