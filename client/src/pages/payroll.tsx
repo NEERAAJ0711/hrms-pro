@@ -20,7 +20,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import type { Payroll, SalaryStructure, Employee, Company, StatutorySettings, Attendance, WageGrade } from "@shared/schema";
+import type { Payroll, SalaryStructure, Employee, Company, StatutorySettings, Attendance, WageGrade, EarningHead } from "@shared/schema";
 import FnfSettlementPage from "@/pages/fnf-settlement";
 
 const salaryStructureSchema = z.object({
@@ -130,6 +130,7 @@ export default function PayrollPage() {
   const [bulkResult, setBulkResult] = useState<{ created: number; skipped: number; errors: string[] } | null>(null);
   const bulkFileInputRef = useRef<HTMLInputElement | null>(null);
   const [grossInputAmt, setGrossInputAmt] = useState<string>("");
+  const [customEarningAmounts, setCustomEarningAmounts] = useState<Record<string, number>>({});
 
   const { data: companies = [] } = useQuery<Company[]>({
     queryKey: ["/api/companies"],
@@ -202,6 +203,18 @@ export default function PayrollPage() {
 
   const dialogWageGrade = watchEmployeeId ? getEmployeeWageGrade(watchEmployeeId) : undefined;
   const isGrossCompliantWithMinWage = !dialogWageGrade || watchGrossSalary >= (dialogWageGrade.minimumWage ?? 0);
+
+  const { data: earningHeads = [] } = useQuery<EarningHead[]>({
+    queryKey: ["/api/earning-heads", watchCompanyId],
+    queryFn: async () => {
+      if (!watchCompanyId) return [];
+      const res = await fetch(`/api/earning-heads?companyId=${watchCompanyId}`, { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: !!watchCompanyId,
+  });
+  const activeEarningHeads = earningHeads.filter((h) => h.status === "active");
 
   const { data: statutoryData } = useQuery<StatutorySettings | StatutorySettings[]>({
     queryKey: ["/api/statutory-settings", watchCompanyId],
@@ -288,11 +301,11 @@ export default function PayrollPage() {
     const basic = Number(form.getValues("basicSalary")) || 0;
     const hra = Number(form.getValues("hra")) || 0;
     const conveyance = Number(form.getValues("conveyance")) || 0;
-    const medical = Number(form.getValues("medicalAllowance")) || 0;
     const special = Number(form.getValues("specialAllowance")) || 0;
     const other = Number(form.getValues("otherAllowances")) || 0;
-    
-    const gross = basic + hra + conveyance + medical + special + other;
+    const customSum = Object.values(customEarningAmounts).reduce((acc, v) => acc + (v || 0), 0);
+
+    const gross = basic + hra + conveyance + special + other + customSum;
     form.setValue("grossSalary", gross);
     
     // Auto-calculate statutory deductions if enabled and employee is selected
@@ -339,9 +352,9 @@ export default function PayrollPage() {
     form.setValue("basicSalary",      basic,      { shouldDirty: true, shouldValidate: true });
     form.setValue("hra",              hra,        { shouldDirty: true, shouldValidate: true });
     form.setValue("conveyance",       conveyance, { shouldDirty: true, shouldValidate: true });
-    form.setValue("medicalAllowance", 0,          { shouldDirty: true, shouldValidate: true });
     form.setValue("specialAllowance", special,    { shouldDirty: true, shouldValidate: true });
     form.setValue("otherAllowances",  0,          { shouldDirty: true, shouldValidate: true });
+    setCustomEarningAmounts({});
     setGrossInputAmt(String(gross));
     setTimeout(() => calculateSalary(true), 0);
   };
@@ -466,15 +479,18 @@ export default function PayrollPage() {
 
   const handleEditStructure = (structure: SalaryStructure) => {
     setEditingStructureId(structure.id);
+    const savedCustom = (structure as any).customEarnings || {};
+    setCustomEarningAmounts(savedCustom);
+    const customSum = Object.values(savedCustom as Record<string, number>).reduce((a: number, v) => a + (v || 0), 0);
     form.reset({
       employeeId: structure.employeeId,
       companyId: structure.companyId,
       basicSalary: structure.basicSalary,
       hra: structure.hra || 0,
       conveyance: structure.conveyance || 0,
-      medicalAllowance: structure.medicalAllowance || 0,
+      medicalAllowance: 0,
       specialAllowance: structure.specialAllowance || 0,
-      otherAllowances: structure.otherAllowances || 0,
+      otherAllowances: Math.max(0, (structure.otherAllowances || 0) - customSum),
       grossSalary: structure.grossSalary,
       pfEmployee: structure.pfEmployee || 0,
       pfEmployer: structure.pfEmployer || 0,
@@ -494,6 +510,7 @@ export default function PayrollPage() {
     if (!open) {
       setEditingStructureId(null);
       setGrossInputAmt("");
+      setCustomEarningAmounts({});
       form.reset({
         employeeId: "",
         companyId: isSuperAdmin ? "" : (user?.companyId || ""),
@@ -930,7 +947,15 @@ export default function PayrollPage() {
               <DialogDescription>Define salary components for an employee</DialogDescription>
             </DialogHeader>
             <Form {...form}>
-              <form onSubmit={form.handleSubmit((data) => editingStructureId ? updateStructureMutation.mutate({ ...data, id: editingStructureId }) : createStructureMutation.mutate(data))} className="space-y-4">
+              <form onSubmit={form.handleSubmit((data) => {
+                const customSum = Object.values(customEarningAmounts).reduce((acc, v) => acc + (v || 0), 0);
+                const payload = { ...data, medicalAllowance: 0, otherAllowances: data.otherAllowances + customSum, customEarnings: customEarningAmounts };
+                if (editingStructureId) {
+                  updateStructureMutation.mutate({ ...payload, id: editingStructureId });
+                } else {
+                  createStructureMutation.mutate(payload as any);
+                }
+              })} className="space-y-4">
                 <div className="grid grid-cols-2 gap-4">
                   {isSuperAdmin ? (
                     <FormField
@@ -1079,7 +1104,7 @@ export default function PayrollPage() {
                     </Button>
                   </div>
                   <p className="text-[10px] text-blue-600 dark:text-blue-400 mt-1.5">
-                    Basic = max(Min.Wage, 50% of Gross) · HRA = min(50% of Basic, rem.) · Conveyance = min(50% of HRA, rem.) · Special = balance · Medical = ₹0
+                    Basic = max(Min.Wage, 50% of Gross) · HRA = min(50% of Basic, rem.) · Conveyance = min(50% of HRA, rem.) · Special = balance
                   </p>
                 </div>
                 {/* ─────────────────────────────────────────────────────── */}
@@ -1124,18 +1149,23 @@ export default function PayrollPage() {
                         </FormItem>
                       )}
                     />
-                    <FormField
-                      control={form.control}
-                      name="medicalAllowance"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Medical Allowance</FormLabel>
-                          <FormControl>
-                            <Input type="number" {...field} onChange={(e) => { field.onChange(e); calculateSalary(); }} />
-                          </FormControl>
-                        </FormItem>
-                      )}
-                    />
+                    {activeEarningHeads.map((head) => (
+                      <FormItem key={head.id}>
+                        <FormLabel>{head.name}</FormLabel>
+                        <FormControl>
+                          <Input
+                            type="number"
+                            value={customEarningAmounts[head.id] ?? 0}
+                            onChange={(e) => {
+                              const val = Number(e.target.value) || 0;
+                              setCustomEarningAmounts((prev) => ({ ...prev, [head.id]: val }));
+                              setTimeout(() => calculateSalary(), 0);
+                            }}
+                            data-testid={`input-earning-${head.id}`}
+                          />
+                        </FormControl>
+                      </FormItem>
+                    ))}
                     <FormField
                       control={form.control}
                       name="specialAllowance"
@@ -1775,7 +1805,7 @@ export default function PayrollPage() {
                     <div className="flex justify-between"><span>Basic Salary</span><span className="font-medium">{formatCurrency(record.basicSalary || 0)}</span></div>
                     <div className="flex justify-between"><span>HRA</span><span className="font-medium">{formatCurrency(record.hra || 0)}</span></div>
                     <div className="flex justify-between"><span>Conveyance</span><span className="font-medium">{formatCurrency(record.conveyance || 0)}</span></div>
-                    <div className="flex justify-between"><span>Medical Allowance</span><span className="font-medium">{formatCurrency(record.medicalAllowance || 0)}</span></div>
+                    {(record.medicalAllowance || 0) > 0 && <div className="flex justify-between"><span>Medical Allowance</span><span className="font-medium">{formatCurrency(record.medicalAllowance || 0)}</span></div>}
                     <div className="flex justify-between"><span>Special Allowance</span><span className="font-medium">{formatCurrency(record.specialAllowance || 0)}</span></div>
                     <div className="flex justify-between"><span>Other Allowances</span><span className="font-medium">{formatCurrency(record.otherAllowances || 0)}</span></div>
                     {(record.bonus || 0) > 0 && <div className="flex justify-between"><span>Bonus</span><span className="font-medium">{formatCurrency(record.bonus || 0)}</span></div>}

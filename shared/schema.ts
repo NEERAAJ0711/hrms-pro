@@ -428,6 +428,7 @@ export const salaryStructures = pgTable("salary_structures", {
   medicalAllowance: integer("medical_allowance").default(0),
   specialAllowance: integer("special_allowance").default(0),
   otherAllowances: integer("other_allowances").default(0),
+  customEarnings: json("custom_earnings").$type<Record<string, number>>().default({}),
   grossSalary: integer("gross_salary").notNull(),
   pfEmployee: integer("pf_employee").default(0),
   pfEmployer: integer("pf_employer").default(0),
