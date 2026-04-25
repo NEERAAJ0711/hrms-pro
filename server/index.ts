@@ -146,12 +146,19 @@ app.use((req, res, next) => {
           ALTER TABLE deduction_heads ALTER COLUMN percentage TYPE real USING percentage::real;
           RAISE NOTICE 'Migrated percentage columns from integer to real';
         END IF;
-        -- Add custom_earnings JSON column if missing
+        -- Add custom_earnings JSON column to salary_structures if missing
         IF NOT EXISTS (
           SELECT 1 FROM information_schema.columns
           WHERE table_name = 'salary_structures' AND column_name = 'custom_earnings'
         ) THEN
           ALTER TABLE salary_structures ADD COLUMN custom_earnings json DEFAULT '{}';
+        END IF;
+        -- Add custom_earnings JSON column to payroll if missing
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_name = 'payroll' AND column_name = 'custom_earnings'
+        ) THEN
+          ALTER TABLE payroll ADD COLUMN custom_earnings json DEFAULT '{}';
         END IF;
       END;
       $$

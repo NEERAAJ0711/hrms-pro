@@ -476,6 +476,7 @@ export const payroll = pgTable("payroll", {
   leaveDays: integer("leave_days").default(0),
   otHours: numeric("ot_hours", { precision: 6, scale: 2 }).default("0"),
   otAmount: integer("ot_amount").default(0),
+  customEarnings: json("custom_earnings").$type<Record<string, number>>().default({}),
   status: text("status").notNull().default("draft"),
   paidOn: text("paid_on"),
   generatedAt: text("generated_at").notNull(),

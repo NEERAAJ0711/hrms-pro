@@ -30,7 +30,7 @@ import { useToast } from "@/hooks/use-toast";
 import * as XLSX from "xlsx";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
-import type { Company, Employee, Payroll, SalaryStructure, Attendance, StatutorySettings, FnfSettlement, LeaveRequest, TimeOfficePolicy, Holiday, LoanAdvance } from "@shared/schema";
+import type { Company, Employee, Payroll, SalaryStructure, Attendance, StatutorySettings, FnfSettlement, LeaveRequest, TimeOfficePolicy, Holiday, LoanAdvance, EarningHead } from "@shared/schema";
 import { apiRequest } from "@/lib/queryClient";
 
 const months = [
@@ -117,6 +117,15 @@ export default function ReportsPage() {
     enabled: !!hasAccess,
     queryFn: async () => {
       const res = await fetch("/api/holidays", { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+  });
+  const { data: earningHeads = [] } = useQuery<EarningHead[]>({
+    queryKey: ["/api/earning-heads"],
+    enabled: !!hasAccess,
+    queryFn: async () => {
+      const res = await fetch("/api/earning-heads", { credentials: "include" });
       if (!res.ok) return [];
       return res.json();
     },
@@ -1018,7 +1027,15 @@ export default function ReportsPage() {
       if (c.conveyance > 0) earnRows.push(["Conveyance Allowances", fmt(c.conveyance)]);
       if (c.medicalAllowance > 0) earnRows.push(["Medical Allowance", fmt(c.medicalAllowance)]);
       if (c.specialAllowance > 0) earnRows.push(["Special Allowance", fmt(c.specialAllowance)]);
-      if (c.otherAllowances > 0) earnRows.push(["Other Allowances", fmt(c.otherAllowances)]);
+      // Custom earning heads stored per payroll record
+      const payrollCustom: Record<string, number> = (c as any).customEarnings || {};
+      const customEarnSum = Object.entries(payrollCustom).reduce((acc, [headId, amt]) => {
+        const head = earningHeads.find((h) => h.id === headId);
+        if (head && amt) earnRows.push([head.name, fmt(amt as number)]);
+        return acc + (Number(amt) || 0);
+      }, 0);
+      const residualOther = (c.otherAllowances || 0) - customEarnSum;
+      if (residualOther > 0) earnRows.push(["Other Allowances", fmt(residualOther)]);
       if (c.bonus > 0) earnRows.push(["Bonus", fmt(c.bonus)]);
       if (otAmtVal > 0) earnRows.push([`OT Amount (${otHrsVal.toFixed(2)} hrs)`, fmt(otAmtVal)]);
 

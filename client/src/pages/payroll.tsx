@@ -295,7 +295,7 @@ export default function PayrollPage() {
     return { pfEmployee, pfEmployer, esi, pt, lwfEmployee, lwfEmployer };
   };
 
-  const calculateSalary = (autoCalculateStatutory = true) => {
+  const calculateSalary = (autoCalculateStatutory = true, customAmountsOverride?: Record<string, number>) => {
     const companyId = form.getValues("companyId");
     const employeeId = form.getValues("employeeId");
     const basic = Number(form.getValues("basicSalary")) || 0;
@@ -303,7 +303,8 @@ export default function PayrollPage() {
     const conveyance = Number(form.getValues("conveyance")) || 0;
     const special = Number(form.getValues("specialAllowance")) || 0;
     const other = Number(form.getValues("otherAllowances")) || 0;
-    const customSum = Object.values(customEarningAmounts).reduce((acc, v) => acc + (v || 0), 0);
+    const amounts = customAmountsOverride ?? customEarningAmounts;
+    const customSum = Object.values(amounts).reduce((acc, v) => acc + (v || 0), 0);
 
     const gross = basic + hra + conveyance + special + other + customSum;
     form.setValue("grossSalary", gross);
@@ -786,6 +787,13 @@ export default function PayrollPage() {
         const specialAllowance = Math.round((structure.specialAllowance || 0) * prorationFactor);
         const otherAllowances = Math.round((structure.otherAllowances || 0) * prorationFactor);
 
+        // Prorate each custom earning head individually so they appear on the payslip
+        const savedCustom: Record<string, number> = (structure as any).customEarnings || {};
+        const proratedCustomEarnings: Record<string, number> = {};
+        for (const [headId, amt] of Object.entries(savedCustom)) {
+          proratedCustomEarnings[headId] = Math.round((amt || 0) * prorationFactor);
+        }
+
         const payrollData = {
           employeeId: emp.id,
           companyId: companyId,
@@ -800,6 +808,7 @@ export default function PayrollPage() {
           bonus: monthlyBonus,
           otHours: String(totalOtHours),
           otAmount: otAmount,
+          customEarnings: proratedCustomEarnings,
           totalEarnings: totalEarnings,
           pfEmployee: pfEmployee,
           esi: esi,
@@ -1158,8 +1167,9 @@ export default function PayrollPage() {
                             value={customEarningAmounts[head.id] ?? 0}
                             onChange={(e) => {
                               const val = Number(e.target.value) || 0;
-                              setCustomEarningAmounts((prev) => ({ ...prev, [head.id]: val }));
-                              setTimeout(() => calculateSalary(), 0);
+                              const newAmounts = { ...customEarningAmounts, [head.id]: val };
+                              setCustomEarningAmounts(newAmounts);
+                              calculateSalary(true, newAmounts);
                             }}
                             data-testid={`input-earning-${head.id}`}
                           />
@@ -1807,7 +1817,25 @@ export default function PayrollPage() {
                     <div className="flex justify-between"><span>Conveyance</span><span className="font-medium">{formatCurrency(record.conveyance || 0)}</span></div>
                     {(record.medicalAllowance || 0) > 0 && <div className="flex justify-between"><span>Medical Allowance</span><span className="font-medium">{formatCurrency(record.medicalAllowance || 0)}</span></div>}
                     <div className="flex justify-between"><span>Special Allowance</span><span className="font-medium">{formatCurrency(record.specialAllowance || 0)}</span></div>
-                    <div className="flex justify-between"><span>Other Allowances</span><span className="font-medium">{formatCurrency(record.otherAllowances || 0)}</span></div>
+                    {/* Custom earning heads stored on the payroll record */}
+                    {Object.entries((record as any).customEarnings || {}).map(([headId, amt]) => {
+                      const head = earningHeads.find(h => h.id === headId);
+                      if (!head || !amt) return null;
+                      return (
+                        <div key={headId} className="flex justify-between">
+                          <span>{head.name}</span>
+                          <span className="font-medium">{formatCurrency(amt as number)}</span>
+                        </div>
+                      );
+                    })}
+                    {/* Other Allowances: only show when there's a residual amount not covered by named heads */}
+                    {(() => {
+                      const customSum = Object.values((record as any).customEarnings || {}).reduce((a: number, v) => a + (Number(v) || 0), 0);
+                      const residual = (record.otherAllowances || 0) - customSum;
+                      return residual > 0
+                        ? <div className="flex justify-between"><span>Other Allowances</span><span className="font-medium">{formatCurrency(residual)}</span></div>
+                        : null;
+                    })()}
                     {(record.bonus || 0) > 0 && <div className="flex justify-between"><span>Bonus</span><span className="font-medium">{formatCurrency(record.bonus || 0)}</span></div>}
                     {Number((record as any).otHours) > 0 && (
                       <div className="flex justify-between text-orange-700 dark:text-orange-400">
