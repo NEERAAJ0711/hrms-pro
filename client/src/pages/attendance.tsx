@@ -1505,22 +1505,16 @@ export default function AttendancePage() {
             <DialogDescription>
               {missedLogRecord && (
                 <>
-                  {missedLogRecord.clockIn && !missedLogRecord.clockOut
-                    ? <>Clock-in recorded at <strong>{missedLogRecord.clockIn}</strong>. Enter the missing <strong>clock-out</strong> time.</>
-                    : missedLogRecord.clockOut && !missedLogRecord.clockIn
-                    ? <>Clock-out recorded at <strong>{missedLogRecord.clockOut}</strong>. Enter the missing <strong>clock-in</strong> time.</>
-                    : <>Enter the missing punch time for <strong>{missedLogRecord.date}</strong>.</>
-                  }
+                  Punch recorded at{" "}
+                  <strong>{missedLogRecord.clockIn || missedLogRecord.clockOut}</strong>.{" "}
+                  Enter the other punch time. The system will automatically assign clock-in / clock-out based on which time is earlier (as per shift).
                 </>
               )}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-1.5">
-              <label className="text-sm font-medium">
-                {missedLogRecord?.clockIn && !missedLogRecord?.clockOut ? "Clock-Out Time" :
-                 missedLogRecord?.clockOut && !missedLogRecord?.clockIn ? "Clock-In Time" : "Punch Time"}
-              </label>
+              <label className="text-sm font-medium">Other Punch Time</label>
               <Input
                 type="time"
                 value={missedLogTime}

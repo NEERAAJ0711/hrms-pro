@@ -3314,16 +3314,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Invalid time format — expected HH:MM" });
       }
 
-      const clockIn  = existing.clockIn  || (existing.clockOut ? time : null);
-      const clockOut = existing.clockOut || (existing.clockIn  ? time : null);
-
-      // If only one punch existed we now need to decide which slot the new time fills
-      // If clockIn was missing → new time is clockIn; if clockOut was missing → new time is clockOut
-      const finalClockIn  = existing.clockIn  ?? time;
-      const finalClockOut = existing.clockOut ?? time;
-
       const toMin = (t: string) => { const [h, m] = t.split(":").map(Number); return h * 60 + m; };
       const fromMin = (m: number) => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+
+      // Determine the existing single punch time
+      const existingTime = existing.clockIn || existing.clockOut || "00:00";
+      const newMin = toMin(time);
+      const existingMin = toMin(existingTime);
+
+      // Assign clock-in / clock-out by which time is earlier, regardless of which
+      // slot was originally filled.  This handles the common case where the biometric
+      // device recorded the afternoon punch first (setting it as clockIn) and the
+      // morning punch is entered manually.
+      let finalClockIn: string;
+      let finalClockOut: string;
+      if (newMin < existingMin) {
+        // Entered time is earlier → it is the clock-in
+        finalClockIn  = time;
+        finalClockOut = existingTime;
+      } else if (newMin > existingMin) {
+        // Entered time is later → it is the clock-out
+        finalClockIn  = existingTime;
+        finalClockOut = time;
+      } else {
+        // Same minute — fall back to original slot assignment
+        finalClockIn  = existing.clockIn  ?? time;
+        finalClockOut = existing.clockOut ?? time;
+      }
 
       const inMin  = toMin(finalClockIn);
       const outMin = toMin(finalClockOut);
