@@ -19,6 +19,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth";
+import { INDIAN_STATES as INDIA_STATES_LIST, INDIA_DISTRICTS } from "@/lib/india-locations";
 
 function validateAadhaar(aadhaar: string): { valid: boolean; message: string } {
   const cleaned = aadhaar.replace(/\s/g, "");
@@ -56,20 +57,11 @@ const emptyExp = (): ExperienceEntry => ({
   reasonOfLeaving: "", ctc: "", jobResponsibilities: "",
 });
 
-const INDIAN_STATES = [
-  "Andhra Pradesh","Arunachal Pradesh","Assam","Bihar","Chhattisgarh","Goa","Gujarat",
-  "Haryana","Himachal Pradesh","Jharkhand","Karnataka","Kerala","Madhya Pradesh",
-  "Maharashtra","Manipur","Meghalaya","Mizoram","Nagaland","Odisha","Punjab","Rajasthan",
-  "Sikkim","Tamil Nadu","Telangana","Tripura","Uttar Pradesh","Uttarakhand","West Bengal",
-  "Andaman and Nicobar Islands","Chandigarh","Dadra and Nagar Haveli and Daman and Diu",
-  "Delhi","Jammu and Kashmir","Ladakh","Lakshadweep","Puducherry",
-];
-
-const StateSelect = ({ value, onChange }: { value: string; onChange: (v: string) => void }) => (
-  <Select value={value} onValueChange={onChange}>
+const StateSelect = ({ value, onChange, disabled }: { value: string; onChange: (v: string) => void; disabled?: boolean }) => (
+  <Select value={value} onValueChange={onChange} disabled={disabled}>
     <SelectTrigger><SelectValue placeholder="Select state" /></SelectTrigger>
     <SelectContent>
-      {INDIAN_STATES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+      {INDIA_STATES_LIST.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
     </SelectContent>
   </Select>
 );
@@ -530,15 +522,30 @@ export default function MyProfilePage() {
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div className="space-y-1.5">
                   <Label>State</Label>
-                  <StateSelect value={profile.addressState} onChange={(v) => handleChange("addressState", v)} />
+                  <StateSelect
+                    value={profile.addressState}
+                    onChange={(v) => {
+                      handleChange("addressState", v);
+                      handleChange("addressDistrict", "");
+                    }}
+                  />
                 </div>
                 <div className="space-y-1.5">
-                  <Label>District</Label>
-                  <Input
+                  <Label>District / City</Label>
+                  <Select
                     value={profile.addressDistrict}
-                    onChange={(e) => handleChange("addressDistrict", e.target.value)}
-                    placeholder="District"
-                  />
+                    onValueChange={(v) => handleChange("addressDistrict", v)}
+                    disabled={!profile.addressState}
+                  >
+                    <SelectTrigger data-testid="select-present-district">
+                      <SelectValue placeholder={profile.addressState ? "Select district/city" : "Select state first"} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(INDIA_DISTRICTS[profile.addressState] || []).map(d => (
+                        <SelectItem key={d} value={d}>{d}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="space-y-1.5">
                   <Label>Pincode</Label>
@@ -594,17 +601,30 @@ export default function MyProfilePage() {
                   <Label>State</Label>
                   <StateSelect
                     value={profile.permanentState}
-                    onChange={(v) => { setSameAsPresent(false); handleChange("permanentState", v); }}
+                    disabled={sameAsPresent}
+                    onChange={(v) => {
+                      setSameAsPresent(false);
+                      handleChange("permanentState", v);
+                      handleChange("permanentDistrict", "");
+                    }}
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <Label>District</Label>
-                  <Input
+                  <Label>District / City</Label>
+                  <Select
                     value={profile.permanentDistrict}
-                    onChange={(e) => { setSameAsPresent(false); handleChange("permanentDistrict", e.target.value); }}
-                    placeholder="District"
-                    disabled={sameAsPresent}
-                  />
+                    onValueChange={(v) => { setSameAsPresent(false); handleChange("permanentDistrict", v); }}
+                    disabled={sameAsPresent || !profile.permanentState}
+                  >
+                    <SelectTrigger data-testid="select-permanent-district">
+                      <SelectValue placeholder={profile.permanentState ? "Select district/city" : "Select state first"} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(INDIA_DISTRICTS[profile.permanentState] || []).map(d => (
+                        <SelectItem key={d} value={d}>{d}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="space-y-1.5">
                   <Label>Pincode</Label>

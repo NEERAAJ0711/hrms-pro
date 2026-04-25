@@ -28,6 +28,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { ArrowLeft, Save, User, Briefcase, FileText, Building2, MapPin, Upload, Trash2, Eye, Image, FileSignature, CreditCard, FolderOpen } from "lucide-react";
+import { INDIAN_STATES as INDIA_STATES_LIST, INDIA_DISTRICTS } from "@/lib/india-locations";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useLocation, useParams, useSearch } from "wouter";
 import type { Employee, Company, MasterDepartment, MasterDesignation, MasterLocation, TimeOfficePolicy, WageGrade, StatutorySettings } from "@shared/schema";
@@ -82,16 +83,7 @@ type EmployeeFormValues = z.infer<typeof employeeFormSchema>;
 
 const employmentTypesList = ["permanent", "contract", "intern", "consultant"];
 
-const indianStates = [
-  "Andhra Pradesh", "Arunachal Pradesh", "Assam", "Bihar", "Chhattisgarh",
-  "Goa", "Gujarat", "Haryana", "Himachal Pradesh", "Jharkhand",
-  "Karnataka", "Kerala", "Madhya Pradesh", "Maharashtra", "Manipur",
-  "Meghalaya", "Mizoram", "Nagaland", "Odisha", "Punjab",
-  "Rajasthan", "Sikkim", "Tamil Nadu", "Telangana", "Tripura",
-  "Uttar Pradesh", "Uttarakhand", "West Bengal",
-  "Delhi", "Jammu & Kashmir", "Ladakh", "Puducherry",
-  "Chandigarh", "Andaman & Nicobar", "Dadra & Nagar Haveli", "Lakshadweep"
-];
+const indianStates = INDIA_STATES_LIST;
 
 // ─── Document Types ─────────────────────────────────────────────────────────
 const DOC_TYPES = [
@@ -1302,24 +1294,17 @@ export default function AddEmployee() {
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                       <FormField
                         control={form.control}
-                        name="presentDistrict"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>District/City</FormLabel>
-                            <FormControl>
-                              <Input placeholder="District or City" {...field} data-testid="input-present-district" />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      <FormField
-                        control={form.control}
                         name="presentState"
                         render={({ field }) => (
                           <FormItem>
                             <FormLabel>State</FormLabel>
-                            <Select onValueChange={field.onChange} value={field.value}>
+                            <Select
+                              onValueChange={(v) => {
+                                field.onChange(v);
+                                form.setValue("presentDistrict", "");
+                              }}
+                              value={field.value}
+                            >
                               <FormControl>
                                 <SelectTrigger data-testid="select-present-state">
                                   <SelectValue placeholder="Select state" />
@@ -1334,6 +1319,32 @@ export default function AddEmployee() {
                             <FormMessage />
                           </FormItem>
                         )}
+                      />
+                      <FormField
+                        control={form.control}
+                        name="presentDistrict"
+                        render={({ field }) => {
+                          const stateVal = form.watch("presentState");
+                          const districtOptions = stateVal ? (INDIA_DISTRICTS[stateVal] || []) : [];
+                          return (
+                            <FormItem>
+                              <FormLabel>District/City</FormLabel>
+                              <Select onValueChange={field.onChange} value={field.value || ""}>
+                                <FormControl>
+                                  <SelectTrigger data-testid="select-present-district" disabled={!stateVal}>
+                                    <SelectValue placeholder={stateVal ? "Select district/city" : "Select state first"} />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  {districtOptions.map(d => (
+                                    <SelectItem key={d} value={d}>{d}</SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                              <FormMessage />
+                            </FormItem>
+                          );
+                        }}
                       />
                       <FormField
                         control={form.control}
@@ -1394,24 +1405,20 @@ export default function AddEmployee() {
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                       <FormField
                         control={form.control}
-                        name="permanentDistrict"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>District/City</FormLabel>
-                            <FormControl>
-                              <Input placeholder="District or City" {...field} disabled={form.watch("sameAsPresentAddress")} data-testid="input-permanent-district" />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      <FormField
-                        control={form.control}
                         name="permanentState"
                         render={({ field }) => (
                           <FormItem>
                             <FormLabel>State</FormLabel>
-                            <Select onValueChange={field.onChange} value={field.value} disabled={form.watch("sameAsPresentAddress")}>
+                            <Select
+                              onValueChange={(v) => {
+                                field.onChange(v);
+                                if (!form.watch("sameAsPresentAddress")) {
+                                  form.setValue("permanentDistrict", "");
+                                }
+                              }}
+                              value={field.value}
+                              disabled={form.watch("sameAsPresentAddress")}
+                            >
                               <FormControl>
                                 <SelectTrigger data-testid="select-permanent-state">
                                   <SelectValue placeholder="Select state" />
@@ -1426,6 +1433,33 @@ export default function AddEmployee() {
                             <FormMessage />
                           </FormItem>
                         )}
+                      />
+                      <FormField
+                        control={form.control}
+                        name="permanentDistrict"
+                        render={({ field }) => {
+                          const isSame = form.watch("sameAsPresentAddress");
+                          const stateVal = form.watch("permanentState");
+                          const districtOptions = stateVal ? (INDIA_DISTRICTS[stateVal] || []) : [];
+                          return (
+                            <FormItem>
+                              <FormLabel>District/City</FormLabel>
+                              <Select onValueChange={field.onChange} value={field.value || ""} disabled={isSame || !stateVal}>
+                                <FormControl>
+                                  <SelectTrigger data-testid="select-permanent-district">
+                                    <SelectValue placeholder={stateVal ? "Select district/city" : "Select state first"} />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  {districtOptions.map(d => (
+                                    <SelectItem key={d} value={d}>{d}</SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                              <FormMessage />
+                            </FormItem>
+                          );
+                        }}
                       />
                       <FormField
                         control={form.control}
