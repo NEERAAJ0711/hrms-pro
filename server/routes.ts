@@ -3243,6 +3243,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (user.role !== "super_admin" && existing.companyId !== user.companyId) {
         return res.status(403).json({ error: "Access denied" });
       }
+      // Only super_admin can edit biometric (machine) records
+      if (user.role !== "super_admin" && existing.clockInMethod === "biometric") {
+        return res.status(403).json({ error: "Biometric records can only be edited by Super Admin" });
+      }
 
       const updateData = { ...req.body };
       const clockIn = updateData.clockIn || existing.clockIn;
@@ -3268,21 +3272,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
             : null;
           if (!policy) policy = activePolicies.find((p: any) => p.isDefault) || activePolicies[0];
 
-          if (policy) {
-            const [dutyEndH, dutyEndM] = (policy.dutyEndTime || "18:00").split(":").map(Number);
-            const dutyEndMin = dutyEndH * 60 + dutyEndM;
-            const [dutyStartH, dutyStartM] = (policy.dutyStartTime || "09:00").split(":").map(Number);
-            const dutyStartMin = dutyStartH * 60 + dutyStartM;
-            const normalDutyMin = dutyEndMin - dutyStartMin;
+          const [dutyEndH, dutyEndM] = ((policy?.dutyEndTime) || "18:00").split(":").map(Number);
+          const dutyEndMin = dutyEndH * 60 + dutyEndM;
+          const [dutyStartH, dutyStartM] = ((policy?.dutyStartTime) || "09:00").split(":").map(Number);
+          const dutyStartMin = dutyStartH * 60 + dutyStartM;
+          const normalDutyMin = dutyEndMin - dutyStartMin;
 
-            if (policy.otAllowed && diffMin > normalDutyMin) {
-              const otMin = diffMin - normalDutyMin;
-              const otHrs = Math.floor(otMin / 60);
-              const otMins = otMin % 60;
-              updateData.otHours = `${String(otHrs).padStart(2, "0")}:${String(otMins).padStart(2, "0")}`;
-            } else {
-              updateData.otHours = "0";
-            }
+          if (normalDutyMin > 0 && diffMin > normalDutyMin) {
+            const otMin = diffMin - normalDutyMin;
+            const otHrs = Math.floor(otMin / 60);
+            const otMins = otMin % 60;
+            updateData.otHours = `${String(otHrs).padStart(2, "0")}:${String(otMins).padStart(2, "0")}`;
+          } else {
+            updateData.otHours = "0";
           }
         }
       }
@@ -3301,6 +3303,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!existing) return res.status(404).json({ error: "Attendance record not found" });
       if (user.role !== "super_admin" && existing.companyId !== user.companyId) {
         return res.status(403).json({ error: "Access denied" });
+      }
+      // Only super_admin can delete biometric (machine) records
+      if (user.role !== "super_admin" && existing.clockInMethod === "biometric") {
+        return res.status(403).json({ error: "Biometric records can only be deleted by Super Admin" });
       }
       await storage.deleteAttendance(req.params.id);
       res.json({ success: true });

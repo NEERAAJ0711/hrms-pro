@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, parseISO } from "date-fns";
-import { Calendar, Clock, Plus, CheckCircle, XCircle, AlertCircle, Users, Zap, Eye, Pencil, Trash2, Download, Search } from "lucide-react";
+import { Calendar, Clock, Plus, CheckCircle, XCircle, AlertCircle, Users, Zap, Eye, Pencil, Trash2, Download, Search, Lock } from "lucide-react";
 import * as XLSX from "xlsx";
 import { SearchableEmployeeSelect } from "@/components/searchable-employee-select";
 import { Button } from "@/components/ui/button";
@@ -1295,14 +1295,22 @@ export default function AttendancePage() {
                       <TableCell className="max-w-[150px] truncate">{record.notes || "—"}</TableCell>
                       {isAdmin && (
                         <TableCell className="text-right">
-                          <div className="flex justify-end gap-1">
-                            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleEditRecord(record)}>
-                              <Pencil className="h-3.5 w-3.5" />
-                            </Button>
-                            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleDeleteRecord(record)}>
-                              <Trash2 className="h-3.5 w-3.5 text-destructive" />
-                            </Button>
-                          </div>
+                          {record.clockInMethod === "biometric" && !isSuperAdmin ? (
+                            <div className="flex justify-end">
+                              <span title="From biometric device — only Super Admin can edit">
+                                <Lock className="h-3.5 w-3.5 text-muted-foreground" />
+                              </span>
+                            </div>
+                          ) : (
+                            <div className="flex justify-end gap-1">
+                              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleEditRecord(record)}>
+                                <Pencil className="h-3.5 w-3.5" />
+                              </Button>
+                              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleDeleteRecord(record)}>
+                                <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                              </Button>
+                            </div>
+                          )}
                         </TableCell>
                       )}
                     </TableRow>
@@ -1319,7 +1327,7 @@ export default function AttendancePage() {
           <DialogHeader>
             <DialogTitle>Delete Selected Records</DialogTitle>
             <DialogDescription>
-              Are you sure you want to delete {selectedDetailIds.size} selected attendance record{selectedDetailIds.size !== 1 ? "s" : ""}? This action cannot be undone.
+              Are you sure you want to delete {selectedDetailIds.size} selected attendance record{selectedDetailIds.size !== 1 ? "s" : ""}?{!isSuperAdmin && " Biometric (machine) records in the selection will be skipped."} This action cannot be undone.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -1327,7 +1335,16 @@ export default function AttendancePage() {
             <Button
               variant="destructive"
               disabled={bulkDeleteMutation.isPending}
-              onClick={() => bulkDeleteMutation.mutate(Array.from(selectedDetailIds))}
+              onClick={() => {
+                const ids = Array.from(selectedDetailIds);
+                const deletable = isSuperAdmin
+                  ? ids
+                  : ids.filter(id => {
+                      const rec = attendance.find(a => a.id === id);
+                      return rec?.clockInMethod !== "biometric";
+                    });
+                bulkDeleteMutation.mutate(deletable);
+              }}
             >
               {bulkDeleteMutation.isPending ? "Deleting..." : `Delete ${selectedDetailIds.size} Record${selectedDetailIds.size !== 1 ? "s" : ""}`}
             </Button>

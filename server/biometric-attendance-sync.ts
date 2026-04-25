@@ -284,7 +284,7 @@ export async function processBiometricAttendance(
           status = "present"; // short shift still counts as present
         }
 
-        if (otAllowed && normalDutyMins > 0 && workMin > normalDutyMins) {
+        if (normalDutyMins > 0 && workMin > normalDutyMins) {
           otHours = fromMinutes(workMin - normalDutyMins);
         }
       }
