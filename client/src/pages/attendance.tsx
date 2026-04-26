@@ -584,9 +584,14 @@ export default function AttendancePage() {
     ["present", "half_day", "miss_punch"].includes(a.status) &&
     a.date === todayStr
   ).length;
-  const absentCount = attendance.filter(a => filteredEmployeeIds.has(a.employeeId) && a.status === "absent" && a.date === todayStr).length;
   const leaveCount = attendance.filter(a => filteredEmployeeIds.has(a.employeeId) && a.status === "on_leave" && a.date === todayStr).length
     + approvedLeaves.filter(lr => filteredEmployeeIds.has(lr.employeeId) && todayStr >= lr.startDate && todayStr <= lr.endDate).length;
+  const nonWorkingCount = attendance.filter(a =>
+    filteredEmployeeIds.has(a.employeeId) &&
+    ["week_off", "holiday"].includes(a.status) &&
+    a.date === todayStr
+  ).length;
+  const absentCount = Math.max(0, filteredEmployees.length - presentCount - leaveCount - nonWorkingCount);
 
   const selectedEmpObj = selectedEmployee ? employees.find(e => e.id === selectedEmployee) : null;
   const employeeAttendance = selectedEmployee
