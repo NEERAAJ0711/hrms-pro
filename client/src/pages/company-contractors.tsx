@@ -593,7 +593,7 @@ export default function CompanyContractorsPage() {
   });
 
   return (
-    <div className="p-6 space-y-5 max-w-5xl mx-auto" data-testid="company-contractors-page">
+    <div className="p-6 space-y-5" data-testid="company-contractors-page">
 
       {/* ── Header ── */}
       <div className="flex items-center gap-3">
