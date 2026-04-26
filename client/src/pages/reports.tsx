@@ -177,6 +177,19 @@ export default function ReportsPage() {
     enabled: !!hasAccess && !!contractorPrincipalId,
   });
 
+  const { data: contractorTaggedEmpList = [] } = useQuery<Employee[]>({
+    queryKey: ["/api/companies", contractorPrincipalId, "contractors", selectedContractorId, "employees"],
+    queryFn: async () => {
+      const res = await fetch(
+        `/api/companies/${contractorPrincipalId}/contractors/${selectedContractorId}/employees`,
+        { credentials: "include" }
+      );
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: !!hasAccess && !!contractorPrincipalId && !!selectedContractorId,
+  });
+
   const getStatutorySettings = (companyId: string | null): StatutorySettings | undefined => {
     if (!companyId) return undefined;
     return statutorySettingsData.find(s => s.companyId === companyId);
@@ -460,8 +473,8 @@ export default function ReportsPage() {
     return "-";
   };
 
-  const generateAttendanceSheet = (fileType: "excel" | "pdf") => {
-    const emps = filteredEmployees;
+  const generateAttendanceSheet = (fileType: "excel" | "pdf", empOverride?: Employee[]) => {
+    const emps = empOverride ?? filteredEmployees;
     if (emps.length === 0) {
       toast({ title: "No Data", description: "No employees found for selected filters.", variant: "destructive" });
       return;
@@ -539,12 +552,12 @@ export default function ReportsPage() {
     }
   };
 
-  const generateSalarySheet = (fileType: "excel" | "pdf") => {
+  const generateSalarySheet = (fileType: "excel" | "pdf", empOverride?: Employee[]) => {
     const monthPayroll = payrollRecords.filter(p =>
       p.month === monthName && p.year === yearNum &&
       (effectiveCompany ? p.companyId === effectiveCompany : true)
     );
-    const emps = filteredEmployees;
+    const emps = empOverride ?? filteredEmployees;
 
     // Compute Pay Days from stored attendance records directly:
     // Present + Half Days (0.5) + stored Weekend records + stored Holiday records + Leave records
@@ -791,8 +804,8 @@ export default function ReportsPage() {
     doc.save(`Salary_Sheet_${selectedMonth}.pdf`);
   };
 
-  const generatePFStatement = (fileType: "excel" | "pdf") => {
-    const pfEmployees = filteredEmployees.filter(e => e.pfApplicable);
+  const generatePFStatement = (fileType: "excel" | "pdf", empOverride?: Employee[]) => {
+    const pfEmployees = (empOverride ?? filteredEmployees).filter(e => e.pfApplicable);
     if (pfEmployees.length === 0) {
       toast({ title: "No Data", description: "No PF-applicable employees found.", variant: "destructive" });
       return;
@@ -850,8 +863,8 @@ export default function ReportsPage() {
     }
   };
 
-  const generateESICStatement = (fileType: "excel" | "pdf") => {
-    const esicEmployees = filteredEmployees.filter(e => e.esiApplicable);
+  const generateESICStatement = (fileType: "excel" | "pdf", empOverride?: Employee[]) => {
+    const esicEmployees = (empOverride ?? filteredEmployees).filter(e => e.esiApplicable);
     if (esicEmployees.length === 0) {
       toast({ title: "No Data", description: "No ESIC-applicable employees found.", variant: "destructive" });
       return;
@@ -1761,8 +1774,8 @@ export default function ReportsPage() {
     setViewDialogOpen(true);
   };
 
-  const viewAttendanceSheet = () => {
-    const emps = filteredEmployees;
+  const viewAttendanceSheet = (empOverride?: Employee[]) => {
+    const emps = empOverride ?? filteredEmployees;
     if (emps.length === 0) {
       toast({ title: "No Data", description: "No employees found for selected filters.", variant: "destructive" });
       return;
@@ -1863,9 +1876,9 @@ export default function ReportsPage() {
     openViewDialog(`Attendance Punch Report - ${monthName} ${yearNum}`, headers, allRows);
   };
 
-  const viewSalarySheet = () => {
+  const viewSalarySheet = (empOverride?: Employee[]) => {
     const monthPayroll = payrollRecords.filter(p => p.month === monthName && p.year === yearNum && (effectiveCompany ? p.companyId === effectiveCompany : true));
-    const emps = filteredEmployees;
+    const emps = empOverride ?? filteredEmployees;
     const headers = ["Code", "Name", "Dept", "Designation", "Mon.Days", "Pay Days", "OT Hrs", "R.Basic", "R.HRA", "R.Conv", "R.Oth", "R.Total", "E.Basic", "E.HRA", "E.Conv", "E.Oth", "Bonus", "E.OT Amt", "E.Total", "PF", "ESIC", "LWF", "TDS", "PT", "Other Ded", "Loan/Adv", "D.Total", "Net Pay"];
     let rows: (string | number)[][] = [];
     const buildViewRow = (emp: Employee, c: ReturnType<typeof getProRatedComponents> | null, pr: Payroll | null): (string | number)[] => {
@@ -1914,8 +1927,8 @@ export default function ReportsPage() {
     openViewDialog(`Salary Sheet - ${monthName} ${yearNum}`, headers, rows);
   };
 
-  const viewPFStatement = () => {
-    const pfEmployees = filteredEmployees.filter(e => e.pfApplicable);
+  const viewPFStatement = (empOverride?: Employee[]) => {
+    const pfEmployees = (empOverride ?? filteredEmployees).filter(e => e.pfApplicable);
     if (pfEmployees.length === 0) {
       toast({ title: "No Data", description: "No PF-applicable employees found.", variant: "destructive" });
       return;
@@ -1937,8 +1950,8 @@ export default function ReportsPage() {
     openViewDialog(`PF Statement (ECR) - ${monthName} ${yearNum}`, headers, rows);
   };
 
-  const viewESICStatement = () => {
-    const esicEmployees = filteredEmployees.filter(e => e.esiApplicable);
+  const viewESICStatement = (empOverride?: Employee[]) => {
+    const esicEmployees = (empOverride ?? filteredEmployees).filter(e => e.esiApplicable);
     if (esicEmployees.length === 0) {
       toast({ title: "No Data", description: "No ESIC-applicable employees found.", variant: "destructive" });
       return;
@@ -2940,10 +2953,10 @@ export default function ReportsPage() {
 
   // Contractor-wise cards — same reports as monthly but scoped to contractor employees
   const contractorCards = [
-    { title: "Attendance Sheet (Contractor)", description: "Monthly attendance for contractor employees — present, absent, OT and pay-day counts", icon: Calendar, color: "text-blue-600", bgColor: "bg-blue-50 dark:bg-blue-950", generate: generateAttendanceSheet, view: viewAttendanceSheet },
-    { title: "Salary Sheet (Contractor)", description: "Monthly salary register for contractor / principal-employer employees", icon: CreditCard, color: "text-green-600", bgColor: "bg-green-50 dark:bg-green-950", generate: generateSalarySheet, view: viewSalarySheet },
-    { title: "PF Statement (Contractor)", description: "Monthly PF ECR for contractor employees", icon: Shield, color: "text-purple-600", bgColor: "bg-purple-50 dark:bg-purple-950", generate: generatePFStatement, view: viewPFStatement },
-    { title: "ESIC Statement (Contractor)", description: "Monthly ESIC contributions for contractor employees", icon: Receipt, color: "text-orange-600", bgColor: "bg-orange-50 dark:bg-orange-950", generate: generateESICStatement, view: viewESICStatement },
+    { title: "Attendance Sheet (Contractor)", description: "Monthly attendance for contractor employees — present, absent, OT and pay-day counts", icon: Calendar, color: "text-blue-600", bgColor: "bg-blue-50 dark:bg-blue-950", generate: (ft: "excel" | "pdf") => generateAttendanceSheet(ft, contractorTaggedEmpList), view: () => viewAttendanceSheet(contractorTaggedEmpList) },
+    { title: "Salary Sheet (Contractor)", description: "Monthly salary register for contractor / principal-employer employees", icon: CreditCard, color: "text-green-600", bgColor: "bg-green-50 dark:bg-green-950", generate: (ft: "excel" | "pdf") => generateSalarySheet(ft, contractorTaggedEmpList), view: () => viewSalarySheet(contractorTaggedEmpList) },
+    { title: "PF Statement (Contractor)", description: "Monthly PF ECR for contractor employees", icon: Shield, color: "text-purple-600", bgColor: "bg-purple-50 dark:bg-purple-950", generate: (ft: "excel" | "pdf") => generatePFStatement(ft, contractorTaggedEmpList), view: () => viewPFStatement(contractorTaggedEmpList) },
+    { title: "ESIC Statement (Contractor)", description: "Monthly ESIC contributions for contractor employees", icon: Receipt, color: "text-orange-600", bgColor: "bg-orange-50 dark:bg-orange-950", generate: (ft: "excel" | "pdf") => generateESICStatement(ft, contractorTaggedEmpList), view: () => viewESICStatement(contractorTaggedEmpList) },
   ];
 
   return (
