@@ -69,6 +69,7 @@ export default function ReportsPage() {
   const [viewHeaders, setViewHeaders] = useState<string[]>([]);
   const [viewRows, setViewRows] = useState<(string | number)[][]>([]);
   const [ctrlReport, setCtrlReport] = useState<string>("");
+  const [ctrlCategory, setCtrlCategory] = useState<string>("Monthly");
 
   const { data: companies = [] } = useQuery<Company[]>({
     queryKey: ["/api/companies"],
@@ -2962,33 +2963,34 @@ export default function ReportsPage() {
   ];
 
   type CtrlFilter = "company" | "month" | "period" | "employee" | "contractor";
-  const ctrlAllReports: Array<{ key: string; title: string; category: string; filters: CtrlFilter[]; generate: (ft: "excel" | "pdf") => void; view: () => void; pdfOnly?: boolean }> = [
-    { key: "att",       category: "Monthly",       title: "Attendance Sheet",          filters: ["company","month"],            generate: generateAttendanceSheet,      view: viewAttendanceSheet },
-    { key: "punch",     category: "Monthly",       title: "Attendance Punch Report",   filters: ["company","month"],            generate: generateAttendancePunchReport, view: viewAttendancePunchReport },
-    { key: "sal",       category: "Monthly",       title: "Salary Sheet",              filters: ["company","month"],            generate: generateSalarySheet,          view: viewSalarySheet },
-    { key: "pf",        category: "Monthly",       title: "PF Statement (ECR)",        filters: ["company","month"],            generate: generatePFStatement,          view: viewPFStatement },
-    { key: "esic",      category: "Monthly",       title: "ESIC Statement",            filters: ["company","month"],            generate: generateESICStatement,        view: viewESICStatement },
-    { key: "payslip",   category: "Monthly",       title: "Pay Slip",                  filters: ["company","month"],            generate: generatePaySlip,              view: viewPaySlip },
-    { key: "fnf",       category: "Monthly",       title: "Full & Final Settlement",   filters: ["company","month"],            generate: generateFnFReport,            view: viewFnFReport },
-    { key: "bonus",     category: "Monthly",       title: "Bonus Report",              filters: ["company","month"],            generate: generateBonusReport,          view: viewBonusReport },
-    { key: "lwf",       category: "Monthly",       title: "LWF Report",                filters: ["company","month"],            generate: generateLWFReport,            view: viewLWFReport },
-    { key: "loan",      category: "Monthly",       title: "Advance & Loan Report",     filters: ["company"],                    generate: generateAdvanceReport,        view: viewAdvanceReport },
-    { key: "leave",     category: "Monthly",       title: "Leave Report",              filters: ["company","month"],            generate: generateLeaveReport,          view: viewLeaveReport },
-    { key: "ypf",       category: "Annual",        title: "Yearly PF Summary",         filters: ["company","period"],           generate: generateYearlyPFSummary,      view: viewYearlyPFSummary },
-    { key: "yesic",     category: "Annual",        title: "Yearly ESIC Summary",       filters: ["company","period"],           generate: generateYearlyESICSummary,    view: viewYearlyESICSummary },
-    { key: "ysal",      category: "Annual",        title: "Yearly Salary Detail",      filters: ["company","period"],           generate: generateYearlySalaryDetail,   view: viewYearlySalaryDetail },
-    { key: "emplist",   category: "Employee Wise", title: "Employee List",             filters: ["company","employee","period"],generate: generateEmployeeList,         view: viewEmployeeList },
-    { key: "empfile",   category: "Employee Wise", title: "Employee Personal File",    filters: ["company","employee","period"],generate: generateEmployeePersonalFile, view: viewEmployeePersonalFile },
-    { key: "emppay",    category: "Employee Wise", title: "Employee Pay Structure",    filters: ["company","employee","period"],generate: generateEmployeePayStructure, view: viewEmployeePayStructure },
-    { key: "offer",     category: "HR Documents",  title: "Offer Letter",              filters: ["company","employee","period"],generate: generateOfferLetter,          view: () => toast({ title: "PDF Only", description: "Offer Letter is available as PDF download only." }), pdfOnly: true },
-    { key: "appt",      category: "HR Documents",  title: "Appointment Letter",        filters: ["company","employee","period"],generate: generateAppointmentLetter,    view: () => toast({ title: "PDF Only", description: "Appointment Letter is available as PDF download only." }), pdfOnly: true },
-    { key: "leavereg",  category: "HR Documents",  title: "Employee Leave Register",   filters: ["company","employee","period"],generate: generateEmployeeLeaveRegister,view: viewEmployeeLeaveRegister },
-    { key: "c_att",     category: "Contractor",    title: "Attendance Sheet (Contractor)",filters: ["contractor","month"],      generate: (ft) => generateAttendanceSheet(ft, contractorTaggedEmpList), view: () => viewAttendanceSheet(contractorTaggedEmpList) },
-    { key: "c_sal",     category: "Contractor",    title: "Salary Sheet (Contractor)", filters: ["contractor","month"],         generate: (ft) => generateSalarySheet(ft, contractorTaggedEmpList),    view: () => viewSalarySheet(contractorTaggedEmpList) },
-    { key: "c_pf",      category: "Contractor",    title: "PF Statement (Contractor)", filters: ["contractor","month"],         generate: (ft) => generatePFStatement(ft, contractorTaggedEmpList),   view: () => viewPFStatement(contractorTaggedEmpList) },
-    { key: "c_esic",    category: "Contractor",    title: "ESIC Statement (Contractor)",filters: ["contractor","month"],        generate: (ft) => generateESICStatement(ft, contractorTaggedEmpList), view: () => viewESICStatement(contractorTaggedEmpList) },
+  const ctrlAllReports: Array<{ key: string; title: string; category: string; filters: CtrlFilter[]; icon: React.ElementType; color: string; bgColor: string; generate: (ft: "excel" | "pdf") => void; view: () => void; pdfOnly?: boolean }> = [
+    { key: "att",      category: "Monthly",       title: "Attendance Sheet",             icon: Calendar,      color: "text-blue-600",   bgColor: "bg-blue-50 dark:bg-blue-950",    filters: ["company","month"],             generate: generateAttendanceSheet,       view: viewAttendanceSheet },
+    { key: "punch",    category: "Monthly",       title: "Attendance Punch",             icon: Clock,         color: "text-sky-600",    bgColor: "bg-sky-50 dark:bg-sky-950",      filters: ["company","month"],             generate: generateAttendancePunchReport, view: viewAttendancePunchReport },
+    { key: "sal",      category: "Monthly",       title: "Salary Sheet",                 icon: CreditCard,    color: "text-green-600",  bgColor: "bg-green-50 dark:bg-green-950",  filters: ["company","month"],             generate: generateSalarySheet,           view: viewSalarySheet },
+    { key: "pf",       category: "Monthly",       title: "PF Statement",                 icon: Shield,        color: "text-purple-600", bgColor: "bg-purple-50 dark:bg-purple-950",filters: ["company","month"],             generate: generatePFStatement,           view: viewPFStatement },
+    { key: "esic",     category: "Monthly",       title: "ESIC Statement",               icon: Receipt,       color: "text-orange-600", bgColor: "bg-orange-50 dark:bg-orange-950",filters: ["company","month"],             generate: generateESICStatement,         view: viewESICStatement },
+    { key: "payslip",  category: "Monthly",       title: "Pay Slip",                     icon: FileText,      color: "text-red-600",    bgColor: "bg-red-50 dark:bg-red-950",      filters: ["company","month"],             generate: generatePaySlip,               view: viewPaySlip },
+    { key: "fnf",      category: "Monthly",       title: "Full & Final Settlement",      icon: HandCoins,     color: "text-rose-600",   bgColor: "bg-rose-50 dark:bg-rose-950",    filters: ["company","month"],             generate: generateFnFReport,             view: viewFnFReport },
+    { key: "bonus",    category: "Monthly",       title: "Bonus Report",                 icon: Landmark,      color: "text-amber-600",  bgColor: "bg-amber-50 dark:bg-amber-950",  filters: ["company","month"],             generate: generateBonusReport,           view: viewBonusReport },
+    { key: "lwf",      category: "Monthly",       title: "LWF Report",                   icon: Scale,         color: "text-cyan-600",   bgColor: "bg-cyan-50 dark:bg-cyan-950",    filters: ["company","month"],             generate: generateLWFReport,             view: viewLWFReport },
+    { key: "loan",     category: "Monthly",       title: "Advance & Loan",               icon: Banknote,      color: "text-emerald-600",bgColor: "bg-emerald-50 dark:bg-emerald-950",filters: ["company"],                  generate: generateAdvanceReport,         view: viewAdvanceReport },
+    { key: "leave",    category: "Monthly",       title: "Leave Report",                 icon: CalendarX,     color: "text-purple-600", bgColor: "bg-purple-50 dark:bg-purple-950",filters: ["company","month"],             generate: generateLeaveReport,           view: viewLeaveReport },
+    { key: "ypf",      category: "Annual",        title: "Yearly PF Summary",            icon: Shield,        color: "text-purple-600", bgColor: "bg-purple-50 dark:bg-purple-950",filters: ["company","period"],            generate: generateYearlyPFSummary,       view: viewYearlyPFSummary },
+    { key: "yesic",    category: "Annual",        title: "Yearly ESIC Summary",          icon: Receipt,       color: "text-orange-600", bgColor: "bg-orange-50 dark:bg-orange-950",filters: ["company","period"],            generate: generateYearlyESICSummary,     view: viewYearlyESICSummary },
+    { key: "ysal",     category: "Annual",        title: "Yearly Salary Detail",         icon: TrendingUp,    color: "text-green-600",  bgColor: "bg-green-50 dark:bg-green-950",  filters: ["company","period"],            generate: generateYearlySalaryDetail,    view: viewYearlySalaryDetail },
+    { key: "emplist",  category: "Employee Wise", title: "Employee List",                icon: Users,         color: "text-teal-600",   bgColor: "bg-teal-50 dark:bg-teal-950",    filters: ["company","employee","period"], generate: generateEmployeeList,          view: viewEmployeeList },
+    { key: "empfile",  category: "Employee Wise", title: "Employee Personal File",       icon: FileUser,      color: "text-indigo-600", bgColor: "bg-indigo-50 dark:bg-indigo-950",filters: ["company","employee","period"], generate: generateEmployeePersonalFile,  view: viewEmployeePersonalFile },
+    { key: "emppay",   category: "Employee Wise", title: "Employee Pay Structure",       icon: ClipboardList, color: "text-blue-600",   bgColor: "bg-blue-50 dark:bg-blue-950",    filters: ["company","employee","period"], generate: generateEmployeePayStructure,  view: viewEmployeePayStructure },
+    { key: "offer",    category: "HR Documents",  title: "Offer Letter",                 icon: FilePen,       color: "text-sky-600",    bgColor: "bg-sky-50 dark:bg-sky-950",      filters: ["company","employee","period"], generate: generateOfferLetter,           view: () => toast({ title: "PDF Only", description: "Offer Letter is PDF only." }), pdfOnly: true },
+    { key: "appt",     category: "HR Documents",  title: "Appointment Letter",           icon: BookOpen,      color: "text-violet-600", bgColor: "bg-violet-50 dark:bg-violet-950",filters: ["company","employee","period"], generate: generateAppointmentLetter,     view: () => toast({ title: "PDF Only", description: "Appointment Letter is PDF only." }), pdfOnly: true },
+    { key: "leavereg", category: "HR Documents",  title: "Leave Register",               icon: CalendarRange, color: "text-rose-600",   bgColor: "bg-rose-50 dark:bg-rose-950",    filters: ["company","employee","period"], generate: generateEmployeeLeaveRegister, view: viewEmployeeLeaveRegister },
+    { key: "c_att",    category: "Contractor",    title: "Attendance Sheet",             icon: Calendar,      color: "text-blue-600",   bgColor: "bg-blue-50 dark:bg-blue-950",    filters: ["contractor","month"],          generate: (ft) => generateAttendanceSheet(ft, contractorTaggedEmpList), view: () => viewAttendanceSheet(contractorTaggedEmpList) },
+    { key: "c_sal",    category: "Contractor",    title: "Salary Sheet",                 icon: CreditCard,    color: "text-green-600",  bgColor: "bg-green-50 dark:bg-green-950",  filters: ["contractor","month"],          generate: (ft) => generateSalarySheet(ft, contractorTaggedEmpList),    view: () => viewSalarySheet(contractorTaggedEmpList) },
+    { key: "c_pf",     category: "Contractor",    title: "PF Statement",                 icon: Shield,        color: "text-purple-600", bgColor: "bg-purple-50 dark:bg-purple-950",filters: ["contractor","month"],          generate: (ft) => generatePFStatement(ft, contractorTaggedEmpList),   view: () => viewPFStatement(contractorTaggedEmpList) },
+    { key: "c_esic",   category: "Contractor",    title: "ESIC Statement",               icon: Receipt,       color: "text-orange-600", bgColor: "bg-orange-50 dark:bg-orange-950",filters: ["contractor","month"],          generate: (ft) => generateESICStatement(ft, contractorTaggedEmpList), view: () => viewESICStatement(contractorTaggedEmpList) },
   ];
   const ctrlSelected = ctrlAllReports.find(r => r.key === ctrlReport) ?? null;
+  const ctrlCategoryReports = ctrlAllReports.filter(r => r.category === ctrlCategory);
 
   return (
     <div className="p-6" data-testid="reports-page">
@@ -3009,152 +3011,160 @@ export default function ReportsPage() {
 
         {/* ── Quick Generate Controller ── */}
         <TabsContent value="ctrl">
-          <div className="max-w-2xl mx-auto">
-            <Card className="shadow-md">
-              <CardHeader className="pb-4">
-                <CardTitle className="text-lg flex items-center gap-2">
-                  <SlidersHorizontal className="h-5 w-5 text-primary" />
-                  Quick Report Generator
-                </CardTitle>
-                <CardDescription>Choose a report, set the filters below, then generate in one click.</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-5">
+          <div className="space-y-4">
 
-                {/* Report type selector */}
-                <div className="space-y-1.5">
-                  <label className="text-sm font-semibold">Report Type</label>
-                  <Select value={ctrlReport || "__none__"} onValueChange={v => setCtrlReport(v === "__none__" ? "" : v)}>
-                    <SelectTrigger className="w-full" data-testid="ctrl-report-select">
-                      <SelectValue placeholder="— Select a report —" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__none__">— Select a report —</SelectItem>
-                      {(["Monthly", "Annual", "Employee Wise", "HR Documents", "Contractor"] as const).map(cat => (
-                        <SelectGroup key={cat}>
-                          <SelectLabel className="text-xs uppercase tracking-wide text-muted-foreground">{cat}</SelectLabel>
-                          {ctrlAllReports.filter(r => r.category === cat).map(r => (
-                            <SelectItem key={r.key} value={r.key}>{r.title}</SelectItem>
-                          ))}
-                        </SelectGroup>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
+            {/* Step 1 — Category pills */}
+            <div>
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Step 1 — Choose Category</p>
+              <div className="flex flex-wrap gap-2">
+                {([
+                  { label: "Monthly",       icon: Calendar },
+                  { label: "Annual",        icon: TrendingUp },
+                  { label: "Employee Wise", icon: UserRound },
+                  { label: "HR Documents",  icon: FilePen },
+                  { label: "Contractor",    icon: Building2 },
+                ] as const).map(({ label, icon: Icon }) => (
+                  <button
+                    key={label}
+                    data-testid={`ctrl-cat-${label}`}
+                    onClick={() => { setCtrlCategory(label); setCtrlReport(""); }}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium border transition-all
+                      ${ctrlCategory === label
+                        ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                        : "bg-background text-muted-foreground border-border hover:border-primary/50 hover:text-foreground"}`}
+                  >
+                    <Icon className="h-3.5 w-3.5" />{label}
+                  </button>
+                ))}
+              </div>
+            </div>
 
-                {/* Dynamic filters */}
-                {ctrlSelected && (
-                  <div className="flex flex-wrap gap-4 p-4 bg-muted/30 rounded-lg border">
-
-                    {/* Company */}
-                    {ctrlSelected.filters.includes("company") && isSuperAdmin && (
-                      <div className="flex flex-col gap-1.5">
-                        <label className="text-xs font-medium text-muted-foreground">Company</label>
-                        <Select value={selectedCompany || "__all__"} onValueChange={setSelectedCompany}>
-                          <SelectTrigger className="w-52" data-testid="ctrl-company-select"><SelectValue placeholder="All Companies" /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="__all__">All Companies</SelectItem>
-                            {companies.map(c => <SelectItem key={c.id} value={c.id}>{c.companyName}</SelectItem>)}
-                          </SelectContent>
-                        </Select>
+            {/* Step 2 — Report tiles */}
+            <div>
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Step 2 — Select Report</p>
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2">
+                {ctrlCategoryReports.map(r => {
+                  const Icon = r.icon;
+                  const isSelected = ctrlReport === r.key;
+                  return (
+                    <button
+                      key={r.key}
+                      data-testid={`ctrl-report-${r.key}`}
+                      onClick={() => setCtrlReport(isSelected ? "" : r.key)}
+                      className={`flex flex-col items-center gap-2 p-3 rounded-xl border text-center transition-all hover:shadow-md
+                        ${isSelected
+                          ? "border-primary bg-primary/5 shadow-md ring-1 ring-primary"
+                          : "border-border bg-card hover:border-primary/40"}`}
+                    >
+                      <div className={`p-2 rounded-lg ${isSelected ? "bg-primary/10" : r.bgColor}`}>
+                        <Icon className={`h-5 w-5 ${isSelected ? "text-primary" : r.color}`} />
                       </div>
-                    )}
+                      <span className={`text-xs font-medium leading-tight ${isSelected ? "text-primary" : "text-foreground"}`}>
+                        {r.title}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
 
-                    {/* Month */}
-                    {ctrlSelected.filters.includes("month") && (
-                      <div className="flex flex-col gap-1.5">
-                        <label className="text-xs font-medium text-muted-foreground">Month</label>
-                        <Input type="month" value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)} className="w-44" data-testid="ctrl-month-input" />
-                      </div>
-                    )}
+            {/* Step 3 — Filters + Actions (only when a report is selected) */}
+            {ctrlSelected && (
+              <div className="rounded-xl border bg-muted/20 p-4 space-y-4">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Step 3 — Set Filters &amp; Generate</p>
 
-                    {/* Period */}
-                    {ctrlSelected.filters.includes("period") && (
-                      <div className="flex flex-col gap-1.5 w-full">
-                        <label className="text-xs font-medium text-muted-foreground">Period</label>
-                        <PeriodPicker />
-                      </div>
-                    )}
+                <div className="flex flex-wrap gap-3 items-end">
 
-                    {/* Employee */}
-                    {ctrlSelected.filters.includes("employee") && (
-                      <div className="flex flex-col gap-1.5">
-                        <label className="text-xs font-medium text-muted-foreground">Employee</label>
-                        <Select value={docEmployee || "__none__"} onValueChange={v => setDocEmployee(v === "__none__" ? "" : v)}>
-                          <SelectTrigger className="w-60" data-testid="ctrl-employee-select"><SelectValue placeholder="All Employees" /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="__none__">All Employees</SelectItem>
-                            {filteredEmployees.map(e => <SelectItem key={e.id} value={e.id}>{e.firstName} {e.lastName} ({e.employeeCode})</SelectItem>)}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    )}
+                  {/* Company */}
+                  {ctrlSelected.filters.includes("company") && isSuperAdmin && (
+                    <div className="flex flex-col gap-1">
+                      <label className="text-xs font-medium text-muted-foreground">Company</label>
+                      <Select value={selectedCompany || "__all__"} onValueChange={setSelectedCompany}>
+                        <SelectTrigger className="w-48 h-9" data-testid="ctrl-company-select"><SelectValue placeholder="All Companies" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__all__">All Companies</SelectItem>
+                          {companies.map(c => <SelectItem key={c.id} value={c.id}>{c.companyName}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
 
-                    {/* Contractor — Principal + Contractor dropdowns */}
-                    {ctrlSelected.filters.includes("contractor") && (
-                      <>
-                        {isSuperAdmin && (
-                          <div className="flex flex-col gap-1.5">
-                            <label className="text-xs font-medium text-muted-foreground">Principal Company</label>
-                            <Select
-                              value={contractorPrincipalId || "__none__"}
-                              onValueChange={v => { const val = v === "__none__" ? "" : v; setContractorPrincipalId(val); setSelectedContractorId(""); setSelectedCompany(""); }}
-                            >
-                              <SelectTrigger className="w-60" data-testid="ctrl-principal-select"><SelectValue placeholder="Select company…" /></SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="__none__">— Select Principal —</SelectItem>
-                                {companies.map(c => <SelectItem key={c.id} value={c.id}>{c.companyName}</SelectItem>)}
-                              </SelectContent>
-                            </Select>
-                          </div>
-                        )}
-                        <div className="flex flex-col gap-1.5">
-                          <label className="text-xs font-medium text-muted-foreground">Contractor</label>
-                          <Select
-                            value={selectedContractorId || "__none__"}
-                            onValueChange={v => { const val = v === "__none__" ? "" : v; setSelectedContractorId(val); setSelectedCompany(val); }}
-                            disabled={!contractorPrincipalId}
-                          >
-                            <SelectTrigger className="w-60" data-testid="ctrl-contractor-select">
-                              <SelectValue placeholder={companyContractors.length === 0 ? "No contractors mapped" : "Select contractor…"} />
-                            </SelectTrigger>
+                  {/* Month */}
+                  {ctrlSelected.filters.includes("month") && (
+                    <div className="flex flex-col gap-1">
+                      <label className="text-xs font-medium text-muted-foreground">Month</label>
+                      <Input type="month" value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)} className="w-40 h-9" data-testid="ctrl-month-input" />
+                    </div>
+                  )}
+
+                  {/* Period */}
+                  {ctrlSelected.filters.includes("period") && (
+                    <div className="flex flex-col gap-1 w-full">
+                      <label className="text-xs font-medium text-muted-foreground">Period</label>
+                      <PeriodPicker />
+                    </div>
+                  )}
+
+                  {/* Employee */}
+                  {ctrlSelected.filters.includes("employee") && (
+                    <div className="flex flex-col gap-1">
+                      <label className="text-xs font-medium text-muted-foreground">Employee</label>
+                      <Select value={docEmployee || "__none__"} onValueChange={v => setDocEmployee(v === "__none__" ? "" : v)}>
+                        <SelectTrigger className="w-56 h-9" data-testid="ctrl-employee-select"><SelectValue placeholder="All Employees" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__none__">All Employees</SelectItem>
+                          {filteredEmployees.map(e => <SelectItem key={e.id} value={e.id}>{e.firstName} {e.lastName} ({e.employeeCode})</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+
+                  {/* Contractor */}
+                  {ctrlSelected.filters.includes("contractor") && (
+                    <>
+                      {isSuperAdmin && (
+                        <div className="flex flex-col gap-1">
+                          <label className="text-xs font-medium text-muted-foreground">Principal Company</label>
+                          <Select value={contractorPrincipalId || "__none__"} onValueChange={v => { const val = v === "__none__" ? "" : v; setContractorPrincipalId(val); setSelectedContractorId(""); setSelectedCompany(""); }}>
+                            <SelectTrigger className="w-52 h-9" data-testid="ctrl-principal-select"><SelectValue placeholder="Select principal…" /></SelectTrigger>
                             <SelectContent>
-                              <SelectItem value="__none__">— Select Contractor —</SelectItem>
-                              {companyContractors.map(c => <SelectItem key={c.contractorId} value={c.contractorId}>{c.contractorName}</SelectItem>)}
+                              <SelectItem value="__none__">— Select Principal —</SelectItem>
+                              {companies.map(c => <SelectItem key={c.id} value={c.id}>{c.companyName}</SelectItem>)}
                             </SelectContent>
                           </Select>
                         </div>
-                      </>
-                    )}
-                  </div>
-                )}
-
-                {/* Placeholder when no report selected */}
-                {!ctrlSelected && (
-                  <div className="flex flex-col items-center justify-center py-10 text-muted-foreground gap-2">
-                    <SlidersHorizontal className="h-8 w-8 opacity-30" />
-                    <p className="text-sm">Select a report type above to see its filters.</p>
-                  </div>
-                )}
+                      )}
+                      <div className="flex flex-col gap-1">
+                        <label className="text-xs font-medium text-muted-foreground">Contractor</label>
+                        <Select value={selectedContractorId || "__none__"} onValueChange={v => { const val = v === "__none__" ? "" : v; setSelectedContractorId(val); setSelectedCompany(val); }} disabled={!contractorPrincipalId}>
+                          <SelectTrigger className="w-52 h-9" data-testid="ctrl-contractor-select"><SelectValue placeholder={companyContractors.length === 0 ? "No contractors" : "Select contractor…"} /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="__none__">— Select Contractor —</SelectItem>
+                            {companyContractors.map(c => <SelectItem key={c.contractorId} value={c.contractorId}>{c.contractorName}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </>
+                  )}
+                </div>
 
                 {/* Action buttons */}
-                {ctrlSelected && (
-                  <div className="flex gap-3 pt-1">
-                    <Button className="flex-1" variant="outline" onClick={() => ctrlSelected.view()} data-testid="ctrl-view-btn">
-                      <Eye className="h-4 w-4 mr-2 text-blue-600" />View
+                <div className="flex gap-2 pt-1 border-t">
+                  <Button className="flex-1" size="sm" variant="outline" onClick={() => ctrlSelected.view()} data-testid="ctrl-view-btn">
+                    <Eye className="h-4 w-4 mr-1.5 text-blue-600" />View
+                  </Button>
+                  {!ctrlSelected.pdfOnly && (
+                    <Button className="flex-1" size="sm" variant="outline" onClick={() => ctrlSelected.generate("excel")} data-testid="ctrl-excel-btn">
+                      <FileSpreadsheet className="h-4 w-4 mr-1.5 text-green-600" />Excel
                     </Button>
-                    {!ctrlSelected.pdfOnly && (
-                      <Button className="flex-1" variant="outline" onClick={() => ctrlSelected.generate("excel")} data-testid="ctrl-excel-btn">
-                        <FileSpreadsheet className="h-4 w-4 mr-2 text-green-600" />Excel
-                      </Button>
-                    )}
-                    <Button className="flex-1" variant="outline" onClick={() => ctrlSelected.generate("pdf")} data-testid="ctrl-pdf-btn">
-                      <Download className="h-4 w-4 mr-2 text-red-600" />PDF
-                    </Button>
-                  </div>
-                )}
+                  )}
+                  <Button className="flex-1" size="sm" onClick={() => ctrlSelected.generate("pdf")} data-testid="ctrl-pdf-btn">
+                    <Download className="h-4 w-4 mr-1.5" />PDF
+                  </Button>
+                </div>
+              </div>
+            )}
 
-              </CardContent>
-            </Card>
           </div>
         </TabsContent>
 
