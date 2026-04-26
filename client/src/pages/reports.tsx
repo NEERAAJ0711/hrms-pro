@@ -585,7 +585,8 @@ export default function ReportsPage() {
       const ss = salaryStructures.find(s => s.employeeId === emp.id);
       const rateOth = (ss?.otherAllowances || 0) + (ss?.specialAllowance || 0) + (ss?.medicalAllowance || 0);
       const earnOth = (c?.otherAllowances || 0) + (c?.specialAllowance || 0) + (c?.medicalAllowance || 0);
-      const customEarn = Object.values((pr as any)?.customEarnings || {}).reduce((s: number, v) => s + (Number(v) || 0), 0) as number;
+      const customEarningsMap: Record<string, number> = (pr as any)?.customEarnings || {};
+      const customEarn = Object.values(customEarningsMap).reduce((s: number, v) => s + (Number(v) || 0), 0) as number;
       // Always compute Pay Days from live attendance data — do not rely on stored pr.payDays
       const payDaysVal = computePayDays(emp);
       return {
@@ -603,6 +604,7 @@ export default function ReportsPage() {
         earnHra: c?.hra || 0,
         earnConv: c?.conveyance || 0,
         earnOth,
+        customEarnings: customEarningsMap,
         customEarn,
         bonus: c?.bonus || 0,
         otHours: Number((pr as any)?.otHours || 0),
@@ -638,23 +640,39 @@ export default function ReportsPage() {
       return;
     }
 
+    // Collect all unique custom earning heads present in this month's data
+    const allCustomHeadIds = [...new Set(dataRows.flatMap(r => Object.keys(r.customEarnings)))];
+    const usedHeads = allCustomHeadIds.map(id => ({
+      id,
+      name: earningHeads.find(h => h.id === id)?.name || "Custom",
+    }));
+
     if (fileType === "excel") {
-      const rows = dataRows.map(r => ({
-        "Code": r.code, "Name": r.name, "Department": r.dept, "Designation": r.desig,
-        "Month Days": r.monthDays, "Pay Days": r.payDays,
-        "Rate: Basic": r.rateBasic, "Rate: HRA": r.rateHra, "Rate: Conv": r.rateConv, "Rate: Other": r.rateOth,
-        "Rate: Total": r.rateBasic + r.rateHra + r.rateConv + r.rateOth,
-        "Earn: Basic": r.earnBasic, "Earn: HRA": r.earnHra, "Earn: Conv": r.earnConv, "Earn: Other": r.earnOth,
-        "Earn: Leave Encash": r.customEarn, "Earn: Bonus": r.bonus,
-        "OT Hrs": r.otHours, "OT Amount": r.otAmount,
-        "Earn: Total": r.earnBasic + r.earnHra + r.earnConv + r.earnOth + r.customEarn + r.bonus + r.otAmount,
-        "Ded: PF": r.pf, "Ded: ESIC": r.esic, "Ded: LWF": r.lwf, "Ded: TDS": r.tds, "Ded: PT": r.pt, "Ded: Adv": r.adv,
-        "Ded: Total": r.pf + r.esic + r.lwf + r.tds + r.pt + r.adv,
-        "Net Pay": r.netPay,
-      }));
+      const rows = dataRows.map(r => {
+        const row: Record<string, string | number> = {
+          "Code": r.code, "Name": r.name, "Department": r.dept, "Designation": r.desig,
+          "Month Days": r.monthDays, "Pay Days": r.payDays,
+          "Rate: Basic": r.rateBasic, "Rate: HRA": r.rateHra, "Rate: Conv": r.rateConv, "Rate: Other": r.rateOth,
+          "Rate: Total": r.rateBasic + r.rateHra + r.rateConv + r.rateOth,
+          "Earn: Basic": r.earnBasic, "Earn: HRA": r.earnHra, "Earn: Conv": r.earnConv, "Earn: Other": r.earnOth,
+        };
+        usedHeads.forEach(h => { row[`Earn: ${h.name}`] = r.customEarnings[h.id] || 0; });
+        row["Earn: Bonus"] = r.bonus;
+        row["OT Hrs"] = r.otHours;
+        row["OT Amount"] = r.otAmount;
+        row["Earn: Total"] = r.earnTotal;
+        row["Ded: PF"] = r.pf; row["Ded: ESIC"] = r.esic; row["Ded: LWF"] = r.lwf;
+        row["Ded: TDS"] = r.tds; row["Ded: PT"] = r.pt; row["Ded: Adv"] = r.adv;
+        row["Ded: Total"] = r.dedTotal;
+        row["Net Pay"] = r.netPay;
+        return row;
+      });
       const totalExcelRow: Record<string, string | number> = { "Code": "", "Name": "TOTAL", "Department": "", "Designation": "", "Month Days": "", "Pay Days": "" };
-      const numKeys = ["Rate: Basic","Rate: HRA","Rate: Conv","Rate: Other","Rate: Total","Earn: Basic","Earn: HRA","Earn: Conv","Earn: Other","Earn: Leave Encash","Earn: Bonus","OT Hrs","OT Amount","Earn: Total","Ded: PF","Ded: ESIC","Ded: LWF","Ded: TDS","Ded: PT","Ded: Adv","Ded: Total","Net Pay"];
-      for (const k of numKeys) totalExcelRow[k] = rows.reduce((s, r) => s + (Number(r[k as keyof typeof r]) || 0), 0);
+      const fixedNumKeys = ["Rate: Basic","Rate: HRA","Rate: Conv","Rate: Other","Rate: Total","Earn: Basic","Earn: HRA","Earn: Conv","Earn: Other"];
+      const customNumKeys = usedHeads.map(h => `Earn: ${h.name}`);
+      const trailNumKeys = ["Earn: Bonus","OT Hrs","OT Amount","Earn: Total","Ded: PF","Ded: ESIC","Ded: LWF","Ded: TDS","Ded: PT","Ded: Adv","Ded: Total","Net Pay"];
+      const numKeys = [...fixedNumKeys, ...customNumKeys, ...trailNumKeys];
+      for (const k of numKeys) totalExcelRow[k] = rows.reduce((s, r) => s + (Number(r[k]) || 0), 0);
       downloadExcel([...rows, totalExcelRow], `Salary_Sheet_${selectedMonth}`, "Salary Sheet");
       return;
     }
@@ -704,13 +722,15 @@ export default function ReportsPage() {
       dataRows.reduce((acc, r) => acc + (typeof r[key] === "number" ? (r[key] as number) : 0), 0);
 
     const sumRateTotal = dataRows.reduce((a, r) => a + r.rateBasic + r.rateHra + r.rateConv + r.rateOth, 0);
-    const sumEarnTotal = dataRows.reduce((a, r) => a + r.earnBasic + r.earnHra + r.earnConv + r.earnOth + r.customEarn + r.bonus + r.otAmount, 0);
+    const sumEarnTotal = dataRows.reduce((a, r) => a + r.earnTotal, 0);
     const sumDedTotal = dataRows.reduce((a, r) => a + r.pf + r.esic + r.lwf + r.tds + r.pt + r.adv, 0);
     const totalsRow = [
       { content: "TOTAL", colSpan: 6, styles: { fontStyle: "bold" as const, halign: "right" as const } },
       sum("otHours"),
       sum("rateBasic"), sum("rateHra"), sum("rateConv"), sum("rateOth"), sumRateTotal,
-      sum("earnBasic"), sum("earnHra"), sum("earnConv"), sum("earnOth"), sum("customEarn"), sum("bonus"), sum("otAmount"), sumEarnTotal,
+      sum("earnBasic"), sum("earnHra"), sum("earnConv"), sum("earnOth"),
+      ...usedHeads.map(h => dataRows.reduce((s, r) => s + (r.customEarnings[h.id] || 0), 0)),
+      sum("bonus"), sum("otAmount"), sumEarnTotal,
       sum("pf"), sum("esic"), sum("lwf"), sum("tds"), sum("pt"), sum("adv"), sumDedTotal,
       sum("netPay"),
     ];
@@ -727,13 +747,15 @@ export default function ReportsPage() {
           { content: "Pay Days",    rowSpan: 2, styles: { halign: "center", valign: "middle" } },
           { content: "OT Hrs",      rowSpan: 2, styles: { halign: "center", valign: "middle" } },
           { content: "Rate",        colSpan: 5,  styles: { halign: "center" } },
-          { content: "Earnings",    colSpan: 8,  styles: { halign: "center" } },
+          { content: "Earnings",    colSpan: 7 + usedHeads.length,  styles: { halign: "center" } },
           { content: "Deductions",  colSpan: 7,  styles: { halign: "center" } },
           { content: "Net Pay",     rowSpan: 2, styles: { halign: "center", valign: "middle" } },
         ],
         [
           "Basic", "HRA", "Conv", "Other", "Total",
-          "Basic", "HRA", "Conv", "Other", "L.Enc", "Bonus", "OT Amt", "Total",
+          "Basic", "HRA", "Conv", "Other",
+          ...usedHeads.map(h => h.name.length > 8 ? h.name.slice(0, 7) + "." : h.name),
+          "Bonus", "OT Amt", "Total",
           "PF", "ESIC", "LWF", "TDS", "PT", "Adv", "Total",
         ],
       ],
@@ -741,8 +763,10 @@ export default function ReportsPage() {
         r.code, r.name, r.dept, r.desig, r.monthDays, r.payDays,
         r.otHours,
         r.rateBasic, r.rateHra, r.rateConv, r.rateOth, r.rateBasic + r.rateHra + r.rateConv + r.rateOth,
-        r.earnBasic, r.earnHra, r.earnConv, r.earnOth, r.customEarn, r.bonus, r.otAmount, r.earnBasic + r.earnHra + r.earnConv + r.earnOth + r.customEarn + r.bonus + r.otAmount,
-        r.pf, r.esic, r.lwf, r.tds, r.pt, r.adv, r.pf + r.esic + r.lwf + r.tds + r.pt + r.adv,
+        r.earnBasic, r.earnHra, r.earnConv, r.earnOth,
+        ...usedHeads.map(h => r.customEarnings[h.id] || 0),
+        r.bonus, r.otAmount, r.earnTotal,
+        r.pf, r.esic, r.lwf, r.tds, r.pt, r.adv, r.dedTotal,
         r.netPay,
       ]),
       foot: [totalsRow],
@@ -1887,7 +1911,22 @@ export default function ReportsPage() {
   const viewSalarySheet = (empOverride?: Employee[]) => {
     const monthPayroll = payrollRecords.filter(p => p.month === monthName && p.year === yearNum && (effectiveCompany ? p.companyId === effectiveCompany : true));
     const emps = empOverride ?? filteredEmployees;
-    const headers = ["Code", "Name", "Dept", "Designation", "Mon.Days", "Pay Days", "OT Hrs", "R.Basic", "R.HRA", "R.Conv", "R.Oth", "R.Total", "E.Basic", "E.HRA", "E.Conv", "E.Oth", "E.LEnc", "Bonus", "E.OT Amt", "E.Total", "PF", "ESIC", "LWF", "TDS", "PT", "Other Ded", "Loan/Adv", "D.Total", "Net Pay"];
+
+    // Collect all unique custom earning heads used in this month's payroll
+    const allViewHeadIds = [...new Set(monthPayroll.flatMap(p => Object.keys((p as any).customEarnings || {})))];
+    const viewUsedHeads = allViewHeadIds.map(id => ({
+      id,
+      name: earningHeads.find(h => h.id === id)?.name || "Custom",
+    }));
+
+    const headers = [
+      "Code", "Name", "Dept", "Designation", "Mon.Days", "Pay Days", "OT Hrs",
+      "R.Basic", "R.HRA", "R.Conv", "R.Oth", "R.Total",
+      "E.Basic", "E.HRA", "E.Conv", "E.Oth",
+      ...viewUsedHeads.map(h => h.name),
+      "Bonus", "E.OT Amt", "E.Total",
+      "PF", "ESIC", "LWF", "TDS", "PT", "Other Ded", "Loan/Adv", "D.Total", "Net Pay",
+    ];
     let rows: (string | number)[][] = [];
     const buildViewRow = (emp: Employee, c: ReturnType<typeof getProRatedComponents> | null, pr: Payroll | null): (string | number)[] => {
       const ss = salaryStructures.find(s => s.employeeId === emp.id);
@@ -1895,19 +1934,23 @@ export default function ReportsPage() {
       const rOth = (ss?.otherAllowances || 0) + (ss?.specialAllowance || 0) + (ss?.medicalAllowance || 0);
       const eBasic = c?.basicSalary || 0, eHra = c?.hra || 0, eConv = c?.conveyance || 0;
       const eOth = (c?.otherAllowances || 0) + (c?.specialAllowance || 0) + (c?.medicalAllowance || 0);
-      const customEarn = Object.values((pr as any)?.customEarnings || {}).reduce((s: number, v) => s + (Number(v) || 0), 0) as number;
+      const prCustom: Record<string, number> = (pr as any)?.customEarnings || {};
+      const customEarn = Object.values(prCustom).reduce((s: number, v) => s + (Number(v) || 0), 0) as number;
       const bonus = c?.bonus || 0;
       const otHoursVal = Number((pr as any)?.otHours || 0);
       const otAmtVal = Number((pr as any)?.otAmount || 0);
       const pf = c?.pfEmployee || 0, esic = c?.esi || 0, lwf = c?.lwfEmployee || 0;
       const tds = c?.tds || 0, pt = c?.professionalTax || 0;
       const othDed = c?.otherDeductions || 0, loanAdv = (c as any)?.loanDeduction || 0;
+      const earnTotal = eBasic + eHra + eConv + eOth + customEarn + bonus + otAmtVal;
       return [
         emp.employeeCode || "", `${emp.firstName} ${emp.lastName}`, emp.department || "-", emp.designation || "-",
         pr ? pr.workingDays : "-", pr ? (pr.payDays ?? pr.presentDays) : "-",
         otHoursVal,
         rBasic, rHra, rConv, rOth, rBasic + rHra + rConv + rOth,
-        eBasic, eHra, eConv, eOth, customEarn, bonus, otAmtVal, eBasic + eHra + eConv + eOth + customEarn + bonus + otAmtVal,
+        eBasic, eHra, eConv, eOth,
+        ...viewUsedHeads.map(h => prCustom[h.id] || 0),
+        bonus, otAmtVal, earnTotal,
         pf, esic, lwf, tds, pt, othDed, loanAdv, pf + esic + lwf + tds + pt + othDed + loanAdv,
         c?.netSalary || 0,
       ];
