@@ -69,7 +69,6 @@ export default function ReportsPage() {
   const [viewHeaders, setViewHeaders] = useState<string[]>([]);
   const [viewRows, setViewRows] = useState<(string | number)[][]>([]);
   const [ctrlReport, setCtrlReport] = useState<string>("");
-  const [ctrlCategory, setCtrlCategory] = useState<string>("Monthly");
 
   const { data: companies = [] } = useQuery<Company[]>({
     queryKey: ["/api/companies"],
@@ -2990,7 +2989,6 @@ export default function ReportsPage() {
     { key: "c_esic",   category: "Contractor",    title: "ESIC Statement",               icon: Receipt,       color: "text-orange-600", bgColor: "bg-orange-50 dark:bg-orange-950",filters: ["contractor","month"],          generate: (ft) => generateESICStatement(ft, contractorTaggedEmpList), view: () => viewESICStatement(contractorTaggedEmpList) },
   ];
   const ctrlSelected = ctrlAllReports.find(r => r.key === ctrlReport) ?? null;
-  const ctrlCategoryReports = ctrlAllReports.filter(r => r.category === ctrlCategory);
 
   return (
     <div className="p-6" data-testid="reports-page">
@@ -3011,160 +3009,125 @@ export default function ReportsPage() {
 
         {/* ── Quick Generate Controller ── */}
         <TabsContent value="ctrl">
-          <div className="space-y-4">
+          <div className="max-w-xl mx-auto">
+            <Card className="shadow-sm">
+              <CardContent className="pt-6 space-y-4">
 
-            {/* Step 1 — Category pills */}
-            <div>
-              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Step 1 — Choose Category</p>
-              <div className="flex flex-wrap gap-2">
-                {([
-                  { label: "Monthly",       icon: Calendar },
-                  { label: "Annual",        icon: TrendingUp },
-                  { label: "Employee Wise", icon: UserRound },
-                  { label: "HR Documents",  icon: FilePen },
-                  { label: "Contractor",    icon: Building2 },
-                ] as const).map(({ label, icon: Icon }) => (
-                  <button
-                    key={label}
-                    data-testid={`ctrl-cat-${label}`}
-                    onClick={() => { setCtrlCategory(label); setCtrlReport(""); }}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium border transition-all
-                      ${ctrlCategory === label
-                        ? "bg-primary text-primary-foreground border-primary shadow-sm"
-                        : "bg-background text-muted-foreground border-border hover:border-primary/50 hover:text-foreground"}`}
-                  >
-                    <Icon className="h-3.5 w-3.5" />{label}
-                  </button>
-                ))}
-              </div>
-            </div>
+                {/* Report dropdown */}
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium">Report</label>
+                  <Select value={ctrlReport || "__none__"} onValueChange={v => setCtrlReport(v === "__none__" ? "" : v)}>
+                    <SelectTrigger className="w-full" data-testid="ctrl-report-select">
+                      <SelectValue placeholder="— Select report —" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">— Select report —</SelectItem>
+                      {(["Monthly", "Annual", "Employee Wise", "HR Documents", "Contractor"] as const).map(cat => (
+                        <SelectGroup key={cat}>
+                          <SelectLabel>{cat}</SelectLabel>
+                          {ctrlAllReports.filter(r => r.category === cat).map(r => (
+                            <SelectItem key={r.key} value={r.key}>{r.title}</SelectItem>
+                          ))}
+                        </SelectGroup>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
 
-            {/* Step 2 — Report tiles */}
-            <div>
-              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Step 2 — Select Report</p>
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2">
-                {ctrlCategoryReports.map(r => {
-                  const Icon = r.icon;
-                  const isSelected = ctrlReport === r.key;
-                  return (
-                    <button
-                      key={r.key}
-                      data-testid={`ctrl-report-${r.key}`}
-                      onClick={() => setCtrlReport(isSelected ? "" : r.key)}
-                      className={`flex flex-col items-center gap-2 p-3 rounded-xl border text-center transition-all hover:shadow-md
-                        ${isSelected
-                          ? "border-primary bg-primary/5 shadow-md ring-1 ring-primary"
-                          : "border-border bg-card hover:border-primary/40"}`}
-                    >
-                      <div className={`p-2 rounded-lg ${isSelected ? "bg-primary/10" : r.bgColor}`}>
-                        <Icon className={`h-5 w-5 ${isSelected ? "text-primary" : r.color}`} />
-                      </div>
-                      <span className={`text-xs font-medium leading-tight ${isSelected ? "text-primary" : "text-foreground"}`}>
-                        {r.title}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Step 3 — Filters + Actions (only when a report is selected) */}
-            {ctrlSelected && (
-              <div className="rounded-xl border bg-muted/20 p-4 space-y-4">
-                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Step 3 — Set Filters &amp; Generate</p>
-
-                <div className="flex flex-wrap gap-3 items-end">
-
-                  {/* Company */}
-                  {ctrlSelected.filters.includes("company") && isSuperAdmin && (
-                    <div className="flex flex-col gap-1">
-                      <label className="text-xs font-medium text-muted-foreground">Company</label>
-                      <Select value={selectedCompany || "__all__"} onValueChange={setSelectedCompany}>
-                        <SelectTrigger className="w-48 h-9" data-testid="ctrl-company-select"><SelectValue placeholder="All Companies" /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="__all__">All Companies</SelectItem>
-                          {companies.map(c => <SelectItem key={c.id} value={c.id}>{c.companyName}</SelectItem>)}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  )}
-
-                  {/* Month */}
-                  {ctrlSelected.filters.includes("month") && (
-                    <div className="flex flex-col gap-1">
-                      <label className="text-xs font-medium text-muted-foreground">Month</label>
-                      <Input type="month" value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)} className="w-40 h-9" data-testid="ctrl-month-input" />
-                    </div>
-                  )}
-
-                  {/* Period */}
-                  {ctrlSelected.filters.includes("period") && (
-                    <div className="flex flex-col gap-1 w-full">
-                      <label className="text-xs font-medium text-muted-foreground">Period</label>
-                      <PeriodPicker />
-                    </div>
-                  )}
-
-                  {/* Employee */}
-                  {ctrlSelected.filters.includes("employee") && (
-                    <div className="flex flex-col gap-1">
-                      <label className="text-xs font-medium text-muted-foreground">Employee</label>
-                      <Select value={docEmployee || "__none__"} onValueChange={v => setDocEmployee(v === "__none__" ? "" : v)}>
-                        <SelectTrigger className="w-56 h-9" data-testid="ctrl-employee-select"><SelectValue placeholder="All Employees" /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="__none__">All Employees</SelectItem>
-                          {filteredEmployees.map(e => <SelectItem key={e.id} value={e.id}>{e.firstName} {e.lastName} ({e.employeeCode})</SelectItem>)}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  )}
-
-                  {/* Contractor */}
-                  {ctrlSelected.filters.includes("contractor") && (
-                    <>
-                      {isSuperAdmin && (
-                        <div className="flex flex-col gap-1">
-                          <label className="text-xs font-medium text-muted-foreground">Principal Company</label>
-                          <Select value={contractorPrincipalId || "__none__"} onValueChange={v => { const val = v === "__none__" ? "" : v; setContractorPrincipalId(val); setSelectedContractorId(""); setSelectedCompany(""); }}>
-                            <SelectTrigger className="w-52 h-9" data-testid="ctrl-principal-select"><SelectValue placeholder="Select principal…" /></SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="__none__">— Select Principal —</SelectItem>
-                              {companies.map(c => <SelectItem key={c.id} value={c.id}>{c.companyName}</SelectItem>)}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      )}
-                      <div className="flex flex-col gap-1">
-                        <label className="text-xs font-medium text-muted-foreground">Contractor</label>
-                        <Select value={selectedContractorId || "__none__"} onValueChange={v => { const val = v === "__none__" ? "" : v; setSelectedContractorId(val); setSelectedCompany(val); }} disabled={!contractorPrincipalId}>
-                          <SelectTrigger className="w-52 h-9" data-testid="ctrl-contractor-select"><SelectValue placeholder={companyContractors.length === 0 ? "No contractors" : "Select contractor…"} /></SelectTrigger>
+                {/* Filters — appear only after a report is picked */}
+                {ctrlSelected && (
+                  <>
+                    {/* Company */}
+                    {ctrlSelected.filters.includes("company") && isSuperAdmin && (
+                      <div className="space-y-1.5">
+                        <label className="text-sm font-medium">Company</label>
+                        <Select value={selectedCompany || "__all__"} onValueChange={setSelectedCompany}>
+                          <SelectTrigger className="w-full" data-testid="ctrl-company-select"><SelectValue placeholder="All Companies" /></SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="__none__">— Select Contractor —</SelectItem>
-                            {companyContractors.map(c => <SelectItem key={c.contractorId} value={c.contractorId}>{c.contractorName}</SelectItem>)}
+                            <SelectItem value="__all__">All Companies</SelectItem>
+                            {companies.map(c => <SelectItem key={c.id} value={c.id}>{c.companyName}</SelectItem>)}
                           </SelectContent>
                         </Select>
                       </div>
-                    </>
-                  )}
-                </div>
+                    )}
 
-                {/* Action buttons */}
-                <div className="flex gap-2 pt-1 border-t">
-                  <Button className="flex-1" size="sm" variant="outline" onClick={() => ctrlSelected.view()} data-testid="ctrl-view-btn">
-                    <Eye className="h-4 w-4 mr-1.5 text-blue-600" />View
-                  </Button>
-                  {!ctrlSelected.pdfOnly && (
-                    <Button className="flex-1" size="sm" variant="outline" onClick={() => ctrlSelected.generate("excel")} data-testid="ctrl-excel-btn">
-                      <FileSpreadsheet className="h-4 w-4 mr-1.5 text-green-600" />Excel
-                    </Button>
-                  )}
-                  <Button className="flex-1" size="sm" onClick={() => ctrlSelected.generate("pdf")} data-testid="ctrl-pdf-btn">
-                    <Download className="h-4 w-4 mr-1.5" />PDF
-                  </Button>
-                </div>
-              </div>
-            )}
+                    {/* Month */}
+                    {ctrlSelected.filters.includes("month") && (
+                      <div className="space-y-1.5">
+                        <label className="text-sm font-medium">Month</label>
+                        <Input type="month" value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)} className="w-full" data-testid="ctrl-month-input" />
+                      </div>
+                    )}
 
+                    {/* Period */}
+                    {ctrlSelected.filters.includes("period") && (
+                      <div className="space-y-1.5">
+                        <label className="text-sm font-medium">Period</label>
+                        <PeriodPicker />
+                      </div>
+                    )}
+
+                    {/* Employee */}
+                    {ctrlSelected.filters.includes("employee") && (
+                      <div className="space-y-1.5">
+                        <label className="text-sm font-medium">Employee</label>
+                        <Select value={docEmployee || "__none__"} onValueChange={v => setDocEmployee(v === "__none__" ? "" : v)}>
+                          <SelectTrigger className="w-full" data-testid="ctrl-employee-select"><SelectValue placeholder="All Employees" /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="__none__">All Employees</SelectItem>
+                            {filteredEmployees.map(e => <SelectItem key={e.id} value={e.id}>{e.firstName} {e.lastName} ({e.employeeCode})</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
+
+                    {/* Contractor */}
+                    {ctrlSelected.filters.includes("contractor") && (
+                      <>
+                        {isSuperAdmin && (
+                          <div className="space-y-1.5">
+                            <label className="text-sm font-medium">Principal Company</label>
+                            <Select value={contractorPrincipalId || "__none__"} onValueChange={v => { const val = v === "__none__" ? "" : v; setContractorPrincipalId(val); setSelectedContractorId(""); setSelectedCompany(""); }}>
+                              <SelectTrigger className="w-full" data-testid="ctrl-principal-select"><SelectValue placeholder="Select principal company…" /></SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="__none__">— Select Principal Company —</SelectItem>
+                                {companies.map(c => <SelectItem key={c.id} value={c.id}>{c.companyName}</SelectItem>)}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        )}
+                        <div className="space-y-1.5">
+                          <label className="text-sm font-medium">Contractor</label>
+                          <Select value={selectedContractorId || "__none__"} onValueChange={v => { const val = v === "__none__" ? "" : v; setSelectedContractorId(val); setSelectedCompany(val); }} disabled={!contractorPrincipalId}>
+                            <SelectTrigger className="w-full" data-testid="ctrl-contractor-select"><SelectValue placeholder={companyContractors.length === 0 ? "No contractors mapped" : "Select contractor…"} /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="__none__">— Select Contractor —</SelectItem>
+                              {companyContractors.map(c => <SelectItem key={c.contractorId} value={c.contractorId}>{c.contractorName}</SelectItem>)}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </>
+                    )}
+
+                    {/* Action buttons */}
+                    <div className="flex gap-2 pt-2 border-t">
+                      <Button className="flex-1" variant="outline" onClick={() => ctrlSelected.view()} data-testid="ctrl-view-btn">
+                        <Eye className="h-4 w-4 mr-1.5 text-blue-600" />View
+                      </Button>
+                      {!ctrlSelected.pdfOnly && (
+                        <Button className="flex-1" variant="outline" onClick={() => ctrlSelected.generate("excel")} data-testid="ctrl-excel-btn">
+                          <FileSpreadsheet className="h-4 w-4 mr-1.5 text-green-600" />Excel
+                        </Button>
+                      )}
+                      <Button className="flex-1" variant="outline" onClick={() => ctrlSelected.generate("pdf")} data-testid="ctrl-pdf-btn">
+                        <Download className="h-4 w-4 mr-1.5 text-red-600" />PDF
+                      </Button>
+                    </div>
+                  </>
+                )}
+
+              </CardContent>
+            </Card>
           </div>
         </TabsContent>
 
