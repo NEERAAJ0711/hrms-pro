@@ -39,7 +39,7 @@ import { useToast } from "@/hooks/use-toast";
 import * as XLSX from "xlsx";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
-import type { Company, Employee, Payroll, SalaryStructure, Attendance, StatutorySettings, FnfSettlement, LeaveRequest, TimeOfficePolicy, Holiday, LoanAdvance, EarningHead } from "@shared/schema";
+import type { Company, Employee, Payroll, SalaryStructure, Attendance, StatutorySettings, FnfSettlement, LeaveRequest, TimeOfficePolicy, Holiday, LoanAdvance, EarningHead, DeductionHead } from "@shared/schema";
 import { apiRequest } from "@/lib/queryClient";
 
 const months = [
@@ -146,6 +146,15 @@ export default function ReportsPage() {
     enabled: !!hasAccess,
     queryFn: async () => {
       const res = await fetch("/api/earning-heads", { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+  });
+  const { data: deductionHeads = [] } = useQuery<DeductionHead[]>({
+    queryKey: ["/api/deduction-heads"],
+    enabled: !!hasAccess,
+    queryFn: async () => {
+      const res = await fetch("/api/deduction-heads", { credentials: "include" });
       if (!res.ok) return [];
       return res.json();
     },
@@ -587,6 +596,8 @@ export default function ReportsPage() {
       const earnOth = (c?.otherAllowances || 0) + (c?.specialAllowance || 0) + (c?.medicalAllowance || 0);
       const customEarningsMap: Record<string, number> = (pr as any)?.customEarnings || {};
       const customEarn = Object.values(customEarningsMap).reduce((s: number, v) => s + (Number(v) || 0), 0) as number;
+      const customDeductionsMap: Record<string, number> = (pr as any)?.customDeductions || {};
+      const customDed = Object.values(customDeductionsMap).reduce((s: number, v) => s + (Number(v) || 0), 0) as number;
       // Always compute Pay Days from live attendance data — do not rely on stored pr.payDays
       const payDaysVal = computePayDays(emp);
       return {
@@ -615,10 +626,12 @@ export default function ReportsPage() {
         tds: c?.tds || 0,
         pt: c?.professionalTax || 0,
         adv: (c?.otherDeductions || 0) + ((c as any)?.loanDeduction || 0),
+        customDeductions: customDeductionsMap,
+        customDed,
         netPay: c?.netSalary || 0,
         get rateTotal() { return this.rateBasic + this.rateHra + this.rateConv + this.rateOth; },
         get earnTotal() { return this.earnBasic + this.earnHra + this.earnConv + this.earnOth + this.customEarn + this.bonus + this.otAmount; },
-        get dedTotal() { return this.pf + this.esic + this.lwf + this.tds + this.pt + this.adv; },
+        get dedTotal() { return this.pf + this.esic + this.lwf + this.tds + this.pt + this.adv + this.customDed; },
       };
     };
 
@@ -647,6 +660,13 @@ export default function ReportsPage() {
       name: earningHeads.find(h => h.id === id)?.name || "Custom",
     }));
 
+    // Collect all unique custom deduction heads present in this month's data
+    const allCustomDedHeadIds = [...new Set(dataRows.flatMap(r => Object.keys(r.customDeductions)))];
+    const usedDedHeads = allCustomDedHeadIds.map(id => ({
+      id,
+      name: deductionHeads.find(h => h.id === id)?.name || "Custom",
+    }));
+
     if (fileType === "excel") {
       const rows = dataRows.map(r => {
         const row: Record<string, string | number> = {
@@ -663,6 +683,7 @@ export default function ReportsPage() {
         row["Earn: Total"] = r.earnTotal;
         row["Ded: PF"] = r.pf; row["Ded: ESIC"] = r.esic; row["Ded: LWF"] = r.lwf;
         row["Ded: TDS"] = r.tds; row["Ded: PT"] = r.pt; row["Ded: Adv"] = r.adv;
+        usedDedHeads.forEach(h => { row[`Ded: ${h.name}`] = r.customDeductions[h.id] || 0; });
         row["Ded: Total"] = r.dedTotal;
         row["Net Pay"] = r.netPay;
         return row;
@@ -670,7 +691,8 @@ export default function ReportsPage() {
       const totalExcelRow: Record<string, string | number> = { "Code": "", "Name": "TOTAL", "Department": "", "Designation": "", "Month Days": "", "Pay Days": "" };
       const fixedNumKeys = ["Rate: Basic","Rate: HRA","Rate: Conv","Rate: Other","Rate: Total","Earn: Basic","Earn: HRA","Earn: Conv","Earn: Other"];
       const customNumKeys = usedHeads.map(h => `Earn: ${h.name}`);
-      const trailNumKeys = ["Earn: Bonus","OT Hrs","OT Amount","Earn: Total","Ded: PF","Ded: ESIC","Ded: LWF","Ded: TDS","Ded: PT","Ded: Adv","Ded: Total","Net Pay"];
+      const customDedNumKeys = usedDedHeads.map(h => `Ded: ${h.name}`);
+      const trailNumKeys = ["Earn: Bonus","OT Hrs","OT Amount","Earn: Total","Ded: PF","Ded: ESIC","Ded: LWF","Ded: TDS","Ded: PT","Ded: Adv",...customDedNumKeys,"Ded: Total","Net Pay"];
       const numKeys = [...fixedNumKeys, ...customNumKeys, ...trailNumKeys];
       for (const k of numKeys) totalExcelRow[k] = rows.reduce((s, r) => s + (Number(r[k]) || 0), 0);
       downloadExcel([...rows, totalExcelRow], `Salary_Sheet_${selectedMonth}`, "Salary Sheet");
@@ -723,7 +745,7 @@ export default function ReportsPage() {
 
     const sumRateTotal = dataRows.reduce((a, r) => a + r.rateBasic + r.rateHra + r.rateConv + r.rateOth, 0);
     const sumEarnTotal = dataRows.reduce((a, r) => a + r.earnTotal, 0);
-    const sumDedTotal = dataRows.reduce((a, r) => a + r.pf + r.esic + r.lwf + r.tds + r.pt + r.adv, 0);
+    const sumDedTotal = dataRows.reduce((a, r) => a + r.dedTotal, 0);
     const totalsRow = [
       { content: "TOTAL", colSpan: 6, styles: { fontStyle: "bold" as const, halign: "right" as const } },
       sum("otHours"),
@@ -731,7 +753,9 @@ export default function ReportsPage() {
       sum("earnBasic"), sum("earnHra"), sum("earnConv"), sum("earnOth"),
       ...usedHeads.map(h => dataRows.reduce((s, r) => s + (r.customEarnings[h.id] || 0), 0)),
       sum("bonus"), sum("otAmount"), sumEarnTotal,
-      sum("pf"), sum("esic"), sum("lwf"), sum("tds"), sum("pt"), sum("adv"), sumDedTotal,
+      sum("pf"), sum("esic"), sum("lwf"), sum("tds"), sum("pt"), sum("adv"),
+      ...usedDedHeads.map(h => dataRows.reduce((s, r) => s + (r.customDeductions[h.id] || 0), 0)),
+      sumDedTotal,
       sum("netPay"),
     ];
 
@@ -748,7 +772,7 @@ export default function ReportsPage() {
           { content: "OT Hrs",      rowSpan: 2, styles: { halign: "center", valign: "middle" } },
           { content: "Rate",        colSpan: 5,  styles: { halign: "center" } },
           { content: "Earnings",    colSpan: 7 + usedHeads.length,  styles: { halign: "center" } },
-          { content: "Deductions",  colSpan: 7,  styles: { halign: "center" } },
+          { content: "Deductions",  colSpan: 7 + usedDedHeads.length,  styles: { halign: "center" } },
           { content: "Net Pay",     rowSpan: 2, styles: { halign: "center", valign: "middle" } },
         ],
         [
@@ -756,7 +780,9 @@ export default function ReportsPage() {
           "Basic", "HRA", "Conv", "Other",
           ...usedHeads.map(h => h.name.length > 8 ? h.name.slice(0, 7) + "." : h.name),
           "Bonus", "OT Amt", "Total",
-          "PF", "ESIC", "LWF", "TDS", "PT", "Adv", "Total",
+          "PF", "ESIC", "LWF", "TDS", "PT", "Adv",
+          ...usedDedHeads.map(h => h.name.length > 8 ? h.name.slice(0, 7) + "." : h.name),
+          "Total",
         ],
       ],
       body: dataRows.map(r => [
@@ -766,7 +792,9 @@ export default function ReportsPage() {
         r.earnBasic, r.earnHra, r.earnConv, r.earnOth,
         ...usedHeads.map(h => r.customEarnings[h.id] || 0),
         r.bonus, r.otAmount, r.earnTotal,
-        r.pf, r.esic, r.lwf, r.tds, r.pt, r.adv, r.dedTotal,
+        r.pf, r.esic, r.lwf, r.tds, r.pt, r.adv,
+        ...usedDedHeads.map(h => r.customDeductions[h.id] || 0),
+        r.dedTotal,
         r.netPay,
       ]),
       foot: [totalsRow],
@@ -1118,6 +1146,12 @@ export default function ReportsPage() {
       if (c.tds > 0) dedRows.push(["TDS", fmt(c.tds)]);
       if (c.otherDeductions > 0) dedRows.push(["Other Deductions", fmt(c.otherDeductions)]);
       if ((c as any).loanDeduction > 0) dedRows.push(["Loan / Advance", fmt((c as any).loanDeduction)]);
+      // Custom deduction heads stored per payroll record
+      const payrollCustomDed: Record<string, number> = (c as any).customDeductions || {};
+      Object.entries(payrollCustomDed).forEach(([headId, amt]) => {
+        const head = deductionHeads.find((h) => h.id === headId);
+        if (head && amt) dedRows.push([head.name, fmt(amt as number)]);
+      });
 
       const maxR = Math.max(earnRows.length, dedRows.length, 1);
       while (earnRows.length < maxR) earnRows.push(["", ""]);
@@ -1919,13 +1953,22 @@ export default function ReportsPage() {
       name: earningHeads.find(h => h.id === id)?.name || "Custom",
     }));
 
+    // Collect all unique custom deduction heads used in this month's payroll
+    const allViewDedHeadIds = [...new Set(monthPayroll.flatMap(p => Object.keys((p as any).customDeductions || {})))];
+    const viewUsedDedHeads = allViewDedHeadIds.map(id => ({
+      id,
+      name: deductionHeads.find(h => h.id === id)?.name || "Custom",
+    }));
+
     const headers = [
       "Code", "Name", "Dept", "Designation", "Mon.Days", "Pay Days", "OT Hrs",
       "R.Basic", "R.HRA", "R.Conv", "R.Oth", "R.Total",
       "E.Basic", "E.HRA", "E.Conv", "E.Oth",
       ...viewUsedHeads.map(h => h.name),
       "Bonus", "E.OT Amt", "E.Total",
-      "PF", "ESIC", "LWF", "TDS", "PT", "Other Ded", "Loan/Adv", "D.Total", "Net Pay",
+      "PF", "ESIC", "LWF", "TDS", "PT", "Other Ded", "Loan/Adv",
+      ...viewUsedDedHeads.map(h => h.name),
+      "D.Total", "Net Pay",
     ];
     let rows: (string | number)[][] = [];
     const buildViewRow = (emp: Employee, c: ReturnType<typeof getProRatedComponents> | null, pr: Payroll | null): (string | number)[] => {
@@ -1936,6 +1979,8 @@ export default function ReportsPage() {
       const eOth = (c?.otherAllowances || 0) + (c?.specialAllowance || 0) + (c?.medicalAllowance || 0);
       const prCustom: Record<string, number> = (pr as any)?.customEarnings || {};
       const customEarn = Object.values(prCustom).reduce((s: number, v) => s + (Number(v) || 0), 0) as number;
+      const prCustomDed: Record<string, number> = (pr as any)?.customDeductions || {};
+      const customDedAmt = Object.values(prCustomDed).reduce((s: number, v) => s + (Number(v) || 0), 0) as number;
       const bonus = c?.bonus || 0;
       const otHoursVal = Number((pr as any)?.otHours || 0);
       const otAmtVal = Number((pr as any)?.otAmount || 0);
@@ -1943,6 +1988,7 @@ export default function ReportsPage() {
       const tds = c?.tds || 0, pt = c?.professionalTax || 0;
       const othDed = c?.otherDeductions || 0, loanAdv = (c as any)?.loanDeduction || 0;
       const earnTotal = eBasic + eHra + eConv + eOth + customEarn + bonus + otAmtVal;
+      const dedTotal = pf + esic + lwf + tds + pt + othDed + loanAdv + customDedAmt;
       return [
         emp.employeeCode || "", `${emp.firstName} ${emp.lastName}`, emp.department || "-", emp.designation || "-",
         pr ? pr.workingDays : "-", pr ? (pr.payDays ?? pr.presentDays) : "-",
@@ -1951,7 +1997,9 @@ export default function ReportsPage() {
         eBasic, eHra, eConv, eOth,
         ...viewUsedHeads.map(h => prCustom[h.id] || 0),
         bonus, otAmtVal, earnTotal,
-        pf, esic, lwf, tds, pt, othDed, loanAdv, pf + esic + lwf + tds + pt + othDed + loanAdv,
+        pf, esic, lwf, tds, pt, othDed, loanAdv,
+        ...viewUsedDedHeads.map(h => prCustomDed[h.id] || 0),
+        dedTotal,
         c?.netSalary || 0,
       ];
     };

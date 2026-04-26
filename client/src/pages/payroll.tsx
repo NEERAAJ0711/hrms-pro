@@ -20,7 +20,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import type { Payroll, SalaryStructure, Employee, Company, StatutorySettings, Attendance, WageGrade, EarningHead } from "@shared/schema";
+import type { Payroll, SalaryStructure, Employee, Company, StatutorySettings, Attendance, WageGrade, EarningHead, DeductionHead } from "@shared/schema";
 import FnfSettlementPage from "@/pages/fnf-settlement";
 
 const salaryStructureSchema = z.object({
@@ -132,6 +132,7 @@ export default function PayrollPage() {
   const bulkFileInputRef = useRef<HTMLInputElement | null>(null);
   const [grossInputAmt, setGrossInputAmt] = useState<string>("");
   const [customEarningAmounts, setCustomEarningAmounts] = useState<Record<string, number>>({});
+  const [customDeductionAmounts, setCustomDeductionAmounts] = useState<Record<string, number>>({});
 
   const { data: companies = [] } = useQuery<Company[]>({
     queryKey: ["/api/companies"],
@@ -252,6 +253,18 @@ export default function PayrollPage() {
     enabled: !!watchCompanyId,
   });
   const activeEarningHeads = earningHeads.filter((h) => h.status === "active");
+
+  const { data: deductionHeads = [] } = useQuery<DeductionHead[]>({
+    queryKey: ["/api/deduction-heads", watchCompanyId],
+    queryFn: async () => {
+      if (!watchCompanyId) return [];
+      const res = await fetch(`/api/deduction-heads?companyId=${watchCompanyId}`, { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: !!watchCompanyId,
+  });
+  const activeDeductionHeads = deductionHeads.filter((h) => h.status === "active");
 
   const { data: statutoryData } = useQuery<StatutorySettings | StatutorySettings[]>({
     queryKey: ["/api/statutory-settings", watchCompanyId],
@@ -392,8 +405,9 @@ export default function PayrollPage() {
     const lwfEmp = Number(form.getValues("lwfEmployee")) || 0;
     const tds = Number(form.getValues("tds")) || 0;
     const otherDed = Number(form.getValues("otherDeductions")) || 0;
-    
-    const totalDeductions = pfEmp + esiVal + ptVal + lwfEmp + tds + otherDed;
+    const customDedSum = Object.values(customDeductionAmounts).reduce((acc, v) => acc + (v || 0), 0);
+
+    const totalDeductions = pfEmp + esiVal + ptVal + lwfEmp + tds + otherDed + customDedSum;
     const net = gross - totalDeductions;
     
     form.setValue("netSalary", net);
@@ -549,6 +563,7 @@ export default function PayrollPage() {
     setEditingStructureId(structure.id);
     const savedCustom = (structure as any).customEarnings || {};
     setCustomEarningAmounts(savedCustom);
+    setCustomDeductionAmounts((structure as any).customDeductions || {});
     const customSum = Object.values(savedCustom as Record<string, number>).reduce((a: number, v) => a + (v || 0), 0);
     form.reset({
       employeeId: structure.employeeId,
@@ -581,6 +596,7 @@ export default function PayrollPage() {
       setEditingStructureId(null);
       setGrossInputAmt("");
       setCustomEarningAmounts({});
+      setCustomDeductionAmounts({});
       form.reset({
         employeeId: "",
         companyId: isSuperAdmin ? "" : (user?.companyId || ""),
@@ -868,6 +884,23 @@ export default function PayrollPage() {
 
         const totalEarnings = grossSalary + monthlyBonus + otAmount + customEarningsAdjustment;
 
+        // Compute custom deduction head amounts (prorated)
+        const savedCustomDed: Record<string, number> = (structure as any).customDeductions || {};
+        const proratedCustomDeductions: Record<string, number> = {};
+        for (const head of activeDeductionHeads) {
+          let displayAmt = 0;
+          if (head.type === "percentage" && (head.percentage ?? 0) > 0) {
+            const base = head.calculationBase === "basic" ? basicSalary : grossSalary;
+            displayAmt = Math.round(base * (head.percentage ?? 0) / 100);
+          } else {
+            displayAmt = Math.round((savedCustomDed[head.id] || 0) * prorationFactor);
+          }
+          if (displayAmt > 0) {
+            proratedCustomDeductions[head.id] = displayAmt;
+          }
+        }
+        const customDedTotal = Object.values(proratedCustomDeductions).reduce((s, v) => s + (v || 0), 0);
+
         // Loan/Advance deduction: sum installmentAmount for active loans where deductionStartMonth <= payrollYM
         const payrollYM = `${selectedYear}-${String(monthIndex + 1).padStart(2, "0")}`;
         const empLoans = loanAdvances.filter(l =>
@@ -879,7 +912,7 @@ export default function PayrollPage() {
         );
         const scheduledLoanDeduction = empLoans.reduce((sum: number, l: any) => sum + Number(l.installmentAmount), 0);
         // Cap loan deduction so net salary never goes negative
-        const deductionsBeforeLoan = pfEmployee + esi + pt + lwfEmployee + (structure.tds || 0) + (structure.otherDeductions || 0);
+        const deductionsBeforeLoan = pfEmployee + esi + pt + lwfEmployee + (structure.tds || 0) + (structure.otherDeductions || 0) + customDedTotal;
         const netBeforeLoan = Math.max(0, totalEarnings - deductionsBeforeLoan);
         const loanDeduction = Math.min(scheduledLoanDeduction, netBeforeLoan);
 
@@ -901,6 +934,7 @@ export default function PayrollPage() {
           otHours: String(totalOtHours),
           otAmount: otAmount,
           customEarnings: proratedCustomEarnings,
+          customDeductions: proratedCustomDeductions,
           totalEarnings: totalEarnings,
           pfEmployee: pfEmployee,
           esi: esi,
@@ -1050,7 +1084,7 @@ export default function PayrollPage() {
             <Form {...form}>
               <form onSubmit={form.handleSubmit((data) => {
                 const customSum = Object.values(customEarningAmounts).reduce((acc, v) => acc + (v || 0), 0);
-                const payload = { ...data, medicalAllowance: 0, otherAllowances: data.otherAllowances + customSum, customEarnings: customEarningAmounts };
+                const payload = { ...data, medicalAllowance: 0, otherAllowances: data.otherAllowances + customSum, customEarnings: customEarningAmounts, customDeductions: customDeductionAmounts };
                 if (editingStructureId) {
                   updateStructureMutation.mutate({ ...payload, id: editingStructureId });
                 } else {
@@ -1371,6 +1405,36 @@ export default function PayrollPage() {
                         </FormItem>
                       )}
                     />
+                    {activeDeductionHeads.map((head) => {
+                      const isPct = head.type === "percentage" && (head.percentage ?? 0) > 0;
+                      const pctLabel = isPct
+                        ? ` (${head.percentage}% of ${head.calculationBase === "basic" ? "Basic" : "Gross"} – auto)`
+                        : "";
+                      return (
+                        <FormItem key={head.id}>
+                          <FormLabel>
+                            {head.name}
+                            {isPct && (
+                              <span className="text-xs font-normal text-muted-foreground ml-1">{pctLabel}</span>
+                            )}
+                          </FormLabel>
+                          <FormControl>
+                            <Input
+                              type="number"
+                              value={customDeductionAmounts[head.id] ?? 0}
+                              readOnly={isPct}
+                              className={isPct ? "bg-muted" : ""}
+                              onChange={isPct ? undefined : (e) => {
+                                const val = Number(e.target.value) || 0;
+                                setCustomDeductionAmounts(prev => ({ ...prev, [head.id]: val }));
+                                calculateSalary(false);
+                              }}
+                              data-testid={`input-deduction-${head.id}`}
+                            />
+                          </FormControl>
+                        </FormItem>
+                      );
+                    })}
                     <FormField
                       control={form.control}
                       name="netSalary"
@@ -2010,6 +2074,25 @@ export default function PayrollPage() {
                     <div className="flex justify-between"><span>LWF (Employee)</span><span className="font-medium">{formatCurrency(record.lwfEmployee || 0)}</span></div>
                     <div className="flex justify-between"><span>TDS</span><span className="font-medium">{formatCurrency(record.tds || 0)}</span></div>
                     <div className="flex justify-between"><span>Other Deductions</span><span className="font-medium">{formatCurrency(record.otherDeductions || 0)}</span></div>
+                    {/* Custom deduction heads stored on the payroll record */}
+                    {Object.entries((record as any).customDeductions || {}).map(([headId, amt]) => {
+                      const head = deductionHeads.find(h => h.id === headId);
+                      if (!head || !amt) return null;
+                      const isPct = head.type === "percentage" && (head.percentage ?? 0) > 0;
+                      return (
+                        <div key={headId} className="flex justify-between">
+                          <span>
+                            {head.name}
+                            {isPct && (
+                              <span className="text-xs text-muted-foreground ml-1">
+                                ({head.percentage}% of {head.calculationBase === "basic" ? "Basic" : "Gross"})
+                              </span>
+                            )}
+                          </span>
+                          <span className="font-medium">{formatCurrency(amt as number)}</span>
+                        </div>
+                      );
+                    })}
                     <div className={`flex justify-between ${storedLoanDeduction > 0 ? "text-indigo-700 font-medium" : "text-muted-foreground"}`}>
                       <span>Loan / Advance Deduction</span>
                       <span className="font-medium">{formatCurrency(storedLoanDeduction)}</span>
