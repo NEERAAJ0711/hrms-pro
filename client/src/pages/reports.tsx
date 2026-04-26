@@ -2982,10 +2982,10 @@ export default function ReportsPage() {
             {companyFilter}
             <div className="flex items-center gap-2">
               <label className="text-sm font-medium">Employee:</label>
-              <Select value={docEmployee} onValueChange={setDocEmployee}>
+              <Select value={docEmployee || "__none__"} onValueChange={v => setDocEmployee(v === "__none__" ? "" : v)}>
                 <SelectTrigger className="w-56"><SelectValue placeholder="All Employees" /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">All Employees</SelectItem>
+                  <SelectItem value="__none__">All Employees</SelectItem>
                   {filteredEmployees.map(e => <SelectItem key={e.id} value={e.id}>{e.firstName} {e.lastName} ({e.employeeCode})</SelectItem>)}
                 </SelectContent>
               </Select>
@@ -3003,10 +3003,10 @@ export default function ReportsPage() {
             {companyFilter}
             <div className="flex items-center gap-2">
               <label className="text-sm font-medium">Employee:</label>
-              <Select value={docEmployee} onValueChange={setDocEmployee}>
+              <Select value={docEmployee || "__none__"} onValueChange={v => setDocEmployee(v === "__none__" ? "" : v)}>
                 <SelectTrigger className="w-64"><SelectValue placeholder="Select employee for letters" /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">— All Employees —</SelectItem>
+                  <SelectItem value="__none__">— All Employees —</SelectItem>
                   {filteredEmployees.map(e => <SelectItem key={e.id} value={e.id}>{e.firstName} {e.lastName} ({e.employeeCode})</SelectItem>)}
                 </SelectContent>
               </Select>
