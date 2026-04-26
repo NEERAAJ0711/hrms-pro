@@ -20,12 +20,20 @@ import {
   Eye,
   Banknote,
   CalendarX,
+  UserRound,
+  FilePen,
+  FileUser,
+  CalendarRange,
+  TrendingUp,
+  Building2,
+  BookOpen,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import * as XLSX from "xlsx";
 import { jsPDF } from "jspdf";
@@ -47,6 +55,9 @@ export default function ReportsPage() {
   const hasAccess = user && REPORTS_ALLOWED_ROLES.includes(user.role);
   const [selectedCompany, setSelectedCompany] = useState<string>(isSuperAdmin ? "" : (user?.companyId || ""));
   const [selectedMonth, setSelectedMonth] = useState(format(new Date(), "yyyy-MM"));
+  const [selectedYear, setSelectedYear] = useState(format(new Date(), "yyyy"));
+  const [docEmployee, setDocEmployee] = useState<string>("");
+  const [activeTab, setActiveTab] = useState("monthly");
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
   const [viewTitle, setViewTitle] = useState("");
   const [viewHeaders, setViewHeaders] = useState<string[]>([]);
@@ -2163,6 +2174,535 @@ export default function ReportsPage() {
     openViewDialog("Leave Report", headers, rows.map(r => [r.code, r.name, r.dept, r.company, r.leaveType, r.startDate, r.endDate, r.days, r.reason, r.status, r.appliedOn]));
   };
 
+  // ─── Annual report helpers ────────────────────────────────────────────────
+  const yearNum2 = parseInt(selectedYear);
+  const allMonthsOfYear = months.map((m, i) => ({ name: m, num: i + 1 }));
+
+  const getPayrollForMonth = (employeeId: string, month: string, year: number) =>
+    payrollRecords.find(p => p.employeeId === employeeId && p.month === month && p.year === year) || null;
+
+  // ─── Yearly PF Summary ────────────────────────────────────────────────────
+  const buildYearlyPFRows = () => {
+    const pfEmps = filteredEmployees.filter(e => e.pfApplicable);
+    return pfEmps.map(emp => {
+      const ss = salaryStructures.find(s => s.employeeId === emp.id);
+      const settings = getStatutorySettings(emp.companyId);
+      const pfWageCeiling = Number(settings?.pfWageCeiling) || 15000;
+      let totalEE = 0, totalER = 0;
+      const monthly: Record<string, { ee: number; er: number }> = {};
+      for (const m of allMonthsOfYear) {
+        const pr = getPayrollForMonth(emp.id, m.name, yearNum2);
+        const c = getProRatedComponents(emp, ss, pr);
+        const ee = c.pfEmployee;
+        const epsWage = Math.min(c.basicSalary, pfWageCeiling);
+        const er = Math.round(epsWage * 0.0833);
+        monthly[m.name] = { ee, er };
+        totalEE += ee;
+        totalER += er;
+      }
+      return { emp, monthly, totalEE, totalER };
+    });
+  };
+
+  const generateYearlyPFSummary = (fileType: "excel" | "pdf") => {
+    const rows = buildYearlyPFRows();
+    if (!rows.length) { toast({ title: "No Data", description: "No PF-applicable employees.", variant: "destructive" }); return; }
+    if (fileType === "excel") {
+      const data = rows.map(r => {
+        const row: Record<string, string | number> = {
+          "UAN": r.emp.uan || "",
+          "Emp Code": r.emp.employeeCode,
+          "Name": `${r.emp.firstName} ${r.emp.lastName}`,
+          "Company": getCompanyName(r.emp.companyId),
+        };
+        for (const m of allMonthsOfYear) {
+          row[`${m.name} EE`] = r.monthly[m.name].ee;
+          row[`${m.name} ER`] = r.monthly[m.name].er;
+        }
+        row["Total EE"] = r.totalEE;
+        row["Total ER"] = r.totalER;
+        row["Grand Total"] = r.totalEE + r.totalER;
+        return row;
+      });
+      downloadExcel(data, `Yearly_PF_Summary_${selectedYear}`, "PF Summary");
+    } else {
+      const headers = ["UAN", "Name", ...allMonthsOfYear.map(m => m.name.slice(0,3)), "Total EE", "Total ER"];
+      const pdfRows = rows.map(r => [
+        r.emp.uan || "N/A",
+        `${r.emp.firstName} ${r.emp.lastName}`,
+        ...allMonthsOfYear.map(m => r.monthly[m.name].ee),
+        r.totalEE, r.totalER,
+      ] as (string | number)[]);
+      downloadPDF(`Yearly PF Summary - ${selectedYear}`, headers, pdfRows, `Yearly_PF_Summary_${selectedYear}`);
+    }
+  };
+
+  const viewYearlyPFSummary = () => {
+    const rows = buildYearlyPFRows();
+    if (!rows.length) { toast({ title: "No Data", description: "No PF-applicable employees.", variant: "destructive" }); return; }
+    const headers = ["UAN", "Name", "Company", ...allMonthsOfYear.map(m => m.name.slice(0,3) + " EE"), "Total EE", "Total ER"];
+    openViewDialog("Yearly PF Summary", headers, rows.map(r => [
+      r.emp.uan || "N/A",
+      `${r.emp.firstName} ${r.emp.lastName}`,
+      getCompanyName(r.emp.companyId),
+      ...allMonthsOfYear.map(m => r.monthly[m.name].ee),
+      r.totalEE, r.totalER,
+    ]));
+  };
+
+  // ─── Yearly ESIC Summary ──────────────────────────────────────────────────
+  const buildYearlyESICRows = () => {
+    const esicEmps = filteredEmployees.filter(e => e.esiApplicable);
+    return esicEmps.map(emp => {
+      const ss = salaryStructures.find(s => s.employeeId === emp.id);
+      const settings = getStatutorySettings(emp.companyId);
+      const wageCeiling = Number(settings?.esicWageCeiling) || 21000;
+      const erPercent = Number(settings?.esicEmployerPercent) || 325;
+      let totalEE = 0, totalER = 0;
+      const monthly: Record<string, { ee: number; er: number }> = {};
+      for (const m of allMonthsOfYear) {
+        const pr = getPayrollForMonth(emp.id, m.name, yearNum2);
+        const c = getProRatedComponents(emp, ss, pr);
+        const contractedGross = ss?.grossSalary || c.grossSalary;
+        let er = 0;
+        if (contractedGross <= wageCeiling) {
+          if (settings?.esicCalcOnGross) {
+            er = Math.round(Math.min(c.grossSalary, wageCeiling) * erPercent / 10000);
+          } else {
+            const esicBase = Math.min(Math.max(c.basicSalary, c.grossSalary * 0.5), wageCeiling);
+            er = Math.round(esicBase * erPercent / 10000);
+          }
+        }
+        monthly[m.name] = { ee: c.esi, er };
+        totalEE += c.esi;
+        totalER += er;
+      }
+      return { emp, monthly, totalEE, totalER };
+    });
+  };
+
+  const generateYearlyESICSummary = (fileType: "excel" | "pdf") => {
+    const rows = buildYearlyESICRows();
+    if (!rows.length) { toast({ title: "No Data", description: "No ESIC-applicable employees.", variant: "destructive" }); return; }
+    if (fileType === "excel") {
+      const data = rows.map(r => {
+        const row: Record<string, string | number> = {
+          "ESIC No.": r.emp.esiNumber || "",
+          "Emp Code": r.emp.employeeCode,
+          "Name": `${r.emp.firstName} ${r.emp.lastName}`,
+          "Company": getCompanyName(r.emp.companyId),
+        };
+        for (const m of allMonthsOfYear) {
+          row[`${m.name} EE`] = r.monthly[m.name].ee;
+          row[`${m.name} ER`] = r.monthly[m.name].er;
+        }
+        row["Total EE"] = r.totalEE;
+        row["Total ER"] = r.totalER;
+        row["Grand Total"] = r.totalEE + r.totalER;
+        return row;
+      });
+      downloadExcel(data, `Yearly_ESIC_Summary_${selectedYear}`, "ESIC Summary");
+    } else {
+      const headers = ["ESIC No.", "Name", ...allMonthsOfYear.map(m => m.name.slice(0,3)), "Total EE", "Total ER"];
+      const pdfRows = rows.map(r => [
+        r.emp.esiNumber || "N/A",
+        `${r.emp.firstName} ${r.emp.lastName}`,
+        ...allMonthsOfYear.map(m => r.monthly[m.name].ee),
+        r.totalEE, r.totalER,
+      ] as (string | number)[]);
+      downloadPDF(`Yearly ESIC Summary - ${selectedYear}`, headers, pdfRows, `Yearly_ESIC_Summary_${selectedYear}`);
+    }
+  };
+
+  const viewYearlyESICSummary = () => {
+    const rows = buildYearlyESICRows();
+    if (!rows.length) { toast({ title: "No Data", description: "No ESIC-applicable employees.", variant: "destructive" }); return; }
+    const headers = ["ESIC No.", "Name", "Company", ...allMonthsOfYear.map(m => m.name.slice(0,3) + " EE"), "Total EE", "Total ER"];
+    openViewDialog("Yearly ESIC Summary", headers, rows.map(r => [
+      r.emp.esiNumber || "N/A",
+      `${r.emp.firstName} ${r.emp.lastName}`,
+      getCompanyName(r.emp.companyId),
+      ...allMonthsOfYear.map(m => r.monthly[m.name].ee),
+      r.totalEE, r.totalER,
+    ]));
+  };
+
+  // ─── Yearly Salary Detail ─────────────────────────────────────────────────
+  const buildYearlySalaryRows = () => {
+    return filteredEmployees.map(emp => {
+      const ss = salaryStructures.find(s => s.employeeId === emp.id);
+      let totalGross = 0, totalNet = 0, totalPF = 0, totalESIC = 0;
+      const monthly: Record<string, { gross: number; net: number; pf: number; esic: number }> = {};
+      for (const m of allMonthsOfYear) {
+        const pr = getPayrollForMonth(emp.id, m.name, yearNum2);
+        const c = getProRatedComponents(emp, ss, pr);
+        monthly[m.name] = { gross: c.grossSalary, net: c.netSalary, pf: c.pfEmployee, esic: c.esi };
+        totalGross += c.grossSalary;
+        totalNet += c.netSalary;
+        totalPF += c.pfEmployee;
+        totalESIC += c.esi;
+      }
+      return { emp, monthly, totalGross, totalNet, totalPF, totalESIC };
+    });
+  };
+
+  const generateYearlySalaryDetail = (fileType: "excel" | "pdf") => {
+    const rows = buildYearlySalaryRows();
+    if (!rows.length) { toast({ title: "No Data", description: "No employees found.", variant: "destructive" }); return; }
+    if (fileType === "excel") {
+      const data = rows.map(r => {
+        const row: Record<string, string | number> = {
+          "Emp Code": r.emp.employeeCode,
+          "Name": `${r.emp.firstName} ${r.emp.lastName}`,
+          "Department": r.emp.department || "",
+          "Company": getCompanyName(r.emp.companyId),
+        };
+        for (const m of allMonthsOfYear) {
+          row[`${m.name} Gross`] = r.monthly[m.name].gross;
+          row[`${m.name} Net`] = r.monthly[m.name].net;
+        }
+        row["Total Gross"] = r.totalGross;
+        row["Total PF"] = r.totalPF;
+        row["Total ESIC"] = r.totalESIC;
+        row["Total Net"] = r.totalNet;
+        return row;
+      });
+      downloadExcel(data, `Yearly_Salary_Detail_${selectedYear}`, "Salary Detail");
+    } else {
+      const headers = ["Code", "Name", ...allMonthsOfYear.map(m => m.name.slice(0,3) + " Net"), "Total Gross", "Total Net"];
+      const pdfRows = rows.map(r => [
+        r.emp.employeeCode,
+        `${r.emp.firstName} ${r.emp.lastName}`,
+        ...allMonthsOfYear.map(m => r.monthly[m.name].net),
+        r.totalGross, r.totalNet,
+      ] as (string | number)[]);
+      downloadPDF(`Yearly Salary Detail - ${selectedYear}`, headers, pdfRows, `Yearly_Salary_Detail_${selectedYear}`);
+    }
+  };
+
+  const viewYearlySalaryDetail = () => {
+    const rows = buildYearlySalaryRows();
+    if (!rows.length) { toast({ title: "No Data", description: "No employees found.", variant: "destructive" }); return; }
+    const headers = ["Code", "Name", "Company", ...allMonthsOfYear.map(m => m.name.slice(0,3) + " Gross"), ...allMonthsOfYear.map(m => m.name.slice(0,3) + " Net"), "Total Net"];
+    openViewDialog("Yearly Salary Detail", headers, rows.map(r => [
+      r.emp.employeeCode,
+      `${r.emp.firstName} ${r.emp.lastName}`,
+      getCompanyName(r.emp.companyId),
+      ...allMonthsOfYear.map(m => r.monthly[m.name].gross),
+      ...allMonthsOfYear.map(m => r.monthly[m.name].net),
+      r.totalNet,
+    ]));
+  };
+
+  // ─── Employee Personal File ───────────────────────────────────────────────
+  const generateEmployeePersonalFile = (_fileType: "excel" | "pdf") => {
+    const emp = docEmployee ? employees.find(e => e.id === docEmployee) : null;
+    const targetEmps = emp ? [emp] : filteredEmployees;
+    if (!targetEmps.length) { toast({ title: "No Data", description: "No employee selected or found.", variant: "destructive" }); return; }
+    if (_fileType === "excel") {
+      const data = targetEmps.map(e => ({
+        "Emp Code": e.employeeCode,
+        "Name": `${e.firstName} ${e.lastName}`,
+        "Gender": e.gender || "",
+        "Date of Birth": e.dateOfBirth || "",
+        "Date of Joining": e.dateOfJoining || "",
+        "Department": e.department || "",
+        "Designation": e.designation || "",
+        "Employment Type": e.employmentType || "",
+        "Location": e.location || "",
+        "Mobile": e.mobileNumber || "",
+        "Official Email": e.officialEmail || "",
+        "PAN": e.pan || "",
+        "Aadhaar": e.aadhaar || "",
+        "Bank Account": e.bankAccount || "",
+        "IFSC": e.ifsc || "",
+        "UAN": e.uan || "",
+        "ESIC No.": e.esiNumber || "",
+        "Father/Husband Name": e.fatherHusbandName || "",
+        "Present Address": e.presentAddress || "",
+        "Permanent Address": e.permanentAddress || "",
+        "PF Applicable": e.pfApplicable ? "Yes" : "No",
+        "ESI Applicable": e.esiApplicable ? "Yes" : "No",
+        "Status": e.status,
+        "Company": getCompanyName(e.companyId),
+      }));
+      downloadExcel(data, `Employee_Personal_File_${selectedYear}`, "Personal File");
+      return;
+    }
+    // PDF – one page per employee
+    const doc = new jsPDF();
+    targetEmps.forEach((e, idx) => {
+      if (idx > 0) doc.addPage();
+      const company = companies.find(c => c.id === e.companyId);
+      const ss = salaryStructures.find(s => s.employeeId === e.id);
+      doc.setFontSize(14);
+      doc.setFont("helvetica", "bold");
+      doc.text(company?.companyName || "Company", 105, 15, { align: "center" });
+      doc.setFontSize(11);
+      doc.text("EMPLOYEE PERSONAL FILE", 105, 22, { align: "center" });
+      doc.setFontSize(9);
+      doc.setFont("helvetica", "normal");
+      doc.text(`Generated: ${format(new Date(), "dd-MMM-yyyy")}`, 14, 30);
+      const fields: [string, string][] = [
+        ["Employee Code", e.employeeCode],
+        ["Full Name", `${e.firstName} ${e.lastName}`],
+        ["Gender", e.gender || "N/A"],
+        ["Date of Birth", e.dateOfBirth || "N/A"],
+        ["Father / Husband Name", e.fatherHusbandName || "N/A"],
+        ["Date of Joining", e.dateOfJoining || "N/A"],
+        ["Department", e.department || "N/A"],
+        ["Designation", e.designation || "N/A"],
+        ["Employment Type", e.employmentType || "N/A"],
+        ["Location", e.location || "N/A"],
+        ["Mobile", e.mobileNumber || "N/A"],
+        ["Official Email", e.officialEmail || "N/A"],
+        ["PAN", e.pan || "N/A"],
+        ["Aadhaar", e.aadhaar || "N/A"],
+        ["Bank Account", e.bankAccount || "N/A"],
+        ["IFSC Code", e.ifsc || "N/A"],
+        ["UAN", e.uan || "N/A"],
+        ["ESIC Number", e.esiNumber || "N/A"],
+        ["PF Applicable", e.pfApplicable ? "Yes" : "No"],
+        ["ESI Applicable", e.esiApplicable ? "Yes" : "No"],
+        ["Present Address", e.presentAddress || "N/A"],
+        ["Permanent Address", e.permanentAddress || "N/A"],
+        ["Gross Salary (CTC)", ss ? `₹${ss.grossSalary.toLocaleString("en-IN")} / month` : "N/A"],
+        ["Status", e.status],
+      ];
+      autoTable(doc, {
+        body: fields.map(([k, v]) => [k, v]),
+        startY: 36,
+        theme: "grid",
+        styles: { fontSize: 9, cellPadding: 2.5 },
+        columnStyles: { 0: { fontStyle: "bold", fillColor: [240, 244, 255], cellWidth: 65 }, 1: { cellWidth: 115 } },
+        headStyles: { fillColor: [59, 130, 246], textColor: 255 },
+      });
+    });
+    doc.save(`Employee_Personal_File_${selectedYear}.pdf`);
+    toast({ title: "Downloaded", description: `Employee_Personal_File_${selectedYear}.pdf has been downloaded.` });
+  };
+
+  const viewEmployeePersonalFile = () => {
+    const emp = docEmployee ? employees.find(e => e.id === docEmployee) : null;
+    const targetEmps = emp ? [emp] : filteredEmployees;
+    if (!targetEmps.length) { toast({ title: "No Data", description: "No employee selected or found.", variant: "destructive" }); return; }
+    const headers = ["Field", "Value"];
+    const e = targetEmps[0];
+    const rows: (string | number)[][] = [
+      ["Emp Code", e.employeeCode],
+      ["Name", `${e.firstName} ${e.lastName}`],
+      ["Gender", e.gender || "N/A"],
+      ["Date of Birth", e.dateOfBirth || "N/A"],
+      ["Date of Joining", e.dateOfJoining || "N/A"],
+      ["Department", e.department || "N/A"],
+      ["Designation", e.designation || "N/A"],
+      ["Mobile", e.mobileNumber || "N/A"],
+      ["PAN", e.pan || "N/A"],
+      ["Aadhaar", e.aadhaar || "N/A"],
+      ["Bank Account", e.bankAccount || "N/A"],
+      ["UAN", e.uan || "N/A"],
+      ["ESIC No.", e.esiNumber || "N/A"],
+      ["Company", getCompanyName(e.companyId)],
+    ];
+    openViewDialog(`Employee Personal File – ${e.firstName} ${e.lastName}`, headers, rows);
+  };
+
+  // ─── Employee Leave Register ──────────────────────────────────────────────
+  const buildLeaveRegisterRows = () => {
+    const yearStart = `${selectedYear}-01-01`;
+    const yearEnd   = `${selectedYear}-12-31`;
+    const targetEmps = docEmployee ? employees.filter(e => e.id === docEmployee) : filteredEmployees;
+    const rows: { code: string; name: string; dept: string; company: string; leaveType: string; opens: number; earned: number; availed: number; balance: number }[] = [];
+    for (const emp of targetEmps) {
+      const empLeaves = leaveRequests.filter(lr =>
+        lr.employeeId === emp.id &&
+        lr.status === "approved" &&
+        lr.startDate >= yearStart && lr.startDate <= yearEnd
+      );
+      const byType: Record<string, number> = {};
+      for (const lr of empLeaves) {
+        const start = new Date(lr.startDate);
+        const end   = new Date(lr.endDate);
+        const days  = Math.round((end.getTime() - start.getTime()) / 86400000) + 1;
+        byType[lr.leaveType || "Other"] = (byType[lr.leaveType || "Other"] || 0) + days;
+      }
+      if (Object.keys(byType).length === 0) {
+        rows.push({ code: emp.employeeCode, name: `${emp.firstName} ${emp.lastName}`, dept: emp.department || "", company: getCompanyName(emp.companyId), leaveType: "—", opens: 0, earned: 0, availed: 0, balance: 0 });
+      } else {
+        for (const [lt, availed] of Object.entries(byType)) {
+          rows.push({ code: emp.employeeCode, name: `${emp.firstName} ${emp.lastName}`, dept: emp.department || "", company: getCompanyName(emp.companyId), leaveType: lt, opens: 0, earned: availed, availed, balance: 0 });
+        }
+      }
+    }
+    return rows;
+  };
+
+  const generateEmployeeLeaveRegister = (fileType: "excel" | "pdf") => {
+    const rows = buildLeaveRegisterRows();
+    if (!rows.length) { toast({ title: "No Data", description: "No approved leave records found.", variant: "destructive" }); return; }
+    if (fileType === "excel") {
+      const data = rows.map(r => ({
+        "Emp Code": r.code, "Name": r.name, "Department": r.dept, "Company": r.company,
+        "Leave Type": r.leaveType, "Availed (Days)": r.availed,
+      }));
+      downloadExcel(data, `Leave_Register_${selectedYear}`, "Leave Register");
+    } else {
+      const headers = ["Code", "Name", "Dept", "Company", "Leave Type", "Availed (Days)"];
+      const pdfRows = rows.map(r => [r.code, r.name, r.dept, r.company, r.leaveType, r.availed] as (string | number)[]);
+      downloadPDF(`Employee Leave Register - ${selectedYear}`, headers, pdfRows, `Leave_Register_${selectedYear}`);
+    }
+  };
+
+  const viewEmployeeLeaveRegister = () => {
+    const rows = buildLeaveRegisterRows();
+    if (!rows.length) { toast({ title: "No Data", description: "No approved leave records found.", variant: "destructive" }); return; }
+    const headers = ["Code", "Name", "Dept", "Company", "Leave Type", "Availed (Days)"];
+    openViewDialog(`Employee Leave Register - ${selectedYear}`, headers, rows.map(r => [r.code, r.name, r.dept, r.company, r.leaveType, r.availed]));
+  };
+
+  // ─── Offer Letter ─────────────────────────────────────────────────────────
+  const generateOfferLetter = (_fileType: "excel" | "pdf") => {
+    const emp = employees.find(e => e.id === docEmployee);
+    if (!emp) { toast({ title: "Select Employee", description: "Please select an employee first.", variant: "destructive" }); return; }
+    const company = companies.find(c => c.id === emp.companyId);
+    const ss = salaryStructures.find(s => s.employeeId === emp.id);
+    const doc = new jsPDF();
+    const todayDate = format(new Date(), "dd MMMM yyyy");
+    // Header
+    doc.setFontSize(14); doc.setFont("helvetica", "bold");
+    doc.text(company?.companyName || "Company Name", 105, 18, { align: "center" });
+    doc.setFontSize(9); doc.setFont("helvetica", "normal");
+    doc.text(company?.registeredAddress || "", 105, 24, { align: "center" });
+    doc.setDrawColor(59, 130, 246); doc.setLineWidth(0.5);
+    doc.line(14, 28, 196, 28);
+    // Title
+    doc.setFontSize(13); doc.setFont("helvetica", "bold");
+    doc.text("OFFER LETTER", 105, 38, { align: "center" });
+    doc.setFontSize(9); doc.setFont("helvetica", "normal");
+    doc.text(`Date: ${todayDate}`, 14, 48);
+    doc.text(`Ref No.: OL/${emp.employeeCode}/${format(new Date(), "yyyy")}`, 14, 54);
+    // Salutation
+    doc.setFontSize(10);
+    doc.text(`Dear ${emp.firstName} ${emp.lastName},`, 14, 66);
+    // Body
+    const body = [
+      `We are pleased to offer you the position of ${emp.designation || "Employee"} in the ${emp.department || ""}`,
+      `department at ${company?.companyName || "our company"}, effective from ${emp.dateOfJoining || todayDate}.`,
+      "",
+      `Your compensation package is as follows:`,
+    ];
+    let y = 74;
+    for (const line of body) {
+      doc.text(line, 14, y); y += 6;
+    }
+    // CTC Table
+    if (ss) {
+      const ctcRows: [string, string][] = [
+        ["Basic Salary", `₹ ${ss.basicSalary.toLocaleString("en-IN")} / month`],
+        ["HRA", `₹ ${(ss.hra || 0).toLocaleString("en-IN")} / month`],
+        ["Conveyance", `₹ ${(ss.conveyance || 0).toLocaleString("en-IN")} / month`],
+        ["Special Allowance", `₹ ${(ss.specialAllowance || 0).toLocaleString("en-IN")} / month`],
+        ["Other Allowances", `₹ ${(ss.otherAllowances || 0).toLocaleString("en-IN")} / month`],
+        ["Gross Salary", `₹ ${ss.grossSalary.toLocaleString("en-IN")} / month`],
+        ["Annual CTC", `₹ ${(ss.grossSalary * 12).toLocaleString("en-IN")} / year`],
+      ];
+      autoTable(doc, {
+        body: ctcRows,
+        startY: y + 2,
+        theme: "grid",
+        styles: { fontSize: 9, cellPadding: 2 },
+        columnStyles: { 0: { fontStyle: "bold", fillColor: [240, 244, 255], cellWidth: 70 }, 1: { cellWidth: 80 } },
+      });
+      y = (doc as any).lastAutoTable.finalY + 10;
+    }
+    // Conditions
+    const conditions = [
+      "This offer is subject to satisfactory background verification and document submission.",
+      "Please confirm your acceptance by signing and returning a copy of this letter.",
+      "We look forward to welcoming you to our team.",
+    ];
+    for (const line of conditions) {
+      if (y > 260) { doc.addPage(); y = 20; }
+      doc.text(line, 14, y); y += 7;
+    }
+    y += 8;
+    doc.text("Yours sincerely,", 14, y); y += 12;
+    doc.text("Authorized Signatory", 14, y); y += 6;
+    doc.text(company?.companyName || "", 14, y);
+    doc.save(`Offer_Letter_${emp.employeeCode}.pdf`);
+    toast({ title: "Downloaded", description: `Offer_Letter_${emp.employeeCode}.pdf has been downloaded.` });
+  };
+
+  // ─── Appointment Letter ───────────────────────────────────────────────────
+  const generateAppointmentLetter = (_fileType: "excel" | "pdf") => {
+    const emp = employees.find(e => e.id === docEmployee);
+    if (!emp) { toast({ title: "Select Employee", description: "Please select an employee first.", variant: "destructive" }); return; }
+    const company = companies.find(c => c.id === emp.companyId);
+    const ss = salaryStructures.find(s => s.employeeId === emp.id);
+    const doc = new jsPDF();
+    const todayDate = format(new Date(), "dd MMMM yyyy");
+    // Header
+    doc.setFontSize(14); doc.setFont("helvetica", "bold");
+    doc.text(company?.companyName || "Company Name", 105, 18, { align: "center" });
+    doc.setFontSize(9); doc.setFont("helvetica", "normal");
+    doc.text(company?.registeredAddress || "", 105, 24, { align: "center" });
+    doc.setDrawColor(59, 130, 246); doc.setLineWidth(0.5);
+    doc.line(14, 28, 196, 28);
+    doc.setFontSize(13); doc.setFont("helvetica", "bold");
+    doc.text("APPOINTMENT LETTER", 105, 38, { align: "center" });
+    doc.setFontSize(9); doc.setFont("helvetica", "normal");
+    doc.text(`Date: ${todayDate}`, 14, 48);
+    doc.text(`Ref No.: AL/${emp.employeeCode}/${format(new Date(), "yyyy")}`, 14, 54);
+    doc.setFontSize(10);
+    doc.text(`To,`, 14, 64);
+    doc.text(`${emp.firstName} ${emp.lastName}`, 14, 70);
+    doc.text(emp.presentAddress || emp.address || "", 14, 76);
+    let y = 88;
+    doc.text(`Sub: Appointment as ${emp.designation || "Employee"}`, 14, y); y += 10;
+    doc.text(`Dear ${emp.firstName},`, 14, y); y += 8;
+    const paras = [
+      `With reference to your application and the subsequent discussions, we are pleased to appoint you as`,
+      `${emp.designation || "Employee"} in the ${emp.department || ""} department of ${company?.companyName || "our organisation"},`,
+      `with effect from ${emp.dateOfJoining || todayDate}. The terms and conditions of your appointment are as under:`,
+    ];
+    for (const p of paras) { doc.text(p, 14, y); y += 6; }
+    y += 4;
+    const clauses: [string, string][] = [
+      ["1. Designation", emp.designation || ""],
+      ["2. Department", emp.department || ""],
+      ["3. Date of Joining", emp.dateOfJoining || ""],
+      ["4. Employment Type", emp.employmentType || "Permanent"],
+      ["5. Location", emp.location || ""],
+      ["6. Gross Salary", ss ? `₹ ${ss.grossSalary.toLocaleString("en-IN")} per month` : "As per offer letter"],
+      ["7. Annual CTC", ss ? `₹ ${(ss.grossSalary * 12).toLocaleString("en-IN")} per annum` : "As per offer letter"],
+      ["8. PF Applicable", emp.pfApplicable ? "Yes" : "No"],
+      ["9. ESI Applicable", emp.esiApplicable ? "Yes" : "No"],
+    ];
+    autoTable(doc, {
+      body: clauses,
+      startY: y,
+      theme: "grid",
+      styles: { fontSize: 9, cellPadding: 2.5 },
+      columnStyles: { 0: { fontStyle: "bold", fillColor: [240, 244, 255], cellWidth: 65 }, 1: { cellWidth: 105 } },
+    });
+    y = (doc as any).lastAutoTable.finalY + 10;
+    const footer = [
+      "This appointment is subject to your maintaining satisfactory performance and conduct.",
+      "You will be governed by the service rules and policies of the organisation as applicable.",
+      "Kindly sign and return a duplicate copy of this letter as your acceptance.",
+    ];
+    for (const f of footer) { if (y > 260) { doc.addPage(); y = 20; } doc.text(f, 14, y); y += 7; }
+    y += 10;
+    doc.text("For " + (company?.companyName || ""), 14, y); y += 14;
+    doc.text("Authorized Signatory", 14, y); y += 6;
+    doc.text("(HR Department)", 14, y); y += 16;
+    doc.text(`Employee Acceptance:`, 14, y); y += 8;
+    doc.text(`I accept the above terms and conditions of appointment.`, 14, y); y += 12;
+    doc.text(`Signature: ___________________    Date: ___________________`, 14, y);
+    doc.save(`Appointment_Letter_${emp.employeeCode}.pdf`);
+    toast({ title: "Downloaded", description: `Appointment_Letter_${emp.employeeCode}.pdf has been downloaded.` });
+  };
+
   const reportCards = [
     {
       title: "Attendance Sheet",
@@ -2283,118 +2823,236 @@ export default function ReportsPage() {
     },
   ];
 
+  // Reusable card renderer
+  const renderCard = (report: { title: string; description: string; icon: React.ElementType; color: string; bgColor: string; generate: (f: "excel" | "pdf") => void; view: () => void; pdfOnly?: boolean }) => (
+    <Card key={report.title} className="hover:shadow-lg transition-shadow">
+      <CardHeader className="pb-3">
+        <div className="flex items-start gap-3">
+          <div className={`p-2.5 rounded-lg ${report.bgColor}`}>
+            <report.icon className={`h-5 w-5 ${report.color}`} />
+          </div>
+          <div className="flex-1">
+            <CardTitle className="text-base">{report.title}</CardTitle>
+            <CardDescription className="text-xs mt-1">{report.description}</CardDescription>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" className="flex-1" onClick={() => report.view()}>
+            <Eye className="h-4 w-4 mr-1.5 text-blue-600" />View
+          </Button>
+          {!report.pdfOnly && (
+            <Button variant="outline" size="sm" className="flex-1" onClick={() => report.generate("excel")}>
+              <FileSpreadsheet className="h-4 w-4 mr-1.5 text-green-600" />Excel
+            </Button>
+          )}
+          <Button variant="outline" size="sm" className="flex-1" onClick={() => report.generate("pdf")}>
+            <Download className="h-4 w-4 mr-1.5 text-red-600" />PDF
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+
+  // Common filter bar
+  const companyFilter = isSuperAdmin ? (
+    <div className="flex items-center gap-2">
+      <label className="text-sm font-medium">Company:</label>
+      <Select value={selectedCompany} onValueChange={setSelectedCompany}>
+        <SelectTrigger className="w-56"><SelectValue placeholder="All Companies" /></SelectTrigger>
+        <SelectContent>
+          <SelectItem value="__all__">All Companies</SelectItem>
+          {companies.map(c => <SelectItem key={c.id} value={c.id}>{c.companyName}</SelectItem>)}
+        </SelectContent>
+      </Select>
+    </div>
+  ) : null;
+
+  const contractorCompanies = companies.filter(c => c.isContractor);
+  const filteredContractorEmployees = employees.filter(e =>
+    contractorCompanies.some(c => c.id === e.companyId) &&
+    (effectiveCompany ? e.companyId === effectiveCompany : true)
+  );
+
+  // Annual report cards
+  const annualCards = [
+    { title: "Yearly PF Summary", description: "Month-wise PF employee and employer contributions for all PF-applicable employees for the selected year", icon: Shield, color: "text-purple-600", bgColor: "bg-purple-50 dark:bg-purple-950", generate: generateYearlyPFSummary, view: viewYearlyPFSummary },
+    { title: "Yearly ESIC Summary", description: "Month-wise ESIC IP and employer contributions for all ESIC-applicable employees for the selected year", icon: Receipt, color: "text-orange-600", bgColor: "bg-orange-50 dark:bg-orange-950", generate: generateYearlyESICSummary, view: viewYearlyESICSummary },
+    { title: "Yearly Salary Detail", description: "Month-wise gross and net salary breakdown for all employees — full-year payroll register", icon: TrendingUp, color: "text-green-600", bgColor: "bg-green-50 dark:bg-green-950", generate: generateYearlySalaryDetail, view: viewYearlySalaryDetail },
+  ];
+
+  // Employee-wise cards
+  const employeeWiseCards = [
+    { title: "Employee List", description: "Complete employee directory with personal details, department, designation, and contact info", icon: Users, color: "text-teal-600", bgColor: "bg-teal-50 dark:bg-teal-950", generate: generateEmployeeList, view: viewEmployeeList },
+    { title: "Employee Personal File", description: "Complete personal and employment profile of each employee including salary, statutory details, bank info, and address", icon: FileUser, color: "text-indigo-600", bgColor: "bg-indigo-50 dark:bg-indigo-950", generate: generateEmployeePersonalFile, view: viewEmployeePersonalFile },
+    { title: "Employee Pay Structure", description: "Salary component breakdown for each employee including basic, allowances, and statutory applicability", icon: ClipboardList, color: "text-blue-600", bgColor: "bg-blue-50 dark:bg-blue-950", generate: generateEmployeePayStructure, view: viewEmployeePayStructure },
+  ];
+
+  // HR Document cards (PDF only for letters)
+  const hrDocCards = [
+    { title: "Offer Letter", description: "Generate formal offer letter for an employee with designation, department, joining date, and CTC breakdown", icon: FilePen, color: "text-sky-600", bgColor: "bg-sky-50 dark:bg-sky-950", generate: generateOfferLetter, view: () => { toast({ title: "PDF Only", description: "Offer Letter is available as PDF download only." }); }, pdfOnly: true },
+    { title: "Appointment Letter", description: "Generate formal appointment letter with complete terms and conditions, compensation details, and acceptance section", icon: BookOpen, color: "text-violet-600", bgColor: "bg-violet-50 dark:bg-violet-950", generate: generateAppointmentLetter, view: () => { toast({ title: "PDF Only", description: "Appointment Letter is available as PDF download only." }); }, pdfOnly: true },
+    { title: "Employee Leave Register", description: "Year-wise leave register showing approved leaves by type for each employee with day counts", icon: CalendarRange, color: "text-rose-600", bgColor: "bg-rose-50 dark:bg-rose-950", generate: generateEmployeeLeaveRegister, view: viewEmployeeLeaveRegister },
+  ];
+
+  // Contractor-wise cards — same reports as monthly but scoped to contractor employees
+  const contractorCards = [
+    { title: "Attendance Sheet (Contractor)", description: "Monthly attendance for contractor employees — present, absent, OT and pay-day counts", icon: Calendar, color: "text-blue-600", bgColor: "bg-blue-50 dark:bg-blue-950", generate: generateAttendanceSheet, view: viewAttendanceSheet },
+    { title: "Salary Sheet (Contractor)", description: "Monthly salary register for contractor / principal-employer employees", icon: CreditCard, color: "text-green-600", bgColor: "bg-green-50 dark:bg-green-950", generate: generateSalarySheet, view: viewSalarySheet },
+    { title: "PF Statement (Contractor)", description: "Monthly PF ECR for contractor employees", icon: Shield, color: "text-purple-600", bgColor: "bg-purple-50 dark:bg-purple-950", generate: generatePFStatement, view: viewPFStatement },
+    { title: "ESIC Statement (Contractor)", description: "Monthly ESIC contributions for contractor employees", icon: Receipt, color: "text-orange-600", bgColor: "bg-orange-50 dark:bg-orange-950", generate: generateESICStatement, view: viewESICStatement },
+  ];
+
   return (
     <div className="p-6" data-testid="reports-page">
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <BarChart3 className="h-6 w-6" />
-            Reports
-          </h1>
-          <p className="text-muted-foreground">Generate and download reports in Excel and PDF format</p>
-        </div>
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold flex items-center gap-2"><BarChart3 className="h-6 w-6" />Reports</h1>
+        <p className="text-muted-foreground">Generate and download reports in Excel and PDF format</p>
       </div>
 
-      <div className="flex items-center gap-4 mb-6">
-        {isSuperAdmin && (
-          <div className="flex items-center gap-2">
-            <label className="text-sm font-medium">Company:</label>
-            <Select value={selectedCompany} onValueChange={setSelectedCompany}>
-              <SelectTrigger className="w-60">
-                <SelectValue placeholder="All Companies" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__all__">All Companies</SelectItem>
-                {companies.map((c) => (
-                  <SelectItem key={c.id} value={c.id}>{c.companyName}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
+        <TabsList className="flex flex-wrap gap-1 h-auto">
+          <TabsTrigger value="monthly" className="flex items-center gap-1.5"><Calendar className="h-4 w-4" />Monthly</TabsTrigger>
+          <TabsTrigger value="annual" className="flex items-center gap-1.5"><TrendingUp className="h-4 w-4" />Annual</TabsTrigger>
+          <TabsTrigger value="employee" className="flex items-center gap-1.5"><UserRound className="h-4 w-4" />Employee Wise</TabsTrigger>
+          <TabsTrigger value="hr" className="flex items-center gap-1.5"><FilePen className="h-4 w-4" />HR Documents</TabsTrigger>
+          <TabsTrigger value="contractor" className="flex items-center gap-1.5"><Building2 className="h-4 w-4" />Contractor Wise</TabsTrigger>
+        </TabsList>
+
+        {/* ── Monthly ── */}
+        <TabsContent value="monthly">
+          <div className="flex flex-wrap items-center gap-4 mb-5 p-3 bg-muted/30 rounded-lg border">
+            {companyFilter}
+            <div className="flex items-center gap-2">
+              <label className="text-sm font-medium">Month:</label>
+              <Input type="month" value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)} className="w-44" />
+            </div>
           </div>
-        )}
-        <div className="flex items-center gap-2">
-          <label className="text-sm font-medium">Month:</label>
-          <Input
-            type="month"
-            value={selectedMonth}
-            onChange={(e) => setSelectedMonth(e.target.value)}
-            className="w-44"
-          />
-        </div>
-      </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+            {reportCards.map(r => renderCard(r))}
+          </div>
+        </TabsContent>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {reportCards.map((report) => (
-          <Card key={report.title} className="hover:shadow-lg transition-shadow">
-            <CardHeader className="pb-3">
-              <div className="flex items-start gap-3">
-                <div className={`p-2.5 rounded-lg ${report.bgColor}`}>
-                  <report.icon className={`h-5 w-5 ${report.color}`} />
-                </div>
-                <div className="flex-1">
-                  <CardTitle className="text-base">{report.title}</CardTitle>
-                  <CardDescription className="text-xs mt-1">{report.description}</CardDescription>
-                </div>
+        {/* ── Annual ── */}
+        <TabsContent value="annual">
+          <div className="flex flex-wrap items-center gap-4 mb-5 p-3 bg-muted/30 rounded-lg border">
+            {companyFilter}
+            <div className="flex items-center gap-2">
+              <label className="text-sm font-medium">Year:</label>
+              <Input type="number" value={selectedYear} onChange={e => setSelectedYear(e.target.value)} className="w-28" min={2020} max={2099} />
+            </div>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+            {annualCards.map(r => renderCard(r))}
+          </div>
+        </TabsContent>
+
+        {/* ── Employee Wise ── */}
+        <TabsContent value="employee">
+          <div className="flex flex-wrap items-center gap-4 mb-5 p-3 bg-muted/30 rounded-lg border">
+            {companyFilter}
+            <div className="flex items-center gap-2">
+              <label className="text-sm font-medium">Employee:</label>
+              <Select value={docEmployee} onValueChange={setDocEmployee}>
+                <SelectTrigger className="w-56"><SelectValue placeholder="All Employees" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">All Employees</SelectItem>
+                  {filteredEmployees.map(e => <SelectItem key={e.id} value={e.id}>{e.firstName} {e.lastName} ({e.employeeCode})</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex items-center gap-2">
+              <label className="text-sm font-medium">Year:</label>
+              <Input type="number" value={selectedYear} onChange={e => setSelectedYear(e.target.value)} className="w-28" min={2020} max={2099} />
+            </div>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+            {employeeWiseCards.map(r => renderCard(r))}
+          </div>
+        </TabsContent>
+
+        {/* ── HR Documents ── */}
+        <TabsContent value="hr">
+          <div className="flex flex-wrap items-center gap-4 mb-5 p-3 bg-muted/30 rounded-lg border">
+            {companyFilter}
+            <div className="flex items-center gap-2">
+              <label className="text-sm font-medium">Employee:</label>
+              <Select value={docEmployee} onValueChange={setDocEmployee}>
+                <SelectTrigger className="w-64"><SelectValue placeholder="Select employee for letters" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">— All Employees —</SelectItem>
+                  {filteredEmployees.map(e => <SelectItem key={e.id} value={e.id}>{e.firstName} {e.lastName} ({e.employeeCode})</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex items-center gap-2">
+              <label className="text-sm font-medium">Year:</label>
+              <Input type="number" value={selectedYear} onChange={e => setSelectedYear(e.target.value)} className="w-28" min={2020} max={2099} />
+            </div>
+          </div>
+          {!docEmployee && (
+            <p className="text-sm text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-4 py-2 mb-5">
+              Select an employee above to generate Offer Letter or Appointment Letter. Leave Register works for all employees too.
+            </p>
+          )}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+            {hrDocCards.map(r => renderCard(r))}
+          </div>
+        </TabsContent>
+
+        {/* ── Contractor Wise ── */}
+        <TabsContent value="contractor">
+          <div className="flex flex-wrap items-center gap-4 mb-5 p-3 bg-muted/30 rounded-lg border">
+            <div className="flex items-center gap-2">
+              <label className="text-sm font-medium">Contractor Company:</label>
+              <Select value={selectedCompany} onValueChange={setSelectedCompany}>
+                <SelectTrigger className="w-64"><SelectValue placeholder="All Contractors" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__all__">All Contractors</SelectItem>
+                  {contractorCompanies.map(c => <SelectItem key={c.id} value={c.id}>{c.companyName}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex items-center gap-2">
+              <label className="text-sm font-medium">Month:</label>
+              <Input type="month" value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)} className="w-44" />
+            </div>
+          </div>
+          {contractorCompanies.length === 0 ? (
+            <div className="text-center py-16 text-muted-foreground">
+              <Building2 className="h-12 w-12 mx-auto mb-3 opacity-40" />
+              <p className="font-medium">No contractor companies found.</p>
+              <p className="text-sm">Mark companies as contractors in the Company master to see them here.</p>
+            </div>
+          ) : (
+            <>
+              <p className="text-sm text-muted-foreground mb-4">
+                Showing {filteredContractorEmployees.length} contractor employee(s). Reports below use the selected contractor company and month filter.
+              </p>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                {contractorCards.map(r => renderCard(r))}
               </div>
-            </CardHeader>
-            <CardContent>
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="flex-1"
-                  onClick={() => report.view()}
-                >
-                  <Eye className="h-4 w-4 mr-1.5 text-blue-600" />
-                  View
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="flex-1"
-                  onClick={() => report.generate("excel")}
-                >
-                  <FileSpreadsheet className="h-4 w-4 mr-1.5 text-green-600" />
-                  Excel
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="flex-1"
-                  onClick={() => report.generate("pdf")}
-                >
-                  <Download className="h-4 w-4 mr-1.5 text-red-600" />
-                  PDF
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+            </>
+          )}
+        </TabsContent>
+      </Tabs>
 
       <Dialog open={viewDialogOpen} onOpenChange={setViewDialogOpen}>
         <DialogContent className="max-w-[95vw] max-h-[90vh] overflow-hidden flex flex-col">
-          <DialogHeader>
-            <DialogTitle>{viewTitle}</DialogTitle>
-          </DialogHeader>
+          <DialogHeader><DialogTitle>{viewTitle}</DialogTitle></DialogHeader>
           <div className="flex-1 overflow-auto">
             {viewRows.length === 0 ? (
               <p className="text-center text-muted-foreground py-8">No data available for this report.</p>
             ) : (
               <table className="w-full text-sm border-collapse">
                 <thead className="sticky top-0 bg-background z-10">
-                  <tr>
-                    {viewHeaders.map((h, i) => (
-                      <th key={i} className="border px-3 py-2 text-left font-semibold bg-primary/10 text-xs whitespace-nowrap">{h}</th>
-                    ))}
-                  </tr>
+                  <tr>{viewHeaders.map((h, i) => <th key={i} className="border px-3 py-2 text-left font-semibold bg-primary/10 text-xs whitespace-nowrap">{h}</th>)}</tr>
                 </thead>
                 <tbody>
                   {viewRows.map((row, ri) => (
                     <tr key={ri} className={ri % 2 === 0 ? "bg-background" : "bg-muted/30"}>
-                      {row.map((cell, ci) => (
-                        <td key={ci} className="border px-3 py-1.5 text-xs whitespace-nowrap">{cell}</td>
-                      ))}
+                      {row.map((cell, ci) => <td key={ci} className="border px-3 py-1.5 text-xs whitespace-nowrap">{cell}</td>)}
                     </tr>
                   ))}
                 </tbody>
