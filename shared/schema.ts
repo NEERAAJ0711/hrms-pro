@@ -60,6 +60,7 @@ export const contractorEmployees = pgTable("contractor_employees", {
   companyContractorId: varchar("company_contractor_id", { length: 36 }).notNull(),
   employeeId: varchar("employee_id", { length: 36 }).notNull(),
   taggedDate: text("tagged_date"),
+  taggedBy: text("tagged_by"),
 });
 
 export const insertContractorEmployeeSchema = createInsertSchema(contractorEmployees).omit({ id: true });

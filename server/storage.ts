@@ -80,8 +80,8 @@ export interface IStorage {
   addCompanyContractor(data: InsertCompanyContractor): Promise<CompanyContractor>;
   removeCompanyContractor(companyId: string, contractorId: string): Promise<boolean>;
   getPrincipalEmployers(contractorId: string): Promise<(CompanyContractor & { companyName: string })[]>;
-  getContractorEmployees(companyId: string, contractorId: string): Promise<(Employee & { contractorEmployeeId: string; taggedDate: string | null })[]>;
-  addContractorEmployee(companyId: string, contractorId: string, employeeId: string, taggedDate?: string): Promise<void>;
+  getContractorEmployees(companyId: string, contractorId: string): Promise<(Employee & { contractorEmployeeId: string; taggedDate: string | null; taggedBy: string | null })[]>;
+  addContractorEmployee(companyId: string, contractorId: string, employeeId: string, taggedDate?: string, taggedBy?: string): Promise<void>;
   removeContractorEmployee(companyId: string, contractorId: string, employeeId: string): Promise<boolean>;
 
   // Employees
@@ -507,8 +507,8 @@ export class MemStorage implements IStorage {
     return this.contractorsMap.delete(entry.id);
   }
   async getPrincipalEmployers(_contractorId: string): Promise<(CompanyContractor & { companyName: string })[]> { return []; }
-  async getContractorEmployees(_companyId: string, _contractorId: string): Promise<(Employee & { contractorEmployeeId: string; taggedDate: string | null })[]> { return []; }
-  async addContractorEmployee(_companyId: string, _contractorId: string, _employeeId: string, _taggedDate?: string): Promise<void> {}
+  async getContractorEmployees(_companyId: string, _contractorId: string): Promise<(Employee & { contractorEmployeeId: string; taggedDate: string | null; taggedBy: string | null })[]> { return []; }
+  async addContractorEmployee(_companyId: string, _contractorId: string, _employeeId: string, _taggedDate?: string, _taggedBy?: string): Promise<void> {}
   async removeContractorEmployee(_companyId: string, _contractorId: string, _employeeId: string): Promise<boolean> { return false; }
 
   // Employee methods

@@ -18,7 +18,7 @@ type ContractorRow = {
   startDate: string; contractorName: string;
 };
 type PrincipalEmployerRow = CompanyContractor & { companyName: string };
-type TaggedEmployee = Employee & { contractorEmployeeId: string; taggedDate: string | null };
+type TaggedEmployee = Employee & { contractorEmployeeId: string; taggedDate: string | null; taggedBy: string | null };
 
 function fmt(d: string | null | undefined) {
   if (!d) return "—";
@@ -250,6 +250,7 @@ function EmployeesPanel({ companyId, contractor }: { companyId: string; contract
                   <th className="px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Name</th>
                   <th className="px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide hidden sm:table-cell">Designation</th>
                   <th className="px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide hidden md:table-cell">Tagged On</th>
+                  <th className="px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide hidden lg:table-cell">Tagged By</th>
                   <th className="px-4 py-2.5 w-12"></th>
                 </tr>
               </thead>
@@ -274,6 +275,9 @@ function EmployeesPanel({ companyId, contractor }: { companyId: string; contract
                     </td>
                     <td className="px-4 py-3 text-sm text-muted-foreground hidden md:table-cell">
                       {fmt(emp.taggedDate)}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-muted-foreground hidden lg:table-cell">
+                      {emp.taggedBy || "—"}
                     </td>
                     <td className="px-4 py-3 text-right">
                       <button type="button"

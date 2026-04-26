@@ -196,24 +196,24 @@ export class DatabaseStorage implements IStorage {
     return rows.map((r) => ({ ...r, companyName: r.companyName ?? "(Unknown Company)" }));
   }
 
-  async getContractorEmployees(companyId: string, contractorId: string): Promise<(Employee & { contractorEmployeeId: string; taggedDate: string | null })[]> {
+  async getContractorEmployees(companyId: string, contractorId: string): Promise<(Employee & { contractorEmployeeId: string; taggedDate: string | null; taggedBy: string | null })[]> {
     const junction = await db.select().from(companyContractors)
       .where(and(eq(companyContractors.companyId, companyId), eq(companyContractors.contractorId, contractorId)));
     if (!junction.length) return [];
     const rows = await db
-      .select({ ...employees, contractorEmployeeId: contractorEmployees.id, taggedDate: contractorEmployees.taggedDate } as any)
+      .select({ ...employees, contractorEmployeeId: contractorEmployees.id, taggedDate: contractorEmployees.taggedDate, taggedBy: contractorEmployees.taggedBy } as any)
       .from(contractorEmployees)
       .innerJoin(employees, eq(employees.id, contractorEmployees.employeeId))
       .where(eq(contractorEmployees.companyContractorId, junction[0].id));
     return rows as any;
   }
 
-  async addContractorEmployee(companyId: string, contractorId: string, employeeId: string, taggedDate?: string): Promise<void> {
+  async addContractorEmployee(companyId: string, contractorId: string, employeeId: string, taggedDate?: string, taggedBy?: string): Promise<void> {
     const junction = await db.select().from(companyContractors)
       .where(and(eq(companyContractors.companyId, companyId), eq(companyContractors.contractorId, contractorId)));
     if (!junction.length) throw new Error("Contractor relationship not found");
     const id = randomUUID();
-    await db.insert(contractorEmployees).values({ id, companyContractorId: junction[0].id, employeeId, taggedDate: taggedDate ?? null });
+    await db.insert(contractorEmployees).values({ id, companyContractorId: junction[0].id, employeeId, taggedDate: taggedDate ?? null, taggedBy: taggedBy ?? null });
   }
 
   async removeContractorEmployee(companyId: string, contractorId: string, employeeId: string): Promise<boolean> {

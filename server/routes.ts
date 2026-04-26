@@ -4793,7 +4793,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { employeeId, taggedDate } = req.body;
       if (!employeeId) return res.status(400).json({ error: "employeeId is required" });
-      await storage.addContractorEmployee(req.params.id, req.params.contractorId, employeeId, taggedDate);
+      const u = (req as any).user;
+      const taggedBy = u ? `${u.firstName} ${u.lastName}`.trim() || u.username : null;
+      await storage.addContractorEmployee(req.params.id, req.params.contractorId, employeeId, taggedDate, taggedBy);
       res.status(201).json({ success: true });
     } catch (error: any) {
       if (String(error?.message || "").includes("unique")) {
