@@ -61,6 +61,8 @@ export default function ReportsPage() {
   const [customToMonth, setCustomToMonth] = useState(format(new Date(), "yyyy-MM"));
   const [docEmployee, setDocEmployee] = useState<string>("");
   const [activeTab, setActiveTab] = useState("monthly");
+  const [contractorPrincipalId, setContractorPrincipalId] = useState<string>("");
+  const [selectedContractorId, setSelectedContractorId] = useState<string>("");
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
   const [viewTitle, setViewTitle] = useState("");
   const [viewHeaders, setViewHeaders] = useState<string[]>([]);
@@ -163,6 +165,16 @@ export default function ReportsPage() {
       if (!res.ok) return [];
       return res.json();
     },
+  });
+
+  const { data: companyContractors = [] } = useQuery<{ contractorId: string; contractorName: string; startDate: string }[]>({
+    queryKey: ["/api/companies", contractorPrincipalId, "contractors"],
+    queryFn: async () => {
+      const res = await fetch(`/api/companies/${contractorPrincipalId}/contractors`, { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: !!hasAccess && !!contractorPrincipalId,
   });
 
   const getStatutorySettings = (companyId: string | null): StatutorySettings | undefined => {
@@ -3022,32 +3034,84 @@ export default function ReportsPage() {
           </div>
         </TabsContent>
 
-        {/* ── Contractor Wise ── */}
+        {/* ── Contractor Compliances ── */}
         <TabsContent value="contractor">
           <div className="flex flex-wrap items-center gap-4 mb-5 p-3 bg-muted/30 rounded-lg border">
+
+            {/* Step 1: Principal Employer Company */}
             <div className="flex items-center gap-2">
-              <label className="text-sm font-medium">Contractor Company:</label>
-              <Select value={selectedCompany || "__all__"} onValueChange={setSelectedCompany}>
-                <SelectTrigger className="w-64"><SelectValue placeholder="All Companies" /></SelectTrigger>
+              <div className="flex items-center justify-center w-5 h-5 rounded-full bg-primary text-primary-foreground text-xs font-bold shrink-0">1</div>
+              <label className="text-sm font-medium">Principal Company:</label>
+              <Select
+                value={contractorPrincipalId || "__none__"}
+                onValueChange={v => {
+                  const val = v === "__none__" ? "" : v;
+                  setContractorPrincipalId(val);
+                  setSelectedContractorId("");
+                  setSelectedCompany("");
+                }}
+              >
+                <SelectTrigger className="w-60"><SelectValue placeholder="Select company…" /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="__all__">All Companies</SelectItem>
-                  {contractorCompanies.map(c => <SelectItem key={c.id} value={c.id}>{c.companyName}</SelectItem>)}
+                  <SelectItem value="__none__">— Select Principal Company —</SelectItem>
+                  {companies.map(c => <SelectItem key={c.id} value={c.id}>{c.companyName}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
+
+            {/* Step 2: Contractor mapped to that company */}
+            <div className="flex items-center gap-2">
+              <div className={`flex items-center justify-center w-5 h-5 rounded-full text-xs font-bold shrink-0 ${contractorPrincipalId ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>2</div>
+              <label className="text-sm font-medium">Contractor:</label>
+              <Select
+                value={selectedContractorId || "__none__"}
+                onValueChange={v => {
+                  const val = v === "__none__" ? "" : v;
+                  setSelectedContractorId(val);
+                  setSelectedCompany(val);
+                }}
+                disabled={!contractorPrincipalId}
+              >
+                <SelectTrigger className="w-60">
+                  <SelectValue placeholder={contractorPrincipalId ? (companyContractors.length === 0 ? "No contractors mapped" : "Select contractor…") : "Select company first"} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">— All Contractors —</SelectItem>
+                  {companyContractors.map(c => <SelectItem key={c.contractorId} value={c.contractorId}>{c.contractorName}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+
             <div className="flex items-center gap-2">
               <label className="text-sm font-medium">Month:</label>
               <Input type="month" value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)} className="w-44" />
             </div>
           </div>
-          <p className="text-sm text-muted-foreground mb-4">
-            {selectedCompany && selectedCompany !== "__all__"
-              ? `Showing ${filteredContractorEmployees.length} employee(s) for the selected company.`
-              : "Select a company above to filter contractor compliance reports by that company."}
-          </p>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-            {contractorCards.map(r => renderCard(r))}
-          </div>
+
+          {!contractorPrincipalId ? (
+            <div className="text-center py-14 text-muted-foreground">
+              <Building2 className="h-12 w-12 mx-auto mb-3 opacity-30" />
+              <p className="font-medium">Select a Principal Company to get started</p>
+              <p className="text-sm mt-1">Then choose a contractor mapped to that company to view compliance reports.</p>
+            </div>
+          ) : companyContractors.length === 0 ? (
+            <div className="text-center py-14 text-muted-foreground">
+              <Building2 className="h-12 w-12 mx-auto mb-3 opacity-30" />
+              <p className="font-medium">No contractors mapped to this company</p>
+              <p className="text-sm mt-1">Go to Company settings and add contractor companies first.</p>
+            </div>
+          ) : (
+            <>
+              {selectedContractorId && (
+                <p className="text-sm text-muted-foreground mb-4">
+                  Showing {filteredContractorEmployees.length} employee(s) for contractor: <span className="font-medium text-foreground">{companyContractors.find(c => c.contractorId === selectedContractorId)?.contractorName}</span>
+                </p>
+              )}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                {contractorCards.map(r => renderCard(r))}
+              </div>
+            </>
+          )}
         </TabsContent>
       </Tabs>
 
