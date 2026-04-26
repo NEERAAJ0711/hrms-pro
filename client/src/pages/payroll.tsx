@@ -340,7 +340,37 @@ export default function PayrollPage() {
     const conveyance = Number(form.getValues("conveyance")) || 0;
     const special = Number(form.getValues("specialAllowance")) || 0;
     const other = Number(form.getValues("otherAllowances")) || 0;
-    const amounts = customAmountsOverride ?? customEarningAmounts;
+
+    // Start from the manually-overridden or current amounts
+    const baseAmounts = customAmountsOverride ?? customEarningAmounts;
+
+    // Auto-compute percentage-type heads from the current basic/gross breakdown.
+    // Use a preliminary gross (without pct heads) as the base for "gross"-based heads.
+    const fixedCustomSum = Object.entries(baseAmounts)
+      .filter(([hid]) => {
+        const h = activeEarningHeads.find(x => x.id === hid);
+        return !h || h.type !== "percentage";
+      })
+      .reduce((acc, [, v]) => acc + (v || 0), 0);
+    const prelimGross = basic + hra + conveyance + special + other + fixedCustomSum;
+
+    const updatedAmounts = { ...baseAmounts };
+    for (const head of activeEarningHeads) {
+      if (head.type === "percentage" && (head.percentage ?? 0) > 0) {
+        const base = head.calculationBase === "basic" ? basic : prelimGross;
+        updatedAmounts[head.id] = Math.round(base * (head.percentage ?? 0) / 100);
+      }
+    }
+
+    // Only push the percentage updates back to state if they actually changed
+    const pctChanged = activeEarningHeads
+      .filter(h => h.type === "percentage")
+      .some(h => (updatedAmounts[h.id] ?? 0) !== (customEarningAmounts[h.id] ?? 0));
+    if (pctChanged && !customAmountsOverride) {
+      setCustomEarningAmounts(updatedAmounts);
+    }
+
+    const amounts = customAmountsOverride ? updatedAmounts : (pctChanged ? updatedAmounts : baseAmounts);
     const customSum = Object.values(amounts).reduce((acc, v) => acc + (v || 0), 0);
 
     const gross = basic + hra + conveyance + special + other + customSum;
@@ -541,6 +571,8 @@ export default function PayrollPage() {
       effectiveFrom: structure.effectiveFrom,
     });
     setIsCreateOpen(true);
+    // Trigger auto-compute for percentage heads after form is fully populated
+    setTimeout(() => calculateSalary(false), 0);
   };
 
   const handleStructureDialogClose = (open: boolean) => {
@@ -798,7 +830,43 @@ export default function PayrollPage() {
           ? Math.round(otRatePerHour * totalOtHours)
           : 0;
 
-        const totalEarnings = grossSalary + monthlyBonus + otAmount;
+        const hra = Math.round((structure.hra || 0) * prorationFactor);
+        const conveyance = Math.round((structure.conveyance || 0) * prorationFactor);
+        const medicalAllowance = Math.round((structure.medicalAllowance || 0) * prorationFactor);
+        const specialAllowance = Math.round((structure.specialAllowance || 0) * prorationFactor);
+        const otherAllowances = Math.round((structure.otherAllowances || 0) * prorationFactor);
+
+        // Compute custom earning head amounts BEFORE totalEarnings so we can adjust it.
+        //
+        // - percentage heads: recompute fresh from prorated basic/gross each run.
+        //   If the structure was saved before this head existed (savedAmt = 0 while
+        //   freshAmt > 0), the difference is added to totalEarnings so the payslip
+        //   totals stay consistent.
+        // - fixed heads: prorate the saved per-employee amount (folded into grossSalary
+        //   when the structure was set up, so no further adjustment needed).
+        const savedCustom: Record<string, number> = (structure as any).customEarnings || {};
+        const proratedCustomEarnings: Record<string, number> = {};
+        let customEarningsAdjustment = 0; // net ± vs. what's already in grossSalary
+        for (const head of activeEarningHeads) {
+          let displayAmt = 0;
+          if (head.type === "percentage" && (head.percentage ?? 0) > 0) {
+            const base = head.calculationBase === "basic" ? basicSalary : grossSalary;
+            const freshAmt  = Math.round(base * (head.percentage ?? 0) / 100);
+            const savedAmt  = Math.round((savedCustom[head.id] || 0) * prorationFactor);
+            displayAmt = freshAmt;
+            // delta > 0 → head was missing from structure → add to earnings
+            // delta < 0 → saved amount was wrong (e.g. structure stale) → correct it
+            customEarningsAdjustment += freshAmt - savedAmt;
+          } else {
+            displayAmt = Math.round((savedCustom[head.id] || 0) * prorationFactor);
+            // fixed heads are already part of grossSalary — no adjustment needed
+          }
+          if (displayAmt > 0) {
+            proratedCustomEarnings[head.id] = displayAmt;
+          }
+        }
+
+        const totalEarnings = grossSalary + monthlyBonus + otAmount + customEarningsAdjustment;
 
         // Loan/Advance deduction: sum installmentAmount for active loans where deductionStartMonth <= payrollYM
         const payrollYM = `${selectedYear}-${String(monthIndex + 1).padStart(2, "0")}`;
@@ -817,19 +885,6 @@ export default function PayrollPage() {
 
         const totalDeductions = deductionsBeforeLoan + loanDeduction;
         const netSalary = totalEarnings - totalDeductions; // always >= 0
-
-        const hra = Math.round((structure.hra || 0) * prorationFactor);
-        const conveyance = Math.round((structure.conveyance || 0) * prorationFactor);
-        const medicalAllowance = Math.round((structure.medicalAllowance || 0) * prorationFactor);
-        const specialAllowance = Math.round((structure.specialAllowance || 0) * prorationFactor);
-        const otherAllowances = Math.round((structure.otherAllowances || 0) * prorationFactor);
-
-        // Prorate each custom earning head individually so they appear on the payslip
-        const savedCustom: Record<string, number> = (structure as any).customEarnings || {};
-        const proratedCustomEarnings: Record<string, number> = {};
-        for (const [headId, amt] of Object.entries(savedCustom)) {
-          proratedCustomEarnings[headId] = Math.round((amt || 0) * prorationFactor);
-        }
 
         const payrollData = {
           employeeId: emp.id,
@@ -1195,24 +1250,37 @@ export default function PayrollPage() {
                         </FormItem>
                       )}
                     />
-                    {activeEarningHeads.map((head) => (
-                      <FormItem key={head.id}>
-                        <FormLabel>{head.name}</FormLabel>
-                        <FormControl>
-                          <Input
-                            type="number"
-                            value={customEarningAmounts[head.id] ?? 0}
-                            onChange={(e) => {
-                              const val = Number(e.target.value) || 0;
-                              const newAmounts = { ...customEarningAmounts, [head.id]: val };
-                              setCustomEarningAmounts(newAmounts);
-                              calculateSalary(true, newAmounts);
-                            }}
-                            data-testid={`input-earning-${head.id}`}
-                          />
-                        </FormControl>
-                      </FormItem>
-                    ))}
+                    {activeEarningHeads.map((head) => {
+                      const isPct = head.type === "percentage" && (head.percentage ?? 0) > 0;
+                      const pctLabel = isPct
+                        ? ` (${head.percentage}% of ${head.calculationBase === "basic" ? "Basic" : "Gross"} – auto)`
+                        : "";
+                      return (
+                        <FormItem key={head.id}>
+                          <FormLabel>
+                            {head.name}
+                            {isPct && (
+                              <span className="text-xs font-normal text-muted-foreground ml-1">{pctLabel}</span>
+                            )}
+                          </FormLabel>
+                          <FormControl>
+                            <Input
+                              type="number"
+                              value={customEarningAmounts[head.id] ?? 0}
+                              readOnly={isPct}
+                              className={isPct ? "bg-muted" : ""}
+                              onChange={isPct ? undefined : (e) => {
+                                const val = Number(e.target.value) || 0;
+                                const newAmounts = { ...customEarningAmounts, [head.id]: val };
+                                setCustomEarningAmounts(newAmounts);
+                                calculateSalary(true, newAmounts);
+                              }}
+                              data-testid={`input-earning-${head.id}`}
+                            />
+                          </FormControl>
+                        </FormItem>
+                      );
+                    })}
                     <FormField
                       control={form.control}
                       name="specialAllowance"
@@ -1891,9 +1959,17 @@ export default function PayrollPage() {
                     {Object.entries((record as any).customEarnings || {}).map(([headId, amt]) => {
                       const head = earningHeads.find(h => h.id === headId);
                       if (!head || !amt) return null;
+                      const isPct = head.type === "percentage" && (head.percentage ?? 0) > 0;
                       return (
                         <div key={headId} className="flex justify-between">
-                          <span>{head.name}</span>
+                          <span>
+                            {head.name}
+                            {isPct && (
+                              <span className="text-xs text-muted-foreground ml-1">
+                                ({head.percentage}% of {head.calculationBase === "basic" ? "Basic" : "Gross"})
+                              </span>
+                            )}
+                          </span>
                           <span className="font-medium">{formatCurrency(amt as number)}</span>
                         </div>
                       );
