@@ -12,27 +12,21 @@ import {
   X,
   Users,
   UserPlus,
+  ChevronDown,
   ChevronUp,
   Briefcase,
+  ShieldCheck,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Company, Employee, CompanyContractor } from "@shared/schema";
 
-// ─── Types ─────────────────────────────────────────────────────────────────
+// ─── Types ──────────────────────────────────────────────────────────────────
 type ContractorRow = {
   id: string;
   companyId: string;
@@ -45,12 +39,20 @@ type PrincipalEmployerRow = CompanyContractor & { companyName: string };
 
 type TaggedEmployee = Employee & { contractorEmployeeId: string; taggedDate: string | null };
 
-// ─── Searchable Company Picker ─────────────────────────────────────────────
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+function initials(name: string) {
+  return name.split(" ").filter(Boolean).slice(0, 2).map(w => w[0]).join("").toUpperCase();
+}
+
+function formatDate(d: string | null | undefined) {
+  if (!d) return "—";
+  const dt = new Date(d);
+  return isNaN(dt.getTime()) ? d : dt.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+}
+
+// ─── Searchable Company Picker ───────────────────────────────────────────────
 function CompanySearchPicker({
-  companies,
-  excludeIds,
-  value,
-  onChange,
+  companies, excludeIds, value, onChange,
 }: {
   companies: Company[];
   excludeIds: Set<string>;
@@ -94,35 +96,32 @@ function CompanySearchPicker({
         )}
       </div>
       {open && (
-        <div className="absolute z-50 mt-1 w-full rounded-md border bg-popover shadow-lg max-h-56 overflow-y-auto">
+        <div className="absolute z-50 mt-1 w-full rounded-lg border bg-popover shadow-xl max-h-56 overflow-y-auto">
           {filtered.length === 0 ? (
             <p className="px-3 py-3 text-sm text-muted-foreground">No companies found</p>
-          ) : (
-            filtered.map(c => (
-              <button key={c.id} type="button"
-                onClick={() => { onChange(c); setText(c.companyName); setOpen(false); }}
-                className="w-full flex items-center gap-2.5 px-3 py-2.5 text-left text-sm hover:bg-accent hover:text-accent-foreground transition-colors"
-                data-testid={`contractor-option-${c.id}`}>
-                <Building2 className="h-4 w-4 shrink-0 text-muted-foreground" />
-                <div>
-                  <p className="font-medium">{c.companyName}</p>
-                  {c.legalName !== c.companyName && <p className="text-xs text-muted-foreground">{c.legalName}</p>}
-                </div>
-              </button>
-            ))
-          )}
+          ) : filtered.map(c => (
+            <button key={c.id} type="button"
+              onClick={() => { onChange(c); setText(c.companyName); setOpen(false); }}
+              className="w-full flex items-center gap-3 px-3 py-2.5 text-left text-sm hover:bg-accent transition-colors"
+              data-testid={`contractor-option-${c.id}`}>
+              <div className="h-8 w-8 rounded-md bg-primary/10 flex items-center justify-center text-[11px] font-bold text-primary shrink-0">
+                {initials(c.companyName)}
+              </div>
+              <div>
+                <p className="font-medium">{c.companyName}</p>
+                {c.legalName !== c.companyName && <p className="text-xs text-muted-foreground">{c.legalName}</p>}
+              </div>
+            </button>
+          ))}
         </div>
       )}
     </div>
   );
 }
 
-// ─── Employee Search Picker ────────────────────────────────────────────────
+// ─── Employee Search Picker ──────────────────────────────────────────────────
 function EmployeeSearchPicker({
-  employees,
-  excludeIds,
-  value,
-  onChange,
+  employees, excludeIds, value, onChange,
 }: {
   employees: Employee[];
   excludeIds: Set<string>;
@@ -156,7 +155,7 @@ function EmployeeSearchPicker({
       <div className="relative">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
         <Input
-          placeholder="Search by name or employee code..."
+          placeholder="Search by name or code..."
           value={text}
           onChange={(e) => { setText(e.target.value); onChange(null); setOpen(e.target.value.length > 0); }}
           onFocus={() => text.length > 0 && !value && setOpen(true)}
@@ -171,34 +170,32 @@ function EmployeeSearchPicker({
         )}
       </div>
       {open && (
-        <div className="absolute z-50 mt-1 w-full rounded-md border bg-popover shadow-lg max-h-56 overflow-y-auto">
+        <div className="absolute z-50 mt-1 w-full rounded-lg border bg-popover shadow-xl max-h-56 overflow-y-auto">
           {filtered.length === 0 ? (
             <p className="px-3 py-3 text-sm text-muted-foreground">
-              {employees.length === 0 ? "No employees found in this company" : "No matching employees"}
+              {employees.length === 0 ? "No employees in this company" : "No matching employees"}
             </p>
-          ) : (
-            filtered.map(e => (
-              <button key={e.id} type="button"
-                onClick={() => { onChange(e); setText(`${e.firstName} ${e.lastName}`); setOpen(false); }}
-                className="w-full flex items-center gap-2.5 px-3 py-2.5 text-left text-sm hover:bg-accent hover:text-accent-foreground transition-colors"
-                data-testid={`employee-option-${e.id}`}>
-                <div className="h-7 w-7 rounded-full bg-primary/10 flex items-center justify-center text-[10px] font-bold text-primary shrink-0">
-                  {e.firstName[0]}{e.lastName[0]}
-                </div>
-                <div>
-                  <p className="font-medium">{e.firstName} {e.lastName}</p>
-                  <p className="text-xs text-muted-foreground">{e.employeeCode}{e.designation ? ` · ${e.designation}` : ""}</p>
-                </div>
-              </button>
-            ))
-          )}
+          ) : filtered.map(e => (
+            <button key={e.id} type="button"
+              onClick={() => { onChange(e); setText(`${e.firstName} ${e.lastName}`); setOpen(false); }}
+              className="w-full flex items-center gap-3 px-3 py-2.5 text-left text-sm hover:bg-accent transition-colors"
+              data-testid={`employee-option-${e.id}`}>
+              <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center text-[11px] font-bold text-primary shrink-0">
+                {e.firstName?.[0]}{e.lastName?.[0]}
+              </div>
+              <div>
+                <p className="font-medium">{e.firstName} {e.lastName}</p>
+                <p className="text-xs text-muted-foreground">{e.employeeCode}{e.designation ? ` · ${e.designation}` : ""}</p>
+              </div>
+            </button>
+          ))}
         </div>
       )}
     </div>
   );
 }
 
-// ─── Tagged Employees Sub-panel ────────────────────────────────────────────
+// ─── Tagged Employees Panel ──────────────────────────────────────────────────
 function ContractorEmployeesPanel({
   companyId,
   contractor,
@@ -248,7 +245,7 @@ function ContractorEmployeesPanel({
         queryKey: ["/api/companies", companyId, "contractors", contractor.contractorId, "employees"],
       });
       setSelectedEmployee(null);
-      toast({ title: "Employee tagged to contractor" });
+      toast({ title: "Employee tagged successfully" });
     },
     onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
@@ -274,112 +271,123 @@ function ContractorEmployeesPanel({
   const canTag = selectedEmployee && taggedDate;
 
   return (
-    <div className="bg-muted/20 border-t px-6 py-5 space-y-4">
-      <div className="flex items-center gap-2">
-        <Users className="h-4 w-4 text-primary" />
-        <span className="text-sm font-semibold">Tagged Employees</span>
-        <Badge variant="secondary" className="text-xs">{contractorEmployeeList.length}</Badge>
-        <span className="text-xs text-muted-foreground ml-1">
-          — from <span className="font-medium text-foreground">{contractor.contractorName}</span>
-        </span>
+    <div className="border-t bg-muted/10">
+      {/* Panel Header */}
+      <div className="flex items-center justify-between px-6 py-3 border-b bg-muted/20">
+        <div className="flex items-center gap-2">
+          <Users className="h-4 w-4 text-primary" />
+          <span className="text-sm font-semibold">Tagged Employees</span>
+          <Badge className="text-xs h-5 px-1.5 rounded-full bg-primary/10 text-primary border-0 font-semibold">
+            {contractorEmployeeList.length}
+          </Badge>
+          <span className="text-xs text-muted-foreground">
+            from <span className="font-medium text-foreground">{contractor.contractorName}</span>
+          </span>
+        </div>
       </div>
 
-      {isLoading ? (
-        <div className="space-y-2 pl-1">
-          {[1, 2].map(i => (
-            <div key={i} className="flex items-center gap-4">
-              <Skeleton className="h-3 w-20" /><Skeleton className="h-3 w-36" /><Skeleton className="h-3 w-24" />
-            </div>
-          ))}
-        </div>
-      ) : contractorEmployeeList.length === 0 ? (
-        <p className="text-sm text-muted-foreground italic pl-1">No employees tagged yet.</p>
-      ) : (
-        <div className="rounded-md border bg-background overflow-hidden">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-muted/50 border-b">
-                <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide w-12">Sr.</th>
-                <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Employee Code</th>
-                <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Employee Name</th>
-                <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Date of Tagging</th>
-                <th className="text-right px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {contractorEmployeeList.map((emp, idx) => (
-                <tr key={emp.id} className="border-b last:border-0 hover:bg-muted/20 transition-colors"
-                  data-testid={`tagged-employee-row-${emp.id}`}>
-                  <td className="px-4 py-3 text-muted-foreground font-medium">{idx + 1}</td>
-                  <td className="px-4 py-3 font-mono text-xs font-semibold text-primary">{emp.employeeCode}</td>
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-2.5">
-                      <div className="h-7 w-7 rounded-full bg-primary/10 flex items-center justify-center text-[10px] font-bold text-primary shrink-0">
-                        {emp.firstName?.[0]}{emp.lastName?.[0]}
-                      </div>
-                      <div>
-                        <p className="font-medium leading-tight">{emp.firstName} {emp.lastName}</p>
-                        {emp.designation && <p className="text-xs text-muted-foreground">{emp.designation}</p>}
-                      </div>
-                    </div>
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
-                      <CalendarDays className="h-3.5 w-3.5 shrink-0" />
-                      <span>{emp.taggedDate ?? "—"}</span>
-                    </div>
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <button type="button"
-                      onClick={() => { if (confirm(`Untag ${emp.firstName} ${emp.lastName}?`)) untagMutation.mutate(emp.id); }}
-                      disabled={untagMutation.isPending}
-                      className="inline-flex items-center justify-center h-7 w-7 rounded hover:bg-destructive/10 transition-colors"
-                      data-testid={`untag-employee-${emp.id}`}>
-                      <Trash2 className="h-3.5 w-3.5 text-destructive" />
-                    </button>
-                  </td>
+      <div className="px-6 py-4 space-y-4">
+        {/* Employee List */}
+        {isLoading ? (
+          <div className="space-y-2">
+            {[1, 2].map(i => (
+              <div key={i} className="flex items-center gap-4 py-2">
+                <Skeleton className="h-8 w-8 rounded-full" />
+                <Skeleton className="h-3.5 w-32" />
+                <Skeleton className="h-3.5 w-24 ml-auto" />
+              </div>
+            ))}
+          </div>
+        ) : contractorEmployeeList.length === 0 ? (
+          <div className="text-center py-6 text-muted-foreground">
+            <Users className="h-8 w-8 mx-auto mb-2 opacity-30" />
+            <p className="text-sm">No employees tagged yet</p>
+          </div>
+        ) : (
+          <div className="rounded-lg border bg-background overflow-hidden">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-muted/40 border-b">
+                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide w-10">#</th>
+                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide w-32">Code</th>
+                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Employee</th>
+                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Tagged On</th>
+                  <th className="w-12"></th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+              </thead>
+              <tbody>
+                {contractorEmployeeList.map((emp, idx) => (
+                  <tr key={emp.id} className="border-b last:border-0 hover:bg-muted/20 transition-colors"
+                    data-testid={`tagged-employee-row-${emp.id}`}>
+                    <td className="px-4 py-3 text-xs text-muted-foreground font-medium">{idx + 1}</td>
+                    <td className="px-4 py-3">
+                      <span className="font-mono text-xs font-semibold text-primary bg-primary/8 px-1.5 py-0.5 rounded">
+                        {emp.employeeCode}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2.5">
+                        <div className="h-7 w-7 rounded-full bg-primary/10 flex items-center justify-center text-[10px] font-bold text-primary shrink-0">
+                          {emp.firstName?.[0]}{emp.lastName?.[0]}
+                        </div>
+                        <div>
+                          <p className="font-medium text-sm leading-tight">{emp.firstName} {emp.lastName}</p>
+                          {emp.designation && <p className="text-xs text-muted-foreground">{emp.designation}</p>}
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                        <CalendarDays className="h-3.5 w-3.5 shrink-0" />
+                        <span>{formatDate(emp.taggedDate)}</span>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <button type="button"
+                        onClick={() => { if (confirm(`Untag ${emp.firstName} ${emp.lastName}?`)) untagMutation.mutate(emp.id); }}
+                        disabled={untagMutation.isPending}
+                        className="inline-flex items-center justify-center h-7 w-7 rounded-md hover:bg-destructive/10 transition-colors"
+                        data-testid={`untag-employee-${emp.id}`}>
+                        <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
 
-      <div className="flex items-end gap-3 pt-1">
-        <div className="flex-1">
-          <label className="text-xs font-medium text-muted-foreground mb-1 block">Search Employee</label>
-          <EmployeeSearchPicker
-            employees={contractorCompanyEmployees}
-            excludeIds={taggedIds}
-            value={selectedEmployee}
-            onChange={setSelectedEmployee}
-          />
+        {/* Tag Employee Form */}
+        <div className="rounded-lg border border-dashed bg-background p-3">
+          <p className="text-xs font-semibold text-muted-foreground mb-2.5 uppercase tracking-wide">Tag New Employee</p>
+          <div className="flex items-end gap-3">
+            <div className="flex-1">
+              <EmployeeSearchPicker
+                employees={contractorCompanyEmployees}
+                excludeIds={taggedIds}
+                value={selectedEmployee}
+                onChange={setSelectedEmployee}
+              />
+            </div>
+            <div className="w-40 shrink-0">
+              <Input type="date" value={taggedDate} onChange={(e) => setTaggedDate(e.target.value)}
+                data-testid="input-tag-date" />
+            </div>
+            <Button size="sm" onClick={() => tagMutation.mutate()} disabled={!canTag || tagMutation.isPending}
+              className="shrink-0" data-testid="button-tag-employee">
+              <UserPlus className="h-3.5 w-3.5 mr-1.5" />
+              {tagMutation.isPending ? "Tagging..." : "Tag"}
+            </Button>
+          </div>
         </div>
-        <div className="w-44 shrink-0">
-          <label className="text-xs font-medium text-muted-foreground mb-1 block">
-            Date of Tagging <span className="text-destructive">*</span>
-          </label>
-          <Input type="date" value={taggedDate} onChange={(e) => setTaggedDate(e.target.value)}
-            data-testid="input-tag-date" />
-        </div>
-        <Button onClick={() => tagMutation.mutate()} disabled={!canTag || tagMutation.isPending}
-          className="shrink-0" data-testid="button-tag-employee">
-          <UserPlus className="h-3.5 w-3.5 mr-1.5" />
-          {tagMutation.isPending ? "Tagging..." : "Tag Employee"}
-        </Button>
       </div>
     </div>
   );
 }
 
-// ─── Contractors Tab ───────────────────────────────────────────────────────
-function ContractorsTab({
-  companyId,
-  company,
-}: {
-  companyId: string;
-  company: Company | undefined;
-}) {
+// ─── Contractors Tab ─────────────────────────────────────────────────────────
+function ContractorsTab({ companyId, company }: { companyId: string; company: Company | undefined }) {
   const { toast } = useToast();
   const [showAddForm, setShowAddForm] = useState(false);
   const [selectedCompany, setSelectedCompany] = useState<Company | null>(null);
@@ -437,182 +445,168 @@ function ContractorsTab({
 
   return (
     <div className="space-y-4">
-      {/* Add form */}
+      {/* Add Contractor Form */}
       {showAddForm && (
-        <Card className="border-amber-200 dark:border-amber-800 shadow-sm">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base flex items-center gap-2">
+        <div className="rounded-xl border border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-950/20 p-5">
+          <div className="flex items-center gap-2 mb-4">
+            <div className="h-7 w-7 rounded-lg bg-amber-100 dark:bg-amber-900/40 flex items-center justify-center">
               <Plus className="h-4 w-4 text-amber-600" />
-              Add New Contractor
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium">Company <span className="text-destructive">*</span></label>
-                <CompanySearchPicker
-                  companies={allCompanies.filter(c => c.id !== companyId)}
-                  excludeIds={existingIds}
-                  value={selectedCompany}
-                  onChange={setSelectedCompany}
-                />
-                {selectedCompany && (
-                  <p className="text-xs text-muted-foreground flex items-center gap-1">
-                    <Building2 className="h-3 w-3" />{selectedCompany.legalName}
-                  </p>
-                )}
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium">Start Date <span className="text-destructive">*</span></label>
-                <Input type="date" value={startDate} onChange={e => setStartDate(e.target.value)}
-                  data-testid="input-contractor-start-date" />
-              </div>
             </div>
-            <div className="flex items-center justify-end gap-2 pt-1">
-              <Button variant="outline" onClick={() => { setShowAddForm(false); setSelectedCompany(null); setStartDate(""); }}>
-                Cancel
-              </Button>
-              <Button onClick={() => addMutation.mutate()} disabled={!canAdd || addMutation.isPending}
-                data-testid="button-submit-add-contractor">
-                {addMutation.isPending ? "Adding..." : "Add Contractor"}
-              </Button>
+            <h3 className="font-semibold text-sm">Add New Contractor</h3>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                Contractor Company <span className="text-destructive">*</span>
+              </label>
+              <CompanySearchPicker
+                companies={allCompanies.filter(c => c.id !== companyId)}
+                excludeIds={existingIds}
+                value={selectedCompany}
+                onChange={setSelectedCompany}
+              />
+              {selectedCompany && (
+                <p className="text-xs text-muted-foreground flex items-center gap-1 mt-1">
+                  <Building2 className="h-3 w-3" />{selectedCompany.legalName}
+                </p>
+              )}
             </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Table card */}
-      <Card>
-        <CardHeader className="pb-3">
-          <div className="flex items-center justify-between">
-            <CardTitle className="text-base">Contractor List</CardTitle>
-            <div className="flex items-center gap-2">
-              <Badge variant="secondary">{contractors.length} contractor{contractors.length !== 1 ? "s" : ""}</Badge>
-              <Button size="sm" onClick={() => setShowAddForm(true)} disabled={showAddForm}
-                data-testid="button-add-contractor-inline">
-                <Plus className="h-3.5 w-3.5 mr-1" />Add
-              </Button>
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                Contract Start Date <span className="text-destructive">*</span>
+              </label>
+              <Input type="date" value={startDate} onChange={e => setStartDate(e.target.value)}
+                data-testid="input-contractor-start-date" />
             </div>
           </div>
-        </CardHeader>
-        <CardContent className="p-0">
-          {isLoading ? (
-            <div className="space-y-3 p-6">
-              {[...Array(3)].map((_, i) => (
-                <div key={i} className="flex items-center gap-4">
-                  <Skeleton className="h-10 w-10 rounded-md" />
-                  <div className="flex-1 space-y-1.5">
-                    <Skeleton className="h-4 w-48" /><Skeleton className="h-3 w-28" />
-                  </div>
-                  <Skeleton className="h-8 w-8" />
-                </div>
-              ))}
-            </div>
-          ) : contractors.length === 0 ? (
-            <div className="text-center py-14">
-              <HardHat className="h-12 w-12 mx-auto text-muted-foreground mb-4 opacity-40" />
-              <h3 className="text-lg font-medium mb-1">No contractors yet</h3>
-              <p className="text-sm text-muted-foreground mb-4">
-                Click "Add" to associate a company as a contractor.
-              </p>
-              <Button onClick={() => setShowAddForm(true)} variant="outline">
-                <Plus className="h-4 w-4 mr-2" />Add Contractor
-              </Button>
-            </div>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow className="bg-muted/40">
-                  <TableHead className="w-14 text-center pl-6">Sr.</TableHead>
-                  <TableHead>Contractor Company</TableHead>
-                  <TableHead>Start Date</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="text-right pr-6">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {contractors.map((contractor, idx) => (
-                  <>
-                    <TableRow key={contractor.contractorId}
-                      data-testid={`contractor-row-${contractor.contractorId}`}
-                      className="hover:bg-muted/30">
-                      <TableCell className="text-center pl-6 text-muted-foreground font-medium text-sm">
-                        {idx + 1}
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-3">
-                          <div className="h-9 w-9 rounded-md bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center shrink-0">
-                            <HardHat className="h-4 w-4 text-amber-600 dark:text-amber-400" />
-                          </div>
-                          <div>
-                            <p className="font-medium">{contractor.contractorName}</p>
-                            <p className="text-xs text-muted-foreground">
-                              ID: {contractor.contractorId.slice(0, 8)}…
-                            </p>
-                          </div>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-1.5 text-sm">
-                          <CalendarDays className="h-3.5 w-3.5 text-muted-foreground" />
-                          <span>{contractor.startDate}</span>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="outline"
-                          className="text-xs text-amber-700 border-amber-300 bg-amber-50 dark:text-amber-400 dark:border-amber-700 dark:bg-amber-950/30">
-                          Active
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-right pr-6">
-                        <div className="flex items-center justify-end gap-1">
-                          <Button variant="ghost" size="icon" title="Tag Employees"
-                            onClick={() => setExpandedContractorId(p => p === contractor.contractorId ? null : contractor.contractorId)}
-                            className={expandedContractorId === contractor.contractorId
-                              ? "text-primary bg-primary/10"
-                              : "text-muted-foreground hover:text-primary hover:bg-primary/5"}
-                            data-testid={`button-tag-employees-${contractor.contractorId}`}>
-                            {expandedContractorId === contractor.contractorId
-                              ? <ChevronUp className="h-4 w-4" />
-                              : <Users className="h-4 w-4" />}
-                          </Button>
-                          <Button variant="ghost" size="icon"
-                            onClick={() => { if (confirm(`Remove ${contractor.contractorName} as a contractor?`)) removeMutation.mutate(contractor.contractorId); }}
-                            disabled={removeMutation.isPending}
-                            className="text-destructive hover:text-destructive hover:bg-destructive/10"
-                            data-testid={`button-remove-contractor-${contractor.contractorId}`}>
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
+          <div className="flex items-center justify-end gap-2">
+            <Button variant="outline" size="sm"
+              onClick={() => { setShowAddForm(false); setSelectedCompany(null); setStartDate(""); }}>
+              Cancel
+            </Button>
+            <Button size="sm" onClick={() => addMutation.mutate()} disabled={!canAdd || addMutation.isPending}
+              data-testid="button-submit-add-contractor">
+              {addMutation.isPending ? "Adding..." : "Add Contractor"}
+            </Button>
+          </div>
+        </div>
+      )}
 
-                    {expandedContractorId === contractor.contractorId && (
-                      <TableRow key={`${contractor.contractorId}-employees`} className="hover:bg-transparent">
-                        <TableCell colSpan={5} className="p-0">
-                          <ContractorEmployeesPanel companyId={companyId} contractor={contractor} />
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
+      {/* Contractor List */}
+      <div className="rounded-xl border bg-card shadow-sm overflow-hidden">
+        {/* Table Header */}
+        <div className="flex items-center justify-between px-5 py-3.5 border-b bg-muted/20">
+          <div className="flex items-center gap-2">
+            <HardHat className="h-4 w-4 text-amber-600" />
+            <span className="font-semibold text-sm">Contractor List</span>
+            <Badge variant="secondary" className="text-xs h-5 px-1.5 rounded-full">{contractors.length}</Badge>
+          </div>
+          <Button size="sm" variant="default" onClick={() => setShowAddForm(true)} disabled={showAddForm}
+            data-testid="button-add-contractor-inline">
+            <Plus className="h-3.5 w-3.5 mr-1.5" />Add Contractor
+          </Button>
+        </div>
+
+        {isLoading ? (
+          <div className="space-y-0 divide-y">
+            {[...Array(3)].map((_, i) => (
+              <div key={i} className="flex items-center gap-4 px-5 py-4">
+                <Skeleton className="h-10 w-10 rounded-lg shrink-0" />
+                <div className="flex-1 space-y-2">
+                  <Skeleton className="h-4 w-44" />
+                  <Skeleton className="h-3 w-28" />
+                </div>
+                <Skeleton className="h-6 w-16 rounded-full" />
+                <Skeleton className="h-8 w-8 rounded-md" />
+              </div>
+            ))}
+          </div>
+        ) : contractors.length === 0 ? (
+          <div className="text-center py-16">
+            <div className="h-14 w-14 rounded-2xl bg-amber-50 dark:bg-amber-950/30 flex items-center justify-center mx-auto mb-4">
+              <HardHat className="h-7 w-7 text-amber-400" />
+            </div>
+            <h3 className="font-semibold text-base mb-1">No contractors yet</h3>
+            <p className="text-sm text-muted-foreground mb-4 max-w-xs mx-auto">
+              Associate another company as a contractor to manage their employees and compliances.
+            </p>
+            <Button variant="outline" size="sm" onClick={() => setShowAddForm(true)}>
+              <Plus className="h-3.5 w-3.5 mr-1.5" />Add First Contractor
+            </Button>
+          </div>
+        ) : (
+          <div className="divide-y">
+            {contractors.map((contractor, idx) => {
+              const isExpanded = expandedContractorId === contractor.contractorId;
+              return (
+                <div key={contractor.contractorId} data-testid={`contractor-row-${contractor.contractorId}`}>
+                  {/* Main Row */}
+                  <div className={`flex items-center gap-4 px-5 py-4 transition-colors ${isExpanded ? "bg-primary/3" : "hover:bg-muted/30"}`}>
+                    {/* Sr */}
+                    <span className="text-xs text-muted-foreground font-medium w-5 shrink-0 text-center">{idx + 1}</span>
+
+                    {/* Avatar */}
+                    <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-amber-100 to-amber-200 dark:from-amber-900/40 dark:to-amber-800/30 flex items-center justify-center text-sm font-bold text-amber-700 dark:text-amber-400 shrink-0">
+                      {initials(contractor.contractorName)}
+                    </div>
+
+                    {/* Name & ID */}
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold text-sm truncate">{contractor.contractorName}</p>
+                      <p className="text-xs text-muted-foreground font-mono mt-0.5">
+                        ID: {contractor.contractorId.slice(0, 8)}…
+                      </p>
+                    </div>
+
+                    {/* Start Date */}
+                    <div className="hidden sm:flex items-center gap-1.5 text-xs text-muted-foreground">
+                      <CalendarDays className="h-3.5 w-3.5 shrink-0" />
+                      <span>{formatDate(contractor.startDate)}</span>
+                    </div>
+
+                    {/* Status */}
+                    <Badge className="hidden sm:inline-flex text-xs font-medium bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-400 dark:border-emerald-800">
+                      Active
+                    </Badge>
+
+                    {/* Actions */}
+                    <div className="flex items-center gap-1 shrink-0">
+                      <Button
+                        variant="ghost" size="sm"
+                        onClick={() => setExpandedContractorId(p => p === contractor.contractorId ? null : contractor.contractorId)}
+                        className={`h-8 gap-1.5 text-xs font-medium ${isExpanded ? "bg-primary/10 text-primary" : "text-muted-foreground"}`}
+                        data-testid={`button-tag-employees-${contractor.contractorId}`}
+                      >
+                        <Users className="h-3.5 w-3.5" />
+                        <span className="hidden md:inline">Employees</span>
+                        {isExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                      </Button>
+                      <Button variant="ghost" size="icon"
+                        onClick={() => { if (confirm(`Remove ${contractor.contractorName} as a contractor?`)) removeMutation.mutate(contractor.contractorId); }}
+                        disabled={removeMutation.isPending}
+                        className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                        data-testid={`button-remove-contractor-${contractor.contractorId}`}>
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  </div>
+
+                  {/* Expanded Employees Panel */}
+                  {isExpanded && (
+                    <ContractorEmployeesPanel companyId={companyId} contractor={contractor} />
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
 
-// ─── Principal Employer Tab ────────────────────────────────────────────────
-function PrincipalEmployerTab({
-  companyId,
-  companyName,
-}: {
-  companyId: string;
-  companyName: string;
-}) {
+// ─── Principal Employer Tab ──────────────────────────────────────────────────
+function PrincipalEmployerTab({ companyId, companyName }: { companyId: string; companyName: string }) {
   const [expandedEmployerId, setExpandedEmployerId] = useState<string | null>(null);
 
   const { data: employers = [], isLoading } = useQuery<PrincipalEmployerRow[]>({
@@ -625,125 +619,99 @@ function PrincipalEmployerTab({
   });
 
   return (
-    <Card>
-      <CardHeader className="pb-3">
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-base">Principal Employer List</CardTitle>
-          <Badge variant="secondary">{employers.length} employer{employers.length !== 1 ? "s" : ""}</Badge>
-        </div>
-      </CardHeader>
-      <CardContent className="p-0">
-        {isLoading ? (
-          <div className="space-y-3 p-6">
-            {[...Array(3)].map((_, i) => (
-              <div key={i} className="flex items-center gap-4">
-                <Skeleton className="h-10 w-10 rounded-md" />
-                <div className="flex-1 space-y-1.5">
-                  <Skeleton className="h-4 w-48" /><Skeleton className="h-3 w-28" />
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : employers.length === 0 ? (
-          <div className="text-center py-14">
-            <Briefcase className="h-12 w-12 mx-auto text-muted-foreground mb-4 opacity-40" />
-            <h3 className="text-lg font-medium mb-1">No principal employers</h3>
-            <p className="text-sm text-muted-foreground">
-              This company has not been tagged as a contractor by any other company yet.
-            </p>
-          </div>
-        ) : (
-          <Table>
-            <TableHeader>
-              <TableRow className="bg-muted/40">
-                <TableHead className="w-14 text-center pl-6">Sr.</TableHead>
-                <TableHead>Principal Employer</TableHead>
-                <TableHead>Contractor Since</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="text-right pr-6">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {employers.map((emp, idx) => {
-                const isExpanded = expandedEmployerId === emp.id;
-                // Current company acts as contractor for this principal employer
-                const contractorRow: ContractorRow = {
-                  id: emp.id,
-                  companyId: emp.companyId,
-                  contractorId: companyId,
-                  startDate: emp.startDate,
-                  contractorName: companyName,
-                };
-                return (
-                  <>
-                    <TableRow key={emp.id} data-testid={`principal-employer-row-${emp.id}`}
-                      className="hover:bg-muted/30">
-                      <TableCell className="text-center pl-6 text-muted-foreground font-medium text-sm">
-                        {idx + 1}
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-3">
-                          <div className="h-9 w-9 rounded-md bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center shrink-0">
-                            <Briefcase className="h-4 w-4 text-blue-600 dark:text-blue-400" />
-                          </div>
-                          <div>
-                            <p className="font-medium">{emp.companyName}</p>
-                            <p className="text-xs text-muted-foreground">ID: {emp.companyId.slice(0, 8)}…</p>
-                          </div>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-1.5 text-sm">
-                          <CalendarDays className="h-3.5 w-3.5 text-muted-foreground" />
-                          <span>{emp.startDate}</span>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="outline"
-                          className="text-xs text-blue-700 border-blue-300 bg-blue-50 dark:text-blue-400 dark:border-blue-700 dark:bg-blue-950/30">
-                          Active
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-right pr-6">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          title="Tag Employees"
-                          onClick={() => setExpandedEmployerId(p => p === emp.id ? null : emp.id)}
-                          className={isExpanded
-                            ? "text-primary bg-primary/10"
-                            : "text-muted-foreground hover:text-primary hover:bg-primary/5"}
-                          data-testid={`button-tag-employees-pe-${emp.id}`}
-                        >
-                          {isExpanded ? <ChevronUp className="h-4 w-4" /> : <Users className="h-4 w-4" />}
-                        </Button>
-                      </TableCell>
-                    </TableRow>
+    <div className="rounded-xl border bg-card shadow-sm overflow-hidden">
+      {/* Header */}
+      <div className="flex items-center gap-2 px-5 py-3.5 border-b bg-muted/20">
+        <ShieldCheck className="h-4 w-4 text-blue-600" />
+        <span className="font-semibold text-sm">Principal Employer List</span>
+        <Badge variant="secondary" className="text-xs h-5 px-1.5 rounded-full">{employers.length}</Badge>
+      </div>
 
-                    {isExpanded && (
-                      <TableRow key={`${emp.id}-employees`} className="hover:bg-transparent">
-                        <TableCell colSpan={5} className="p-0">
-                          {/* companyId = principal employer's id (owns the contractor relationship record)
-                              contractor.contractorId = current company (acting as contractor here) */}
-                          <ContractorEmployeesPanel
-                            companyId={emp.companyId}
-                            contractor={contractorRow}
-                          />
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </>
-                );
-              })}
-            </TableBody>
-          </Table>
-        )}
-      </CardContent>
-    </Card>
+      {isLoading ? (
+        <div className="divide-y">
+          {[...Array(2)].map((_, i) => (
+            <div key={i} className="flex items-center gap-4 px-5 py-4">
+              <Skeleton className="h-10 w-10 rounded-xl shrink-0" />
+              <div className="flex-1 space-y-2">
+                <Skeleton className="h-4 w-44" />
+                <Skeleton className="h-3 w-28" />
+              </div>
+              <Skeleton className="h-6 w-16 rounded-full" />
+            </div>
+          ))}
+        </div>
+      ) : employers.length === 0 ? (
+        <div className="text-center py-16">
+          <div className="h-14 w-14 rounded-2xl bg-blue-50 dark:bg-blue-950/30 flex items-center justify-center mx-auto mb-4">
+            <Briefcase className="h-7 w-7 text-blue-400" />
+          </div>
+          <h3 className="font-semibold text-base mb-1">No principal employers</h3>
+          <p className="text-sm text-muted-foreground max-w-xs mx-auto">
+            This company hasn't been tagged as a contractor by any other company yet.
+          </p>
+        </div>
+      ) : (
+        <div className="divide-y">
+          {employers.map((emp, idx) => {
+            const isExpanded = expandedEmployerId === emp.id;
+            const contractorRow: ContractorRow = {
+              id: emp.id,
+              companyId: emp.companyId,
+              contractorId: companyId,
+              startDate: emp.startDate,
+              contractorName: companyName,
+            };
+            return (
+              <div key={emp.id} data-testid={`principal-employer-row-${emp.id}`}>
+                <div className={`flex items-center gap-4 px-5 py-4 transition-colors ${isExpanded ? "bg-primary/3" : "hover:bg-muted/30"}`}>
+                  <span className="text-xs text-muted-foreground font-medium w-5 shrink-0 text-center">{idx + 1}</span>
+
+                  {/* Avatar */}
+                  <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-blue-100 to-blue-200 dark:from-blue-900/40 dark:to-blue-800/30 flex items-center justify-center text-sm font-bold text-blue-700 dark:text-blue-400 shrink-0">
+                    {initials(emp.companyName)}
+                  </div>
+
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold text-sm truncate">{emp.companyName}</p>
+                    <p className="text-xs text-muted-foreground font-mono mt-0.5">
+                      ID: {emp.companyId.slice(0, 8)}…
+                    </p>
+                  </div>
+
+                  <div className="hidden sm:flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <CalendarDays className="h-3.5 w-3.5 shrink-0" />
+                    <span>Since {formatDate(emp.startDate)}</span>
+                  </div>
+
+                  <Badge className="hidden sm:inline-flex text-xs font-medium bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-400 dark:border-emerald-800">
+                    Active
+                  </Badge>
+
+                  <Button
+                    variant="ghost" size="sm"
+                    onClick={() => setExpandedEmployerId(p => p === emp.id ? null : emp.id)}
+                    className={`h-8 gap-1.5 text-xs font-medium shrink-0 ${isExpanded ? "bg-primary/10 text-primary" : "text-muted-foreground"}`}
+                    data-testid={`button-tag-employees-pe-${emp.id}`}
+                  >
+                    <Users className="h-3.5 w-3.5" />
+                    <span className="hidden md:inline">Employees</span>
+                    {isExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                  </Button>
+                </div>
+
+                {isExpanded && (
+                  <ContractorEmployeesPanel companyId={emp.companyId} contractor={contractorRow} />
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
   );
 }
 
-// ─── Page ──────────────────────────────────────────────────────────────────
+// ─── Page ────────────────────────────────────────────────────────────────────
 export default function CompanyContractorsPage() {
   const { id } = useParams<{ id: string }>();
   const [, setLocation] = useLocation();
@@ -776,38 +744,24 @@ export default function CompanyContractorsPage() {
     },
   });
 
-  const tabs = [
-    {
-      key: "contractors" as const,
-      label: "Contractors",
-      icon: HardHat,
-      count: contractors.length,
-      color: "amber",
-    },
-    {
-      key: "principal-employer" as const,
-      label: "Principal Employer",
-      icon: Briefcase,
-      count: employers.length,
-      color: "blue",
-    },
-  ];
-
   return (
-    <div className="p-6 space-y-6" data-testid="company-contractors-page">
-      {/* ── Header ── */}
-      <div className="flex items-center gap-4">
+    <div className="p-6 max-w-5xl mx-auto space-y-6" data-testid="company-contractors-page">
+
+      {/* ── Page Header ── */}
+      <div className="flex items-start gap-3">
         <Button variant="ghost" size="icon" onClick={() => setLocation("/companies")}
-          data-testid="button-back-companies">
-          <ArrowLeft className="h-5 w-5" />
+          className="mt-0.5 shrink-0" data-testid="button-back-companies">
+          <ArrowLeft className="h-4 w-4" />
         </Button>
-        <div className="flex-1">
-          <div className="flex items-center gap-2">
-            <HardHat className="h-6 w-6 text-amber-600" />
-            <h1 className="text-2xl font-bold">Contractor Management</h1>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2.5 mb-0.5">
+            <div className="h-9 w-9 rounded-xl bg-gradient-to-br from-amber-100 to-amber-200 dark:from-amber-900/40 dark:to-amber-800/30 flex items-center justify-center shrink-0">
+              <HardHat className="h-5 w-5 text-amber-600" />
+            </div>
+            <h1 className="text-xl font-bold truncate">Contractor Management</h1>
           </div>
           {company && (
-            <p className="text-muted-foreground text-sm mt-0.5">
+            <p className="text-sm text-muted-foreground ml-11">
               Managing for{" "}
               <span className="font-semibold text-foreground">{company.companyName}</span>
             </p>
@@ -815,38 +769,42 @@ export default function CompanyContractorsPage() {
         </div>
       </div>
 
-      {/* ── Tab Bar ── */}
-      <div className="flex gap-0 border-b">
-        {tabs.map(tab => {
+      {/* ── Tabs ── */}
+      <div className="flex gap-1 p-1 rounded-xl bg-muted/40 border w-fit">
+        {([
+          { key: "contractors", label: "Contractors", icon: HardHat, count: contractors.length, color: "amber" },
+          { key: "principal-employer", label: "Principal Employer", icon: ShieldCheck, count: employers.length, color: "blue" },
+        ] as const).map(tab => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.key;
-          const colorCls = tab.color === "amber"
-            ? "border-amber-500 text-amber-700 dark:text-amber-400"
-            : "border-blue-500 text-blue-700 dark:text-blue-400";
           return (
             <button
               key={tab.key}
               onClick={() => setActiveTab(tab.key)}
               data-testid={`tab-${tab.key}`}
-              className={`flex items-center gap-2 px-5 py-3 text-sm font-medium border-b-2 transition-colors
-                ${isActive
-                  ? `${colorCls} bg-transparent`
-                  : "border-transparent text-muted-foreground hover:text-foreground hover:border-muted-foreground/40"}`}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                isActive
+                  ? "bg-background shadow-sm text-foreground"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
             >
-              <Icon className="h-4 w-4" />
+              <Icon className={`h-4 w-4 ${isActive ? (tab.color === "amber" ? "text-amber-600" : "text-blue-600") : ""}`} />
               {tab.label}
-              <span className={`inline-flex items-center justify-center rounded-full px-1.5 py-0.5 text-[11px] font-semibold min-w-[18px]
-                ${isActive
+              <span className={`inline-flex items-center justify-center rounded-full min-w-[18px] h-4.5 px-1.5 text-[11px] font-semibold transition-colors ${
+                isActive
                   ? tab.color === "amber"
-                    ? "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300"
-                    : "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300"
-                  : "bg-muted text-muted-foreground"}`}>
+                    ? "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"
+                    : "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
+                  : "bg-muted text-muted-foreground"
+              }`}>
                 {tab.count}
               </span>
             </button>
           );
         })}
       </div>
+
+      <Separator />
 
       {/* ── Tab Content ── */}
       {activeTab === "contractors" ? (
