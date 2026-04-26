@@ -1511,6 +1511,153 @@ export default function ReportsPage() {
     }
   };
 
+  // ── CTC Register helpers ──────────────────────────────────────────────────
+  const calcCTCComponents = (emp: Employee, ss: SalaryStructure | undefined) => {
+    const zero = { basic: 0, hra: 0, conv: 0, med: 0, spl: 0, other: 0, customEarns: {} as Record<string, number>, gross: 0, erPF: 0, erESI: 0, edli: 0, erLWF: 0, gratuity: 0, bonus: 0, monthlyCTC: 0 };
+    if (!ss) return zero;
+    const basic = ss.basicSalary || 0;
+    const hra   = ss.hra || 0;
+    const conv  = ss.conveyance || 0;
+    const med   = ss.medicalAllowance || 0;
+    const spl   = ss.specialAllowance || 0;
+    const customEarns: Record<string, number> = (ss as any).customEarnings || {};
+    const customEarnSum = Object.values(customEarns).reduce((s, v) => s + (Number(v) || 0), 0);
+    const other = Math.max(0, (ss.otherAllowances || 0) - customEarnSum);
+    const gross = basic + hra + conv + med + spl + other + customEarnSum;
+    const settings = getStatutorySettings(emp.companyId);
+    let erPF = 0, erESI = 0, edli = 0, erLWF = 0, gratuity = 0, bonus = 0;
+    if (settings) {
+      const pfWageCeiling = Number(settings.pfWageCeiling) || 15000;
+      if (settings.pfEnabled && emp.pfApplicable) {
+        const pfBase = Math.min(basic, pfWageCeiling);
+        erPF = Math.round(pfBase * (Number(settings.pfEmployerPercent) || 12) / 100);
+        edli = Math.min(Math.round(pfBase * 0.5 / 100), 75);
+      }
+      if (settings.esicEnabled && emp.esiApplicable) {
+        const wageCeiling = Number(settings.esicWageCeiling) || 21000;
+        const erPercent   = Number(settings.esicEmployerPercent) || 325;
+        const contractedGross = ss.grossSalary || gross;
+        if (contractedGross <= wageCeiling) {
+          if (settings.esicCalcOnGross) {
+            erESI = Math.round(Math.min(gross, wageCeiling) * erPercent / 10000);
+          } else {
+            const esicBase = Math.min(Math.max(basic, gross * 0.5), wageCeiling);
+            erESI = Math.round(esicBase * erPercent / 10000);
+          }
+        }
+      }
+      if (settings.lwfEnabled && emp.lwfApplicable) {
+        const lwfBase = settings.lwfCalculationBase === "basic" ? basic : gross;
+        const erPercent = Number(settings.lwfEmployerPercent) || 40;
+        const erMaxCap  = Number(settings.lwfEmployerMaxCap) || 68;
+        erLWF = Math.min(Math.round(lwfBase * erPercent / 10000), erMaxCap);
+      }
+      if (emp.bonusApplicable && settings.bonusEnabled) {
+        const bonusPercent  = Number(settings.bonusPercent) || 833;
+        const bonusCeiling  = Number(settings.bonusMaxCeiling) || 7000;
+        const bonusBase     = settings.bonusCalculationBase === "gross" ? gross : basic;
+        const bonusWage     = (settings as any).bonusSkipCeiling ? bonusBase : Math.min(bonusBase, bonusCeiling);
+        bonus = Math.round(bonusWage * bonusPercent / 10000);
+      }
+    }
+    if (emp.gratuityApplicable) {
+      gratuity = Math.round(basic * 15 / 26 / 12);
+    }
+    const monthlyCTC = gross + erPF + erESI + edli + erLWF + gratuity + bonus;
+    return { basic, hra, conv, med, spl, other, customEarns, gross, erPF, erESI, edli, erLWF, gratuity, bonus, monthlyCTC };
+  };
+
+  const generateCTCRegister = (fileType: "excel" | "pdf") => {
+    const emps = filteredEmployees.filter(e => e.status === "active");
+    if (emps.length === 0) {
+      toast({ title: "No Data", description: "No active employees found.", variant: "destructive" });
+      return;
+    }
+
+    // Collect all custom earning head IDs across employees' salary structures
+    const ctcEarnIds = [...new Set(emps.flatMap(e => {
+      const ss = salaryStructures.find(s => s.employeeId === e.id);
+      return Object.keys((ss as any)?.customEarnings || {});
+    }))];
+    const ctcEarnHeads = ctcEarnIds.map(id => ({ id, name: earningHeads.find(h => h.id === id)?.name || "Custom" }));
+
+    if (fileType === "excel") {
+      const rows = emps.map(emp => {
+        const ss = salaryStructures.find(s => s.employeeId === emp.id);
+        const c  = calcCTCComponents(emp, ss);
+        const row: Record<string, string | number> = {
+          "Emp Code":    emp.employeeCode,
+          "Name":        `${emp.firstName} ${emp.lastName}`,
+          "Department":  emp.department  || "",
+          "Designation": emp.designation || "",
+          "Basic":       c.basic,
+          "HRA":         c.hra,
+          "Conveyance":  c.conv,
+          "Medical":     c.med,
+          "Special All.": c.spl,
+        };
+        ctcEarnHeads.forEach(h => { row[h.name] = c.customEarns[h.id] || 0; });
+        row["Other All."]      = c.other;
+        row["Gross Salary"]    = c.gross;
+        row["Employer PF"]     = c.erPF;
+        row["Employer ESI"]    = c.erESI;
+        row["EDLI"]            = c.edli;
+        row["Employer LWF"]    = c.erLWF;
+        row["Gratuity"]        = c.gratuity;
+        row["Bonus (Mthly)"]   = c.bonus;
+        row["Monthly CTC"]     = c.monthlyCTC;
+        row["Annual CTC"]      = c.monthlyCTC * 12;
+        return row;
+      });
+      downloadExcel(rows, "CTC_Register", "CTC Register");
+      return;
+    }
+
+    // PDF ─────────────────────────────────────────────────────────────────────
+    const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a3" });
+    const pageW = doc.internal.pageSize.getWidth();
+    const companyName = effectiveCompany ? (companies.find(c => c.id === effectiveCompany)?.name || "All Companies") : "All Companies";
+    doc.setFontSize(14); doc.setFont("helvetica", "bold");
+    doc.text("CTC Register", pageW / 2, 14, { align: "center" });
+    doc.setFontSize(10); doc.setFont("helvetica", "normal");
+    doc.text(`${companyName}   |   Period: ${monthName} ${yearNum}`, pageW / 2, 20, { align: "center" });
+
+    const baseHeaders = ["#", "Code", "Name", "Dept", "Basic", "HRA", "Conv.", "Med.", "Spl."];
+    const customHeaders = ctcEarnHeads.map(h => h.name);
+    const tailHeaders = ["Other", "Gross", "Er.PF", "Er.ESI", "EDLI", "Er.LWF", "Gratuity", "Bonus", "Mthly CTC", "Annual CTC"];
+    const allHeaders = [...baseHeaders, ...customHeaders, ...tailHeaders];
+
+    const bodyRows: (string | number)[][] = emps.map((emp, i) => {
+      const ss = salaryStructures.find(s => s.employeeId === emp.id);
+      const c  = calcCTCComponents(emp, ss);
+      const base: (string | number)[] = [i + 1, emp.employeeCode, `${emp.firstName} ${emp.lastName}`, emp.department || "N/A", c.basic, c.hra, c.conv, c.med, c.spl];
+      const custom: number[] = ctcEarnHeads.map(h => c.customEarns[h.id] || 0);
+      const tail: (string | number)[] = [c.other, c.gross, c.erPF, c.erESI, c.edli, c.erLWF, c.gratuity, c.bonus, c.monthlyCTC, c.monthlyCTC * 12];
+      return [...base, ...custom, ...tail];
+    });
+
+    // Totals row
+    const totIdx = { gross: allHeaders.indexOf("Gross"), erPF: allHeaders.indexOf("Er.PF"), erESI: allHeaders.indexOf("Er.ESI"), edli: allHeaders.indexOf("EDLI"), erLWF: allHeaders.indexOf("Er.LWF"), grat: allHeaders.indexOf("Gratuity"), bonus: allHeaders.indexOf("Bonus"), mCTC: allHeaders.indexOf("Mthly CTC"), aCTC: allHeaders.indexOf("Annual CTC") };
+    const totRow: (string | number)[] = allHeaders.map((_, ci) => {
+      if (ci === 0) return "Total";
+      const vals = bodyRows.map(r => Number(r[ci]) || 0);
+      const sumCols = [totIdx.gross, totIdx.erPF, totIdx.erESI, totIdx.edli, totIdx.erLWF, totIdx.grat, totIdx.bonus, totIdx.mCTC, totIdx.aCTC, ...ctcEarnHeads.map((_, i) => baseHeaders.length + i), 5, 6, 7, 8, baseHeaders.length + ctcEarnHeads.length];
+      return sumCols.includes(ci) ? vals.reduce((a, b) => a + b, 0) : "";
+    });
+
+    (doc as any).autoTable({
+      head: [allHeaders],
+      body: [...bodyRows, totRow],
+      startY: 26,
+      styles: { fontSize: 7, cellPadding: 1.5 },
+      headStyles: { fillColor: [37, 99, 235], textColor: 255, fontStyle: "bold", halign: "center" },
+      didParseCell: (d: any) => {
+        if (d.row.index === bodyRows.length) { d.cell.styles.fontStyle = "bold"; d.cell.styles.fillColor = [240, 240, 240]; }
+      },
+    });
+    doc.save(`CTC_Register_${monthName}_${yearNum}.pdf`);
+  };
+
   const generateBonusReport = (fileType: "excel" | "pdf") => {
     const bonusEmps = filteredEmployees.filter(e => e.bonusApplicable && e.status === "active");
     if (bonusEmps.length === 0) {
@@ -2185,6 +2332,35 @@ export default function ReportsPage() {
       return [emp.employeeCode, `${emp.firstName} ${emp.lastName}`, emp.grossSalary || ss?.grossSalary || 0, ss?.basicSalary || 0, ss?.hra || 0, ss?.conveyance || 0, ss?.specialAllowance || 0, ss?.pfEmployee || 0, ss?.esi || 0, ss?.professionalTax || 0, ss?.lwfEmployee || 0, ss?.netSalary || 0, emp.pfApplicable ? "Yes" : "No", emp.esiApplicable ? "Yes" : "No"] as (string | number)[];
     });
     openViewDialog("Employee Pay Structure", headers, rows);
+  };
+
+  const viewCTCRegister = () => {
+    const emps = filteredEmployees.filter(e => e.status === "active");
+    if (emps.length === 0) {
+      toast({ title: "No Data", description: "No active employees found.", variant: "destructive" });
+      return;
+    }
+    const ctcEarnIds = [...new Set(emps.flatMap(e => {
+      const ss = salaryStructures.find(s => s.employeeId === e.id);
+      return Object.keys((ss as any)?.customEarnings || {});
+    }))];
+    const ctcEarnHeads = ctcEarnIds.map(id => ({ id, name: earningHeads.find(h => h.id === id)?.name || "Custom" }));
+    const headers = [
+      "Code", "Name", "Dept", "Basic", "HRA", "Conv.", "Med.", "Spl.",
+      ...ctcEarnHeads.map(h => h.name),
+      "Other", "Gross", "Er.PF", "Er.ESI", "EDLI", "Er.LWF", "Gratuity", "Bonus", "Mthly CTC", "Annual CTC",
+    ];
+    const rows: (string | number)[][] = emps.map(emp => {
+      const ss = salaryStructures.find(s => s.employeeId === emp.id);
+      const c  = calcCTCComponents(emp, ss);
+      return [
+        emp.employeeCode, `${emp.firstName} ${emp.lastName}`, emp.department || "N/A",
+        c.basic, c.hra, c.conv, c.med, c.spl,
+        ...ctcEarnHeads.map(h => c.customEarns[h.id] || 0),
+        c.other, c.gross, c.erPF, c.erESI, c.edli, c.erLWF, c.gratuity, c.bonus, c.monthlyCTC, c.monthlyCTC * 12,
+      ];
+    });
+    openViewDialog("CTC Register", headers, rows);
   };
 
   const viewFnFReport = () => {
@@ -3131,6 +3307,7 @@ export default function ReportsPage() {
     { key: "lwf",      category: "Monthly",       title: "LWF Report",                   icon: Scale,         color: "text-cyan-600",   bgColor: "bg-cyan-50 dark:bg-cyan-950",    filters: ["company","month"],             generate: generateLWFReport,             view: viewLWFReport },
     { key: "loan",     category: "Monthly",       title: "Advance & Loan",               icon: Banknote,      color: "text-emerald-600",bgColor: "bg-emerald-50 dark:bg-emerald-950",filters: ["company"],                  generate: generateAdvanceReport,         view: viewAdvanceReport },
     { key: "leave",    category: "Monthly",       title: "Leave Report",                 icon: CalendarX,     color: "text-purple-600", bgColor: "bg-purple-50 dark:bg-purple-950",filters: ["company","month"],             generate: generateLeaveReport,           view: viewLeaveReport },
+    { key: "ctc",      category: "Monthly",       title: "CTC Register",                 icon: Building2,     color: "text-teal-600",   bgColor: "bg-teal-50 dark:bg-teal-950",    filters: ["company"],                    generate: generateCTCRegister,           view: viewCTCRegister },
     { key: "ypf",      category: "Annual",        title: "Yearly PF Summary",            icon: Shield,        color: "text-purple-600", bgColor: "bg-purple-50 dark:bg-purple-950",filters: ["company","period"],            generate: generateYearlyPFSummary,       view: viewYearlyPFSummary },
     { key: "yesic",    category: "Annual",        title: "Yearly ESIC Summary",          icon: Receipt,       color: "text-orange-600", bgColor: "bg-orange-50 dark:bg-orange-950",filters: ["company","period"],            generate: generateYearlyESICSummary,     view: viewYearlyESICSummary },
     { key: "ysal",     category: "Annual",        title: "Yearly Salary Detail",         icon: TrendingUp,    color: "text-green-600",  bgColor: "bg-green-50 dark:bg-green-950",  filters: ["company","period"],            generate: generateYearlySalaryDetail,    view: viewYearlySalaryDetail },
