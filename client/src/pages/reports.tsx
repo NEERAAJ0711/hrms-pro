@@ -2890,7 +2890,7 @@ export default function ReportsPage() {
   const companyFilter = isSuperAdmin ? (
     <div className="flex items-center gap-2">
       <label className="text-sm font-medium">Company:</label>
-      <Select value={selectedCompany} onValueChange={setSelectedCompany}>
+      <Select value={selectedCompany || "__all__"} onValueChange={setSelectedCompany}>
         <SelectTrigger className="w-56"><SelectValue placeholder="All Companies" /></SelectTrigger>
         <SelectContent>
           <SelectItem value="__all__">All Companies</SelectItem>
@@ -3027,10 +3027,10 @@ export default function ReportsPage() {
           <div className="flex flex-wrap items-center gap-4 mb-5 p-3 bg-muted/30 rounded-lg border">
             <div className="flex items-center gap-2">
               <label className="text-sm font-medium">Contractor Company:</label>
-              <Select value={selectedCompany} onValueChange={setSelectedCompany}>
-                <SelectTrigger className="w-64"><SelectValue placeholder="All Contractors" /></SelectTrigger>
+              <Select value={selectedCompany || "__all__"} onValueChange={setSelectedCompany}>
+                <SelectTrigger className="w-64"><SelectValue placeholder="All Companies" /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="__all__">All Contractors</SelectItem>
+                  <SelectItem value="__all__">All Companies</SelectItem>
                   {contractorCompanies.map(c => <SelectItem key={c.id} value={c.id}>{c.companyName}</SelectItem>)}
                 </SelectContent>
               </Select>
