@@ -291,6 +291,9 @@ export interface IStorage {
 
   // Attendance helpers
   getAttendanceByEmployeeAndDate(employeeId: string, date: string): Promise<Attendance | undefined>;
+
+  // Audit log
+  writeAuditLog(entry: { action: string; userId: string; userName: string; details: string }): Promise<void>;
 }
 
 export class MemStorage implements IStorage {
@@ -1716,6 +1719,10 @@ export class MemStorage implements IStorage {
       }
     }
     return result;
+  }
+
+  async writeAuditLog(_entry: { action: string; userId: string; userName: string; details: string }): Promise<void> {
+    // In-memory store has no audit log persistence
   }
 }
 

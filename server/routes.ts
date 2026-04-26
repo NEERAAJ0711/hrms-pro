@@ -493,6 +493,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
   });
 
+  app.get("/api/audit-logs", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      if (user.role !== "super_admin" && user.role !== "admin") {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      const limit = Math.min(Number(req.query.limit) || 200, 500);
+      const action = req.query.action as string | undefined;
+      const rows = await db.execute(
+        sql`SELECT id, action, user_id, user_name, details, created_at FROM audit_logs ${action ? sql`WHERE action = ${action}` : sql``} ORDER BY created_at DESC LIMIT ${limit}`
+      );
+      res.json(rows.rows);
+    } catch {
+      res.status(500).json({ error: "Failed to fetch audit logs" });
+    }
+  });
+
   app.get("/api/version", (_req, res) => {
     res.setHeader("Cache-Control", "no-store");
     res.json({
@@ -2254,6 +2271,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (user.role !== "super_admin" && existing.companyId !== user.companyId) {
         return res.status(403).json({ error: "Access denied" });
       }
+      console.log(`[AUDIT] EMPLOYEE_DELETE | user=${user.username || user.email} (id=${user.id}, role=${user.role}) | empId=${existing.id} | code=${existing.employeeCode} | name=${existing.firstName} ${existing.lastName} | companyId=${existing.companyId} | at=${new Date().toISOString()} | ip=${req.ip}`);
+      await storage.writeAuditLog({ action: "EMPLOYEE_DELETE", userId: user.id, userName: user.username || user.email || "", details: JSON.stringify({ empId: existing.id, employeeCode: existing.employeeCode, name: `${existing.firstName} ${existing.lastName}`, companyId: existing.companyId }) });
       const success = await storage.deleteEmployee(req.params.id);
       res.json({ success });
     } catch (error) {
@@ -3828,6 +3847,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (user.role !== "super_admin" && existing.companyId !== user.companyId) {
         return res.status(403).json({ error: "Access denied" });
       }
+      console.log(`[AUDIT] SALARY_STRUCTURE_DELETE | user=${user.username || user.email} (id=${user.id}, role=${user.role}) | structureId=${existing.id} | employeeId=${existing.employeeId} | companyId=${existing.companyId} | basic=${existing.basicSalary} | gross=${existing.grossSalary} | at=${new Date().toISOString()} | ip=${req.ip}`);
+      await storage.writeAuditLog({ action: "SALARY_STRUCTURE_DELETE", userId: user.id, userName: user.username || user.email || "", details: JSON.stringify({ structureId: existing.id, employeeId: existing.employeeId, companyId: existing.companyId, basicSalary: existing.basicSalary, grossSalary: existing.grossSalary }) });
       const success = await storage.deleteSalaryStructure(req.params.id);
       res.json({ success });
     } catch (error) {
@@ -4057,6 +4078,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (user.role !== "super_admin" && existing.companyId !== user.companyId) {
         return res.status(403).json({ error: "Access denied" });
       }
+      console.log(`[AUDIT] PAYROLL_DELETE | user=${user.username || user.email} (id=${user.id}, role=${user.role}) | payrollId=${existing.id} | empId=${existing.employeeId} | month=${existing.month} ${existing.year} | net=${existing.netSalary} | at=${new Date().toISOString()} | ip=${req.ip}`);
+      await storage.writeAuditLog({ action: "PAYROLL_DELETE", userId: user.id, userName: user.username || user.email || "", details: JSON.stringify({ payrollId: existing.id, employeeId: existing.employeeId, month: existing.month, year: existing.year, netSalary: existing.netSalary }) });
       const success = await storage.deletePayroll(req.params.id);
       res.json({ success });
     } catch (error) {

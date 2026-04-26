@@ -1085,4 +1085,17 @@ export class DatabaseStorage implements IStorage {
     const result = await db.delete(wageGrades).where(eq(wageGrades.id, id)).returning();
     return result.length > 0;
   }
+
+  async writeAuditLog(entry: { action: string; userId: string; userName: string; details: string }): Promise<void> {
+    try {
+      await db.execute(
+        sql`INSERT INTO audit_logs (id, action, user_id, user_name, details, created_at)
+            VALUES (gen_random_uuid(), ${entry.action}, ${entry.userId}, ${entry.userName}, ${entry.details}, NOW())
+            ON CONFLICT DO NOTHING`
+      );
+    } catch {
+      // Table may not exist yet on first deploy — log to console as fallback
+      console.log(`[AUDIT-FALLBACK] ${entry.action} | user=${entry.userName} | ${entry.details}`);
+    }
+  }
 }
