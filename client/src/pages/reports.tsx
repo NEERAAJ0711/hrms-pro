@@ -930,10 +930,11 @@ export default function ReportsPage() {
   const generatePaySlip = (fileType: "excel" | "pdf") => {
     const monthPayroll = payrollRecords.filter(p =>
       p.month === monthName && p.year === yearNum &&
-      (effectiveCompany ? p.companyId === effectiveCompany : true)
+      (effectiveCompany ? p.companyId === effectiveCompany : true) &&
+      (docEmployee ? p.employeeId === docEmployee : true)
     );
 
-    const emps = filteredEmployees;
+    const emps = docEmployee ? filteredEmployees.filter(e => e.id === docEmployee) : filteredEmployees;
 
     const buildPaySlipPDF = (emp: Employee, c: ReturnType<typeof getProRatedComponents>, workingDays?: number, presentDays?: number, leaveDays?: number, payDays?: number, otHoursArg?: number, otAmountArg?: number) => {
       const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
@@ -1984,8 +1985,12 @@ export default function ReportsPage() {
   };
 
   const viewPaySlip = () => {
-    const monthPayroll = payrollRecords.filter(p => p.month === monthName && p.year === yearNum && (effectiveCompany ? p.companyId === effectiveCompany : true));
-    const emps = filteredEmployees;
+    const monthPayroll = payrollRecords.filter(p =>
+      p.month === monthName && p.year === yearNum &&
+      (effectiveCompany ? p.companyId === effectiveCompany : true) &&
+      (docEmployee ? p.employeeId === docEmployee : true)
+    );
+    const emps = docEmployee ? filteredEmployees.filter(e => e.id === docEmployee) : filteredEmployees;
     const headers = ["Code", "Name", "Dept", "Basic", "HRA", "Conv.", "Med.", "Spl.", "Other", "Bonus", "OT Hrs", "OT Amt", "Tot.Earn", "PF", "ESI", "PT", "LWF", "TDS", "Other Ded", "Loan/Adv", "Tot.Ded", "Net Salary"];
     let rows: (string | number)[][] = [];
     if (monthPayroll.length > 0) {
@@ -2968,7 +2973,7 @@ export default function ReportsPage() {
     { key: "sal",      category: "Monthly",       title: "Salary Sheet",                 icon: CreditCard,    color: "text-green-600",  bgColor: "bg-green-50 dark:bg-green-950",  filters: ["company","month"],             generate: generateSalarySheet,           view: viewSalarySheet },
     { key: "pf",       category: "Monthly",       title: "PF Statement",                 icon: Shield,        color: "text-purple-600", bgColor: "bg-purple-50 dark:bg-purple-950",filters: ["company","month"],             generate: generatePFStatement,           view: viewPFStatement },
     { key: "esic",     category: "Monthly",       title: "ESIC Statement",               icon: Receipt,       color: "text-orange-600", bgColor: "bg-orange-50 dark:bg-orange-950",filters: ["company","month"],             generate: generateESICStatement,         view: viewESICStatement },
-    { key: "payslip",  category: "Monthly",       title: "Pay Slip",                     icon: FileText,      color: "text-red-600",    bgColor: "bg-red-50 dark:bg-red-950",      filters: ["company","month"],             generate: generatePaySlip,               view: viewPaySlip },
+    { key: "payslip",  category: "Monthly",       title: "Pay Slip",                     icon: FileText,      color: "text-red-600",    bgColor: "bg-red-50 dark:bg-red-950",      filters: ["company","month","employee"],  generate: generatePaySlip,               view: viewPaySlip },
     { key: "fnf",      category: "Monthly",       title: "Full & Final Settlement",      icon: HandCoins,     color: "text-rose-600",   bgColor: "bg-rose-50 dark:bg-rose-950",    filters: ["company","month"],             generate: generateFnFReport,             view: viewFnFReport },
     { key: "bonus",    category: "Monthly",       title: "Bonus Report",                 icon: Landmark,      color: "text-amber-600",  bgColor: "bg-amber-50 dark:bg-amber-950",  filters: ["company","month"],             generate: generateBonusReport,           view: viewBonusReport },
     { key: "lwf",      category: "Monthly",       title: "LWF Report",                   icon: Scale,         color: "text-cyan-600",   bgColor: "bg-cyan-50 dark:bg-cyan-950",    filters: ["company","month"],             generate: generateLWFReport,             view: viewLWFReport },
