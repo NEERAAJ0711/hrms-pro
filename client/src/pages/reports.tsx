@@ -1514,16 +1514,41 @@ export default function ReportsPage() {
   // ── CTC Register helpers ──────────────────────────────────────────────────
   const calcCTCComponents = (emp: Employee, ss: SalaryStructure | undefined) => {
     const zero = { basic: 0, hra: 0, conv: 0, med: 0, spl: 0, other: 0, customEarns: {} as Record<string, number>, gross: 0, erPF: 0, erESI: 0, edli: 0, erLWF: 0, gratuity: 0, bonus: 0, monthlyCTC: 0 };
-    if (!ss) return zero;
-    const basic = ss.basicSalary || 0;
-    const hra   = ss.hra || 0;
-    const conv  = ss.conveyance || 0;
-    const med   = ss.medicalAllowance || 0;
-    const spl   = ss.specialAllowance || 0;
-    const customEarns: Record<string, number> = (ss as any).customEarnings || {};
-    const customEarnSum = Object.values(customEarns).reduce((s, v) => s + (Number(v) || 0), 0);
-    const other = Math.max(0, (ss.otherAllowances || 0) - customEarnSum);
-    const gross = basic + hra + conv + med + spl + other + customEarnSum;
+
+    // Derive components: prefer salary structure, fall back to most recent payroll record scaled to full month
+    let basic = 0, hra = 0, conv = 0, med = 0, spl = 0, other = 0, customEarns: Record<string, number> = {};
+
+    if (ss) {
+      basic = ss.basicSalary || 0;
+      hra   = ss.hra || 0;
+      conv  = ss.conveyance || 0;
+      med   = ss.medicalAllowance || 0;
+      spl   = ss.specialAllowance || 0;
+      customEarns = (ss as any).customEarnings || {};
+      const customEarnSum = Object.values(customEarns).reduce((s, v) => s + (Number(v) || 0), 0);
+      other = Math.max(0, (ss.otherAllowances || 0) - customEarnSum);
+    } else {
+      // Find most recent payroll record for this employee as fallback
+      const monthOrder = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+      const empPayrolls = payrollRecords
+        .filter(p => p.employeeId === emp.id)
+        .sort((a, b) => b.year - a.year || monthOrder.indexOf(b.month) - monthOrder.indexOf(a.month));
+      if (empPayrolls.length === 0) return zero;
+      const pr = empPayrolls[0];
+      const payDays = Number(pr.payDays) || Number(pr.workingDays) || 0;
+      const scale   = payDays > 0 && pr.workingDays > 0 ? pr.workingDays / payDays : 1;
+      basic = Math.round((pr.basicSalary || 0) * scale);
+      hra   = Math.round(((pr.hra ?? 0)) * scale);
+      conv  = Math.round(((pr.conveyance ?? 0)) * scale);
+      med   = Math.round(((pr.medicalAllowance ?? 0)) * scale);
+      spl   = Math.round(((pr.specialAllowance ?? 0)) * scale);
+      customEarns = Object.fromEntries(Object.entries((pr as any).customEarnings || {}).map(([k, v]) => [k, Math.round(Number(v) * scale)]));
+      const customEarnSum = Object.values(customEarns).reduce((s, v) => s + (Number(v) || 0), 0);
+      other = Math.max(0, Math.round(((pr.otherAllowances ?? 0)) * scale) - customEarnSum);
+    }
+
+    const customEarnSum2 = Object.values(customEarns).reduce((s, v) => s + (Number(v) || 0), 0);
+    const gross = basic + hra + conv + med + spl + other + customEarnSum2;
     const settings = getStatutorySettings(emp.companyId);
     let erPF = 0, erESI = 0, edli = 0, erLWF = 0, gratuity = 0, bonus = 0;
     if (settings) {
@@ -1574,10 +1599,12 @@ export default function ReportsPage() {
       return;
     }
 
-    // Collect all custom earning head IDs across employees' salary structures
+    // Collect all custom earning head IDs across salary structures AND payroll records
     const ctcEarnIds = [...new Set(emps.flatMap(e => {
       const ss = salaryStructures.find(s => s.employeeId === e.id);
-      return Object.keys((ss as any)?.customEarnings || {});
+      if (ss) return Object.keys((ss as any)?.customEarnings || {});
+      const pr = payrollRecords.filter(p => p.employeeId === e.id).sort((a, b) => b.year - a.year)[0];
+      return Object.keys((pr as any)?.customEarnings || {});
     }))];
     const ctcEarnHeads = ctcEarnIds.map(id => ({ id, name: earningHeads.find(h => h.id === id)?.name || "Custom" }));
 
@@ -2342,7 +2369,9 @@ export default function ReportsPage() {
     }
     const ctcEarnIds = [...new Set(emps.flatMap(e => {
       const ss = salaryStructures.find(s => s.employeeId === e.id);
-      return Object.keys((ss as any)?.customEarnings || {});
+      if (ss) return Object.keys((ss as any)?.customEarnings || {});
+      const pr = payrollRecords.filter(p => p.employeeId === e.id).sort((a, b) => b.year - a.year)[0];
+      return Object.keys((pr as any)?.customEarnings || {});
     }))];
     const ctcEarnHeads = ctcEarnIds.map(id => ({ id, name: earningHeads.find(h => h.id === id)?.name || "Custom" }));
     const headers = [
