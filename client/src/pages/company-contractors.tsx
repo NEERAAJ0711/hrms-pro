@@ -295,6 +295,28 @@ function EmployeesPanel({ companyId, contractor }: { companyId: string; contract
   );
 }
 
+// ── Tagged Count Badge (per contractor row) ───────────────────────────────────
+function TaggedCountBadge({ companyId, contractorId }: { companyId: string; contractorId: string }) {
+  const { data, isLoading } = useQuery<TaggedEmployee[]>({
+    queryKey: ["/api/companies", companyId, "contractors", contractorId, "employees"],
+    queryFn: async () => {
+      const res = await fetch(`/api/companies/${companyId}/contractors/${contractorId}/employees`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed");
+      return res.json();
+    },
+    staleTime: 30_000,
+  });
+
+  if (isLoading) return <span className="text-xs text-muted-foreground">—</span>;
+  const count = data?.length ?? 0;
+  return (
+    <span className={`inline-flex items-center gap-1 text-sm font-semibold ${count > 0 ? "text-primary" : "text-muted-foreground"}`}>
+      <Users className="h-3.5 w-3.5" />
+      {count}
+    </span>
+  );
+}
+
 // ── Contractors Tab ───────────────────────────────────────────────────────────
 function ContractorsTab({ companyId }: { companyId: string }) {
   const { toast } = useToast();
@@ -340,8 +362,39 @@ function ContractorsTab({ companyId }: { companyId: string }) {
 
   const existing = new Set(contractors.map(c => c.contractorId));
 
+  // total tagged employees across all contractors (from cache)
+  const totalTagged = contractors.reduce((sum, c) => {
+    const cached = queryClient.getQueryData<TaggedEmployee[]>([
+      "/api/companies", companyId, "contractors", c.contractorId, "employees"
+    ]);
+    return sum + (cached?.length ?? 0);
+  }, 0);
+
   return (
     <div className="space-y-4">
+
+      {/* ── Summary Stats ── */}
+      {contractors.length > 0 && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="rounded-lg border bg-card px-5 py-4">
+            <p className="text-xs text-muted-foreground uppercase tracking-wide font-semibold mb-1">Total Contractors</p>
+            <p className="text-2xl font-bold">{contractors.length}</p>
+          </div>
+          <div className="rounded-lg border bg-card px-5 py-4">
+            <p className="text-xs text-muted-foreground uppercase tracking-wide font-semibold mb-1">Active</p>
+            <p className="text-2xl font-bold text-green-600">{contractors.length}</p>
+          </div>
+          <div className="rounded-lg border bg-card px-5 py-4">
+            <p className="text-xs text-muted-foreground uppercase tracking-wide font-semibold mb-1">Tagged Employees</p>
+            <p className="text-2xl font-bold text-primary">{totalTagged}</p>
+            <p className="text-xs text-muted-foreground mt-0.5">across all contractors</p>
+          </div>
+          <div className="rounded-lg border bg-card px-5 py-4">
+            <p className="text-xs text-muted-foreground uppercase tracking-wide font-semibold mb-1">Oldest Contract</p>
+            <p className="text-base font-semibold">{fmt(contractors.reduce((min, c) => c.startDate < min ? c.startDate : min, contractors[0]?.startDate))}</p>
+          </div>
+        </div>
+      )}
 
       {/* ── Add Contractor Form ── */}
       {showForm && (
@@ -389,9 +442,10 @@ function ContractorsTab({ companyId }: { companyId: string }) {
 
         {/* Table Head */}
         {contractors.length > 0 && (
-          <div className="grid grid-cols-[2rem_1fr_auto_auto_auto] items-center gap-4 px-5 py-2.5 bg-muted/40 border-b text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+          <div className="grid grid-cols-[2rem_1fr_auto_auto_auto_auto] items-center gap-4 px-5 py-2.5 bg-muted/40 border-b text-xs font-semibold text-muted-foreground uppercase tracking-wide">
             <span>#</span>
             <span>Company Name</span>
+            <span className="hidden md:block">Tagged Emp.</span>
             <span className="hidden sm:block">Start Date</span>
             <span className="hidden sm:block">Status</span>
             <span>Actions</span>
@@ -405,6 +459,7 @@ function ContractorsTab({ companyId }: { companyId: string }) {
               <div key={i} className="flex items-center gap-4 px-5 py-4">
                 <Skeleton className="h-4 w-4" />
                 <Skeleton className="h-4 flex-1 max-w-xs" />
+                <Skeleton className="h-4 w-12" />
                 <Skeleton className="h-4 w-24" />
                 <Skeleton className="h-6 w-16 rounded-full" />
                 <Skeleton className="h-8 w-24 rounded" />
@@ -427,7 +482,7 @@ function ContractorsTab({ companyId }: { companyId: string }) {
               return (
                 <div key={c.contractorId} data-testid={`contractor-row-${c.contractorId}`}>
                   {/* Row */}
-                  <div className={`grid grid-cols-[2rem_1fr_auto_auto_auto] items-center gap-4 px-5 py-4 transition-colors ${isOpen ? "bg-primary/5" : "hover:bg-muted/30"}`}>
+                  <div className={`grid grid-cols-[2rem_1fr_auto_auto_auto_auto] items-center gap-4 px-5 py-4 transition-colors ${isOpen ? "bg-primary/5" : "hover:bg-muted/30"}`}>
                     <span className="text-sm text-muted-foreground font-medium">{i + 1}</span>
 
                     <div>
@@ -435,6 +490,10 @@ function ContractorsTab({ companyId }: { companyId: string }) {
                       <p className="text-xs text-muted-foreground mt-0.5 font-mono">
                         ID: {c.contractorId.slice(0, 8)}…
                       </p>
+                    </div>
+
+                    <div className="hidden md:block">
+                      <TaggedCountBadge companyId={companyId} contractorId={c.contractorId} />
                     </div>
 
                     <span className="hidden sm:block text-sm text-muted-foreground">{fmt(c.startDate)}</span>
