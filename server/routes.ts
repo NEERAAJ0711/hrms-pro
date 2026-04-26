@@ -3819,8 +3819,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const data = insertSalaryStructureSchema.parse(req.body);
       const structure = await storage.createSalaryStructure(data);
       res.status(201).json(structure);
-    } catch (error) {
-      res.status(500).json({ error: "Failed to create salary structure" });
+    } catch (error: any) {
+      const msg = error?.errors ? error.errors.map((e: any) => `${e.path.join(".")}: ${e.message}`).join("; ") : (error?.message || "Failed to create salary structure");
+      console.error("[salary-structure POST]", msg, JSON.stringify(req.body));
+      res.status(400).json({ error: msg });
     }
   });
 

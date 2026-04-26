@@ -259,9 +259,9 @@ export default function ReportsPage() {
 
       if (ss) {
         // Use payDays (Present + Weekly Off + Holidays + Paid Leaves) for correct proration
-        const storedPayDays = Number(pr.payDays) || pr.presentDays;
+        const storedPayDays = Number(pr.payDays) || Number(pr.presentDays) || 0;
         const payDaysForFactor = overridePayDays ?? storedPayDays;
-        const factor = pr.workingDays > 0 ? Math.min(payDaysForFactor / pr.workingDays, 1) : 0;
+        const factor = pr.workingDays > 0 ? Math.min(Number(payDaysForFactor) / pr.workingDays, 1) : 0;
         const basic = pr.basicSalary;
         const hra = Math.round((ss.hra || 0) * factor);
         const conv = Math.round((ss.conveyance || 0) * factor);
@@ -1329,7 +1329,7 @@ export default function ReportsPage() {
           if (!emp) return;
           const ss = salaryStructures.find(s => s.employeeId === p.employeeId);
           const c = getProRatedComponents(emp, ss, p);
-          buildPaySlipPDF(emp, c, p.workingDays, p.presentDays, p.leaveDays || 0, Number(p.payDays) || undefined, Number((p as any).otHours || 0), Number((p as any).otAmount || 0), p);
+          buildPaySlipPDF(emp, c, p.workingDays, Number(p.presentDays), p.leaveDays || 0, Number(p.payDays) || undefined, Number((p as any).otHours || 0), Number((p as any).otAmount || 0), p);
         });
         toast({ title: "Downloaded", description: `${monthPayroll.length} pay slip(s) downloaded.` });
       } else if (emps.length > 0) {
@@ -1561,7 +1561,7 @@ export default function ReportsPage() {
       if (settings.esicEnabled && emp.esiApplicable) {
         const wageCeiling = Number(settings.esicWageCeiling) || 21000;
         const erPercent   = Number(settings.esicEmployerPercent) || 325;
-        const contractedGross = ss.grossSalary || gross;
+        const contractedGross = ss?.grossSalary || gross;
         if (contractedGross <= wageCeiling) {
           if (settings.esicCalcOnGross) {
             erESI = Math.round(Math.min(gross, wageCeiling) * erPercent / 10000);
@@ -1585,7 +1585,7 @@ export default function ReportsPage() {
         bonus = Math.round(bonusWage * bonusPercent / 10000);
       }
     }
-    if (emp.gratuityApplicable) {
+    if ((emp as any).gratuityApplicable) {
       gratuity = Math.round(basic * 15 / 26 / 12);
     }
     const monthlyCTC = gross + erPF + erESI + edli + erLWF + gratuity + bonus;
@@ -1643,7 +1643,7 @@ export default function ReportsPage() {
     // PDF ─────────────────────────────────────────────────────────────────────
     const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a3" });
     const pageW = doc.internal.pageSize.getWidth();
-    const companyName = effectiveCompany ? (companies.find(c => c.id === effectiveCompany)?.name || "All Companies") : "All Companies";
+    const companyName = effectiveCompany ? (companies.find(c => c.id === effectiveCompany)?.companyName || "All Companies") : "All Companies";
     doc.setFontSize(14); doc.setFont("helvetica", "bold");
     doc.text("CTC Register", pageW / 2, 14, { align: "center" });
     doc.setFontSize(10); doc.setFont("helvetica", "normal");
@@ -2906,7 +2906,7 @@ export default function ReportsPage() {
         const start = new Date(lr.startDate);
         const end   = new Date(lr.endDate);
         const days  = Math.round((end.getTime() - start.getTime()) / 86400000) + 1;
-        byType[lr.leaveType || "Other"] = (byType[lr.leaveType || "Other"] || 0) + days;
+        byType[(lr as any).leaveType || "Other"] = (byType[(lr as any).leaveType || "Other"] || 0) + days;
       }
       if (Object.keys(byType).length === 0) {
         rows.push({ code: emp.employeeCode, name: `${emp.firstName} ${emp.lastName}`, dept: emp.department || "", company: getCompanyName(emp.companyId), leaveType: "—", opens: 0, earned: 0, availed: 0, balance: 0 });

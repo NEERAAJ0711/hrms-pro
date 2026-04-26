@@ -456,7 +456,7 @@ export default function PayrollPage() {
       if (entered < grade.minimumWage) {
         toast({
           title: "Below Minimum Wage",
-          description: `Gross ₹${entered.toLocaleString("en-IN")} cannot be less than minimum wage ₹${grade.minimumWage.toLocaleString("en-IN")} for grade "${grade.gradeName}".`,
+          description: `Gross ₹${entered.toLocaleString("en-IN")} cannot be less than minimum wage ₹${grade.minimumWage.toLocaleString("en-IN")} for grade "${grade.name}".`,
           variant: "destructive",
         });
         setGrossInputAmt(String(grade.minimumWage));
@@ -1204,7 +1204,7 @@ export default function PayrollPage() {
                         Set Gross Salary
                         {grade && grade.minimumWage > 0 ? (
                           <span className="ml-auto font-normal text-amber-700 dark:text-amber-400 bg-amber-100 dark:bg-amber-900 px-2 py-0.5 rounded-full text-[10px]">
-                            Wage Grade: {grade.gradeName} · Min. Wage ₹{grade.minimumWage.toLocaleString("en-IN")} · Gross cannot be less than ₹{grade.minimumWage.toLocaleString("en-IN")}
+                            Wage Grade: {grade.name} · Min. Wage ₹{grade.minimumWage.toLocaleString("en-IN")} · Gross cannot be less than ₹{grade.minimumWage.toLocaleString("en-IN")}
                           </span>
                         ) : (
                           <span className="ml-auto font-normal text-blue-600 dark:text-blue-400 text-[10px]">
