@@ -993,7 +993,7 @@ export default function ReportsPage() {
 
     const emps = docEmployee ? filteredEmployees.filter(e => e.id === docEmployee) : filteredEmployees;
 
-    const buildPaySlipPDF = (emp: Employee, c: ReturnType<typeof getProRatedComponents>, workingDays?: number, presentDays?: number, leaveDays?: number, payDays?: number, otHoursArg?: number, otAmountArg?: number) => {
+    const buildPaySlipPDF = (emp: Employee, c: ReturnType<typeof getProRatedComponents>, workingDays?: number, presentDays?: number, leaveDays?: number, payDays?: number, otHoursArg?: number, otAmountArg?: number, pr?: Payroll | null) => {
       const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
       const company = companies.find(co => co.id === emp.companyId);
       const companyName = company?.companyName || getCompanyName(emp.companyId);
@@ -1127,7 +1127,7 @@ export default function ReportsPage() {
       if (c.medicalAllowance > 0) earnRows.push(["Medical Allowance", fmt(c.medicalAllowance)]);
       if (c.specialAllowance > 0) earnRows.push(["Special Allowance", fmt(c.specialAllowance)]);
       // Custom earning heads stored per payroll record
-      const payrollCustom: Record<string, number> = (c as any).customEarnings || {};
+      const payrollCustom: Record<string, number> = (pr as any)?.customEarnings || {};
       const customEarnSum = Object.entries(payrollCustom).reduce((acc, [headId, amt]) => {
         const head = earningHeads.find((h) => h.id === headId);
         if (head && amt) earnRows.push([head.name, fmt(amt as number)]);
@@ -1147,7 +1147,7 @@ export default function ReportsPage() {
       if (c.otherDeductions > 0) dedRows.push(["Other Deductions", fmt(c.otherDeductions)]);
       if ((c as any).loanDeduction > 0) dedRows.push(["Loan / Advance", fmt((c as any).loanDeduction)]);
       // Custom deduction heads stored per payroll record
-      const payrollCustomDed: Record<string, number> = (c as any).customDeductions || {};
+      const payrollCustomDed: Record<string, number> = (pr as any)?.customDeductions || {};
       Object.entries(payrollCustomDed).forEach(([headId, amt]) => {
         const head = deductionHeads.find((h) => h.id === headId);
         if (head && amt) dedRows.push([head.name, fmt(amt as number)]);
@@ -1242,11 +1242,21 @@ export default function ReportsPage() {
 
     if (fileType === "excel") {
       if (monthPayroll.length > 0) {
+        // Collect dynamic head IDs across all pay slip records
+        const psEarnIds = [...new Set(monthPayroll.flatMap(p => Object.keys((p as any).customEarnings || {})))];
+        const psDedIds  = [...new Set(monthPayroll.flatMap(p => Object.keys((p as any).customDeductions || {})))];
+        const psEarnHeads = psEarnIds.map(id => ({ id, name: earningHeads.find(h => h.id === id)?.name || "Custom" }));
+        const psDedHeads  = psDedIds.map(id => ({ id, name: deductionHeads.find(h => h.id === id)?.name || "Custom" }));
+
         const rows = monthPayroll.map(p => {
           const emp = employees.find(e => e.id === p.employeeId);
           const ss = salaryStructures.find(s => s.employeeId === p.employeeId);
           const c = emp ? getProRatedComponents(emp, ss, p) : null;
-          return {
+          const prCustomEarn: Record<string, number> = (p as any).customEarnings || {};
+          const prCustomDed: Record<string, number> = (p as any).customDeductions || {};
+          const customEarnSum = Object.values(prCustomEarn).reduce((s, v) => s + (Number(v) || 0), 0);
+          const residualOther = Math.max(0, (c?.otherAllowances || 0) - customEarnSum);
+          const row: Record<string, string | number> = {
             "Emp Code": emp?.employeeCode || "",
             "Employee Name": getEmployeeName(p.employeeId),
             "Department": emp?.department || "",
@@ -1259,19 +1269,24 @@ export default function ReportsPage() {
             "Conveyance": c?.conveyance || 0,
             "Medical Allowance": c?.medicalAllowance || 0,
             "Special Allowance": c?.specialAllowance || 0,
-            "Other Allowances": c?.otherAllowances || 0,
-            "Statutory Bonus": c?.bonus || 0,
-            "Total Earnings": c?.totalEarnings || 0,
-            "PF Deduction": c?.pfEmployee || 0,
-            "ESI Deduction": c?.esi || 0,
-            "Prof. Tax": c?.professionalTax || 0,
-            "LWF": c?.lwfEmployee || 0,
-            "TDS": c?.tds || 0,
-            "Other Deductions": c?.otherDeductions || 0,
-            "Loan / Advance": (c as any)?.loanDeduction || 0,
-            "Total Deductions": c?.totalDeductions || 0,
-            "Net Salary": c?.netSalary || 0,
           };
+          psEarnHeads.forEach(h => { row[h.name] = prCustomEarn[h.id] || 0; });
+          row["Other Allowances"] = residualOther;
+          row["Statutory Bonus"] = c?.bonus || 0;
+          row["OT Hours"] = Number((p as any).otHours || 0);
+          row["OT Amount"] = Number((p as any).otAmount || 0);
+          row["Total Earnings"] = c?.totalEarnings || 0;
+          row["PF Deduction"] = c?.pfEmployee || 0;
+          row["ESI Deduction"] = c?.esi || 0;
+          row["Prof. Tax"] = c?.professionalTax || 0;
+          row["LWF"] = c?.lwfEmployee || 0;
+          row["TDS"] = c?.tds || 0;
+          row["Other Deductions"] = c?.otherDeductions || 0;
+          row["Loan / Advance"] = (c as any)?.loanDeduction || 0;
+          psDedHeads.forEach(h => { row[h.name] = prCustomDed[h.id] || 0; });
+          row["Total Deductions"] = c?.totalDeductions || 0;
+          row["Net Salary"] = c?.netSalary || 0;
+          return row;
         });
         downloadExcel(rows, `PaySlips_${selectedMonth}`, "Pay Slips");
       } else {
@@ -1314,7 +1329,7 @@ export default function ReportsPage() {
           if (!emp) return;
           const ss = salaryStructures.find(s => s.employeeId === p.employeeId);
           const c = getProRatedComponents(emp, ss, p);
-          buildPaySlipPDF(emp, c, p.workingDays, p.presentDays, p.leaveDays || 0, Number(p.payDays) || undefined, Number((p as any).otHours || 0), Number((p as any).otAmount || 0));
+          buildPaySlipPDF(emp, c, p.workingDays, p.presentDays, p.leaveDays || 0, Number(p.payDays) || undefined, Number((p as any).otHours || 0), Number((p as any).otAmount || 0), p);
         });
         toast({ title: "Downloaded", description: `${monthPayroll.length} pay slip(s) downloaded.` });
       } else if (emps.length > 0) {
@@ -2088,20 +2103,60 @@ export default function ReportsPage() {
       (docEmployee ? p.employeeId === docEmployee : true)
     );
     const emps = docEmployee ? filteredEmployees.filter(e => e.id === docEmployee) : filteredEmployees;
-    const headers = ["Code", "Name", "Dept", "Basic", "HRA", "Conv.", "Med.", "Spl.", "Other", "Bonus", "OT Hrs", "OT Amt", "Tot.Earn", "PF", "ESI", "PT", "LWF", "TDS", "Other Ded", "Loan/Adv", "Tot.Ded", "Net Salary"];
+
+    // Collect dynamic custom head IDs from actual payroll records
+    const vpEarnIds = [...new Set(monthPayroll.flatMap(p => Object.keys((p as any).customEarnings || {})))];
+    const vpDedIds  = [...new Set(monthPayroll.flatMap(p => Object.keys((p as any).customDeductions || {})))];
+    const vpEarnHeads = vpEarnIds.map(id => ({ id, name: earningHeads.find(h => h.id === id)?.name || "Custom" }));
+    const vpDedHeads  = vpDedIds.map(id => ({ id, name: deductionHeads.find(h => h.id === id)?.name || "Custom" }));
+
+    const headers = [
+      "Code", "Name", "Dept", "Basic", "HRA", "Conv.", "Med.", "Spl.",
+      ...vpEarnHeads.map(h => h.name),
+      "Other", "Bonus", "OT Hrs", "OT Amt", "Tot.Earn",
+      "PF", "ESI", "PT", "LWF", "TDS", "Other Ded", "Loan/Adv",
+      ...vpDedHeads.map(h => h.name),
+      "Tot.Ded", "Net Salary",
+    ];
+
     let rows: (string | number)[][] = [];
     if (monthPayroll.length > 0) {
       rows = monthPayroll.map(p => {
         const emp = employees.find(e => e.id === p.employeeId);
         const ss = salaryStructures.find(s => s.employeeId === p.employeeId);
         const c = emp ? getProRatedComponents(emp, ss, p) : null;
-        return [emp?.employeeCode || "", getEmployeeName(p.employeeId), emp?.department || "N/A", c?.basicSalary || 0, c?.hra || 0, c?.conveyance || 0, c?.medicalAllowance || 0, c?.specialAllowance || 0, c?.otherAllowances || 0, c?.bonus || 0, Number((p as any).otHours || 0), Number((p as any).otAmount || 0), c?.totalEarnings || 0, c?.pfEmployee || 0, c?.esi || 0, c?.professionalTax || 0, c?.lwfEmployee || 0, c?.tds || 0, c?.otherDeductions || 0, (c as any)?.loanDeduction || 0, c?.totalDeductions || 0, c?.netSalary || 0];
+        const prCustomEarn: Record<string, number> = (p as any).customEarnings || {};
+        const prCustomDed: Record<string, number> = (p as any).customDeductions || {};
+        const customEarnSum = Object.values(prCustomEarn).reduce((s, v) => s + (Number(v) || 0), 0);
+        const residualOther = Math.max(0, (c?.otherAllowances || 0) - customEarnSum);
+        return [
+          emp?.employeeCode || "", getEmployeeName(p.employeeId), emp?.department || "N/A",
+          c?.basicSalary || 0, c?.hra || 0, c?.conveyance || 0, c?.medicalAllowance || 0, c?.specialAllowance || 0,
+          ...vpEarnHeads.map(h => prCustomEarn[h.id] || 0),
+          residualOther, c?.bonus || 0,
+          Number((p as any).otHours || 0), Number((p as any).otAmount || 0),
+          c?.totalEarnings || 0,
+          c?.pfEmployee || 0, c?.esi || 0, c?.professionalTax || 0, c?.lwfEmployee || 0,
+          c?.tds || 0, c?.otherDeductions || 0, (c as any)?.loanDeduction || 0,
+          ...vpDedHeads.map(h => prCustomDed[h.id] || 0),
+          c?.totalDeductions || 0, c?.netSalary || 0,
+        ];
       });
     } else {
       rows = emps.map(emp => {
         const ss = salaryStructures.find(s => s.employeeId === emp.id);
         const c = getProRatedComponents(emp, ss, null);
-        return [emp.employeeCode, `${emp.firstName} ${emp.lastName}`, emp.department || "N/A", c.basicSalary, c.hra, c.conveyance, c.medicalAllowance, c.specialAllowance, c.otherAllowances, c.bonus, 0, 0, c.totalEarnings, c.pfEmployee, c.esi, c.professionalTax, c.lwfEmployee, c.tds, c.otherDeductions, (c as any).loanDeduction || 0, c.totalDeductions, c.netSalary];
+        return [
+          emp.employeeCode, `${emp.firstName} ${emp.lastName}`, emp.department || "N/A",
+          c.basicSalary, c.hra, c.conveyance, c.medicalAllowance, c.specialAllowance,
+          ...vpEarnHeads.map(() => 0),
+          c.otherAllowances, c.bonus, 0, 0,
+          c.totalEarnings,
+          c.pfEmployee, c.esi, c.professionalTax, c.lwfEmployee,
+          c.tds, c.otherDeductions, (c as any).loanDeduction || 0,
+          ...vpDedHeads.map(() => 0),
+          c.totalDeductions, c.netSalary,
+        ];
       });
     }
     openViewDialog(`Pay Slip Summary - ${monthName} ${yearNum}`, headers, rows);
