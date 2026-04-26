@@ -69,6 +69,8 @@ export default function ReportsPage() {
   const [viewHeaders, setViewHeaders] = useState<string[]>([]);
   const [viewRows, setViewRows] = useState<(string | number)[][]>([]);
   const [ctrlReport, setCtrlReport] = useState<string>("");
+  const [empSearchQuery, setEmpSearchQuery] = useState("");
+  const [empSearchOpen, setEmpSearchOpen] = useState(false);
 
   const { data: companies = [] } = useQuery<Company[]>({
     queryKey: ["/api/companies"],
@@ -3072,19 +3074,53 @@ export default function ReportsPage() {
                       </div>
                     )}
 
-                    {/* Employee */}
-                    {ctrlSelected.filters.includes("employee") && (
-                      <div className="space-y-1.5">
-                        <label className="text-sm font-medium">Employee</label>
-                        <Select value={docEmployee || "__none__"} onValueChange={v => setDocEmployee(v === "__none__" ? "" : v)}>
-                          <SelectTrigger className="w-full" data-testid="ctrl-employee-select"><SelectValue placeholder="All Employees" /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="__none__">All Employees</SelectItem>
-                            {filteredEmployees.map(e => <SelectItem key={e.id} value={e.id}>{e.firstName} {e.lastName} ({e.employeeCode})</SelectItem>)}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    )}
+                    {/* Employee — searchable combobox */}
+                    {ctrlSelected.filters.includes("employee") && (() => {
+                      const selectedEmp = filteredEmployees.find(e => e.id === docEmployee);
+                      const empMatches = filteredEmployees.filter(e => {
+                        const q = empSearchQuery.toLowerCase();
+                        return !q || `${e.firstName} ${e.lastName}`.toLowerCase().includes(q) || e.employeeCode.toLowerCase().includes(q);
+                      });
+                      return (
+                        <div className="space-y-1.5">
+                          <label className="text-sm font-medium">Employee</label>
+                          <div className="relative">
+                            <Input
+                              data-testid="ctrl-employee-search"
+                              placeholder="Search employee…"
+                              value={empSearchOpen ? empSearchQuery : (selectedEmp ? `${selectedEmp.firstName} ${selectedEmp.lastName} (${selectedEmp.employeeCode})` : "")}
+                              onFocus={() => { setEmpSearchOpen(true); setEmpSearchQuery(""); }}
+                              onChange={e => setEmpSearchQuery(e.target.value)}
+                              onBlur={() => setTimeout(() => setEmpSearchOpen(false), 150)}
+                              autoComplete="off"
+                            />
+                            {empSearchOpen && (
+                              <div className="absolute z-50 w-full mt-1 bg-popover border rounded-md shadow-lg max-h-56 overflow-y-auto">
+                                <div
+                                  className="cursor-pointer px-3 py-2 text-sm hover:bg-accent text-muted-foreground"
+                                  onMouseDown={() => { setDocEmployee(""); setEmpSearchOpen(false); setEmpSearchQuery(""); }}
+                                >
+                                  All Employees
+                                </div>
+                                {empMatches.map(e => (
+                                  <div
+                                    key={e.id}
+                                    className={`cursor-pointer px-3 py-2 text-sm hover:bg-accent flex items-center justify-between ${docEmployee === e.id ? "bg-accent/60 font-medium" : ""}`}
+                                    onMouseDown={() => { setDocEmployee(e.id); setEmpSearchOpen(false); setEmpSearchQuery(""); }}
+                                  >
+                                    <span>{e.firstName} {e.lastName}</span>
+                                    <span className="text-xs text-muted-foreground ml-2">{e.employeeCode}</span>
+                                  </div>
+                                ))}
+                                {empMatches.length === 0 && (
+                                  <div className="px-3 py-2 text-sm text-muted-foreground">No employees found</div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })()}
 
                     {/* Contractor */}
                     {ctrlSelected.filters.includes("contractor") && (
