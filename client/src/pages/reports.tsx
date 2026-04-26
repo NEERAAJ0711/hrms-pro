@@ -61,7 +61,7 @@ export default function ReportsPage() {
   const [customToMonth, setCustomToMonth] = useState(format(new Date(), "yyyy-MM"));
   const [docEmployee, setDocEmployee] = useState<string>("");
   const [activeTab, setActiveTab] = useState("monthly");
-  const [contractorPrincipalId, setContractorPrincipalId] = useState<string>("");
+  const [contractorPrincipalId, setContractorPrincipalId] = useState<string>(isSuperAdmin ? "" : (user?.companyId || ""));
   const [selectedContractorId, setSelectedContractorId] = useState<string>("");
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
   const [viewTitle, setViewTitle] = useState("");
@@ -3038,30 +3038,34 @@ export default function ReportsPage() {
         <TabsContent value="contractor">
           <div className="flex flex-wrap items-center gap-4 mb-5 p-3 bg-muted/30 rounded-lg border">
 
-            {/* Step 1: Principal Employer Company */}
-            <div className="flex items-center gap-2">
-              <div className="flex items-center justify-center w-5 h-5 rounded-full bg-primary text-primary-foreground text-xs font-bold shrink-0">1</div>
-              <label className="text-sm font-medium">Principal Company:</label>
-              <Select
-                value={contractorPrincipalId || "__none__"}
-                onValueChange={v => {
-                  const val = v === "__none__" ? "" : v;
-                  setContractorPrincipalId(val);
-                  setSelectedContractorId("");
-                  setSelectedCompany("");
-                }}
-              >
-                <SelectTrigger className="w-60"><SelectValue placeholder="Select company…" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__none__">— Select Principal Company —</SelectItem>
-                  {companies.map(c => <SelectItem key={c.id} value={c.id}>{c.companyName}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
+            {/* Step 1: Principal Employer Company — only super admin needs to pick */}
+            {isSuperAdmin && (
+              <div className="flex items-center gap-2">
+                <div className="flex items-center justify-center w-5 h-5 rounded-full bg-primary text-primary-foreground text-xs font-bold shrink-0">1</div>
+                <label className="text-sm font-medium">Principal Company:</label>
+                <Select
+                  value={contractorPrincipalId || "__none__"}
+                  onValueChange={v => {
+                    const val = v === "__none__" ? "" : v;
+                    setContractorPrincipalId(val);
+                    setSelectedContractorId("");
+                    setSelectedCompany("");
+                  }}
+                >
+                  <SelectTrigger className="w-60"><SelectValue placeholder="Select company…" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">— Select Principal Company —</SelectItem>
+                    {companies.map(c => <SelectItem key={c.id} value={c.id}>{c.companyName}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
 
-            {/* Step 2: Contractor mapped to that company */}
+            {/* Step 2 (or Step 1 for company admin): Contractor mapped to that company */}
             <div className="flex items-center gap-2">
-              <div className={`flex items-center justify-center w-5 h-5 rounded-full text-xs font-bold shrink-0 ${contractorPrincipalId ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>2</div>
+              {isSuperAdmin && (
+                <div className={`flex items-center justify-center w-5 h-5 rounded-full text-xs font-bold shrink-0 ${contractorPrincipalId ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>2</div>
+              )}
               <label className="text-sm font-medium">Contractor:</label>
               <Select
                 value={selectedContractorId || "__none__"}
@@ -3073,7 +3077,7 @@ export default function ReportsPage() {
                 disabled={!contractorPrincipalId}
               >
                 <SelectTrigger className="w-60">
-                  <SelectValue placeholder={contractorPrincipalId ? (companyContractors.length === 0 ? "No contractors mapped" : "Select contractor…") : "Select company first"} />
+                  <SelectValue placeholder={companyContractors.length === 0 ? "No contractors mapped" : "Select contractor…"} />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="__none__">— All Contractors —</SelectItem>
