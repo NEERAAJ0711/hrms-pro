@@ -56,6 +56,9 @@ export default function ReportsPage() {
   const [selectedCompany, setSelectedCompany] = useState<string>(isSuperAdmin ? "" : (user?.companyId || ""));
   const [selectedMonth, setSelectedMonth] = useState(format(new Date(), "yyyy-MM"));
   const [selectedYear, setSelectedYear] = useState(format(new Date(), "yyyy"));
+  const [yearType, setYearType] = useState<"calendar" | "financial" | "custom">("calendar");
+  const [customFromMonth, setCustomFromMonth] = useState(format(new Date(), "yyyy-MM"));
+  const [customToMonth, setCustomToMonth] = useState(format(new Date(), "yyyy-MM"));
   const [docEmployee, setDocEmployee] = useState<string>("");
   const [activeTab, setActiveTab] = useState("monthly");
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
@@ -2176,7 +2179,48 @@ export default function ReportsPage() {
 
   // ─── Annual report helpers ────────────────────────────────────────────────
   const yearNum2 = parseInt(selectedYear);
-  const allMonthsOfYear = months.map((m, i) => ({ name: m, num: i + 1 }));
+
+  // Build month list per year-type; each entry carries its own calendar year
+  const allMonthsOfYear: { name: string; num: number; year: number }[] = (() => {
+    if (yearType === "calendar") {
+      return months.map((m, i) => ({ name: m, num: i + 1, year: yearNum2 }));
+    }
+    if (yearType === "financial") {
+      const result: { name: string; num: number; year: number }[] = [];
+      for (let i = 3; i < 12; i++) result.push({ name: months[i], num: i + 1, year: yearNum2 });
+      for (let i = 0; i < 3; i++) result.push({ name: months[i], num: i + 1, year: yearNum2 + 1 });
+      return result;
+    }
+    // custom
+    const [fy, fm] = customFromMonth.split("-").map(Number);
+    const [ty, tm] = customToMonth.split("-").map(Number);
+    const result: { name: string; num: number; year: number }[] = [];
+    let cy = fy, cm = fm;
+    while ((cy < ty || (cy === ty && cm <= tm)) && result.length < 24) {
+      result.push({ name: months[cm - 1], num: cm, year: cy });
+      cm++; if (cm > 12) { cm = 1; cy++; }
+    }
+    return result;
+  })();
+
+  // Human-readable period label used in file names and report titles
+  const periodLabel = yearType === "calendar"
+    ? selectedYear
+    : yearType === "financial"
+      ? `FY${selectedYear}-${String(yearNum2 + 1).slice(-2)}`
+      : `${customFromMonth}_to_${customToMonth}`;
+
+  // Start/end date strings for the selected period (used by leave register)
+  const periodStartDate = yearType === "calendar"
+    ? `${selectedYear}-01-01`
+    : yearType === "financial"
+      ? `${selectedYear}-04-01`
+      : `${customFromMonth}-01`;
+  const periodEndDate = yearType === "calendar"
+    ? `${selectedYear}-12-31`
+    : yearType === "financial"
+      ? `${yearNum2 + 1}-03-31`
+      : `${customToMonth}-31`;
 
   const getPayrollForMonth = (employeeId: string, month: string, year: number) =>
     payrollRecords.find(p => p.employeeId === employeeId && p.month === month && p.year === year) || null;
@@ -2191,12 +2235,13 @@ export default function ReportsPage() {
       let totalEE = 0, totalER = 0;
       const monthly: Record<string, { ee: number; er: number }> = {};
       for (const m of allMonthsOfYear) {
-        const pr = getPayrollForMonth(emp.id, m.name, yearNum2);
+        const pr = getPayrollForMonth(emp.id, m.name, m.year);
         const c = getProRatedComponents(emp, ss, pr);
         const ee = c.pfEmployee;
         const epsWage = Math.min(c.basicSalary, pfWageCeiling);
         const er = Math.round(epsWage * 0.0833);
-        monthly[m.name] = { ee, er };
+        const key = `${m.name.slice(0,3)} ${m.year}`;
+        monthly[key] = { ee, er };
         totalEE += ee;
         totalER += er;
       }
@@ -2207,6 +2252,7 @@ export default function ReportsPage() {
   const generateYearlyPFSummary = (fileType: "excel" | "pdf") => {
     const rows = buildYearlyPFRows();
     if (!rows.length) { toast({ title: "No Data", description: "No PF-applicable employees.", variant: "destructive" }); return; }
+    const colKeys = allMonthsOfYear.map(m => `${m.name.slice(0,3)} ${m.year}`);
     if (fileType === "excel") {
       const data = rows.map(r => {
         const row: Record<string, string | number> = {
@@ -2215,39 +2261,24 @@ export default function ReportsPage() {
           "Name": `${r.emp.firstName} ${r.emp.lastName}`,
           "Company": getCompanyName(r.emp.companyId),
         };
-        for (const m of allMonthsOfYear) {
-          row[`${m.name} EE`] = r.monthly[m.name].ee;
-          row[`${m.name} ER`] = r.monthly[m.name].er;
-        }
-        row["Total EE"] = r.totalEE;
-        row["Total ER"] = r.totalER;
-        row["Grand Total"] = r.totalEE + r.totalER;
+        for (const k of colKeys) { row[`${k} EE`] = r.monthly[k]?.ee ?? 0; row[`${k} ER`] = r.monthly[k]?.er ?? 0; }
+        row["Total EE"] = r.totalEE; row["Total ER"] = r.totalER; row["Grand Total"] = r.totalEE + r.totalER;
         return row;
       });
-      downloadExcel(data, `Yearly_PF_Summary_${selectedYear}`, "PF Summary");
+      downloadExcel(data, `PF_Summary_${periodLabel}`, "PF Summary");
     } else {
-      const headers = ["UAN", "Name", ...allMonthsOfYear.map(m => m.name.slice(0,3)), "Total EE", "Total ER"];
-      const pdfRows = rows.map(r => [
-        r.emp.uan || "N/A",
-        `${r.emp.firstName} ${r.emp.lastName}`,
-        ...allMonthsOfYear.map(m => r.monthly[m.name].ee),
-        r.totalEE, r.totalER,
-      ] as (string | number)[]);
-      downloadPDF(`Yearly PF Summary - ${selectedYear}`, headers, pdfRows, `Yearly_PF_Summary_${selectedYear}`);
+      const headers = ["UAN", "Name", ...colKeys, "Total EE", "Total ER"];
+      const pdfRows = rows.map(r => [r.emp.uan || "N/A", `${r.emp.firstName} ${r.emp.lastName}`, ...colKeys.map(k => r.monthly[k]?.ee ?? 0), r.totalEE, r.totalER] as (string | number)[]);
+      downloadPDF(`PF Summary - ${periodLabel}`, headers, pdfRows, `PF_Summary_${periodLabel}`);
     }
   };
 
   const viewYearlyPFSummary = () => {
     const rows = buildYearlyPFRows();
     if (!rows.length) { toast({ title: "No Data", description: "No PF-applicable employees.", variant: "destructive" }); return; }
-    const headers = ["UAN", "Name", "Company", ...allMonthsOfYear.map(m => m.name.slice(0,3) + " EE"), "Total EE", "Total ER"];
-    openViewDialog("Yearly PF Summary", headers, rows.map(r => [
-      r.emp.uan || "N/A",
-      `${r.emp.firstName} ${r.emp.lastName}`,
-      getCompanyName(r.emp.companyId),
-      ...allMonthsOfYear.map(m => r.monthly[m.name].ee),
-      r.totalEE, r.totalER,
-    ]));
+    const colKeys = allMonthsOfYear.map(m => `${m.name.slice(0,3)} ${m.year}`);
+    const headers = ["UAN", "Name", "Company", ...colKeys.map(k => `${k} EE`), "Total EE", "Total ER"];
+    openViewDialog(`PF Summary - ${periodLabel}`, headers, rows.map(r => [r.emp.uan || "N/A", `${r.emp.firstName} ${r.emp.lastName}`, getCompanyName(r.emp.companyId), ...colKeys.map(k => r.monthly[k]?.ee ?? 0), r.totalEE, r.totalER]));
   };
 
   // ─── Yearly ESIC Summary ──────────────────────────────────────────────────
@@ -2261,7 +2292,7 @@ export default function ReportsPage() {
       let totalEE = 0, totalER = 0;
       const monthly: Record<string, { ee: number; er: number }> = {};
       for (const m of allMonthsOfYear) {
-        const pr = getPayrollForMonth(emp.id, m.name, yearNum2);
+        const pr = getPayrollForMonth(emp.id, m.name, m.year);
         const c = getProRatedComponents(emp, ss, pr);
         const contractedGross = ss?.grossSalary || c.grossSalary;
         let er = 0;
@@ -2273,7 +2304,8 @@ export default function ReportsPage() {
             er = Math.round(esicBase * erPercent / 10000);
           }
         }
-        monthly[m.name] = { ee: c.esi, er };
+        const key = `${m.name.slice(0,3)} ${m.year}`;
+        monthly[key] = { ee: c.esi, er };
         totalEE += c.esi;
         totalER += er;
       }
@@ -2284,47 +2316,28 @@ export default function ReportsPage() {
   const generateYearlyESICSummary = (fileType: "excel" | "pdf") => {
     const rows = buildYearlyESICRows();
     if (!rows.length) { toast({ title: "No Data", description: "No ESIC-applicable employees.", variant: "destructive" }); return; }
+    const colKeys = allMonthsOfYear.map(m => `${m.name.slice(0,3)} ${m.year}`);
     if (fileType === "excel") {
       const data = rows.map(r => {
-        const row: Record<string, string | number> = {
-          "ESIC No.": r.emp.esiNumber || "",
-          "Emp Code": r.emp.employeeCode,
-          "Name": `${r.emp.firstName} ${r.emp.lastName}`,
-          "Company": getCompanyName(r.emp.companyId),
-        };
-        for (const m of allMonthsOfYear) {
-          row[`${m.name} EE`] = r.monthly[m.name].ee;
-          row[`${m.name} ER`] = r.monthly[m.name].er;
-        }
-        row["Total EE"] = r.totalEE;
-        row["Total ER"] = r.totalER;
-        row["Grand Total"] = r.totalEE + r.totalER;
+        const row: Record<string, string | number> = { "ESIC No.": r.emp.esiNumber || "", "Emp Code": r.emp.employeeCode, "Name": `${r.emp.firstName} ${r.emp.lastName}`, "Company": getCompanyName(r.emp.companyId) };
+        for (const k of colKeys) { row[`${k} EE`] = r.monthly[k]?.ee ?? 0; row[`${k} ER`] = r.monthly[k]?.er ?? 0; }
+        row["Total EE"] = r.totalEE; row["Total ER"] = r.totalER; row["Grand Total"] = r.totalEE + r.totalER;
         return row;
       });
-      downloadExcel(data, `Yearly_ESIC_Summary_${selectedYear}`, "ESIC Summary");
+      downloadExcel(data, `ESIC_Summary_${periodLabel}`, "ESIC Summary");
     } else {
-      const headers = ["ESIC No.", "Name", ...allMonthsOfYear.map(m => m.name.slice(0,3)), "Total EE", "Total ER"];
-      const pdfRows = rows.map(r => [
-        r.emp.esiNumber || "N/A",
-        `${r.emp.firstName} ${r.emp.lastName}`,
-        ...allMonthsOfYear.map(m => r.monthly[m.name].ee),
-        r.totalEE, r.totalER,
-      ] as (string | number)[]);
-      downloadPDF(`Yearly ESIC Summary - ${selectedYear}`, headers, pdfRows, `Yearly_ESIC_Summary_${selectedYear}`);
+      const headers = ["ESIC No.", "Name", ...colKeys, "Total EE", "Total ER"];
+      const pdfRows = rows.map(r => [r.emp.esiNumber || "N/A", `${r.emp.firstName} ${r.emp.lastName}`, ...colKeys.map(k => r.monthly[k]?.ee ?? 0), r.totalEE, r.totalER] as (string | number)[]);
+      downloadPDF(`ESIC Summary - ${periodLabel}`, headers, pdfRows, `ESIC_Summary_${periodLabel}`);
     }
   };
 
   const viewYearlyESICSummary = () => {
     const rows = buildYearlyESICRows();
     if (!rows.length) { toast({ title: "No Data", description: "No ESIC-applicable employees.", variant: "destructive" }); return; }
-    const headers = ["ESIC No.", "Name", "Company", ...allMonthsOfYear.map(m => m.name.slice(0,3) + " EE"), "Total EE", "Total ER"];
-    openViewDialog("Yearly ESIC Summary", headers, rows.map(r => [
-      r.emp.esiNumber || "N/A",
-      `${r.emp.firstName} ${r.emp.lastName}`,
-      getCompanyName(r.emp.companyId),
-      ...allMonthsOfYear.map(m => r.monthly[m.name].ee),
-      r.totalEE, r.totalER,
-    ]));
+    const colKeys = allMonthsOfYear.map(m => `${m.name.slice(0,3)} ${m.year}`);
+    const headers = ["ESIC No.", "Name", "Company", ...colKeys.map(k => `${k} EE`), "Total EE", "Total ER"];
+    openViewDialog(`ESIC Summary - ${periodLabel}`, headers, rows.map(r => [r.emp.esiNumber || "N/A", `${r.emp.firstName} ${r.emp.lastName}`, getCompanyName(r.emp.companyId), ...colKeys.map(k => r.monthly[k]?.ee ?? 0), r.totalEE, r.totalER]));
   };
 
   // ─── Yearly Salary Detail ─────────────────────────────────────────────────
@@ -2334,9 +2347,10 @@ export default function ReportsPage() {
       let totalGross = 0, totalNet = 0, totalPF = 0, totalESIC = 0;
       const monthly: Record<string, { gross: number; net: number; pf: number; esic: number }> = {};
       for (const m of allMonthsOfYear) {
-        const pr = getPayrollForMonth(emp.id, m.name, yearNum2);
+        const pr = getPayrollForMonth(emp.id, m.name, m.year);
         const c = getProRatedComponents(emp, ss, pr);
-        monthly[m.name] = { gross: c.grossSalary, net: c.netSalary, pf: c.pfEmployee, esic: c.esi };
+        const key = `${m.name.slice(0,3)} ${m.year}`;
+        monthly[key] = { gross: c.grossSalary, net: c.netSalary, pf: c.pfEmployee, esic: c.esi };
         totalGross += c.grossSalary;
         totalNet += c.netSalary;
         totalPF += c.pfEmployee;
@@ -2349,49 +2363,28 @@ export default function ReportsPage() {
   const generateYearlySalaryDetail = (fileType: "excel" | "pdf") => {
     const rows = buildYearlySalaryRows();
     if (!rows.length) { toast({ title: "No Data", description: "No employees found.", variant: "destructive" }); return; }
+    const colKeys = allMonthsOfYear.map(m => `${m.name.slice(0,3)} ${m.year}`);
     if (fileType === "excel") {
       const data = rows.map(r => {
-        const row: Record<string, string | number> = {
-          "Emp Code": r.emp.employeeCode,
-          "Name": `${r.emp.firstName} ${r.emp.lastName}`,
-          "Department": r.emp.department || "",
-          "Company": getCompanyName(r.emp.companyId),
-        };
-        for (const m of allMonthsOfYear) {
-          row[`${m.name} Gross`] = r.monthly[m.name].gross;
-          row[`${m.name} Net`] = r.monthly[m.name].net;
-        }
-        row["Total Gross"] = r.totalGross;
-        row["Total PF"] = r.totalPF;
-        row["Total ESIC"] = r.totalESIC;
-        row["Total Net"] = r.totalNet;
+        const row: Record<string, string | number> = { "Emp Code": r.emp.employeeCode, "Name": `${r.emp.firstName} ${r.emp.lastName}`, "Department": r.emp.department || "", "Company": getCompanyName(r.emp.companyId) };
+        for (const k of colKeys) { row[`${k} Gross`] = r.monthly[k]?.gross ?? 0; row[`${k} Net`] = r.monthly[k]?.net ?? 0; }
+        row["Total Gross"] = r.totalGross; row["Total PF"] = r.totalPF; row["Total ESIC"] = r.totalESIC; row["Total Net"] = r.totalNet;
         return row;
       });
-      downloadExcel(data, `Yearly_Salary_Detail_${selectedYear}`, "Salary Detail");
+      downloadExcel(data, `Salary_Detail_${periodLabel}`, "Salary Detail");
     } else {
-      const headers = ["Code", "Name", ...allMonthsOfYear.map(m => m.name.slice(0,3) + " Net"), "Total Gross", "Total Net"];
-      const pdfRows = rows.map(r => [
-        r.emp.employeeCode,
-        `${r.emp.firstName} ${r.emp.lastName}`,
-        ...allMonthsOfYear.map(m => r.monthly[m.name].net),
-        r.totalGross, r.totalNet,
-      ] as (string | number)[]);
-      downloadPDF(`Yearly Salary Detail - ${selectedYear}`, headers, pdfRows, `Yearly_Salary_Detail_${selectedYear}`);
+      const headers = ["Code", "Name", ...colKeys.map(k => `${k} Net`), "Total Gross", "Total Net"];
+      const pdfRows = rows.map(r => [r.emp.employeeCode, `${r.emp.firstName} ${r.emp.lastName}`, ...colKeys.map(k => r.monthly[k]?.net ?? 0), r.totalGross, r.totalNet] as (string | number)[]);
+      downloadPDF(`Salary Detail - ${periodLabel}`, headers, pdfRows, `Salary_Detail_${periodLabel}`);
     }
   };
 
   const viewYearlySalaryDetail = () => {
     const rows = buildYearlySalaryRows();
     if (!rows.length) { toast({ title: "No Data", description: "No employees found.", variant: "destructive" }); return; }
-    const headers = ["Code", "Name", "Company", ...allMonthsOfYear.map(m => m.name.slice(0,3) + " Gross"), ...allMonthsOfYear.map(m => m.name.slice(0,3) + " Net"), "Total Net"];
-    openViewDialog("Yearly Salary Detail", headers, rows.map(r => [
-      r.emp.employeeCode,
-      `${r.emp.firstName} ${r.emp.lastName}`,
-      getCompanyName(r.emp.companyId),
-      ...allMonthsOfYear.map(m => r.monthly[m.name].gross),
-      ...allMonthsOfYear.map(m => r.monthly[m.name].net),
-      r.totalNet,
-    ]));
+    const colKeys = allMonthsOfYear.map(m => `${m.name.slice(0,3)} ${m.year}`);
+    const headers = ["Code", "Name", "Company", ...colKeys.map(k => `${k} Net`), "Total Gross", "Total Net"];
+    openViewDialog(`Salary Detail - ${periodLabel}`, headers, rows.map(r => [r.emp.employeeCode, `${r.emp.firstName} ${r.emp.lastName}`, getCompanyName(r.emp.companyId), ...colKeys.map(k => r.monthly[k]?.net ?? 0), r.totalGross, r.totalNet]));
   };
 
   // ─── Employee Personal File ───────────────────────────────────────────────
@@ -2509,8 +2502,8 @@ export default function ReportsPage() {
 
   // ─── Employee Leave Register ──────────────────────────────────────────────
   const buildLeaveRegisterRows = () => {
-    const yearStart = `${selectedYear}-01-01`;
-    const yearEnd   = `${selectedYear}-12-31`;
+    const yearStart = periodStartDate;
+    const yearEnd   = periodEndDate;
     const targetEmps = docEmployee ? employees.filter(e => e.id === docEmployee) : filteredEmployees;
     const rows: { code: string; name: string; dept: string; company: string; leaveType: string; opens: number; earned: number; availed: number; balance: number }[] = [];
     for (const emp of targetEmps) {
@@ -2545,11 +2538,11 @@ export default function ReportsPage() {
         "Emp Code": r.code, "Name": r.name, "Department": r.dept, "Company": r.company,
         "Leave Type": r.leaveType, "Availed (Days)": r.availed,
       }));
-      downloadExcel(data, `Leave_Register_${selectedYear}`, "Leave Register");
+      downloadExcel(data, `Leave_Register_${periodLabel}`, "Leave Register");
     } else {
       const headers = ["Code", "Name", "Dept", "Company", "Leave Type", "Availed (Days)"];
       const pdfRows = rows.map(r => [r.code, r.name, r.dept, r.company, r.leaveType, r.availed] as (string | number)[]);
-      downloadPDF(`Employee Leave Register - ${selectedYear}`, headers, pdfRows, `Leave_Register_${selectedYear}`);
+      downloadPDF(`Employee Leave Register - ${periodLabel}`, headers, pdfRows, `Leave_Register_${periodLabel}`);
     }
   };
 
@@ -2557,7 +2550,7 @@ export default function ReportsPage() {
     const rows = buildLeaveRegisterRows();
     if (!rows.length) { toast({ title: "No Data", description: "No approved leave records found.", variant: "destructive" }); return; }
     const headers = ["Code", "Name", "Dept", "Company", "Leave Type", "Availed (Days)"];
-    openViewDialog(`Employee Leave Register - ${selectedYear}`, headers, rows.map(r => [r.code, r.name, r.dept, r.company, r.leaveType, r.availed]));
+    openViewDialog(`Employee Leave Register - ${periodLabel}`, headers, rows.map(r => [r.code, r.name, r.dept, r.company, r.leaveType, r.availed]));
   };
 
   // ─── Offer Letter ─────────────────────────────────────────────────────────
@@ -2855,6 +2848,44 @@ export default function ReportsPage() {
     </Card>
   );
 
+  // Period picker shared by Annual, Employee Wise, HR Docs tabs
+  const PeriodPicker = () => (
+    <div className="flex flex-wrap items-center gap-3">
+      <div className="flex items-center gap-1 rounded-md border bg-background p-0.5">
+        {(["calendar", "financial", "custom"] as const).map(t => (
+          <button
+            key={t}
+            onClick={() => setYearType(t)}
+            className={`px-3 py-1 text-xs font-medium rounded transition-colors ${yearType === t ? "bg-primary text-primary-foreground shadow-sm" : "hover:bg-muted text-muted-foreground"}`}
+          >
+            {t === "calendar" ? "Calendar Year" : t === "financial" ? "Financial Year" : "Custom"}
+          </button>
+        ))}
+      </div>
+      {yearType === "calendar" && (
+        <div className="flex items-center gap-1.5">
+          <label className="text-xs font-medium text-muted-foreground">Year:</label>
+          <Input type="number" value={selectedYear} onChange={e => setSelectedYear(e.target.value)} className="w-24 h-8 text-sm" min={2020} max={2099} />
+        </div>
+      )}
+      {yearType === "financial" && (
+        <div className="flex items-center gap-1.5">
+          <label className="text-xs font-medium text-muted-foreground">FY starting:</label>
+          <Input type="number" value={selectedYear} onChange={e => setSelectedYear(e.target.value)} className="w-24 h-8 text-sm" min={2020} max={2099} />
+          <span className="text-xs text-muted-foreground font-medium">→ FY {selectedYear}-{String(yearNum2 + 1).slice(-2)}</span>
+        </div>
+      )}
+      {yearType === "custom" && (
+        <div className="flex items-center gap-1.5">
+          <label className="text-xs font-medium text-muted-foreground">From:</label>
+          <Input type="month" value={customFromMonth} onChange={e => setCustomFromMonth(e.target.value)} className="w-36 h-8 text-sm" />
+          <label className="text-xs font-medium text-muted-foreground">To:</label>
+          <Input type="month" value={customToMonth} onChange={e => setCustomToMonth(e.target.value)} className="w-36 h-8 text-sm" />
+        </div>
+      )}
+    </div>
+  );
+
   // Common filter bar
   const companyFilter = isSuperAdmin ? (
     <div className="flex items-center gap-2">
@@ -2938,10 +2969,7 @@ export default function ReportsPage() {
         <TabsContent value="annual">
           <div className="flex flex-wrap items-center gap-4 mb-5 p-3 bg-muted/30 rounded-lg border">
             {companyFilter}
-            <div className="flex items-center gap-2">
-              <label className="text-sm font-medium">Year:</label>
-              <Input type="number" value={selectedYear} onChange={e => setSelectedYear(e.target.value)} className="w-28" min={2020} max={2099} />
-            </div>
+            <PeriodPicker />
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
             {annualCards.map(r => renderCard(r))}
@@ -2962,10 +2990,7 @@ export default function ReportsPage() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="flex items-center gap-2">
-              <label className="text-sm font-medium">Year:</label>
-              <Input type="number" value={selectedYear} onChange={e => setSelectedYear(e.target.value)} className="w-28" min={2020} max={2099} />
-            </div>
+            <PeriodPicker />
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
             {employeeWiseCards.map(r => renderCard(r))}
@@ -2986,10 +3011,7 @@ export default function ReportsPage() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="flex items-center gap-2">
-              <label className="text-sm font-medium">Year:</label>
-              <Input type="number" value={selectedYear} onChange={e => setSelectedYear(e.target.value)} className="w-28" min={2020} max={2099} />
-            </div>
+            <PeriodPicker />
           </div>
           {!docEmployee && (
             <p className="text-sm text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-4 py-2 mb-5">
