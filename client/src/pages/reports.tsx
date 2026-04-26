@@ -2900,10 +2900,9 @@ export default function ReportsPage() {
     </div>
   ) : null;
 
-  const contractorCompanies = companies.filter(c => c.isContractor);
+  const contractorCompanies = companies;
   const filteredContractorEmployees = employees.filter(e =>
-    contractorCompanies.some(c => c.id === e.companyId) &&
-    (effectiveCompany ? e.companyId === effectiveCompany : true)
+    (selectedCompany && selectedCompany !== "__all__" ? e.companyId === selectedCompany : true)
   );
 
   // Annual report cards
@@ -3041,22 +3040,14 @@ export default function ReportsPage() {
               <Input type="month" value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)} className="w-44" />
             </div>
           </div>
-          {contractorCompanies.length === 0 ? (
-            <div className="text-center py-16 text-muted-foreground">
-              <Building2 className="h-12 w-12 mx-auto mb-3 opacity-40" />
-              <p className="font-medium">No contractor companies found.</p>
-              <p className="text-sm">Mark companies as contractors in the Company master to see them here.</p>
-            </div>
-          ) : (
-            <>
-              <p className="text-sm text-muted-foreground mb-4">
-                Showing {filteredContractorEmployees.length} contractor employee(s). Reports below use the selected contractor company and month filter.
-              </p>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-                {contractorCards.map(r => renderCard(r))}
-              </div>
-            </>
-          )}
+          <p className="text-sm text-muted-foreground mb-4">
+            {selectedCompany && selectedCompany !== "__all__"
+              ? `Showing ${filteredContractorEmployees.length} employee(s) for the selected company.`
+              : "Select a company above to filter contractor compliance reports by that company."}
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+            {contractorCards.map(r => renderCard(r))}
+          </div>
         </TabsContent>
       </Tabs>
 
