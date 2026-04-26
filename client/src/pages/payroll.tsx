@@ -29,7 +29,6 @@ const salaryStructureSchema = z.object({
   basicSalary: z.coerce.number().min(1, "Basic salary is required"),
   hra: z.coerce.number().default(0),
   conveyance: z.coerce.number().default(0),
-  medicalAllowance: z.coerce.number().default(0),
   specialAllowance: z.coerce.number().default(0),
   otherAllowances: z.coerce.number().default(0),
   grossSalary: z.coerce.number(),
@@ -213,7 +212,6 @@ export default function PayrollPage() {
       basicSalary: 0,
       hra: 0,
       conveyance: 0,
-      medicalAllowance: 0,
       specialAllowance: 0,
       otherAllowances: 0,
       grossSalary: 0,
@@ -418,7 +416,7 @@ export default function PayrollPage() {
   //   HRA        = min(50% of Basic, gross − Basic)  — capped at remaining
   //   Conveyance = min(50% of HRA,   gross − Basic − HRA)  — capped at remaining
   //   Special    = gross − Basic − HRA − Conveyance  — absorbs the rest
-  //   Medical / Other = 0 (user fills manually if needed)
+  //   Other = 0 (user fills manually if needed)
   const breakdownComponents = (gross: number, minimumWage = 0) => {
     const basic      = Math.max(minimumWage, Math.round(gross * 0.5));
     const afterBasic = gross - basic;                                             // ≥ 0
@@ -571,9 +569,8 @@ export default function PayrollPage() {
       basicSalary: structure.basicSalary,
       hra: structure.hra || 0,
       conveyance: structure.conveyance || 0,
-      medicalAllowance: 0,
       specialAllowance: structure.specialAllowance || 0,
-      otherAllowances: Math.max(0, (structure.otherAllowances || 0) - customSum),
+      otherAllowances: Math.max(0, (structure.otherAllowances || 0) + (structure.medicalAllowance || 0) - customSum),
       grossSalary: structure.grossSalary,
       pfEmployee: structure.pfEmployee || 0,
       pfEmployer: structure.pfEmployer || 0,
@@ -603,7 +600,6 @@ export default function PayrollPage() {
         basicSalary: 0,
         hra: 0,
         conveyance: 0,
-        medicalAllowance: 0,
         specialAllowance: 0,
         otherAllowances: 0,
         grossSalary: 0,
@@ -848,9 +844,8 @@ export default function PayrollPage() {
 
         const hra = Math.round((structure.hra || 0) * prorationFactor);
         const conveyance = Math.round((structure.conveyance || 0) * prorationFactor);
-        const medicalAllowance = Math.round((structure.medicalAllowance || 0) * prorationFactor);
         const specialAllowance = Math.round((structure.specialAllowance || 0) * prorationFactor);
-        const otherAllowances = Math.round((structure.otherAllowances || 0) * prorationFactor);
+        const otherAllowances = Math.round(((structure.otherAllowances || 0) + (structure.medicalAllowance || 0)) * prorationFactor);
 
         // Compute custom earning head amounts BEFORE totalEarnings so we can adjust it.
         //
@@ -927,7 +922,7 @@ export default function PayrollPage() {
           basicSalary: basicSalary,
           hra: hra,
           conveyance: conveyance,
-          medicalAllowance: medicalAllowance,
+          medicalAllowance: 0,
           specialAllowance: specialAllowance,
           otherAllowances: otherAllowances,
           bonus: monthlyBonus,
@@ -2017,7 +2012,6 @@ export default function PayrollPage() {
                     <div className="flex justify-between"><span>Basic Salary</span><span className="font-medium">{formatCurrency(record.basicSalary || 0)}</span></div>
                     <div className="flex justify-between"><span>HRA</span><span className="font-medium">{formatCurrency(record.hra || 0)}</span></div>
                     <div className="flex justify-between"><span>Conveyance</span><span className="font-medium">{formatCurrency(record.conveyance || 0)}</span></div>
-                    {(record.medicalAllowance || 0) > 0 && <div className="flex justify-between"><span>Medical Allowance</span><span className="font-medium">{formatCurrency(record.medicalAllowance || 0)}</span></div>}
                     <div className="flex justify-between"><span>Special Allowance</span><span className="font-medium">{formatCurrency(record.specialAllowance || 0)}</span></div>
                     {/* Custom earning heads stored on the payroll record */}
                     {Object.entries((record as any).customEarnings || {}).map(([headId, amt]) => {
@@ -2038,10 +2032,10 @@ export default function PayrollPage() {
                         </div>
                       );
                     })}
-                    {/* Other Allowances: only show when there's a residual amount not covered by named heads */}
+                    {/* Other Allowances: only show when there's a residual amount not covered by named heads (absorbs any legacy medicalAllowance) */}
                     {(() => {
                       const customSum = Object.values((record as any).customEarnings || {}).reduce((a: number, v) => a + (Number(v) || 0), 0);
-                      const residual = (record.otherAllowances || 0) - customSum;
+                      const residual = (record.otherAllowances || 0) + (record.medicalAllowance || 0) - customSum;
                       return residual > 0
                         ? <div className="flex justify-between"><span>Other Allowances</span><span className="font-medium">{formatCurrency(residual)}</span></div>
                         : null;

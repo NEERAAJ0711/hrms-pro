@@ -2608,7 +2608,7 @@ function WageSlipView({ data }: { data: WagesRegisterData }) {
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 8px", marginTop: "6px" }}>
             <div>
               <div style={{ fontWeight: 700, borderBottom: "1px solid #ccc", marginBottom: "3px", paddingBottom: "2px" }}>Earnings (₹)</div>
-              {[["Basic", e.basicSalary], ["HRA", e.hra], ["Conveyance", e.conveyance], ["Medical", e.medicalAllowance], ["Special All.", e.specialAllowance], ["Other All.", e.otherAllowances], ["Bonus", e.bonus]].filter(([,v]) => (v as number) > 0).map(([l,v]) => (
+              {[["Basic", e.basicSalary], ["HRA", e.hra], ["Conveyance", e.conveyance], ["Special All.", e.specialAllowance], ["Other All.", (e.otherAllowances || 0) + (e.medicalAllowance || 0)], ["Bonus", e.bonus]].filter(([,v]) => (v as number) > 0).map(([l,v]) => (
                 <div key={String(l)} style={{ display: "flex", justifyContent: "space-between" }}><span>{l}</span><span>{ni(v as number)}</span></div>
               ))}
               <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 700, borderTop: "1px solid #ccc", marginTop: "3px", paddingTop: "2px" }}><span>Total</span><span>{ni(e.totalEarnings)}</span></div>

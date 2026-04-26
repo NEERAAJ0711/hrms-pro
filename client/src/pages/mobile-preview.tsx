@@ -686,9 +686,8 @@ function PayslipScreen({ token, onBack }: { token: string; onBack: () => void })
               {row("HRA", p.hra)}
               {row("DA", p.da)}
               {row("Conveyance", p.conveyance)}
-              {row("Medical Allowance", p.medicalAllowance)}
               {row("Special Allowance", p.specialAllowance)}
-              {row("Other Earnings", p.otherEarnings)}
+              {row("Other Earnings", (p.otherEarnings || 0) + (p.medicalAllowance || 0))}
               {row("Monthly Bonus", p.monthlyBonus)}
               <div style={{ borderTop: `1.5px solid #E5E7EB`, marginTop: 4, paddingTop: 6 }}>
                 {row("Gross Earnings", gross, true, ACCENT)}

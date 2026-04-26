@@ -221,7 +221,7 @@ export default function ReportsPage() {
 
   const getProRatedComponents = (emp: Employee, ss: SalaryStructure | undefined, pr: Payroll | null, overridePayDays?: number) => {
     const zero = {
-      basicSalary: 0, hra: 0, conveyance: 0, medicalAllowance: 0,
+      basicSalary: 0, hra: 0, conveyance: 0, medicalAllowance: 0 as number,
       specialAllowance: 0, otherAllowances: 0, grossSalary: 0,
       pfEmployee: 0, esi: 0, professionalTax: 0, lwfEmployee: 0,
       tds: 0, otherDeductions: 0, loanDeduction: 0, bonus: 0,
@@ -238,9 +238,9 @@ export default function ReportsPage() {
         const conv = pr.conveyance ?? 0;
         const med = pr.medicalAllowance ?? 0;
         const spl = pr.specialAllowance ?? 0;
-        const oth = pr.otherAllowances ?? 0;
+        const oth = (pr.otherAllowances ?? 0) + med;
         const bonus = pr.bonus ?? 0;
-        const gross = basic + hra + conv + med + spl + oth;
+        const gross = basic + hra + conv + spl + oth;
         const pf = pr.pfEmployee ?? 0;
         const esi = pr.esi ?? 0;
         const pt = pr.professionalTax ?? 0;
@@ -249,7 +249,7 @@ export default function ReportsPage() {
         const otherDed = pr.otherDeductions ?? 0;
         const loanDed = (pr as any).loanDeduction ?? 0;
         return {
-          basicSalary: basic, hra, conveyance: conv, medicalAllowance: med,
+          basicSalary: basic, hra, conveyance: conv, medicalAllowance: 0,
           specialAllowance: spl, otherAllowances: oth, grossSalary: gross,
           pfEmployee: pf, esi, professionalTax: pt, lwfEmployee: lwf,
           tds, otherDeductions: otherDed, loanDeduction: loanDed, bonus,
@@ -265,10 +265,10 @@ export default function ReportsPage() {
         const basic = pr.basicSalary;
         const hra = Math.round((ss.hra || 0) * factor);
         const conv = Math.round((ss.conveyance || 0) * factor);
-        const med = Math.round((ss.medicalAllowance || 0) * factor);
+        const med = ss.medicalAllowance || 0;
         const spl = Math.round((ss.specialAllowance || 0) * factor);
-        const oth = Math.round((ss.otherAllowances || 0) * factor);
-        const gross = basic + hra + conv + med + spl + oth;
+        const oth = Math.round(((ss.otherAllowances || 0) + med) * factor);
+        const gross = basic + hra + conv + spl + oth;
         const bonus = pr.totalEarnings - gross;
         const totalDedKnown = pr.totalDeductions;
         const tds = ss.tds || 0;
@@ -302,7 +302,7 @@ export default function ReportsPage() {
           }
         }
         return {
-          basicSalary: basic, hra, conveyance: conv, medicalAllowance: med,
+          basicSalary: basic, hra, conveyance: conv, medicalAllowance: 0,
           specialAllowance: spl, otherAllowances: oth, grossSalary: gross,
           pfEmployee: pf, esi, professionalTax: pt, lwfEmployee: lwf,
           tds, otherDeductions: otherDed, loanDeduction: (pr as any).loanDeduction ?? 0, bonus: Math.max(bonus, 0),
@@ -326,8 +326,8 @@ export default function ReportsPage() {
     const totalDed = (ss.pfEmployee || 0) + (ss.esi || 0) + (ss.professionalTax || 0) + (ss.lwfEmployee || 0) + (ss.tds || 0) + (ss.otherDeductions || 0);
     return {
       basicSalary: ss.basicSalary, hra: ss.hra || 0, conveyance: ss.conveyance || 0,
-      medicalAllowance: ss.medicalAllowance || 0, specialAllowance: ss.specialAllowance || 0,
-      otherAllowances: ss.otherAllowances || 0, grossSalary: ss.grossSalary,
+      medicalAllowance: 0, specialAllowance: ss.specialAllowance || 0,
+      otherAllowances: (ss.otherAllowances || 0) + (ss.medicalAllowance || 0), grossSalary: ss.grossSalary,
       pfEmployee: ss.pfEmployee || 0, esi: ss.esi || 0, professionalTax: ss.professionalTax || 0,
       lwfEmployee: ss.lwfEmployee || 0, tds: ss.tds || 0, otherDeductions: ss.otherDeductions || 0,
       bonus, totalEarnings: totalEarn, totalDeductions: totalDed, netSalary: totalEarn - totalDed,
@@ -593,7 +593,7 @@ export default function ReportsPage() {
     const buildRow = (emp: Employee, c: ReturnType<typeof getProRatedComponents> | null, pr: Payroll | null) => {
       const ss = salaryStructures.find(s => s.employeeId === emp.id);
       const rateOth = (ss?.otherAllowances || 0) + (ss?.specialAllowance || 0) + (ss?.medicalAllowance || 0);
-      const earnOth = (c?.otherAllowances || 0) + (c?.specialAllowance || 0) + (c?.medicalAllowance || 0);
+      const earnOth = (c?.otherAllowances || 0) + (c?.specialAllowance || 0);
       const customEarningsMap: Record<string, number> = (pr as any)?.customEarnings || {};
       const customEarn = Object.values(customEarningsMap).reduce((s: number, v) => s + (Number(v) || 0), 0) as number;
       const customDeductionsMap: Record<string, number> = (pr as any)?.customDeductions || {};
@@ -1124,7 +1124,6 @@ export default function ReportsPage() {
       if (c.basicSalary > 0) earnRows.push(["Basic Salary", fmt(c.basicSalary)]);
       if (c.hra > 0) earnRows.push(["House Rent Allowance", fmt(c.hra)]);
       if (c.conveyance > 0) earnRows.push(["Conveyance Allowances", fmt(c.conveyance)]);
-      if (c.medicalAllowance > 0) earnRows.push(["Medical Allowance", fmt(c.medicalAllowance)]);
       if (c.specialAllowance > 0) earnRows.push(["Special Allowance", fmt(c.specialAllowance)]);
       // Custom earning heads stored per payroll record
       const payrollCustom: Record<string, number> = (pr as any)?.customEarnings || {};
@@ -1267,7 +1266,6 @@ export default function ReportsPage() {
             "Basic Salary": c?.basicSalary || 0,
             "HRA": c?.hra || 0,
             "Conveyance": c?.conveyance || 0,
-            "Medical Allowance": c?.medicalAllowance || 0,
             "Special Allowance": c?.specialAllowance || 0,
           };
           psEarnHeads.forEach(h => { row[h.name] = prCustomEarn[h.id] || 0; });
@@ -1304,7 +1302,6 @@ export default function ReportsPage() {
             "Basic Salary": c.basicSalary,
             "HRA": c.hra,
             "Conveyance": c.conveyance,
-            "Medical Allowance": c.medicalAllowance,
             "Special Allowance": c.specialAllowance,
             "Other Allowances": c.otherAllowances,
             "Statutory Bonus": c.bonus,
@@ -1417,9 +1414,8 @@ export default function ReportsPage() {
           "Basic Salary": ss?.basicSalary || 0,
           "HRA": ss?.hra || 0,
           "Conveyance": ss?.conveyance || 0,
-          "Medical Allowance": ss?.medicalAllowance || 0,
           "Special Allowance": ss?.specialAllowance || 0,
-          "Other Allowances": ss?.otherAllowances || 0,
+          "Other Allowances": (ss?.otherAllowances || 0) + (ss?.medicalAllowance || 0),
           "PF (Employee)": ss?.pfEmployee || 0,
           "PF (Employer)": ss?.pfEmployer || 0,
           "ESI": ss?.esi || 0,
@@ -1513,20 +1509,19 @@ export default function ReportsPage() {
 
   // ── CTC Register helpers ──────────────────────────────────────────────────
   const calcCTCComponents = (emp: Employee, ss: SalaryStructure | undefined) => {
-    const zero = { basic: 0, hra: 0, conv: 0, med: 0, spl: 0, other: 0, customEarns: {} as Record<string, number>, gross: 0, erPF: 0, erESI: 0, edli: 0, erLWF: 0, gratuity: 0, bonus: 0, monthlyCTC: 0 };
+    const zero = { basic: 0, hra: 0, conv: 0, spl: 0, other: 0, customEarns: {} as Record<string, number>, gross: 0, erPF: 0, erESI: 0, edli: 0, erLWF: 0, gratuity: 0, bonus: 0, monthlyCTC: 0 };
 
     // Derive components: prefer salary structure, fall back to most recent payroll record scaled to full month
-    let basic = 0, hra = 0, conv = 0, med = 0, spl = 0, other = 0, customEarns: Record<string, number> = {};
+    let basic = 0, hra = 0, conv = 0, spl = 0, other = 0, customEarns: Record<string, number> = {};
 
     if (ss) {
       basic = ss.basicSalary || 0;
       hra   = ss.hra || 0;
       conv  = ss.conveyance || 0;
-      med   = ss.medicalAllowance || 0;
       spl   = ss.specialAllowance || 0;
       customEarns = (ss as any).customEarnings || {};
       const customEarnSum = Object.values(customEarns).reduce((s, v) => s + (Number(v) || 0), 0);
-      other = Math.max(0, (ss.otherAllowances || 0) - customEarnSum);
+      other = Math.max(0, (ss.otherAllowances || 0) + (ss.medicalAllowance || 0) - customEarnSum);
     } else {
       // Find most recent payroll record for this employee as fallback
       const monthOrder = ["January","February","March","April","May","June","July","August","September","October","November","December"];
@@ -1540,15 +1535,14 @@ export default function ReportsPage() {
       basic = Math.round((pr.basicSalary || 0) * scale);
       hra   = Math.round(((pr.hra ?? 0)) * scale);
       conv  = Math.round(((pr.conveyance ?? 0)) * scale);
-      med   = Math.round(((pr.medicalAllowance ?? 0)) * scale);
       spl   = Math.round(((pr.specialAllowance ?? 0)) * scale);
       customEarns = Object.fromEntries(Object.entries((pr as any).customEarnings || {}).map(([k, v]) => [k, Math.round(Number(v) * scale)]));
       const customEarnSum = Object.values(customEarns).reduce((s, v) => s + (Number(v) || 0), 0);
-      other = Math.max(0, Math.round(((pr.otherAllowances ?? 0)) * scale) - customEarnSum);
+      other = Math.max(0, Math.round(((pr.otherAllowances ?? 0) + (pr.medicalAllowance ?? 0)) * scale) - customEarnSum);
     }
 
     const customEarnSum2 = Object.values(customEarns).reduce((s, v) => s + (Number(v) || 0), 0);
-    const gross = basic + hra + conv + med + spl + other + customEarnSum2;
+    const gross = basic + hra + conv + spl + other + customEarnSum2;
     const settings = getStatutorySettings(emp.companyId);
     let erPF = 0, erESI = 0, edli = 0, erLWF = 0, gratuity = 0, bonus = 0;
     if (settings) {
@@ -1589,7 +1583,7 @@ export default function ReportsPage() {
       gratuity = Math.round(basic * 15 / 26 / 12);
     }
     const monthlyCTC = gross + erPF + erESI + edli + erLWF + gratuity + bonus;
-    return { basic, hra, conv, med, spl, other, customEarns, gross, erPF, erESI, edli, erLWF, gratuity, bonus, monthlyCTC };
+    return { basic, hra, conv, spl, other, customEarns, gross, erPF, erESI, edli, erLWF, gratuity, bonus, monthlyCTC };
   };
 
   const generateCTCRegister = (fileType: "excel" | "pdf") => {
@@ -1620,7 +1614,6 @@ export default function ReportsPage() {
           "Basic":       c.basic,
           "HRA":         c.hra,
           "Conveyance":  c.conv,
-          "Medical":     c.med,
           "Special All.": c.spl,
         };
         ctcEarnHeads.forEach(h => { row[h.name] = c.customEarns[h.id] || 0; });
@@ -1649,7 +1642,7 @@ export default function ReportsPage() {
     doc.setFontSize(10); doc.setFont("helvetica", "normal");
     doc.text(`${companyName}   |   Period: ${monthName} ${yearNum}`, pageW / 2, 20, { align: "center" });
 
-    const baseHeaders = ["#", "Code", "Name", "Dept", "Basic", "HRA", "Conv.", "Med.", "Spl."];
+    const baseHeaders = ["#", "Code", "Name", "Dept", "Basic", "HRA", "Conv.", "Spl."];
     const customHeaders = ctcEarnHeads.map(h => h.name);
     const tailHeaders = ["Other", "Gross", "Er.PF", "Er.ESI", "EDLI", "Er.LWF", "Gratuity", "Bonus", "Mthly CTC", "Annual CTC"];
     const allHeaders = [...baseHeaders, ...customHeaders, ...tailHeaders];
@@ -1657,7 +1650,7 @@ export default function ReportsPage() {
     const bodyRows: (string | number)[][] = emps.map((emp, i) => {
       const ss = salaryStructures.find(s => s.employeeId === emp.id);
       const c  = calcCTCComponents(emp, ss);
-      const base: (string | number)[] = [i + 1, emp.employeeCode, `${emp.firstName} ${emp.lastName}`, emp.department || "N/A", c.basic, c.hra, c.conv, c.med, c.spl];
+      const base: (string | number)[] = [i + 1, emp.employeeCode, `${emp.firstName} ${emp.lastName}`, emp.department || "N/A", c.basic, c.hra, c.conv, c.spl];
       const custom: number[] = ctcEarnHeads.map(h => c.customEarns[h.id] || 0);
       const tail: (string | number)[] = [c.other, c.gross, c.erPF, c.erESI, c.edli, c.erLWF, c.gratuity, c.bonus, c.monthlyCTC, c.monthlyCTC * 12];
       return [...base, ...custom, ...tail];
@@ -2165,7 +2158,7 @@ export default function ReportsPage() {
       const rBasic = ss?.basicSalary || 0, rHra = ss?.hra || 0, rConv = ss?.conveyance || 0;
       const rOth = (ss?.otherAllowances || 0) + (ss?.specialAllowance || 0) + (ss?.medicalAllowance || 0);
       const eBasic = c?.basicSalary || 0, eHra = c?.hra || 0, eConv = c?.conveyance || 0;
-      const eOth = (c?.otherAllowances || 0) + (c?.specialAllowance || 0) + (c?.medicalAllowance || 0);
+      const eOth = (c?.otherAllowances || 0) + (c?.specialAllowance || 0);
       const prCustom: Record<string, number> = (pr as any)?.customEarnings || {};
       const customEarn = Object.values(prCustom).reduce((s: number, v) => s + (Number(v) || 0), 0) as number;
       const prCustomDed: Record<string, number> = (pr as any)?.customDeductions || {};
@@ -2285,7 +2278,7 @@ export default function ReportsPage() {
     const vpDedHeads  = vpDedIds.map(id => ({ id, name: deductionHeads.find(h => h.id === id)?.name || "Custom" }));
 
     const headers = [
-      "Code", "Name", "Dept", "Basic", "HRA", "Conv.", "Med.", "Spl.",
+      "Code", "Name", "Dept", "Basic", "HRA", "Conv.", "Spl.",
       ...vpEarnHeads.map(h => h.name),
       "Other", "Bonus", "OT Hrs", "OT Amt", "Tot.Earn",
       "PF", "ESI", "PT", "LWF", "TDS", "Other Ded", "Loan/Adv",
@@ -2305,7 +2298,7 @@ export default function ReportsPage() {
         const residualOther = Math.max(0, (c?.otherAllowances || 0) - customEarnSum);
         return [
           emp?.employeeCode || "", getEmployeeName(p.employeeId), emp?.department || "N/A",
-          c?.basicSalary || 0, c?.hra || 0, c?.conveyance || 0, c?.medicalAllowance || 0, c?.specialAllowance || 0,
+          c?.basicSalary || 0, c?.hra || 0, c?.conveyance || 0, c?.specialAllowance || 0,
           ...vpEarnHeads.map(h => prCustomEarn[h.id] || 0),
           residualOther, c?.bonus || 0,
           Number((p as any).otHours || 0), Number((p as any).otAmount || 0),
@@ -2322,7 +2315,7 @@ export default function ReportsPage() {
         const c = getProRatedComponents(emp, ss, null);
         return [
           emp.employeeCode, `${emp.firstName} ${emp.lastName}`, emp.department || "N/A",
-          c.basicSalary, c.hra, c.conveyance, c.medicalAllowance, c.specialAllowance,
+          c.basicSalary, c.hra, c.conveyance, c.specialAllowance,
           ...vpEarnHeads.map(() => 0),
           c.otherAllowances, c.bonus, 0, 0,
           c.totalEarnings,
@@ -2375,7 +2368,7 @@ export default function ReportsPage() {
     }))];
     const ctcEarnHeads = ctcEarnIds.map(id => ({ id, name: earningHeads.find(h => h.id === id)?.name || "Custom" }));
     const headers = [
-      "Code", "Name", "Dept", "Basic", "HRA", "Conv.", "Med.", "Spl.",
+      "Code", "Name", "Dept", "Basic", "HRA", "Conv.", "Spl.",
       ...ctcEarnHeads.map(h => h.name),
       "Other", "Gross", "Er.PF", "Er.ESI", "EDLI", "Er.LWF", "Gratuity", "Bonus", "Mthly CTC", "Annual CTC",
     ];
@@ -2384,7 +2377,7 @@ export default function ReportsPage() {
       const c  = calcCTCComponents(emp, ss);
       return [
         emp.employeeCode, `${emp.firstName} ${emp.lastName}`, emp.department || "N/A",
-        c.basic, c.hra, c.conv, c.med, c.spl,
+        c.basic, c.hra, c.conv, c.spl,
         ...ctcEarnHeads.map(h => c.customEarns[h.id] || 0),
         c.other, c.gross, c.erPF, c.erESI, c.edli, c.erLWF, c.gratuity, c.bonus, c.monthlyCTC, c.monthlyCTC * 12,
       ];
