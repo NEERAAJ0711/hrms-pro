@@ -361,7 +361,7 @@ function UserForm({
           />
         )}
 
-        {showAccess && (
+        {showAccess && (deptItems.length > 0 || locItems.length > 0 || ctItems.length > 0) && (
           <div className="rounded-lg border border-dashed p-4 space-y-3">
             <p className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Data Access Scope</p>
             <p className="text-xs text-muted-foreground -mt-1">Leave as "All" to grant unrestricted access, or pick specific items.</p>
