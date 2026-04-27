@@ -3114,24 +3114,24 @@ export default function ReportsPage() {
       doc.text(`(With reference to your job application and interview for ${e.designation || "Post"})`, PW / 2, y + 10, { align: "center" });
       doc.setTextColor(0, 0, 0); y += 15;
 
-      // Employee details table
+      // Employee details table (English labels only — autoTable cannot render Devanagari)
       const apptData: [string, string][] = [
-        ["नाम / Name", empName],
-        ["पिता/पति का नाम / Father's / Husband's Name", e.fatherHusbandName || ""],
-        ["अस्थायी पता / Temporary Address", e.presentAddress || ""],
-        ["स्थायी पता / Permanent Address", e.permanentAddress || ""],
-        ["जन्म तिथि / Date of Birth", dob],
-        ["काम शुरू करने की तारीख / Date of Joining", doj],
-        ["पद / Designation", e.designation || ""],
-        ["विभाग / Department", e.department || ""],
-        ["श्रेणी / Category (अकुशल/अद्ध-कुशल/कुशल/अतिकुशल)", ""],
-        ["वेतन / Salary", grossStr ? `Rs. ${grossStr} /-` : ""],
+        ["Name", empName],
+        ["Father's / Husband's Name", e.fatherHusbandName || ""],
+        ["Temporary Address", e.presentAddress || ""],
+        ["Permanent Address", e.permanentAddress || ""],
+        ["Date of Birth", dob],
+        ["Date of Joining", doj],
+        ["Designation", e.designation || ""],
+        ["Department", e.department || ""],
+        ["Category (Unskilled / Semi-Skilled / Skilled / Highly-Skilled)", ""],
+        ["Salary", grossStr ? `Rs. ${grossStr} /-` : ""],
       ];
       autoTable(doc, {
         body: apptData,
         startY: y,
         theme: "grid",
-        styles: { fontSize: 8.5, cellPadding: 1.5, lineColor: [30, 58, 138], lineWidth: 0.2, font: HI },
+        styles: { fontSize: 8.5, cellPadding: 1.5, lineColor: [30, 58, 138], lineWidth: 0.2 },
         columnStyles: { 0: { fontStyle: "bold", cellWidth: 88, fillColor: [219, 234, 254] as [number,number,number] }, 1: { cellWidth: 88 } },
         margin: { left: ML },
       });
@@ -3579,13 +3579,13 @@ export default function ReportsPage() {
         body: [[
           { content: "Paycode", styles: { fontStyle: "bold", fillColor: [219, 234, 254] as [number,number,number] } },
           { content: e.employeeCode || "" },
-          { content: "Name / नाम", styles: { fontStyle: "bold", fillColor: [219, 234, 254] as [number,number,number], font: HI } },
+          { content: "Name", styles: { fontStyle: "bold", fillColor: [219, 234, 254] as [number,number,number] } },
           { content: empName },
         ]],
         startY: y,
         theme: "grid",
         styles: { fontSize: 9.5, cellPadding: 2.5, lineColor: [30, 58, 138], lineWidth: 0.2 },
-        columnStyles: { 0: { cellWidth: 24 }, 1: { cellWidth: 40 }, 2: { cellWidth: 32 }, 3: { cellWidth: 86 } },
+        columnStyles: { 0: { cellWidth: 22 }, 1: { cellWidth: 42 }, 2: { cellWidth: 20 }, 3: { cellWidth: 98 } },
         margin: { left: ML, right: MR },
       });
       y = (doc as any).lastAutoTable.finalY + 6;
@@ -3614,18 +3614,16 @@ export default function ReportsPage() {
         "Important Telephone No: जानकारी Gate पर उपलब्ध है।",
         "Threat Awareness: समय-समय पर दी गई प्रशिक्षण में बताए गए सुरक्षा उपायों पर ध्यान दें।",
       ];
-      // Use autoTable for compact rendering
-      autoTable(doc, {
-        body: inductionPts.map((pt, i) => [{ content: `${i + 1}.` }, { content: pt }]),
-        startY: y,
-        theme: "plain",
-        styles: { fontSize: 8.5, cellPadding: [1, 1.5, 1, 1.5], font: HI, lineWidth: 0, overflow: "linebreak" },
-        columnStyles: {
-          0: { cellWidth: 8, valign: "top", fontStyle: "bold" },
-          1: { cellWidth: UW - 8 },
-        },
-        alternateRowStyles: { fillColor: [248, 251, 255] },
-        margin: { left: ML, right: MR },
+      setHi(); doc.setFontSize(8.5);
+      inductionPts.forEach((pt, i) => {
+        if (y > 270) { doc.addPage(); y = 14; }
+        const lines = doc.splitTextToSize(`${i + 1}.  ${pt}`, UW);
+        // Alternate row background
+        if (i % 2 === 0) {
+          doc.setFillColor(248, 251, 255);
+          doc.rect(ML, y - 5, UW, lines.length * 5 + 3, "F");
+        }
+        doc.text(lines, ML, y); y += lines.length * 5 + 2;
       });
     });
 
