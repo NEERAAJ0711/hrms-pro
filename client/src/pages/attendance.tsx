@@ -74,6 +74,7 @@ export default function AttendancePage() {
   const [selectedDetailIds, setSelectedDetailIds] = useState<Set<string>>(new Set());
   const [isBulkDeleteOpen, setIsBulkDeleteOpen] = useState(false);
   const [attendanceSearch, setAttendanceSearch] = useState("");
+  const [cardFilter, setCardFilter] = useState<"all" | "present" | "absent" | "leave">("all");
   const [missedLogRecord, setMissedLogRecord] = useState<Attendance | null>(null);
   const [isMissedLogOpen, setIsMissedLogOpen] = useState(false);
   const [missedLogTime, setMissedLogTime] = useState("");
@@ -543,7 +544,7 @@ export default function AttendancePage() {
 
   const downloadAttendanceSummary = () => {
     const monthLabel = format(parseISO(`${selectedMonth}-01`), "MMMM yyyy");
-    const rows = searchedEmployees.map((emp, idx) => {
+    const rows = displayedEmployees.map((emp, idx) => {
       const s = getEmployeeSummary(emp);
       const fmt = (n: number) => n % 1 === 0 ? n : parseFloat(n.toFixed(1));
       return {
@@ -592,6 +593,26 @@ export default function AttendancePage() {
     a.date === todayStr
   ).length;
   const absentCount = Math.max(0, filteredEmployees.length - presentCount - leaveCount - nonWorkingCount);
+
+  // Build today-based ID sets for card filtering
+  const presentTodayIds = new Set(
+    attendance.filter(a => filteredEmployeeIds.has(a.employeeId) && ["present","half_day","miss_punch"].includes(a.status) && a.date === todayStr).map(a => a.employeeId)
+  );
+  const leaveTodayIds = new Set([
+    ...attendance.filter(a => filteredEmployeeIds.has(a.employeeId) && a.status === "on_leave" && a.date === todayStr).map(a => a.employeeId),
+    ...approvedLeaves.filter(lr => filteredEmployeeIds.has(lr.employeeId) && todayStr >= lr.startDate && todayStr <= lr.endDate).map(lr => lr.employeeId),
+  ]);
+  const nonWorkingTodayIds = new Set(
+    attendance.filter(a => filteredEmployeeIds.has(a.employeeId) && ["week_off","holiday"].includes(a.status) && a.date === todayStr).map(a => a.employeeId)
+  );
+  const absentTodayIds = new Set(
+    filteredEmployees.filter(e => !presentTodayIds.has(e.id) && !leaveTodayIds.has(e.id) && !nonWorkingTodayIds.has(e.id)).map(e => e.id)
+  );
+
+  const displayedEmployees = cardFilter === "all" ? searchedEmployees
+    : cardFilter === "present" ? searchedEmployees.filter(e => presentTodayIds.has(e.id))
+    : cardFilter === "absent"  ? searchedEmployees.filter(e => absentTodayIds.has(e.id))
+    : searchedEmployees.filter(e => leaveTodayIds.has(e.id));
 
   const selectedEmpObj = selectedEmployee ? employees.find(e => e.id === selectedEmployee) : null;
   const employeeAttendance = selectedEmployee
@@ -1072,40 +1093,60 @@ export default function AttendancePage() {
       </Dialog>
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-        <Card>
+        <Card
+          className={`cursor-pointer transition-all hover:shadow-md ${cardFilter === "all" ? "ring-2 ring-primary" : "hover:ring-1 hover:ring-muted-foreground/30"}`}
+          onClick={() => setCardFilter(cardFilter === "all" ? "all" : "all")}
+          data-testid="card-total-employees"
+        >
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Total Employees</CardTitle>
             <Users className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{filteredEmployees.length}</div>
+            {cardFilter === "all" && <p className="text-xs text-muted-foreground mt-1">Showing all</p>}
           </CardContent>
         </Card>
-        <Card>
+        <Card
+          className={`cursor-pointer transition-all hover:shadow-md ${cardFilter === "present" ? "ring-2 ring-green-500" : "hover:ring-1 hover:ring-green-300"}`}
+          onClick={() => setCardFilter(cardFilter === "present" ? "all" : "present")}
+          data-testid="card-present-today"
+        >
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Present Today</CardTitle>
             <CheckCircle className="h-4 w-4 text-green-500" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-green-600">{presentCount}</div>
+            {cardFilter === "present" && <p className="text-xs text-green-600 mt-1">Filtered below</p>}
           </CardContent>
         </Card>
-        <Card>
+        <Card
+          className={`cursor-pointer transition-all hover:shadow-md ${cardFilter === "absent" ? "ring-2 ring-red-500" : "hover:ring-1 hover:ring-red-300"}`}
+          onClick={() => setCardFilter(cardFilter === "absent" ? "all" : "absent")}
+          data-testid="card-absent-today"
+        >
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Absent Today</CardTitle>
             <XCircle className="h-4 w-4 text-red-500" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-red-600">{absentCount}</div>
+            {cardFilter === "absent" && <p className="text-xs text-red-600 mt-1">Filtered below</p>}
           </CardContent>
         </Card>
-        <Card>
+        <Card
+          className={`cursor-pointer transition-all hover:shadow-md ${cardFilter === "leave" ? "ring-2 ring-blue-500" : "hover:ring-1 hover:ring-blue-300"}`}
+          onClick={() => setCardFilter(cardFilter === "leave" ? "all" : "leave")}
+          data-testid="card-on-leave"
+        >
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">On Leave</CardTitle>
             <AlertCircle className="h-4 w-4 text-blue-500" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-blue-600">{leaveCount}</div>
+            {cardFilter === "leave" && <p className="text-xs text-blue-600 mt-1">Filtered below</p>}
           </CardContent>
         </Card>
       </div>
@@ -1207,10 +1248,23 @@ export default function AttendancePage() {
             </div>
           ) : (
             <div className="overflow-x-auto">
-              {searchedEmployees.length === 0 && (
+              {cardFilter !== "all" && (
+                <div className="flex items-center gap-2 mb-3 px-1">
+                  <span className="text-sm text-muted-foreground">
+                    Showing <strong>{cardFilter === "present" ? "Present Today" : cardFilter === "absent" ? "Absent Today" : "On Leave"}</strong> ({displayedEmployees.length} employee{displayedEmployees.length !== 1 ? "s" : ""})
+                  </span>
+                  <button
+                    className="text-xs underline text-muted-foreground hover:text-foreground"
+                    onClick={() => setCardFilter("all")}
+                  >
+                    Clear filter
+                  </button>
+                </div>
+              )}
+              {displayedEmployees.length === 0 && (
                 <div className="text-center py-8 text-muted-foreground">No employees match your search.</div>
               )}
-              {searchedEmployees.length > 0 && (
+              {displayedEmployees.length > 0 && (
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b bg-muted/30">
@@ -1227,7 +1281,7 @@ export default function AttendancePage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {searchedEmployees.map((employee, idx) => {
+                  {displayedEmployees.map((employee, idx) => {
                     const s = getEmployeeSummary(employee);
                     const fmt = (n: number) => n % 1 === 0 ? String(n) : n.toFixed(1);
                     return (
