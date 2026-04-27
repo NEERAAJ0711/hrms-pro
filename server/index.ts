@@ -174,6 +174,28 @@ app.use((req, res, next) => {
         ) THEN
           ALTER TABLE payroll ADD COLUMN custom_deductions json DEFAULT '{}';
         END IF;
+        -- Add contractor_master_id to employees if missing
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_name = 'employees' AND column_name = 'contractor_master_id'
+        ) THEN
+          ALTER TABLE employees ADD COLUMN contractor_master_id varchar(36);
+        END IF;
+        -- Create contractor_masters table if missing
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.tables
+          WHERE table_name = 'contractor_masters'
+        ) THEN
+          CREATE TABLE contractor_masters (
+            id varchar(36) PRIMARY KEY,
+            company_id varchar(36) NOT NULL,
+            contractor_name varchar(255) NOT NULL,
+            contractor_address text,
+            service_charge_percent real DEFAULT 0,
+            applicable_compliances text[] DEFAULT '{}',
+            status varchar(20) DEFAULT 'active'
+          );
+        END IF;
       END;
       $$
     `);
