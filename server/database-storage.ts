@@ -211,7 +211,8 @@ export class DatabaseStorage implements IStorage {
   async addContractorEmployee(companyId: string, contractorId: string, employeeId: string, taggedDate?: string, taggedBy?: string): Promise<void> {
     const junction = await db.select().from(companyContractors)
       .where(and(eq(companyContractors.companyId, companyId), eq(companyContractors.contractorId, contractorId)));
-    if (!junction.length) throw new Error("Contractor relationship not found");
+    console.log("[addContractorEmployee] companyId=%s contractorId=%s employeeId=%s junction.length=%d", companyId, contractorId, employeeId, junction.length);
+    if (!junction.length) throw new Error(`No contractor link found: company=${companyId}, contractor=${contractorId}`);
     const id = randomUUID();
     await db.insert(contractorEmployees).values({ id, companyContractorId: junction[0].id, employeeId, taggedDate: taggedDate ?? null, taggedBy: taggedBy ?? null });
   }

@@ -4818,14 +4818,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { employeeId, taggedDate } = req.body;
       if (!employeeId) return res.status(400).json({ error: "employeeId is required" });
       const u = (req as any).user;
-      const taggedBy = u ? `${u.firstName} ${u.lastName}`.trim() || u.username : null;
+      const taggedBy = u ? [u.firstName, u.lastName].filter(Boolean).join(" ").trim() || u.username : null;
+      console.log("[tag-employee] companyId=%s contractorId=%s employeeId=%s taggedDate=%s", req.params.id, req.params.contractorId, employeeId, taggedDate);
       await storage.addContractorEmployee(req.params.id, req.params.contractorId, employeeId, taggedDate, taggedBy);
       res.status(201).json({ success: true });
     } catch (error: any) {
       if (String(error?.message || "").includes("unique")) {
         return res.status(409).json({ error: "Employee is already tagged to this contractor" });
       }
-      res.status(500).json({ error: "Failed to tag employee" });
+      console.error("[tag-employee] error:", error?.message, error?.stack);
+      res.status(500).json({ error: error?.message || "Failed to tag employee" });
     }
   });
 
