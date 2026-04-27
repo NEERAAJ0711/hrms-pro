@@ -125,11 +125,7 @@ app.use((req, res, next) => {
 });
 
 (async () => {
-  const { seedDefaultData } = await import("./seed");
-  await seedDefaultData();
-
-  // Auto-migration: ensure percentage columns are REAL (decimal) not INTEGER.
-  // Runs on every startup; is a no-op when the column is already the right type.
+  // Auto-migration MUST run before seed so any new columns exist before Drizzle queries them.
   try {
     const { db } = await import("./db");
     const { sql } = await import("drizzle-orm");
@@ -223,6 +219,10 @@ app.use((req, res, next) => {
   } catch (migErr) {
     console.warn("[startup] percentage migration warning:", migErr);
   }
+
+  // Seed default data AFTER migrations so all columns exist before Drizzle queries the DB.
+  const { seedDefaultData } = await import("./seed");
+  await seedDefaultData();
 
   // Preload face recognition models in background so first punch is fast
   import("./face-match").then(({ loadFaceModels }) => {
