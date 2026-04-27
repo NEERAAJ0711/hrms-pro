@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { loadHindiFont, registerHindiFont, HI, EN } from "@/lib/hindiFont";
+import { loadHindiFont, registerHindiFont, loadHindiFontForCanvas, addHindiText, HI, EN } from "@/lib/hindiFont";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { format } from "date-fns";
@@ -2792,15 +2792,15 @@ export default function ReportsPage() {
     }
 
     // ── PDF: full multi-section Employee Personal File ──────────────────────
-    // Load Devanagari font
-    let hindiBase64: string | null = null;
-    try { hindiBase64 = await loadHindiFont(); } catch { hindiBase64 = null; }
+    // Load Devanagari font for Canvas-based rendering (browser text-shaping engine)
+    await loadHindiFontForCanvas();
 
     const doc = new jsPDF({ format: "a4", unit: "mm" });
     const PW = 210, ML = 14, MR = 14, UW = PW - ML - MR;
 
-    if (hindiBase64) registerHindiFont(doc, hindiBase64);
-    const setHi = () => { if (hindiBase64) doc.setFont(HI, "normal"); };
+    // hi() – shorthand to add a Hindi text image; returns new y (bottom edge)
+    const hi = (text: string, x: number, yTop: number, opts: Parameters<typeof addHindiText>[4] = {}) =>
+      addHindiText(doc, text, x, yTop, { maxWidthMM: UW, ...opts });
     const setEn = (style: "normal"|"bold" = "normal") => doc.setFont(EN, style);
 
     const fmtDate = (d?: string | null) => {
@@ -3048,34 +3048,28 @@ export default function ReportsPage() {
       doc.setFillColor(239, 246, 255);
       doc.setDrawColor(30, 58, 138); doc.setLineWidth(0.4);
       doc.rect(ML, y, UW, 14, "FD");
-      setHi(); doc.setFontSize(14);
-      doc.setTextColor(30, 58, 138);
-      doc.text("नौकरी के लिए प्रार्थना पत्र", PW / 2, y + 7, { align: "center" });
+      hi("नौकरी के लिए प्रार्थना पत्र", ML, y + 1.5, { fontSize: 13, align: "center", color: [30, 58, 138] });
       setEn(); doc.setFontSize(9); doc.setTextColor(80, 80, 80);
       doc.text("(Application for Employment)", PW / 2, y + 12, { align: "center" });
       doc.setTextColor(0, 0, 0); y += 20;
 
       // Subject
-      setHi(); doc.setFontSize(9.5);
-      doc.text("विषय :-", ML, y);
-      doc.text(`${e.designation || "पद"} के पद के लिए आवेदन पत्र`, ML + 18, y); y += 7;
-
-      doc.text("महोदय,", ML, y); y += 7;
+      y = hi(`विषय :- ${e.designation || "पद"} के पद के लिए आवेदन पत्र`, ML, y, { fontSize: 9.5 }) + 2;
+      y = hi("महोदय,", ML, y, { fontSize: 9.5 }) + 2;
       const appText = `मुझे पता चला है कि आपकी कम्पनी में ${e.designation || "____"} की जगह खाली है। मुझे काम करने का अच्छा अनुभव है। यदि आप मुझे एक बार सेवा का अवसर प्रदान करें तो मैं आपका काम बड़ी मेहनत और इमानदारी से करूँगा / करूँगी तथा किसी भी अवैध कार्य, राजनीतिक या असामाजिक गतिविधियों में भाग नहीं लूँगा / लूँगी।`;
-      const appLines3 = doc.splitTextToSize(appText, UW);
-      doc.text(appLines3, ML, y); y += appLines3.length * 5.5 + 5;
+      y = hi(appText, ML, y, { fontSize: 9.5 }) + 4;
+      y = hi("आपका विश्वासी,", ML, y, { fontSize: 9.5 }) + 12;
 
-      doc.text("आपका विश्वासी,", ML, y); y += 15;
-
-      doc.setFontSize(9.5);
-      doc.text("स्थान :", ML, y);
-      setEn(); doc.setLineWidth(0.25); doc.line(ML + 16, y + 1, ML + 65, y + 1);
-      setHi(); doc.text("नाम :", ML + 98, y);
-      setEn(); doc.line(ML + 108, y + 1, PW - MR, y + 1); y += 8;
-      setHi(); doc.text("दिनांक :", ML, y);
-      setEn(); doc.line(ML + 18, y + 1, ML + 65, y + 1);
-      setHi(); doc.text("हस्ताक्षर :", ML + 98, y);
-      setEn(); doc.line(ML + 116, y + 1, PW - MR, y + 1);
+      // Signature row 1: स्थान / नाम
+      hi("स्थान :", ML, y, { fontSize: 9.5, maxWidthMM: 20 });
+      setEn(); doc.setLineWidth(0.25); doc.line(ML + 16, y + 4, ML + 65, y + 4);
+      hi("नाम :", ML + 98, y, { fontSize: 9.5, maxWidthMM: 14 });
+      setEn(); doc.line(ML + 110, y + 4, PW - MR, y + 4); y += 9;
+      // Signature row 2: दिनांक / हस्ताक्षर
+      hi("दिनांक :", ML, y, { fontSize: 9.5, maxWidthMM: 18 });
+      setEn(); doc.line(ML + 18, y + 4, ML + 65, y + 4);
+      hi("हस्ताक्षर :", ML + 98, y, { fontSize: 9.5, maxWidthMM: 22 });
+      setEn(); doc.line(ML + 120, y + 4, PW - MR, y + 4);
 
       // ══════════════════════════════════════════════════════════
       // PAGE 4 – APPOINTMENT LETTER (Niyukti Patra)
@@ -3094,24 +3088,23 @@ export default function ReportsPage() {
       doc.setTextColor(0, 0, 0); y += 20;
 
       setEn("bold"); doc.setFontSize(8.5);
-      doc.text(e.employeeCode || "", PW - MR, y - 5, { align: "right" });
+      doc.text(e.employeeCode || "", PW - MR, y - 4, { align: "right" });
 
-      setHi(); doc.setFontSize(9.5);
-      doc.text("सेवा में,", ML, y); setEn(); doc.setFontSize(8.5); doc.text(doj, PW - MR, y, { align: "right" }); y += 5;
-      setHi(); doc.setFontSize(9.5); doc.text("श्रीमान प्रबंधक महोदय,", ML, y); y += 5;
+      hi("सेवा में,", ML, y, { fontSize: 9.5, maxWidthMM: 80 });
+      setEn(); doc.setFontSize(8.5); doc.text(doj, PW - MR, y + 3, { align: "right" });
+      y = hi("श्रीमान प्रबंधक महोदय,", ML, y + 7, { fontSize: 9.5 }) + 1;
       setEn(); doc.setFontSize(9);
-      doc.text((company?.companyName || "").toUpperCase(), ML, y); y += 4;
-      if (regAddr) { doc.text(regAddr.toUpperCase(), ML, y); y += 4; }
-      y += 3;
+      doc.text((company?.companyName || "").toUpperCase(), ML, y + 4); y += 5;
+      if (regAddr) { doc.text(regAddr.toUpperCase(), ML, y + 3); y += 5; }
+      y += 2;
 
       // Title
       doc.setFillColor(239, 246, 255);
       doc.setDrawColor(30, 58, 138); doc.setLineWidth(0.4);
       doc.rect(ML, y, UW, 12, "FD");
-      setHi(); doc.setFontSize(10.5); doc.setTextColor(30, 58, 138);
-      doc.text("आपके नौकरी के लिए आवेदन पत्र और साक्षात्कार के संदर्भ में", PW / 2, y + 5.5, { align: "center" });
+      hi("आपके नौकरी के लिए आवेदन पत्र और साक्षात्कार के संदर्भ में", ML, y + 1, { fontSize: 10, align: "center", color: [30, 58, 138] });
       setEn(); doc.setFontSize(7.5); doc.setTextColor(80, 80, 80);
-      doc.text(`(With reference to your job application and interview for ${e.designation || "Post"})`, PW / 2, y + 10, { align: "center" });
+      doc.text(`(With reference to your job application and interview for ${e.designation || "Post"})`, PW / 2, y + 10.5, { align: "center" });
       doc.setTextColor(0, 0, 0); y += 15;
 
       // Employee details table (English labels only — autoTable cannot render Devanagari)
@@ -3142,8 +3135,7 @@ export default function ReportsPage() {
       doc.setFillColor(30, 58, 138);
       doc.rect(ML, y, UW, 8, "F");
       doc.setTextColor(255, 255, 255);
-      setHi(); doc.setFontSize(9.5);
-      doc.text("नियम और शर्तें", ML + 3, y + 5.5);
+      hi("नियम और शर्तें", ML + 3, y + 1, { fontSize: 9.5, maxWidthMM: 45, color: [255, 255, 255] });
       setEn("bold"); doc.setFontSize(9);
       doc.text("/ TERMS AND CONDITIONS", ML + 53, y + 5.5);
       doc.setTextColor(0, 0, 0); y += 11;
@@ -3162,22 +3154,18 @@ export default function ReportsPage() {
         `11. Company में कार्य का समय सुबह 09:30 बजे से 18:00 बजे है।`,
         `12. यदि उपरोक्त शर्तें मंजूर हैं तो नियुक्ति पत्र की दूसरी प्रति पर स्वीकृति हेतु हस्ताक्षर करें और दिनांक ${doj} से कार्य पर उपस्थित हों।`,
       ];
-      setHi(); doc.setFontSize(8.5);
       terms.forEach(t => {
         if (y > 268) { doc.addPage(); y = 12; }
-        const lines = doc.splitTextToSize(t, UW);
-        doc.text(lines, ML, y); y += lines.length * 5 + 1.5;
+        y = hi(t, ML, y, { fontSize: 8.5 }) + 1.5;
       });
-      y += 5;
+      y += 4;
       if (y > 262) { doc.addPage(); y = 12; }
       setEn("bold"); doc.setFontSize(9);
       doc.text(`For ${(company?.companyName || "").toUpperCase()}`, ML, y); y += 7;
       setEn(); doc.text("Authorized Signatory", ML, y); y += 10;
-      setHi(); doc.setFontSize(9);
-      doc.text(`कर्मचारी की स्वीकृति / Employee Acceptance :`, ML, y); y += 5;
-      doc.setFontSize(8.5);
-      doc.text(`मैं ${empName} उपर दी गई सभी नियम और शर्तों से सहमत हूँ।`, ML, y); y += 6;
-      doc.text("हस्ताक्षर / Signature : ____________________    दिनांक / Date : ____________________", ML, y);
+      y = hi(`कर्मचारी की स्वीकृति / Employee Acceptance :`, ML, y, { fontSize: 9 }) + 2;
+      y = hi(`मैं ${empName} उपर दी गई सभी नियम और शर्तों से सहमत हूँ।`, ML, y, { fontSize: 8.5 }) + 2;
+      y = hi("हस्ताक्षर / Signature : ____________________    दिनांक / Date : ____________________", ML, y, { fontSize: 8.5 });
 
       // ══════════════════════════════════════════════════════════
       // PAGE 5 – PF FORM-2 (Nomination & Declaration)
@@ -3508,8 +3496,7 @@ export default function ReportsPage() {
       doc.setFillColor(239, 246, 255);
       doc.setDrawColor(30, 58, 138); doc.setLineWidth(0.4);
       doc.rect(ML, y, UW, 14, "FD");
-      setHi(); doc.setFontSize(14); doc.setTextColor(30, 58, 138);
-      doc.text("ड्यूटी ज्वाइनिंग आवेदन पत्र", PW / 2, y + 7, { align: "center" });
+      hi("ड्यूटी ज्वाइनिंग आवेदन पत्र", ML, y + 1.5, { fontSize: 13, align: "center", color: [30, 58, 138] });
       setEn(); doc.setFontSize(9); doc.setTextColor(80, 80, 80);
       doc.text("(Duty Joining Application)", PW / 2, y + 12, { align: "center" });
       doc.setTextColor(0, 0, 0); y += 20;
@@ -3517,36 +3504,34 @@ export default function ReportsPage() {
       setEn("bold"); doc.setFontSize(9);
       doc.text(e.employeeCode || "", PW - MR, y, { align: "right" });
 
-      setHi(); doc.setFontSize(9.5);
-      doc.text("सेवा में,", ML, y); setEn(); doc.setFontSize(8.5); doc.text(doj, PW - MR, y, { align: "right" }); y += 5;
-      setHi(); doc.setFontSize(9.5); doc.text("प्रबंधक (कार्मिक एवं प्रशासन),", ML, y); y += 5;
+      hi("सेवा में,", ML, y, { fontSize: 9.5, maxWidthMM: 80 });
+      setEn(); doc.setFontSize(8.5); doc.text(doj, PW - MR, y + 3, { align: "right" });
+      y = hi("प्रबंधक (कार्मिक एवं प्रशासन),", ML, y + 7, { fontSize: 9.5 }) + 1;
       setEn(); doc.setFontSize(9);
-      doc.text((company?.companyName || "").toUpperCase(), ML, y); y += 4;
-      if (raDuty) { doc.text(raDuty.toUpperCase(), ML, y); y += 4; }
-      y += 4;
+      doc.text((company?.companyName || "").toUpperCase(), ML, y + 4); y += 5;
+      if (raDuty) { doc.text(raDuty.toUpperCase(), ML, y + 3); y += 5; }
+      y += 2;
 
-      setHi(); doc.setFontSize(9.5);
       const dutyBody = `मैं ${empName} पुत्र/पुत्री/पत्नी ${e.fatherHusbandName || "___________"} मूल निवासी ${e.permanentAddress || "___________"} महोदय से निवेदन करता/करती हूँ कि आप मुझे अपनी Company में आज दिनांक ${doj} को पूर्वाह्न/अपराह्न 09:30 बजे ड्यूटी ज्वाइन करने की अनुमति प्रदान करें।`;
-      const dutyLines = doc.splitTextToSize(dutyBody, UW);
-      doc.text(dutyLines, ML, y); y += dutyLines.length * 5.5 + 6;
-
-      doc.text("धन्यवाद", ML, y); y += 14;
+      y = hi(dutyBody, ML, y, { fontSize: 9.5 }) + 4;
+      y = hi("धन्यवाद", ML, y, { fontSize: 9.5 }) + 10;
 
       // Address block
-      setHi(); doc.setFontSize(9.5);
-      doc.text("अस्थायी पता :", ML, y);
-      doc.text("स्थायी पता :", ML + 98, y); y += 6;
+      hi("अस्थायी पता :", ML, y, { fontSize: 9.5, maxWidthMM: 80 });
+      hi("स्थायी पता :", ML + 98, y, { fontSize: 9.5, maxWidthMM: 80 });
+      y += 7;
       setEn(); doc.setFontSize(9);
       const pAddrLines = doc.splitTextToSize(e.presentAddress || "", 80);
       const perAddrLines = doc.splitTextToSize(e.permanentAddress || "", 80);
-      doc.text(pAddrLines, ML, y); doc.text(perAddrLines, ML + 98, y);
-      const maxAddrH = Math.max(pAddrLines.length, perAddrLines.length) * 5 + 10;
+      doc.text(pAddrLines, ML, y + 4); doc.text(perAddrLines, ML + 98, y + 4);
+      const maxAddrH = Math.max(pAddrLines.length, perAddrLines.length) * 5 + 12;
       y += maxAddrH;
 
       // Signature row
-      setHi(); doc.setFontSize(9.5);
-      doc.text("हस्ताक्षर :", ML, y); setEn(); doc.setLineWidth(0.25); doc.line(ML + 20, y + 1, ML + 70, y + 1);
-      setHi(); doc.text("दिनांक :", ML + 98, y); setEn(); doc.line(ML + 114, y + 1, PW - MR, y + 1);
+      hi("हस्ताक्षर :", ML, y, { fontSize: 9.5, maxWidthMM: 22 });
+      setEn(); doc.setLineWidth(0.25); doc.line(ML + 20, y + 4, ML + 70, y + 4);
+      hi("दिनांक :", ML + 98, y, { fontSize: 9.5, maxWidthMM: 18 });
+      setEn(); doc.line(ML + 114, y + 4, PW - MR, y + 4);
 
       // ══════════════════════════════════════════════════════════
       // PAGE 10 – INDUCTION FORM
@@ -3568,8 +3553,7 @@ export default function ReportsPage() {
       doc.setFillColor(239, 246, 255);
       doc.setDrawColor(30, 58, 138); doc.setLineWidth(0.4);
       doc.rect(ML, y, UW, 14, "FD");
-      setHi(); doc.setFontSize(14); doc.setTextColor(30, 58, 138);
-      doc.text("इंडक्शन फॉर्म", PW / 2, y + 7, { align: "center" });
+      hi("इंडक्शन फॉर्म", ML, y + 1.5, { fontSize: 13, align: "center", color: [30, 58, 138] });
       setEn(); doc.setFontSize(9); doc.setTextColor(80, 80, 80);
       doc.text("(Induction Form)", PW / 2, y + 12, { align: "center" });
       doc.setTextColor(0, 0, 0); y += 18;
@@ -3614,16 +3598,9 @@ export default function ReportsPage() {
         "Important Telephone No: जानकारी Gate पर उपलब्ध है।",
         "Threat Awareness: समय-समय पर दी गई प्रशिक्षण में बताए गए सुरक्षा उपायों पर ध्यान दें।",
       ];
-      setHi(); doc.setFontSize(8.5);
       inductionPts.forEach((pt, i) => {
         if (y > 270) { doc.addPage(); y = 14; }
-        const lines = doc.splitTextToSize(`${i + 1}.  ${pt}`, UW);
-        // Alternate row background
-        if (i % 2 === 0) {
-          doc.setFillColor(248, 251, 255);
-          doc.rect(ML, y - 5, UW, lines.length * 5 + 3, "F");
-        }
-        doc.text(lines, ML, y); y += lines.length * 5 + 2;
+        y = hi(`${i + 1}.  ${pt}`, ML, y, { fontSize: 8.5 }) + 1.5;
       });
     });
 
