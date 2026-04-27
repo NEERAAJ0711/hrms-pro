@@ -196,6 +196,27 @@ app.use((req, res, next) => {
             status varchar(20) DEFAULT 'active'
           );
         END IF;
+        -- Add access_departments column to users if missing
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_name = 'users' AND column_name = 'access_departments'
+        ) THEN
+          ALTER TABLE users ADD COLUMN access_departments text[];
+        END IF;
+        -- Add access_locations column to users if missing
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_name = 'users' AND column_name = 'access_locations'
+        ) THEN
+          ALTER TABLE users ADD COLUMN access_locations text[];
+        END IF;
+        -- Add access_contractors column to users if missing
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_name = 'users' AND column_name = 'access_contractors'
+        ) THEN
+          ALTER TABLE users ADD COLUMN access_contractors text[];
+        END IF;
       END;
       $$
     `);

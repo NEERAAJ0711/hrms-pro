@@ -79,6 +79,9 @@ export const users = pgTable("users", {
   companyId: varchar("company_id", { length: 36 }),
   status: text("status").notNull().default("active"),
   lastLogin: text("last_login"),
+  accessDepartments: text("access_departments").array(),
+  accessLocations: text("access_locations").array(),
+  accessContractors: text("access_contractors").array(),
 });
 
 export const insertUserSchema = createInsertSchema(users).omit({ id: true, lastLogin: true });

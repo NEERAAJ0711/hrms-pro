@@ -9,6 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -51,7 +52,6 @@ import {
   UserCircle, 
   Edit, 
   Trash2,
-  Shield,
   ShieldCheck,
   Mail,
   Loader2,
@@ -61,10 +61,12 @@ import {
   Users2,
   FileBarChart2,
   BriefcaseBusiness,
-  UserCog
+  UserCog,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import type { User, Company, UserPermission } from "@shared/schema";
+import type { User, Company, UserPermission, MasterDepartment, MasterLocation, ContractorMaster } from "@shared/schema";
 
 const MODULE_DEFINITIONS = [
   { key: "attendance",   label: "Attendance",     description: "Mark attendance, view attendance history", icon: ClipboardList,    color: "text-blue-600" },
@@ -94,6 +96,8 @@ const roleColors: Record<string, string> = {
   employee: "bg-slate-500",
 };
 
+const ACCESS_ROLES = ["company_admin", "hr_admin", "manager"];
+
 const userFormSchema = z.object({
   username: z.string().min(3, "Username must be at least 3 characters"),
   email: z.string().email("Invalid email address"),
@@ -101,6 +105,9 @@ const userFormSchema = z.object({
   role: z.enum(["super_admin", "company_admin", "hr_admin", "recruiter", "manager", "employee"]),
   companyId: z.string().optional(),
   status: z.enum(["active", "inactive"]).default("active"),
+  accessDepartments: z.array(z.string()).nullable().optional(),
+  accessLocations: z.array(z.string()).nullable().optional(),
+  accessContractors: z.array(z.string()).nullable().optional(),
 });
 
 const userUpdateSchema = userFormSchema.omit({ password: true }).extend({
@@ -110,11 +117,82 @@ const userUpdateSchema = userFormSchema.omit({ password: true }).extend({
 type UserFormValues = z.infer<typeof userFormSchema>;
 type UserUpdateValues = z.infer<typeof userUpdateSchema>;
 
+function AccessPicker({
+  label,
+  items,
+  selected,
+  onChange,
+  testId,
+}: {
+  label: string;
+  items: { id: string; name: string }[];
+  selected: string[] | null | undefined;
+  onChange: (val: string[] | null) => void;
+  testId: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const isAll = !selected || selected.length === 0;
+
+  const toggle = (id: string) => {
+    const cur = selected ?? [];
+    const next = cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id];
+    onChange(next.length === 0 ? null : next);
+  };
+
+  const summary = isAll
+    ? `All ${label}s`
+    : selected!.length === 1
+    ? items.find((i) => i.id === selected![0])?.name ?? "1 selected"
+    : `${selected!.length} ${label}s selected`;
+
+  if (items.length === 0) return null;
+
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="w-full flex items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background hover:bg-accent/40 transition-colors"
+        data-testid={testId}
+      >
+        <span className={isAll ? "text-muted-foreground" : ""}>{summary}</span>
+        {open ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+      </button>
+      {open && (
+        <div className="mt-1 rounded-md border border-input bg-background p-2 max-h-44 overflow-y-auto space-y-1">
+          <label className="flex items-center gap-2 px-1 py-1 rounded hover:bg-accent/40 cursor-pointer text-sm">
+            <Checkbox
+              checked={isAll}
+              onCheckedChange={(checked) => onChange(checked ? null : [])}
+              data-testid={`${testId}-all`}
+            />
+            <span className="font-medium">All {label}s</span>
+          </label>
+          <div className="border-t my-1" />
+          {items.map((item) => (
+            <label key={item.id} className="flex items-center gap-2 px-1 py-1 rounded hover:bg-accent/40 cursor-pointer text-sm">
+              <Checkbox
+                checked={!isAll && (selected ?? []).includes(item.id)}
+                onCheckedChange={() => toggle(item.id)}
+                data-testid={`${testId}-${item.id}`}
+              />
+              <span>{item.name}</span>
+            </label>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function UserForm({ 
   onSubmit, 
   defaultValues, 
   isLoading,
   companies,
+  departments = [],
+  locations = [],
+  contractors = [],
   isEdit = false,
   submitLabel = "Create User",
   currentUserRole = ""
@@ -123,6 +201,9 @@ function UserForm({
   defaultValues?: Partial<UserFormValues>;
   isLoading: boolean;
   companies: Company[];
+  departments?: MasterDepartment[];
+  locations?: MasterLocation[];
+  contractors?: ContractorMaster[];
   isEdit?: boolean;
   submitLabel?: string;
   currentUserRole?: string;
@@ -136,11 +217,19 @@ function UserForm({
       role: "employee",
       companyId: "__none__",
       status: "active",
+      accessDepartments: null,
+      accessLocations: null,
+      accessContractors: null,
       ...defaultValues,
     },
   });
 
   const selectedRole = form.watch("role");
+  const showAccess = ACCESS_ROLES.includes(selectedRole);
+
+  const deptItems = departments.map((d) => ({ id: d.id, name: d.name }));
+  const locItems = locations.map((l) => ({ id: l.id, name: l.name }));
+  const ctItems = contractors.map((c) => ({ id: c.id, name: c.contractorName }));
 
   return (
     <Form {...form}>
@@ -272,6 +361,73 @@ function UserForm({
           />
         )}
 
+        {showAccess && (
+          <div className="rounded-lg border border-dashed p-4 space-y-3">
+            <p className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Data Access Scope</p>
+            <p className="text-xs text-muted-foreground -mt-1">Leave as "All" to grant unrestricted access, or pick specific items.</p>
+
+            {deptItems.length > 0 && (
+              <FormField
+                control={form.control}
+                name="accessDepartments"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-sm">Department Access</FormLabel>
+                    <AccessPicker
+                      label="Department"
+                      items={deptItems}
+                      selected={field.value}
+                      onChange={field.onChange}
+                      testId="access-departments"
+                    />
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            )}
+
+            {locItems.length > 0 && (
+              <FormField
+                control={form.control}
+                name="accessLocations"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-sm">Location Access</FormLabel>
+                    <AccessPicker
+                      label="Location"
+                      items={locItems}
+                      selected={field.value}
+                      onChange={field.onChange}
+                      testId="access-locations"
+                    />
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            )}
+
+            {ctItems.length > 0 && (
+              <FormField
+                control={form.control}
+                name="accessContractors"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-sm">Contractor Access</FormLabel>
+                    <AccessPicker
+                      label="Contractor"
+                      items={ctItems}
+                      selected={field.value}
+                      onChange={field.onChange}
+                      testId="access-contractors"
+                    />
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            )}
+          </div>
+        )}
+
         <DialogFooter>
           <Button type="submit" disabled={isLoading} data-testid="button-submit-user">
             {isLoading ? "Saving..." : submitLabel}
@@ -315,6 +471,23 @@ export default function Users() {
 
   const { data: companies = [] } = useQuery<Company[]>({
     queryKey: ["/api/companies"],
+  });
+
+  const companyId = currentUser?.companyId;
+
+  const { data: departments = [] } = useQuery<MasterDepartment[]>({
+    queryKey: ["/api/master-departments", companyId],
+    enabled: !!companyId,
+  });
+
+  const { data: locations = [] } = useQuery<MasterLocation[]>({
+    queryKey: ["/api/master-locations", companyId],
+    enabled: !!companyId,
+  });
+
+  const { data: contractors = [] } = useQuery<ContractorMaster[]>({
+    queryKey: ["/api/contractor-masters"],
+    enabled: !!companyId,
   });
 
   const createMutation = useMutation({
@@ -449,7 +622,7 @@ export default function Users() {
               Add User
             </Button>
           </DialogTrigger>
-          <DialogContent className="sm:max-w-[500px]">
+          <DialogContent className="sm:max-w-[580px] max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>Create User</DialogTitle>
               <DialogDescription>
@@ -463,6 +636,9 @@ export default function Users() {
               }}
               isLoading={createMutation.isPending}
               companies={companies}
+              departments={departments}
+              locations={locations}
+              contractors={contractors}
               currentUserRole={currentUser?.role || ""}
             />
           </DialogContent>
@@ -599,7 +775,7 @@ export default function Users() {
 
       {/* Edit Dialog */}
       <Dialog open={!!editingUser} onOpenChange={(open) => !open && setEditingUser(null)}>
-        <DialogContent className="sm:max-w-[500px]">
+        <DialogContent className="sm:max-w-[580px] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Edit User</DialogTitle>
             <DialogDescription>
@@ -619,9 +795,15 @@ export default function Users() {
                 role: editingUser.role as any,
                 companyId: editingUser.companyId || "__none__",
                 status: editingUser.status as "active" | "inactive",
+                accessDepartments: (editingUser as any).accessDepartments ?? null,
+                accessLocations: (editingUser as any).accessLocations ?? null,
+                accessContractors: (editingUser as any).accessContractors ?? null,
               }}
               isLoading={updateMutation.isPending}
               companies={companies}
+              departments={departments}
+              locations={locations}
+              contractors={contractors}
               isEdit
               submitLabel="Update User"
               currentUserRole={currentUser?.role || ""}
