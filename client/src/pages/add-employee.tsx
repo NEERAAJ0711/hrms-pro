@@ -31,7 +31,7 @@ import { ArrowLeft, Save, User, Briefcase, FileText, Building2, MapPin, Upload, 
 import { INDIAN_STATES as INDIA_STATES_LIST, INDIA_DISTRICTS } from "@/lib/india-locations";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useLocation, useParams, useSearch } from "wouter";
-import type { Employee, Company, MasterDepartment, MasterDesignation, MasterLocation, TimeOfficePolicy, WageGrade, StatutorySettings } from "@shared/schema";
+import type { Employee, Company, MasterDepartment, MasterDesignation, MasterLocation, TimeOfficePolicy, WageGrade, StatutorySettings, ContractorMaster } from "@shared/schema";
 
 const employeeFormSchema = z.object({
   employeeCode: z.string().min(1, "Employee code is required"),
@@ -68,6 +68,7 @@ const employeeFormSchema = z.object({
   timeOfficePolicyId: z.string().optional(),
   biometricDeviceId: z.string().optional(),
   wageGradeId: z.string().optional(),
+  contractorMasterId: z.string().optional(),
   presentAddress: z.string().optional(),
   presentState: z.string().optional(),
   presentDistrict: z.string().optional(),
@@ -284,6 +285,15 @@ export default function AddEmployee() {
     },
   });
 
+  const { data: contractorMasters = [] } = useQuery<ContractorMaster[]>({
+    queryKey: ["/api/contractor-masters"],
+    queryFn: async () => {
+      const res = await fetch("/api/contractor-masters", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch contractor masters");
+      return res.json();
+    },
+  });
+
   const { data: statutorySettingsList = [] } = useQuery<StatutorySettings[]>({
     queryKey: ["/api/statutory-settings"],
     queryFn: async () => {
@@ -319,6 +329,7 @@ export default function AddEmployee() {
       employmentType: "permanent",
       status: "active",
       wageGradeId: "",
+      contractorMasterId: "",
       pfApplicable: false,
       esiApplicable: false,
       lwfApplicable: false,
@@ -402,6 +413,7 @@ export default function AddEmployee() {
       timeOfficePolicyId: existingEmployee.timeOfficePolicyId || "",
       biometricDeviceId: existingEmployee.biometricDeviceId || "",
       wageGradeId: existingEmployee.wageGradeId || "",
+      contractorMasterId: (existingEmployee as any).contractorMasterId || "",
       presentAddress: existingEmployee.presentAddress || "",
       presentState: existingEmployee.presentState || "",
       presentDistrict: existingEmployee.presentDistrict || "",
@@ -421,6 +433,7 @@ export default function AddEmployee() {
   const filteredLocations = masterLocations.filter(l => l.companyId === effectiveCompanyId);
   const filteredPolicies = timeOfficePolicies.filter(p => p.companyId === effectiveCompanyId && p.status === "active");
   const filteredWageGrades = wageGrades.filter(g => g.companyId === effectiveCompanyId && g.status === "active");
+  const filteredContractors = contractorMasters.filter(c => c.companyId === effectiveCompanyId && c.status === "active");
 
   const autoCreateSalaryStructure = async (emp: any) => {
     if (!emp?.id || !emp?.wageGradeId) return;
@@ -513,6 +526,7 @@ export default function AddEmployee() {
       timeOfficePolicyId: data.timeOfficePolicyId || null,
       biometricDeviceId: data.biometricDeviceId || null,
       wageGradeId: data.wageGradeId || null,
+      contractorMasterId: data.contractorMasterId || null,
     };
     if (isEditing) {
       updateMutation.mutate(submitData as any);
@@ -979,6 +993,37 @@ export default function AddEmployee() {
                               ) : (
                                 <SelectItem value="_none_wg" disabled>
                                   No wage grades configured — add in Settings
+                                </SelectItem>
+                              )}
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="contractorMasterId"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Contractor</FormLabel>
+                          <Select onValueChange={(val) => field.onChange(val === "__none__" ? "" : val)} value={field.value || "__none__"}>
+                            <FormControl>
+                              <SelectTrigger data-testid="select-contractor-master">
+                                <SelectValue placeholder="Select contractor" />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              <SelectItem value="__none__">None</SelectItem>
+                              {filteredContractors.length > 0 ? (
+                                filteredContractors.map((c) => (
+                                  <SelectItem key={c.id} value={c.id}>
+                                    {c.contractorName}
+                                  </SelectItem>
+                                ))
+                              ) : (
+                                <SelectItem value="_none_cm" disabled>
+                                  No contractors configured — add in Settings
                                 </SelectItem>
                               )}
                             </SelectContent>

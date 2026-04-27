@@ -126,6 +126,7 @@ export const employees = pgTable("employees", {
   exitType: text("exit_type"),
   biometricDeviceId: text("biometric_device_id"),
   wageGradeId: varchar("wage_grade_id", { length: 36 }),
+  contractorMasterId: varchar("contractor_master_id", { length: 36 }),
   registeredFaceImage: text("registered_face_image"),
   fatherHusbandName: text("father_husband_name"),
   presentAddress: text("present_address"),
