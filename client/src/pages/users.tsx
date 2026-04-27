@@ -145,8 +145,6 @@ function AccessPicker({
     ? items.find((i) => i.id === selected![0])?.name ?? "1 selected"
     : `${selected!.length} ${label}s selected`;
 
-  if (items.length === 0) return null;
-
   return (
     <div>
       <button
@@ -406,25 +404,23 @@ function UserForm({
               />
             )}
 
-            {ctItems.length > 0 && (
-              <FormField
-                control={form.control}
-                name="accessContractors"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel className="text-sm">Contractor Access</FormLabel>
-                    <AccessPicker
-                      label="Contractor"
-                      items={ctItems}
-                      selected={field.value}
-                      onChange={field.onChange}
-                      testId="access-contractors"
-                    />
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            )}
+            <FormField
+              control={form.control}
+              name="accessContractors"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel className="text-sm">Contractor Access</FormLabel>
+                  <AccessPicker
+                    label="Contractor"
+                    items={ctItems}
+                    selected={field.value}
+                    onChange={field.onChange}
+                    testId="access-contractors"
+                  />
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
           </div>
         )}
 
