@@ -1359,8 +1359,7 @@ export default function ReportsPage() {
     if (fileType === "excel") {
       const rows = emps.map(emp => ({
         "Emp Code": emp.employeeCode,
-        "First Name": emp.firstName,
-        "Last Name": emp.lastName,
+        "Name": [emp.firstName, emp.lastName].filter(Boolean).join(" ").trim(),
         "Company": getCompanyName(emp.companyId),
         "Gender": emp.gender || "",
         "Date of Birth": emp.dateOfBirth || "",

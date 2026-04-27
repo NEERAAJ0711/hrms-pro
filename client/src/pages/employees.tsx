@@ -594,7 +594,7 @@ export default function Employees() {
       await apiRequest("POST", `/api/employees/${emp.id}/reinstate`);
       queryClient.invalidateQueries({ queryKey: ["/api/employees"] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
-      toast({ title: "Employee Reinstated", description: `${emp.firstName} ${emp.lastName} has been reinstated.` });
+      toast({ title: "Employee Reinstated", description: `${[emp.firstName, emp.lastName].filter(Boolean).join(" ").trim()} has been reinstated.` });
       setAadhaarDialogOpen(false);
       setLocation(`/employees/${emp.id}/edit`);
     } catch (error: any) {
@@ -797,13 +797,13 @@ export default function Employees() {
                         <div className="flex items-center gap-3">
                           <Avatar className="h-10 w-10">
                             <AvatarFallback className={employee.status === "inactive" ? "bg-muted text-muted-foreground" : "bg-primary/10 text-primary"}>
-                              {employee.firstName[0]}{employee.lastName[0]}
+                              {[employee.firstName, employee.lastName].filter(Boolean).join(" ").trim().split(/\s+/).slice(0, 2).map(p => p[0]).join("").toUpperCase() || "?"}
                             </AvatarFallback>
                           </Avatar>
                           <div>
                             <div className="font-medium">
                               <span className="text-primary font-semibold">[{employee.employeeCode}]</span>{" "}
-                              {employee.firstName} {employee.lastName}
+                              {[employee.firstName, employee.lastName].filter(Boolean).join(" ").trim()}
                             </div>
                             {employee.exitDate && (
                               <div className="text-xs text-red-500">
@@ -915,7 +915,7 @@ export default function Employees() {
           <DialogHeader>
             <DialogTitle>Mark Employee Exit</DialogTitle>
             <DialogDescription>
-              {selectedEmployee && `Mark ${selectedEmployee.firstName} ${selectedEmployee.lastName} (${selectedEmployee.employeeCode}) as exited.`}
+              {selectedEmployee && `Mark ${[selectedEmployee.firstName, selectedEmployee.lastName].filter(Boolean).join(" ").trim()} (${selectedEmployee.employeeCode}) as exited.`}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
@@ -1052,7 +1052,7 @@ export default function Employees() {
                   <p className="text-sm text-blue-700 dark:text-blue-300 mt-1">{aadhaarResult.message}</p>
                   {aadhaarResult.employeeInfo && (
                     <div className="mt-2 text-sm text-blue-700 dark:text-blue-300">
-                      <p>Name: {aadhaarResult.employeeInfo.firstName} {aadhaarResult.employeeInfo.lastName}</p>
+                      <p>Name: {[aadhaarResult.employeeInfo.firstName, aadhaarResult.employeeInfo.lastName].filter(Boolean).join(" ").trim()}</p>
                       {aadhaarResult.employeeInfo.mobileNumber && <p>Mobile: {aadhaarResult.employeeInfo.mobileNumber}</p>}
                     </div>
                   )}
@@ -1389,7 +1389,7 @@ export default function Employees() {
               Login Account Linked
             </DialogTitle>
             <DialogDescription>
-              <strong>{linkedAccountEmployee?.firstName} {linkedAccountEmployee?.lastName}</strong> ({linkedAccountEmployee?.employeeCode}) already has a login account linked to their profile.
+              <strong>{[linkedAccountEmployee?.firstName, linkedAccountEmployee?.lastName].filter(Boolean).join(" ").trim()}</strong> ({linkedAccountEmployee?.employeeCode}) already has a login account linked to their profile.
             </DialogDescription>
           </DialogHeader>
           <div className="py-2 space-y-3">
@@ -1408,7 +1408,7 @@ export default function Employees() {
             <Button
               variant="destructive"
               onClick={() => {
-                if (linkedAccountEmployee && confirm(`Unlink the login account from ${linkedAccountEmployee.firstName} ${linkedAccountEmployee.lastName}? The user account itself will NOT be deleted.`)) {
+                if (linkedAccountEmployee && confirm(`Unlink the login account from ${[linkedAccountEmployee.firstName, linkedAccountEmployee.lastName].filter(Boolean).join(" ").trim()}? The user account itself will NOT be deleted.`)) {
                   unlinkLoginMutation.mutate(linkedAccountEmployee.id);
                 }
               }}
@@ -1430,7 +1430,7 @@ export default function Employees() {
               Create Login Account
             </DialogTitle>
             <DialogDescription>
-              Create a mobile/web login for <strong>{createLoginEmployee?.firstName} {createLoginEmployee?.lastName}</strong> ({createLoginEmployee?.employeeCode}). They can use these credentials to sign in and access attendance, payslips and leave.
+              Create a mobile/web login for <strong>{[createLoginEmployee?.firstName, createLoginEmployee?.lastName].filter(Boolean).join(" ").trim()}</strong> ({createLoginEmployee?.employeeCode}). They can use these credentials to sign in and access attendance, payslips and leave.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">

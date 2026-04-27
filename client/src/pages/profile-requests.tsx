@@ -43,7 +43,7 @@ const STATUS_BADGE: Record<string, JSX.Element> = {
 };
 
 const FIELD_LABELS: Record<string, string> = {
-  firstName: "First Name", lastName: "Last Name", aadhaar: "Aadhaar",
+  fullName: "Full Name", aadhaar: "Aadhaar",
   dateOfBirth: "Date of Birth", gender: "Gender", mobileNumber: "Mobile",
   personalEmail: "Personal Email", fatherName: "Father Name",
   address: "Present Address", addressState: "Present State",
@@ -55,16 +55,23 @@ const FIELD_LABELS: Record<string, string> = {
 };
 
 const FIELD_ORDER = [
-  "firstName", "lastName", "aadhaar", "dateOfBirth", "gender", "mobileNumber",
+  "fullName", "aadhaar", "dateOfBirth", "gender", "mobileNumber",
   "personalEmail", "fatherName", "address", "addressState", "addressDistrict", "addressPincode",
   "permanentAddress", "permanentState", "permanentDistrict", "permanentPincode",
   "pan", "bankAccount", "ifsc", "bankName", "currentSalary", "expectedSalary", "skills",
 ];
 
+function getFieldValue(data: ProfileData, key: string): string {
+  if (key === "fullName") {
+    return [data.firstName, data.lastName].filter(Boolean).join(" ").trim();
+  }
+  return String(data[key as keyof ProfileData] || "");
+}
+
 function DiffTable({ newData, currentData }: { newData: ProfileData; currentData: ProfileData | null }) {
   const rows = FIELD_ORDER.map(key => {
-    const newVal = String(newData[key as keyof ProfileData] || "");
-    const oldVal = currentData ? String(currentData[key as keyof ProfileData] || "") : "";
+    const newVal = getFieldValue(newData, key);
+    const oldVal = currentData ? getFieldValue(currentData, key) : "";
     const changed = newVal !== oldVal;
     const hasContent = newVal || oldVal;
     if (!hasContent) return null;
