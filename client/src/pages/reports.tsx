@@ -4325,33 +4325,34 @@ export default function ReportsPage() {
       { content: "GRAND TOTAL", styles: { fontStyle: "bold", fillColor: [220, 232, 255], fontSize: 6 } },
       { content: "", styles: { fillColor: [220, 232, 255] } },
       ...Array.from({ length: daysInMonth }, () => ({ content: "", styles: { fillColor: [220, 232, 255] } })),
-      { content: `P:${grandPresent} Off:${grandOff} Hol:${grandHol}\nLv:${grandLeave} Ab:${grandAbsent}\nOT:${minsStr(grandOTMins)}`, styles: { fontStyle: "bold", fillColor: [220, 232, 255], fontSize: 5.5 } },
+      { content: `P:${grandPresent} Off:${grandOff} Hol:${grandHol}\nLv:${grandLeave} Ab:${grandAbsent}\nOT:${minsStr(grandOTMins)}`, styles: { fontStyle: "bold", fillColor: [220, 232, 255], fontSize: 6 } },
     ]);
 
     // ── COLUMN WIDTHS ────────────────────────────────────────────────
-    // Usable: 420 - 12 = 408; fixed: SNo=7, Info=32, Type=9, Summary=38 = 86; days: 408-86=322
-    const dayColW = Math.max(4.5, Math.min(8.0, parseFloat(((408 - 86) / daysInMonth).toFixed(1))));
+    // Usable: 420 - 12 = 408; fixed cols: SNo=7, Info=36, Type=9, Summary=42 = 94; days fill rest
+    const FIXED_W = 94;
+    const dayColW = parseFloat(((408 - FIXED_W) / daysInMonth).toFixed(2)); // exact fill, ~10.5mm for 30 days
     const colStyles: Record<number, any> = {
-      0: { cellWidth: 7, halign: "center", fontStyle: "bold", fontSize: 5.5 },
-      1: { cellWidth: 32, halign: "left", fontSize: 5.5, overflow: "linebreak" },
-      2: { cellWidth: 9, halign: "center", fontStyle: "bold", fontSize: 5.5 },
+      0: { cellWidth: 7,  halign: "center", fontStyle: "bold", fontSize: 6 },
+      1: { cellWidth: 36, halign: "left",   fontSize: 6,       overflow: "linebreak" },
+      2: { cellWidth: 9,  halign: "center", fontStyle: "bold", fontSize: 6 },
     };
     for (let d = 0; d < daysInMonth; d++) {
       const dObj = new Date(`${yearStr}-${monthStr}-${String(d + 1).padStart(2, "0")}T00:00:00`);
       const isSun = dObj.getDay() === 0;
-      colStyles[3 + d] = { cellWidth: dayColW, halign: "center", fontSize: 5, fillColor: isSun ? [255, 250, 230] : undefined };
+      colStyles[3 + d] = { cellWidth: dayColW, halign: "center", fontSize: 5.5, fillColor: isSun ? [255, 250, 230] : undefined };
     }
-    colStyles[3 + daysInMonth] = { cellWidth: 38, halign: "left", fontSize: 5.5, overflow: "linebreak" };
+    colStyles[3 + daysInMonth] = { cellWidth: 42, halign: "left", fontSize: 6, overflow: "linebreak" };
 
     autoTable(doc, {
       startY: y,
       margin: { left: ML, right: MR },
       head: [HEAD_COLS],
       body: allRows,
-      styles: { fontSize: 5.5, cellPadding: 0.7, lineColor: [120, 140, 200], lineWidth: 0.12, valign: "middle", overflow: "linebreak" },
+      styles: { fontSize: 6, cellPadding: 1.2, lineColor: [120, 140, 200], lineWidth: 0.12, valign: "middle", overflow: "linebreak" },
       headStyles: {
-        fillColor: [30, 58, 138], textColor: 255, fontStyle: "bold", fontSize: 5.5,
-        lineColor: [15, 35, 100], lineWidth: 0.2, halign: "center", minCellHeight: 8,
+        fillColor: [30, 58, 138], textColor: 255, fontStyle: "bold", fontSize: 6,
+        lineColor: [15, 35, 100], lineWidth: 0.2, halign: "center", minCellHeight: 9,
       },
       columnStyles: colStyles,
       didParseCell: (data: any) => {
