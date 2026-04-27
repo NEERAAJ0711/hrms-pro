@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Settings, Building2, Calendar, CalendarDays, Clock, Bell, Shield, Globe, Save, Users, Briefcase, MapPin, DollarSign, Percent, Plus, Pencil, Trash2, FileText, LocateFixed, Loader2 } from "lucide-react";
+import { Settings, Building2, Calendar, CalendarDays, Clock, Bell, Shield, Save, Users, Briefcase, MapPin, DollarSign, Percent, Plus, Pencil, Trash2, FileText, LocateFixed, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -141,7 +141,7 @@ export default function SettingsPage() {
               </SelectContent>
             </Select>
           )}
-          {(activeTab === "general" || activeTab === "localization" || activeTab === "notifications" || activeTab === "security") && (
+          {activeTab === "general" && (
             <Button onClick={() => saveMutation.mutate(formData)} disabled={saveMutation.isPending} data-testid="button-save-settings">
               <Save className="h-4 w-4 mr-2" />
               {saveMutation.isPending ? "Saving..." : "Save Changes"}
@@ -156,10 +156,6 @@ export default function SettingsPage() {
             <Building2 className="h-4 w-4 mr-2" />
             General
           </TabsTrigger>
-          <TabsTrigger value="localization" data-testid="tab-localization">
-            <Globe className="h-4 w-4 mr-2" />
-            Localization
-          </TabsTrigger>
           <TabsTrigger value="masters" data-testid="tab-masters">
             <Briefcase className="h-4 w-4 mr-2" />
             Masters
@@ -167,14 +163,6 @@ export default function SettingsPage() {
           <TabsTrigger value="statutory" data-testid="tab-statutory">
             <Percent className="h-4 w-4 mr-2" />
             Statutory
-          </TabsTrigger>
-          <TabsTrigger value="notifications" data-testid="tab-notifications">
-            <Bell className="h-4 w-4 mr-2" />
-            Notifications
-          </TabsTrigger>
-          <TabsTrigger value="security" data-testid="tab-security">
-            <Shield className="h-4 w-4 mr-2" />
-            Security
           </TabsTrigger>
           <TabsTrigger value="holidays" data-testid="tab-holidays">
             <CalendarDays className="h-4 w-4 mr-2" />
@@ -187,11 +175,12 @@ export default function SettingsPage() {
         </TabsList>
 
         <TabsContent value="general">
-          <GeneralSettings formData={formData} handleInputChange={handleInputChange} />
-        </TabsContent>
-
-        <TabsContent value="localization">
-          <LocalizationSettings formData={formData} handleInputChange={handleInputChange} />
+          <div className="grid gap-6">
+            <GeneralSettings formData={formData} handleInputChange={handleInputChange} />
+            <LocalizationSettings formData={formData} handleInputChange={handleInputChange} />
+            <NotificationSettings formData={formData} handleInputChange={handleInputChange} />
+            <SecuritySettings formData={formData} handleInputChange={handleInputChange} />
+          </div>
         </TabsContent>
 
         <TabsContent value="masters">
@@ -200,14 +189,6 @@ export default function SettingsPage() {
 
         <TabsContent value="statutory">
           <StatutorySettingsTab companyId={companyIdForQueries} selectedCompany={selectedCompany} />
-        </TabsContent>
-
-        <TabsContent value="notifications">
-          <NotificationSettings formData={formData} handleInputChange={handleInputChange} />
-        </TabsContent>
-
-        <TabsContent value="security">
-          <SecuritySettings formData={formData} handleInputChange={handleInputChange} />
         </TabsContent>
 
         <TabsContent value="holidays">
