@@ -2821,25 +2821,59 @@ export default function ReportsPage() {
       // ══════════════════════════════════════════════════════════
       // PAGE 1 – EMPLOYEE'S FILE CHECK LIST
       // ══════════════════════════════════════════════════════════
-      let y = 20;
-      y = companyHeader(doc, company, y); y += 8;
-      doc.setFont("helvetica", "bold"); doc.setFontSize(12);
-      doc.text("EMPLOYEE'S FILE CHECK LIST", PW / 2, y, { align: "center" }); y += 12;
+      let y = 10;
 
-      doc.setFont("helvetica", "bold"); doc.setFontSize(10);
-      doc.text("NAME :", ML, y);
-      doc.setFont("helvetica", "normal"); doc.text(empName, ML + 18, y);
-      doc.setFont("helvetica", "bold"); doc.text("Designation", ML + 110, y);
-      doc.setFont("helvetica", "normal"); doc.text(e.designation || "", ML + 135, y); y += 7;
-      doc.setFont("helvetica", "bold"); doc.text("PAYCODE NO:", ML, y);
-      doc.setFont("helvetica", "normal"); doc.text(e.employeeCode || "", ML + 28, y);
-      doc.setFont("helvetica", "bold"); doc.text("Department", ML + 110, y);
-      doc.setFont("helvetica", "normal"); doc.text(e.department || "", ML + 132, y); y += 12;
+      // Solid blue header bar
+      doc.setFillColor(30, 58, 138);
+      doc.rect(ML, y, UW, 16, "F");
+      doc.setTextColor(255, 255, 255);
+      doc.setFont("helvetica", "bold"); doc.setFontSize(14);
+      doc.text((company?.companyName || "Company").toUpperCase(), PW / 2, y + 7, { align: "center" });
+      doc.setFontSize(8); doc.setFont("helvetica", "normal");
+      const regAddr1 = (company as any)?.registeredAddress || "";
+      if (regAddr1) doc.text(regAddr1.toUpperCase(), PW / 2, y + 12.5, { align: "center" });
+      doc.setTextColor(0, 0, 0); y += 20;
 
-      doc.setFont("helvetica", "bold"); doc.setFontSize(9);
-      doc.text("CHECK POINT", ML + 8, y); doc.text("CHECK LIST", ML + 118, y); y += 4;
-      doc.setLineWidth(0.3); doc.line(ML, y, PW - MR, y); y += 6;
+      // Title box
+      doc.setFillColor(239, 246, 255);
+      doc.setDrawColor(30, 58, 138); doc.setLineWidth(0.4);
+      doc.rect(ML, y, UW, 10, "FD");
+      doc.setFont("helvetica", "bold"); doc.setFontSize(13);
+      doc.setTextColor(30, 58, 138);
+      doc.text("EMPLOYEE'S FILE CHECK LIST", PW / 2, y + 7, { align: "center" });
+      doc.setTextColor(0, 0, 0); y += 14;
 
+      // Employee info block
+      autoTable(doc, {
+        body: [
+          [
+            { content: "NAME", styles: { fontStyle: "bold", fillColor: [219, 234, 254] as [number,number,number] } },
+            { content: empName },
+            { content: "DESIGNATION", styles: { fontStyle: "bold", fillColor: [219, 234, 254] as [number,number,number] } },
+            { content: (e.designation || "").toUpperCase() },
+          ],
+          [
+            { content: "PAYCODE NO.", styles: { fontStyle: "bold", fillColor: [219, 234, 254] as [number,number,number] } },
+            { content: e.employeeCode || "" },
+            { content: "DEPARTMENT", styles: { fontStyle: "bold", fillColor: [219, 234, 254] as [number,number,number] } },
+            { content: (e.department || "").toUpperCase() },
+          ],
+          [
+            { content: "DATE OF JOINING", styles: { fontStyle: "bold", fillColor: [219, 234, 254] as [number,number,number] } },
+            { content: doj },
+            { content: "CARD NO.", styles: { fontStyle: "bold", fillColor: [219, 234, 254] as [number,number,number] } },
+            { content: e.employeeCode || "" },
+          ],
+        ],
+        startY: y,
+        theme: "grid",
+        styles: { fontSize: 10, cellPadding: 3, lineColor: [30, 58, 138], lineWidth: 0.25, valign: "middle" },
+        columnStyles: { 0: { cellWidth: 40 }, 1: { cellWidth: 62 }, 2: { cellWidth: 40 }, 3: { cellWidth: 40 } },
+        margin: { left: ML, right: MR },
+      });
+      y = (doc as any).lastAutoTable.finalY + 8;
+
+      // Checklist table
       const checkItems = [
         "EMP HISTORY SHEET", "BIO-DATA",
         "NAUKARI KI LIYE PRATHNA PATRA (Application for Employment)",
@@ -2847,62 +2881,126 @@ export default function ReportsPage() {
         "CONFIRMATION LETTER", "FORM-16", "ESIC FORM-1", "INDUCTION",
         "APPLICATION FORM", "EMP BACK GROUND",
       ];
-      doc.setFont("helvetica", "normal"); doc.setFontSize(9.5);
-      checkItems.forEach(item => {
-        doc.rect(ML, y - 3.5, 4, 4);
-        doc.text(item, ML + 7, y); y += 8;
+      autoTable(doc, {
+        head: [[
+          { content: "S.No.", styles: { halign: "center" as const } },
+          { content: "CHECK POINT / DOCUMENT NAME", styles: { halign: "left" as const } },
+          { content: "CHECK LIST  ✓", styles: { halign: "center" as const } },
+        ]],
+        body: checkItems.map((item, i) => [
+          { content: String(i + 1), styles: { halign: "center" as const } },
+          { content: item },
+          { content: "" },
+        ]),
+        startY: y,
+        theme: "grid",
+        styles: { fontSize: 10, cellPadding: 3.5, lineColor: [30, 58, 138], lineWidth: 0.25, valign: "middle" },
+        headStyles: { fillColor: [30, 58, 138], textColor: 255, fontStyle: "bold", fontSize: 10, halign: "center" as const },
+        alternateRowStyles: { fillColor: [248, 251, 255] },
+        columnStyles: {
+          0: { cellWidth: 18, halign: "center" as const, fontStyle: "bold" },
+          1: { cellWidth: 130 },
+          2: { cellWidth: 34, halign: "center" as const },
+        },
+        margin: { left: ML, right: MR },
       });
-      // Paycode bottom-right
-      doc.setFont("helvetica", "bold"); doc.setFontSize(10);
-      doc.text(e.employeeCode || "", PW - MR, 280, { align: "right" });
+      // Paycode stamp bottom-right
+      doc.setFont("helvetica", "bold"); doc.setFontSize(11);
+      doc.setTextColor(30, 58, 138);
+      doc.text(e.employeeCode || "", PW - MR, (doc as any).lastAutoTable.finalY + 8, { align: "right" });
+      doc.setTextColor(0, 0, 0);
 
       // ══════════════════════════════════════════════════════════
       // PAGE 2 – EMPLOYEE HISTORY SHEET
       // ══════════════════════════════════════════════════════════
-      doc.addPage(); y = 15;
-      doc.setFont("helvetica", "bold"); doc.setFontSize(10);
-      doc.text(e.employeeCode || "", PW - MR, y, { align: "right" });
-      doc.setFontSize(13);
-      doc.text("EMPLOYEE HISTORY SHEET", PW / 2, y, { align: "center" }); y += 12;
+      doc.addPage(); y = 10;
 
-      const histPairs: [string, string][] = [
-        ["NAME", empName], ["PAY CODE", e.employeeCode || ""],
-        ["DESIGNATION", e.designation || ""], ["DEPTT", e.department || ""],
-        ["DOJ", doj], ["Card No.", e.employeeCode || ""],
-      ];
-      doc.setFontSize(10);
-      histPairs.forEach(([lbl, val]) => {
-        doc.setFont("helvetica", "bold"); doc.text(lbl, ML, y);
-        doc.setFont("helvetica", "normal"); doc.text(val, ML + 38, y);
-        doc.setLineWidth(0.2); doc.line(ML + 35, y + 1, PW / 2 - 5, y + 1); y += 9;
-      });
-      y += 5;
+      // Header bar
+      doc.setFillColor(30, 58, 138);
+      doc.rect(ML, y, UW, 16, "F");
+      doc.setTextColor(255, 255, 255);
+      doc.setFont("helvetica", "bold"); doc.setFontSize(14);
+      doc.text((company?.companyName || "Company").toUpperCase(), PW / 2, y + 7, { align: "center" });
+      doc.setFontSize(8); doc.setFont("helvetica", "normal");
+      if (regAddr1) doc.text(regAddr1.toUpperCase(), PW / 2, y + 12.5, { align: "center" });
+      doc.setTextColor(0, 0, 0); y += 20;
 
+      // Title
+      doc.setFillColor(239, 246, 255);
+      doc.setDrawColor(30, 58, 138); doc.setLineWidth(0.4);
+      doc.rect(ML, y, UW, 10, "FD");
+      doc.setFont("helvetica", "bold"); doc.setFontSize(13);
+      doc.setTextColor(30, 58, 138);
+      doc.text("EMPLOYEE HISTORY SHEET", PW / 2, y + 7, { align: "center" });
+      doc.setTextColor(0, 0, 0); y += 14;
+
+      // Employee info block
       autoTable(doc, {
-        head: [["INCREASE DATE", "INCREASE AMOUNT", "CTC SALARY", "REMARKS"]],
-        body: [["", "", "", ""], ["", "", "", ""], ["", "", "", ""]],
+        body: [
+          [
+            { content: "NAME", styles: { fontStyle: "bold", fillColor: [219, 234, 254] as [number,number,number] } },
+            { content: empName, colSpan: 3 },
+            { content: "PAY CODE", styles: { fontStyle: "bold", fillColor: [219, 234, 254] as [number,number,number] } },
+            { content: e.employeeCode || "" },
+          ],
+          [
+            { content: "DESIGNATION", styles: { fontStyle: "bold", fillColor: [219, 234, 254] as [number,number,number] } },
+            { content: (e.designation || "").toUpperCase(), colSpan: 3 },
+            { content: "DEPARTMENT", styles: { fontStyle: "bold", fillColor: [219, 234, 254] as [number,number,number] } },
+            { content: (e.department || "").toUpperCase() },
+          ],
+          [
+            { content: "DATE OF JOINING", styles: { fontStyle: "bold", fillColor: [219, 234, 254] as [number,number,number] } },
+            { content: doj },
+            { content: "CARD NO.", styles: { fontStyle: "bold", fillColor: [219, 234, 254] as [number,number,number] } },
+            { content: e.employeeCode || "" },
+            { content: "GROSS SALARY", styles: { fontStyle: "bold", fillColor: [219, 234, 254] as [number,number,number] } },
+            { content: grossStr ? `Rs. ${grossStr}` : "" },
+          ],
+        ],
         startY: y,
-        styles: { fontSize: 9, cellPadding: 4.5, lineColor: [0,0,0], lineWidth: 0.2 },
-        headStyles: { fillColor: [220,220,220], textColor: [0,0,0], fontStyle: "bold", halign: "center", lineColor: [0,0,0] },
-        columnStyles: { 0:{cellWidth:42}, 1:{cellWidth:42}, 2:{cellWidth:42}, 3:{cellWidth:54} },
-        margin: { left: ML },
+        theme: "grid",
+        styles: { fontSize: 10, cellPadding: 3, lineColor: [30, 58, 138], lineWidth: 0.25, valign: "middle" },
+        columnStyles: {
+          0: { cellWidth: 36 }, 1: { cellWidth: 36 }, 2: { cellWidth: 28 },
+          3: { cellWidth: 30 }, 4: { cellWidth: 30 }, 5: { cellWidth: 22 },
+        },
+        margin: { left: ML, right: MR },
       });
       y = (doc as any).lastAutoTable.finalY + 10;
 
-      doc.setFont("helvetica", "bold"); doc.setFontSize(10);
+      // Increment table
+      doc.setFont("helvetica", "bold"); doc.setFontSize(10); doc.setTextColor(30, 58, 138);
+      doc.text("SALARY INCREMENT HISTORY", ML, y); doc.setTextColor(0, 0, 0); y += 5;
+      autoTable(doc, {
+        head: [["INCREASE DATE", "INCREASE AMOUNT (Rs.)", "CTC SALARY (Rs.)", "REMARKS"]],
+        body: Array(4).fill(["", "", "", ""]),
+        startY: y,
+        styles: { fontSize: 9.5, cellPadding: 5, lineColor: [30, 58, 138], lineWidth: 0.2, valign: "middle" },
+        headStyles: { fillColor: [30, 58, 138], textColor: 255, fontStyle: "bold", halign: "center" as const, lineColor: [20, 40, 120] },
+        alternateRowStyles: { fillColor: [248, 251, 255] },
+        columnStyles: { 0: { cellWidth: 42, halign: "center" as const }, 1: { cellWidth: 50, halign: "center" as const }, 2: { cellWidth: 50, halign: "center" as const }, 3: { cellWidth: 40 } },
+        margin: { left: ML, right: MR },
+      });
+      y = (doc as any).lastAutoTable.finalY + 10;
+
+      // Side-by-side: Salary Growth + Career History
+      doc.setFont("helvetica", "bold"); doc.setFontSize(10); doc.setTextColor(30, 58, 138);
       doc.text("SALARY GROWTH TABLE", ML, y);
-      doc.text("CAREER HISTORY", ML + 105, y); y += 6;
+      doc.text("CAREER HISTORY", ML + 105, y);
+      doc.setTextColor(0, 0, 0); y += 5;
 
       const growthRows: [string, string][] = [];
-      if (e.dateOfJoining && (ss || e.grossSalary)) growthRows.push([doj, grossStr]);
+      if (e.dateOfJoining && (ss || e.grossSalary)) growthRows.push([doj, grossStr ? `Rs. ${grossStr}` : ""]);
       while (growthRows.length < 6) growthRows.push(["", ""]);
       autoTable(doc, {
-        head: [["YEAR", "GROSS SALARY"]],
+        head: [["YEAR / DATE", "GROSS SALARY (Rs.)"]],
         body: growthRows,
         startY: y,
-        styles: { fontSize: 9, cellPadding: 3.5, lineColor: [0,0,0], lineWidth: 0.2 },
-        headStyles: { fillColor: [220,220,220], textColor: [0,0,0], fontStyle: "bold", lineColor: [0,0,0] },
-        columnStyles: { 0:{cellWidth:50}, 1:{cellWidth:50} },
+        styles: { fontSize: 9.5, cellPadding: 4, lineColor: [30, 58, 138], lineWidth: 0.2, valign: "middle" },
+        headStyles: { fillColor: [30, 58, 138], textColor: 255, fontStyle: "bold", halign: "center" as const },
+        alternateRowStyles: { fillColor: [248, 251, 255] },
+        columnStyles: { 0: { cellWidth: 50, halign: "center" as const }, 1: { cellWidth: 50, halign: "center" as const } },
         margin: { left: ML },
       });
 
@@ -3643,7 +3741,11 @@ export default function ReportsPage() {
       const mn = Math.abs(m) % 60;
       return `${String(h).padStart(2, "0")}.${String(mn).padStart(2, "0")}`;
     };
-    const fmtT = (t: string): string => (t || "").replace(":", ".");
+    const fmtT = (t: string): string => {
+      if (!t) return "";
+      const [hh, mm] = t.split(":").map(Number);
+      return `${String(hh).padStart(2, "0")}.${String(mm || 0).padStart(2, "0")}`;
+    };
 
     const getPolicy = (emp: Employee) => {
       const pol = emp.timeOfficePolicyId ? timeOfficePolicies.find(p => p.id === emp.timeOfficePolicyId) : null;
@@ -3657,7 +3759,6 @@ export default function ReportsPage() {
         if (s === "WO") return "OFF";
         if (s === "H") return "HOL";
         if (s === "L") return "EL";
-        if (s === "A" || s === "-") return "A-A";
         return "A-A";
       }
       if (rec.status === "present") return "P-P";
@@ -3670,14 +3771,11 @@ export default function ReportsPage() {
     };
 
     const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
-    const pageW = 297;
-    const ml = 10;
-    const mr = 10;
+    const PW = 297, PH = 210, ML = 8, MR = 8;
     const company = companies.find(co => co.id === (effectiveCompany || empsToRun[0]?.companyId));
-    const companyName = company?.companyName || "Company";
-    const dateFrom = format(new Date(yearNum, monthNum - 1, 1), "dd MMMM, yyyy");
-    const dateTo = format(new Date(yearNum, monthNum - 1, daysInMonth), "dd MMMM, yyyy");
-    const periodStr = `${dateFrom} - ${dateTo}`;
+    const companyName = (company?.companyName || "Company").toUpperCase();
+    const companyAddr = ((company as any)?.registeredAddress || "").toUpperCase();
+    const periodLabel = `01 ${monthName.toUpperCase()} ${yearNum}  TO  ${daysInMonth} ${monthName.toUpperCase()} ${yearNum}`;
 
     let isFirst = true;
 
@@ -3688,191 +3786,166 @@ export default function ReportsPage() {
       const policy = getPolicy(emp);
       const dutyStart = policy?.dutyStartTime || "09:30";
       const dutyEnd = policy?.dutyEndTime || "18:00";
-      const shiftName = policy?.policyName ? policy.policyName.charAt(0).toUpperCase() : "G";
+      const shiftLabel = policy?.policyName?.toUpperCase() || "GENERAL";
+      const shiftCode = shiftLabel.charAt(0);
       const dutyStartMins = tToMins(dutyStart);
       const dutyEndMins = tToMins(dutyEnd);
-
-      let y = 13;
-
-      // Header
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(13);
-      doc.text("ATTENDANCE REGISTER", pageW / 2, y, { align: "center" });
-      y += 6;
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(9);
-      doc.text(periodStr, pageW / 2, y, { align: "center" });
-      doc.text("Page 1 of 1", pageW - mr, y, { align: "right" });
-      y += 4;
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(8.5);
-      doc.text(companyName, pageW - mr, y + 1, { align: "right" });
-      y += 5;
-
-      // Employee info box
-      doc.setDrawColor(120, 120, 120);
-      doc.setLineWidth(0.3);
-      doc.line(ml, y, pageW - mr, y);
-
-      const col1 = ml + 2;
-      const w0 = 22, w1 = 22, w2 = 58, w3 = 80;
-
-      y += 4;
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(7.5);
-      doc.text("Paycode", col1, y);
-      doc.text("Card", col1 + w0, y);
-      doc.text("Employee Name", col1 + w0 + w1, y);
-      doc.text("Desig./Dept.", col1 + w0 + w1 + w2, y);
-      doc.text("Cadre/Company", col1 + w0 + w1 + w2 + w3, y);
-
-      y += 5;
-      const empName = `${emp.firstName} ${emp.lastName}`;
-      const designation = emp.designation || "";
-      const department = emp.department || "";
-      const cadre = (emp as any).cadre || "STAFF";
+      const empName = `${emp.firstName} ${emp.lastName}`.toUpperCase();
+      const designation = (emp.designation || "").toUpperCase();
+      const department = (emp.department || "").toUpperCase();
       const designDept = [designation, department].filter(Boolean).join(" / ");
+      const dojStr = emp.dateOfJoining ? format(new Date(emp.dateOfJoining + "T00:00:00"), "dd-MM-yyyy") : "";
 
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(8);
-      doc.text(emp.employeeCode || "", col1, y);
-      doc.text(emp.employeeCode || "", col1 + w0, y);
-      doc.setFont("helvetica", "normal");
-      doc.text(empName.toUpperCase(), col1 + w0 + w1, y);
-      doc.text(designation.toUpperCase(), col1 + w0 + w1 + w2, y);
-      doc.text(cadre.toUpperCase(), col1 + w0 + w1 + w2 + w3, y);
+      // ── HEADER ──────────────────────────────────────────────────
+      let y = 9;
+      doc.setFillColor(30, 58, 138);
+      doc.rect(ML, y - 1, PW - ML - MR, 12, "F");
+      doc.setFont("helvetica", "bold"); doc.setFontSize(13);
+      doc.setTextColor(255, 255, 255);
+      doc.text(companyName, PW / 2, y + 5, { align: "center" }); y += 13;
+      doc.setTextColor(0, 0, 0);
 
-      // Right side: No of days / DOJ
-      doc.setFontSize(7.5);
-      doc.text(`No of days : ${daysInMonth}`, pageW - mr, y - 5, { align: "right" });
-      doc.text(`Doj : ${emp.dateOfJoining ? format(new Date(emp.dateOfJoining + "T00:00:00"), "dd-MM-yyyy") : "-"}`, pageW - mr, y + 10, { align: "right" });
+      doc.setFont("helvetica", "normal"); doc.setFontSize(8);
+      if (companyAddr) { doc.text(companyAddr, PW / 2, y, { align: "center" }); y += 4; }
 
-      y += 4;
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(7);
-      doc.text(department.toUpperCase(), col1 + w0 + w1 + w2, y);
-      doc.text(companyName, col1 + w0 + w1 + w2 + w3, y);
+      doc.setFont("helvetica", "bold"); doc.setFontSize(11);
+      doc.text("INDIVIDUAL ATTENDANCE SHEET", PW / 2, y, { align: "center" }); y += 5;
+      doc.setFont("helvetica", "normal"); doc.setFontSize(8.5);
+      doc.text(`Period : ${periodLabel}`, PW / 2, y, { align: "center" }); y += 3;
+      doc.setDrawColor(30, 58, 138); doc.setLineWidth(0.5);
+      doc.line(ML, y, PW - MR, y); y += 2;
 
-      y += 5;
-      doc.setLineWidth(0.3);
-      doc.line(ml, y, pageW - mr, y);
-      y += 2;
+      // ── EMPLOYEE INFO BLOCK ─────────────────────────────────────
+      const infoLabelFill = [219, 234, 254] as [number, number, number];
+      autoTable(doc, {
+        body: [
+          [
+            { content: "Paycode", styles: { fontStyle: "bold" as const, fillColor: infoLabelFill } },
+            { content: emp.employeeCode || "" },
+            { content: "Card No.", styles: { fontStyle: "bold" as const, fillColor: infoLabelFill } },
+            { content: emp.employeeCode || "" },
+            { content: "Employee Name", styles: { fontStyle: "bold" as const, fillColor: infoLabelFill } },
+            { content: empName },
+            { content: "No. of Days", styles: { fontStyle: "bold" as const, fillColor: infoLabelFill } },
+            { content: String(daysInMonth) },
+          ],
+          [
+            { content: "Designation", styles: { fontStyle: "bold" as const, fillColor: infoLabelFill } },
+            { content: designation },
+            { content: "Department", styles: { fontStyle: "bold" as const, fillColor: infoLabelFill } },
+            { content: department },
+            { content: "Shift", styles: { fontStyle: "bold" as const, fillColor: infoLabelFill } },
+            { content: `${shiftLabel}  (${dutyStart} – ${dutyEnd})` },
+            { content: "Date of Joining", styles: { fontStyle: "bold" as const, fillColor: infoLabelFill } },
+            { content: dojStr },
+          ],
+        ],
+        startY: y,
+        styles: { fontSize: 8, cellPadding: 2.2, lineColor: [30, 58, 138], lineWidth: 0.2, valign: "middle" },
+        columnStyles: {
+          0: { cellWidth: 22 }, 1: { cellWidth: 26 },
+          2: { cellWidth: 18 }, 3: { cellWidth: 26 },
+          4: { cellWidth: 26 }, 5: { cellWidth: 70 },
+          6: { cellWidth: 24 }, 7: { cellWidth: 62 },
+        },
+        margin: { left: ML, right: MR },
+        theme: "grid",
+      });
+      y = (doc as any).lastAutoTable.finalY + 1;
 
-      // Build daily data
+      // ── BUILD DAILY DATA ─────────────────────────────────────────
       let presentCount = 0, offCount = 0, holidayCount = 0, leaveCount = 0, tourCount = 0, absentCount = 0;
       let totalWorkMins = 0, totalOTMins = 0;
       let totArrE = 0, totArrL = 0, totDepE = 0, totDepL = 0;
-
-      interface DayRow {
-        date: string; day: string; shift: string;
-        inT: string; outT: string;
-        arrE: string; arrL: string; depE: string; depL: string;
-        wh: string; ot: string; status: string; remark: string;
-      }
+      interface DayRow { date: string; day: string; shift: string; inT: string; outT: string; arrE: string; arrL: string; depE: string; depL: string; wh: string; ot: string; status: string; remark: string; }
       const dailyRows: DayRow[] = [];
 
       for (let d = 1; d <= daysInMonth; d++) {
         const dateStr = `${yearStr}-${monthStr}-${String(d).padStart(2, "0")}`;
         const dateObj = new Date(dateStr + "T00:00:00");
-        const dayAbbr = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][dateObj.getDay()];
+        const dayAbbr = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"][dateObj.getDay()];
         const rec = attendance.find(a => a.employeeId === emp.id && a.date === dateStr);
         const sc = getStatusCode(rec, emp, dateStr);
-
         let inT = "", outT = "", wh = "", ot = "";
         let arrE = "", arrL = "", depE = "", depL = "";
-
-        if (rec && rec.status === "present" && rec.clockIn && rec.clockOut) {
+        if (rec && rec.status === "present" && rec.clockIn) {
           inT = fmtT(rec.clockIn);
-          outT = fmtT(rec.clockOut);
+          outT = rec.clockOut ? fmtT(rec.clockOut) : "";
           wh = rec.workHours || "";
           ot = rec.otHours && parseFloat(rec.otHours) > 0 ? rec.otHours : "";
-
           const ciM = tToMins(rec.clockIn);
-          const coM = tToMins(rec.clockOut);
+          const coM = rec.clockOut ? tToMins(rec.clockOut) : dutyEndMins;
           const aE = Math.max(0, dutyStartMins - ciM);
           const aL = Math.max(0, ciM - dutyStartMins);
           const dE = Math.max(0, dutyEndMins - coM);
           const dL = Math.max(0, coM - dutyEndMins);
-
           if (aE > 0) arrE = minsToHHMM(aE);
           if (aL > 0) arrL = minsToHHMM(aL);
           if (dE > 0) depE = minsToHHMM(dE);
           if (dL > 0) depL = minsToHHMM(dL);
           totArrE += aE; totArrL += aL; totDepE += dE; totDepL += dL;
-
-          if (rec.workHours) {
-            const [wHh, wHm] = rec.workHours.split(".").map(Number);
-            totalWorkMins += (wHh || 0) * 60 + (wHm || 0);
-          }
-          if (rec.otHours && parseFloat(rec.otHours) > 0) {
-            const [oHh, oHm] = rec.otHours.split(".").map(Number);
-            totalOTMins += (oHh || 0) * 60 + (oHm || 0);
-          }
+          if (rec.workHours) { const [wHh, wHm] = rec.workHours.split(".").map(Number); totalWorkMins += (wHh || 0) * 60 + (wHm || 0); }
+          if (rec.otHours && parseFloat(rec.otHours) > 0) { const [oHh, oHm] = rec.otHours.split(".").map(Number); totalOTMins += (oHh || 0) * 60 + (oHm || 0); }
         }
-
-        if (sc === "P-P" || sc === "P-A" || sc === "A-P") presentCount++;
+        if (sc === "P-P" || sc === "P-A") presentCount++;
         else if (sc === "OFF") offCount++;
         else if (sc === "HOL") holidayCount++;
         else if (["EL", "CL", "SL", "PL", "ML", "LOP"].includes(sc)) leaveCount++;
         else if (sc === "TOUR" || sc === "OD") tourCount++;
         else absentCount++;
-
-        dailyRows.push({ date: `${String(d).padStart(2, "0")}/${monthStr}/${yearStr}`, day: dayAbbr, shift: shiftName, inT, outT, arrE, arrL, depE, depL, wh, ot, status: sc, remark: rec?.notes || "" });
+        dailyRows.push({ date: `${String(d).padStart(2, "0")}-${monthStr}-${yearStr}`, day: dayAbbr, shift: shiftCode, inT, outT, arrE, arrL, depE, depL, wh, ot, status: sc, remark: rec?.notes || "" });
       }
 
       const totalWorkStr = minsToHHMM(totalWorkMins);
       const totalOTStr = minsToHHMM(totalOTMins);
       const payDays = Math.min(presentCount + offCount + holidayCount + leaveCount + tourCount, daysInMonth);
       const ss = salaryStructures.find(s => s.employeeId === emp.id);
-      const rate = ss?.grossSalary || 0;
+      const rate = ss?.grossSalary || emp.grossSalary || 0;
 
-      // Summary section
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(7.5);
-      ["Present", "Off", "Holiday", "Leave", "Tour", "Absent"].forEach((lbl, i) => {
-        doc.text(lbl, col1 + i * 26, y + 4);
+      // ── SUMMARY BAR ──────────────────────────────────────────────
+      autoTable(doc, {
+        head: [["Present", "Off", "Holiday", "Leave", "Tour", "Absent", "Working Hours", "Overtime Hours", "Rate (₹)", "Days Payable"]],
+        body: [[
+          presentCount.toFixed(2), offCount.toFixed(2), String(holidayCount),
+          leaveCount.toFixed(2), String(tourCount), absentCount.toFixed(2),
+          totalWorkStr, totalOTStr,
+          rate > 0 ? rate.toLocaleString("en-IN") : "—", payDays.toFixed(2),
+        ]],
+        startY: y,
+        styles: { fontSize: 8, cellPadding: 2, halign: "center" as const, lineColor: [30, 58, 138], lineWidth: 0.2, valign: "middle" },
+        headStyles: { fillColor: [30, 58, 138], textColor: 255, fontStyle: "bold", fontSize: 7.5, halign: "center" as const },
+        bodyStyles: { fillColor: [239, 246, 255] },
+        columnStyles: {
+          0: { cellWidth: 21 }, 1: { cellWidth: 18 }, 2: { cellWidth: 20 },
+          3: { cellWidth: 17 }, 4: { cellWidth: 15 }, 5: { cellWidth: 21 },
+          6: { cellWidth: 28 }, 7: { cellWidth: 28 }, 8: { cellWidth: 28 }, 9: { cellWidth: 28 },
+        },
+        margin: { left: ML, right: MR },
+        theme: "grid",
       });
-      y += 5;
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(7.5);
-      [presentCount, offCount, holidayCount, leaveCount, tourCount, absentCount].forEach((v, i) => {
-        doc.text(v.toFixed(2), col1 + i * 26, y + 4);
-      });
-      doc.setFont("helvetica", "bold");
-      doc.text(`Total working hours : ${totalWorkStr}`, col1 + 160, y + 4);
-      y += 5;
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(7.5);
-      doc.text(`Rate`, col1, y + 3);
-      if (rate > 0) doc.text(String(rate.toLocaleString("en-IN")), col1 - 2, y + 8);
-      doc.text(`Payable : ->`, col1 + 12, y + 3);
-      [presentCount, offCount, holidayCount, leaveCount, tourCount, absentCount].forEach((v, i) => {
-        doc.text(v.toFixed(2), col1 + 38 + i * 22, y + 3);
-      });
-      doc.setFont("helvetica", "bold");
-      doc.text(`Overtime hours : ${totalOTStr}`, col1 + 160, y + 3);
-      doc.text(`Total days payable : ${payDays.toFixed(2)}`, col1 + 205, y + 3);
-      y += 8;
-      doc.setLineWidth(0.2);
-      doc.line(ml, y, pageW - mr, y);
-      y += 3;
+      y = (doc as any).lastAutoTable.finalY + 2;
 
-      // Daily detail table
+      // ── DAILY DETAIL TABLE ───────────────────────────────────────
       const tableBody: any[][] = [
         ...dailyRows.map(r => [
           `${r.date}  ${r.day}`, r.shift,
-          r.inT, r.outT, r.arrE, r.arrL, r.depE, r.depL,
+          r.inT, r.outT,
+          r.arrE, r.arrL, r.depE, r.depL,
           r.wh, r.ot, r.status, r.remark,
         ]),
         [
-          { content: "Total", styles: { fontStyle: "bold" as const } },
-          "",
-          "", "",
-          minsToHHMM(totArrE), minsToHHMM(totArrL),
-          minsToHHMM(totDepE), minsToHHMM(totDepL),
-          totalWorkStr, totalOTStr,
-          { content: "", styles: {} },
-          { content: "End of Report", styles: { halign: "left" as const, fontStyle: "bold" as const } },
+          { content: "TOTAL", styles: { fontStyle: "bold" as const, fillColor: [220, 230, 255] } },
+          { content: "", styles: { fillColor: [220, 230, 255] } },
+          { content: "", styles: { fillColor: [220, 230, 255] } },
+          { content: "", styles: { fillColor: [220, 230, 255] } },
+          { content: minsToHHMM(totArrE), styles: { fontStyle: "bold" as const, fillColor: [220, 230, 255] } },
+          { content: minsToHHMM(totArrL), styles: { fontStyle: "bold" as const, fillColor: [220, 230, 255] } },
+          { content: minsToHHMM(totDepE), styles: { fontStyle: "bold" as const, fillColor: [220, 230, 255] } },
+          { content: minsToHHMM(totDepL), styles: { fontStyle: "bold" as const, fillColor: [220, 230, 255] } },
+          { content: totalWorkStr, styles: { fontStyle: "bold" as const, fillColor: [220, 230, 255] } },
+          { content: totalOTStr, styles: { fontStyle: "bold" as const, fillColor: [220, 230, 255] } },
+          { content: "", styles: { fillColor: [220, 230, 255] } },
+          { content: "*** End of Report ***", styles: { halign: "left" as const, fontStyle: "bold" as const, fillColor: [220, 230, 255] } },
         ],
       ];
 
@@ -3883,50 +3956,66 @@ export default function ReportsPage() {
             { content: "Date & Day", rowSpan: 2, styles: { valign: "middle" as const, halign: "center" as const } },
             { content: "Shift", rowSpan: 2, styles: { valign: "middle" as const, halign: "center" as const } },
             { content: "Time", colSpan: 2, styles: { halign: "center" as const } },
-            { content: "Arrival", colSpan: 2, styles: { halign: "center" as const } },
-            { content: "Departure", colSpan: 2, styles: { halign: "center" as const } },
-            { content: "Working\nHours", rowSpan: 2, styles: { valign: "middle" as const, halign: "center" as const } },
-            { content: "Over-\ntime", rowSpan: 2, styles: { valign: "middle" as const, halign: "center" as const } },
+            { content: "Arrival Variance", colSpan: 2, styles: { halign: "center" as const } },
+            { content: "Departure Variance", colSpan: 2, styles: { halign: "center" as const } },
+            { content: "Work\nHours", rowSpan: 2, styles: { valign: "middle" as const, halign: "center" as const } },
+            { content: "OT\nHours", rowSpan: 2, styles: { valign: "middle" as const, halign: "center" as const } },
             { content: "Status", rowSpan: 2, styles: { valign: "middle" as const, halign: "center" as const } },
             { content: "Remark", rowSpan: 2, styles: { valign: "middle" as const, halign: "center" as const } },
           ],
-          ["In", "Out", "Early", "Late", "Early", "Late"],
+          [
+            { content: "In", styles: { halign: "center" as const } },
+            { content: "Out", styles: { halign: "center" as const } },
+            { content: "Early", styles: { halign: "center" as const } },
+            { content: "Late", styles: { halign: "center" as const } },
+            { content: "Early", styles: { halign: "center" as const } },
+            { content: "Late", styles: { halign: "center" as const } },
+          ],
         ],
         body: tableBody,
-        styles: { fontSize: 7, cellPadding: 1.3, lineColor: [120, 120, 120], lineWidth: 0.15, halign: "center", valign: "middle" },
-        headStyles: { fillColor: [210, 225, 255], textColor: [20, 30, 80], fontStyle: "bold", fontSize: 7, lineColor: [80, 100, 180], lineWidth: 0.25 },
+        styles: { fontSize: 7, cellPadding: 1.5, lineColor: [100, 120, 180], lineWidth: 0.15, halign: "center" as const, valign: "middle" as const },
+        headStyles: { fillColor: [30, 58, 138], textColor: 255, fontStyle: "bold", fontSize: 7, lineColor: [20, 40, 120], lineWidth: 0.2 },
         alternateRowStyles: { fillColor: [248, 250, 255] },
         columnStyles: {
-          0: { cellWidth: 30, halign: "left" as const },
+          0: { cellWidth: 34, halign: "left" as const },
           1: { cellWidth: 10 },
-          2: { cellWidth: 14 },
-          3: { cellWidth: 14 },
+          2: { cellWidth: 15 },
+          3: { cellWidth: 15 },
           4: { cellWidth: 14 },
           5: { cellWidth: 14 },
           6: { cellWidth: 14 },
           7: { cellWidth: 14 },
           8: { cellWidth: 17 },
-          9: { cellWidth: 13 },
+          9: { cellWidth: 15 },
           10: { cellWidth: 18, fontStyle: "bold" as const },
           11: { halign: "left" as const },
         },
         didParseCell: (data: any) => {
-          if (data.section === "body" && data.row.index === tableBody.length - 1) {
-            data.cell.styles.fontStyle = "bold";
-            data.cell.styles.fillColor = [235, 240, 255];
-          }
           if (data.section === "body" && data.column.index === 10 && data.row.index < tableBody.length - 1) {
             const s = String(data.cell.raw);
-            if (s === "P-P" || s === "P-A") data.cell.styles.textColor = [10, 130, 10];
-            else if (s === "A-A") data.cell.styles.textColor = [180, 20, 20];
-            else if (s === "OFF") data.cell.styles.textColor = [60, 80, 180];
-            else if (s === "HOL") data.cell.styles.textColor = [160, 100, 10];
-            else if (s !== "") data.cell.styles.textColor = [140, 60, 140];
+            if (s === "P-P" || s === "P-A") { data.cell.styles.textColor = [10, 130, 10]; data.cell.styles.fontStyle = "bold"; }
+            else if (s === "A-A") { data.cell.styles.textColor = [200, 20, 20]; data.cell.styles.fontStyle = "bold"; }
+            else if (s === "OFF") { data.cell.styles.textColor = [30, 70, 200]; data.cell.styles.fontStyle = "bold"; }
+            else if (s === "HOL") { data.cell.styles.textColor = [160, 90, 0]; data.cell.styles.fontStyle = "bold"; }
+            else if (s !== "") { data.cell.styles.textColor = [120, 40, 140]; data.cell.styles.fontStyle = "bold"; }
+          }
+          if (data.section === "body" && data.row.index < dailyRows.length) {
+            const dayObj = new Date(`${yearStr}-${monthStr}-${String(data.row.index + 1).padStart(2,"0")}T00:00:00`);
+            if (dayObj.getDay() === 0) data.cell.styles.fillColor = [255, 250, 235];
           }
         },
-        tableLineColor: [80, 80, 120],
+        tableLineColor: [30, 58, 138],
         tableLineWidth: 0.3,
+        margin: { left: ML, right: MR },
       });
+
+      // ── FOOTER ──────────────────────────────────────────────────
+      const footerY = PH - 7;
+      doc.setFont("helvetica", "normal"); doc.setFontSize(7.5); doc.setTextColor(80, 80, 80);
+      doc.text("Checked By : _______________________", ML, footerY);
+      doc.text("HR Manager : _______________________", PW / 2 - 35, footerY);
+      doc.text("Authorized Signatory : _______________________", PW - MR - 75, footerY);
+      doc.setTextColor(0, 0, 0);
     }
 
     const label = empsToRun.length === 1 ? empsToRun[0].employeeCode : "All";
@@ -3978,6 +4067,7 @@ export default function ReportsPage() {
       const [h, m] = t.split(":").map(Number);
       return `${String(h).padStart(2, "0")}.${String(m || 0).padStart(2, "0")}`;
     };
+    const minsStr = (m: number) => `${Math.floor(m / 60)}.${String(m % 60).padStart(2, "0")}`;
 
     const getPolicy = (emp: Employee) => {
       const pol = emp.timeOfficePolicyId ? timeOfficePolicies.find(p => p.id === emp.timeOfficePolicyId) : null;
@@ -3991,7 +4081,6 @@ export default function ReportsPage() {
         if (s === "WO") return "OFF";
         if (s === "H") return "HOL";
         if (s === "L") return "EL";
-        if (s === "A" || s === "-") return "A-A";
         return "A-A";
       }
       if (rec.status === "present") return "P-P";
@@ -4004,46 +4093,57 @@ export default function ReportsPage() {
     };
 
     const company = companies.find(co => co.id === (effectiveCompany || emps[0]?.companyId));
-    const companyName = company?.companyName || "Company";
+    const companyName = (company?.companyName || "Company").toUpperCase();
+    const companyAddr = ((company as any)?.registeredAddress || "").toUpperCase();
 
-    // Use A3 landscape for maximum width
+    // A3 landscape
     const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a3" });
-    const pageW = 420;
-    const ml = 5;
+    const PW = 420, ML = 6, MR = 6;
 
-    // ── Page Header ──
-    let y = 12;
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(11);
-    doc.text(companyName, pageW / 2, y, { align: "center" });
-    y += 6;
-    doc.setFontSize(9.5);
-    doc.text("A T T E N D A N C E     R E G I S T E R", pageW / 2, y, { align: "center" });
-    y += 5;
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(8.5);
-    doc.text(`01 ${monthName} ${yearNum}  -  ${daysInMonth} ${monthName} ${yearNum}`, pageW / 2, y, { align: "center" });
-    y += 6;
+    // ── HEADER ─────────────────────────────────────────────────────
+    let y = 8;
+    doc.setFillColor(30, 58, 138);
+    doc.rect(ML, y - 1, PW - ML - MR, 14, "F");
+    doc.setTextColor(255, 255, 255);
+    doc.setFont("helvetica", "bold"); doc.setFontSize(14);
+    doc.text(companyName, PW / 2, y + 5.5, { align: "center" }); y += 15;
+    doc.setTextColor(0, 0, 0);
 
-    // Build day headers (day number + weekday abbreviation)
+    doc.setFont("helvetica", "normal"); doc.setFontSize(8);
+    if (companyAddr) { doc.text(companyAddr, PW / 2, y, { align: "center" }); y += 5; }
+    doc.setFont("helvetica", "bold"); doc.setFontSize(12);
+    doc.text("MONTHLY ATTENDANCE REGISTER", PW / 2, y, { align: "center" }); y += 5;
+    doc.setFont("helvetica", "normal"); doc.setFontSize(9);
+    doc.text(`Period : 01 ${monthName.toUpperCase()} ${yearNum}  —  ${daysInMonth} ${monthName.toUpperCase()} ${yearNum}`, PW / 2, y, { align: "center" }); y += 3;
+    doc.setDrawColor(30, 58, 138); doc.setLineWidth(0.5);
+    doc.line(ML, y, PW - MR, y); y += 3;
+
+    // ── DAY COLUMN HEADERS ──────────────────────────────────────────
     const dayAbbrs = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
     const dayHeaders = Array.from({ length: daysInMonth }, (_, i) => {
       const d = i + 1;
       const dObj = new Date(`${yearStr}-${monthStr}-${String(d).padStart(2, "0")}T00:00:00`);
-      return `${d}\n${dayAbbrs[dObj.getDay()]}`;
+      const abbr = dayAbbrs[dObj.getDay()];
+      return `${d}\n${abbr}`;
     });
 
-    // Build table
-    // Columns: [S.No, Code+Name Info, Row-Type, D1..D30, Summary]
-    const HEAD_COLS = ["S.No", "Paycode / Name / Desig. / Dept. / Cadre", "Type", ...dayHeaders, "Days Summary"];
-    const ROWS_PER_EMP = 6; // Shift, In, Out, Hours, OT, Status
+    // ── BUILD ROWS ─────────────────────────────────────────────────
+    const ROWS_PER_EMP = 6;
+    const HEAD_COLS = [
+      "S.No",
+      "Paycode\nName\nDesig.\nDept.",
+      "Type",
+      ...dayHeaders,
+      "Summary",
+    ];
 
     const allRows: any[][] = [];
-    const empStartRows: number[] = [];   // track which body row index each employee starts at
+    // Accumulate totals for a grand total row
+    let grandPresent = 0, grandOff = 0, grandHol = 0, grandLeave = 0, grandTour = 0, grandAbsent = 0, grandOTMins = 0;
 
     emps.forEach((emp, empIdx) => {
       const policy = getPolicy(emp);
-      const shiftName = policy?.policyName?.charAt(0).toUpperCase() || "G";
+      const shiftCode = policy?.policyName?.charAt(0).toUpperCase() || "G";
 
       const shiftCells: string[] = [];
       const inCells: string[] = [];
@@ -4059,27 +4159,16 @@ export default function ReportsPage() {
         const dateStr = `${yearStr}-${monthStr}-${String(d).padStart(2, "0")}`;
         const rec = attendance.find(a => a.employeeId === emp.id && a.date === dateStr);
         const sc = getStatusCode(rec, emp, dateStr);
-
-        shiftCells.push(shiftName);
-
+        shiftCells.push(shiftCode);
         if (rec && rec.status === "present" && rec.clockIn) {
           inCells.push(fmtT(rec.clockIn));
           outCells.push(rec.clockOut ? fmtT(rec.clockOut) : "");
           hrsCells.push(rec.workHours || "");
           otCells.push(rec.otHours && parseFloat(rec.otHours) > 0 ? rec.otHours : "");
-          if (rec.workHours) {
-            const [wh, wm] = rec.workHours.split(".").map(Number);
-            totalWorkMins += (wh || 0) * 60 + (wm || 0);
-          }
-          if (rec.otHours && parseFloat(rec.otHours) > 0) {
-            const [oh, om] = rec.otHours.split(".").map(Number);
-            totalOTMins += (oh || 0) * 60 + (om || 0);
-          }
-        } else {
-          inCells.push(""); outCells.push(""); hrsCells.push(""); otCells.push("");
-        }
+          if (rec.workHours) { const [wh, wm] = rec.workHours.split(".").map(Number); totalWorkMins += (wh || 0) * 60 + (wm || 0); }
+          if (rec.otHours && parseFloat(rec.otHours) > 0) { const [oh, om] = rec.otHours.split(".").map(Number); totalOTMins += (oh || 0) * 60 + (om || 0); }
+        } else { inCells.push(""); outCells.push(""); hrsCells.push(""); otCells.push(""); }
         statusCells.push(sc);
-
         if (sc === "P-P" || sc === "P-A") presentCount++;
         else if (sc === "OFF") offCount++;
         else if (sc === "HOL") holidayCount++;
@@ -4089,118 +4178,120 @@ export default function ReportsPage() {
       }
 
       const payDays = Math.min(presentCount + offCount + holidayCount + leaveCount + tourCount, daysInMonth);
-      const otStr = `${Math.floor(totalOTMins / 60)}.${String(totalOTMins % 60).padStart(2, "0")}`;
-      const wkHrsTotal = `${Math.floor(totalWorkMins / 60)}.${String(totalWorkMins % 60).padStart(2, "0")}`;
+      grandPresent += presentCount; grandOff += offCount; grandHol += holidayCount;
+      grandLeave += leaveCount; grandTour += tourCount; grandAbsent += absentCount; grandOTMins += totalOTMins;
 
       const empFullName = `${emp.firstName} ${emp.lastName}`.toUpperCase();
       const desig = (emp.designation || "").toUpperCase();
       const dept = (emp.department || "").toUpperCase();
-      const cadre = ((emp as any).cadre || "STAFF").toUpperCase();
-      const doj = emp.dateOfJoining ? format(new Date(emp.dateOfJoining + "T00:00:00"), "dd/MM/yyyy") : "";
+      const doj = emp.dateOfJoining ? format(new Date(emp.dateOfJoining + "T00:00:00"), "dd/MM/yy") : "";
 
-      // Build info lines for the 2nd column across 6 rows
-      const infoLines = [
-        `${emp.employeeCode || ""}`,                  // row 1 — paycode
-        empFullName,                                   // row 2 — name
-        desig,                                         // row 3 — designation
-        dept,                                          // row 4 — dept
-        cadre,                                         // row 5 — cadre
-        doj,                                           // row 6 — DOJ
-      ];
-
+      const infoLines = [`${emp.employeeCode || ""}`, empFullName, desig, dept, "", doj];
       const summaryLines = [
-        `Present : ${presentCount.toFixed(2)}`,
-        `Off : ${offCount.toFixed(2)}`,
-        `Holiday : ${holidayCount}   Days Payable: ${payDays.toFixed(2)}`,
-        `Leave : ${leaveCount.toFixed(2)}`,
-        `Tour : ${tourCount}`,
-        `Absent : ${absentCount.toFixed(2)}   OT Hrs: ${otStr}`,
+        `P: ${presentCount}  Off: ${offCount}`,
+        `Hol: ${holidayCount}  Leave: ${leaveCount}`,
+        `Tour: ${tourCount}  Absent: ${absentCount}`,
+        `Pay Days: ${payDays.toFixed(1)}`,
+        `Work: ${minsStr(totalWorkMins)}`,
+        `OT: ${minsStr(totalOTMins)}`,
       ];
-
-      const rowTypes = ["Shift", "In", "Out", "Hours", "OT", "Status"];
+      const rowTypes = ["Shift", "In", "Out", "Hrs", "OT", "Status"];
       const dayCellGroups = [shiftCells, inCells, outCells, hrsCells, otCells, statusCells];
 
-      empStartRows.push(allRows.length);
       for (let ri = 0; ri < ROWS_PER_EMP; ri++) {
         allRows.push([
-          ri === 0 ? (empIdx + 1) : "",           // S.No only in first sub-row
-          infoLines[ri],                           // info column
-          rowTypes[ri],                            // row type
-          ...dayCellGroups[ri],                    // day data
-          summaryLines[ri],                        // summary
+          ri === 0 ? (empIdx + 1) : "",
+          infoLines[ri],
+          rowTypes[ri],
+          ...dayCellGroups[ri],
+          summaryLines[ri],
         ]);
       }
     });
 
-    // Calculate column widths to fit A3 landscape
-    // Total usable width ≈ 420 - 10 = 410mm
-    // Fixed cols: S.No=8, Info=36, Type=10 → 54mm
-    // Summary=52mm
-    // Remaining for days: 410-54-52 = 304mm / daysInMonth
-    const dayColW = Math.max(5.0, Math.min(8.0, Math.floor((410 - 54 - 52) / daysInMonth * 10) / 10));
+    // Grand total row
+    allRows.push([
+      { content: "", styles: { fillColor: [220, 232, 255] } },
+      { content: "GRAND TOTAL", styles: { fontStyle: "bold", fillColor: [220, 232, 255], fontSize: 6 } },
+      { content: "", styles: { fillColor: [220, 232, 255] } },
+      ...Array.from({ length: daysInMonth }, () => ({ content: "", styles: { fillColor: [220, 232, 255] } })),
+      { content: `P:${grandPresent} Off:${grandOff} Hol:${grandHol}\nLv:${grandLeave} Ab:${grandAbsent}\nOT:${minsStr(grandOTMins)}`, styles: { fontStyle: "bold", fillColor: [220, 232, 255], fontSize: 5.5 } },
+    ]);
+
+    // ── COLUMN WIDTHS ────────────────────────────────────────────────
+    // Usable: 420 - 12 = 408; fixed: SNo=7, Info=32, Type=9, Summary=38 = 86; days: 408-86=322
+    const dayColW = Math.max(4.5, Math.min(8.0, parseFloat(((408 - 86) / daysInMonth).toFixed(1))));
     const colStyles: Record<number, any> = {
-      0: { cellWidth: 8, halign: "center", fontStyle: "bold" },
-      1: { cellWidth: 36, halign: "left", fontSize: 5.5 },
-      2: { cellWidth: 10, halign: "center", fontStyle: "bold", fontSize: 6 },
+      0: { cellWidth: 7, halign: "center", fontStyle: "bold", fontSize: 5.5 },
+      1: { cellWidth: 32, halign: "left", fontSize: 5.5, overflow: "linebreak" },
+      2: { cellWidth: 9, halign: "center", fontStyle: "bold", fontSize: 5.5 },
     };
     for (let d = 0; d < daysInMonth; d++) {
-      colStyles[3 + d] = { cellWidth: dayColW, halign: "center", fontSize: 5 };
+      const dObj = new Date(`${yearStr}-${monthStr}-${String(d + 1).padStart(2, "0")}T00:00:00`);
+      const isSun = dObj.getDay() === 0;
+      colStyles[3 + d] = { cellWidth: dayColW, halign: "center", fontSize: 5, fillColor: isSun ? [255, 250, 230] : undefined };
     }
-    colStyles[3 + daysInMonth] = { cellWidth: 52, halign: "left", fontSize: 6 };
+    colStyles[3 + daysInMonth] = { cellWidth: 38, halign: "left", fontSize: 5.5, overflow: "linebreak" };
 
     autoTable(doc, {
       startY: y,
-      margin: { left: ml, right: 5 },
+      margin: { left: ML, right: MR },
       head: [HEAD_COLS],
       body: allRows,
-      styles: { fontSize: 5.5, cellPadding: 0.8, lineColor: [150, 150, 150], lineWidth: 0.12, valign: "middle", overflow: "linebreak" },
+      styles: { fontSize: 5.5, cellPadding: 0.7, lineColor: [120, 140, 200], lineWidth: 0.12, valign: "middle", overflow: "linebreak" },
       headStyles: {
-        fillColor: [40, 70, 140], textColor: 255, fontStyle: "bold", fontSize: 5.5,
-        lineColor: [20, 40, 100], lineWidth: 0.2, halign: "center",
+        fillColor: [30, 58, 138], textColor: 255, fontStyle: "bold", fontSize: 5.5,
+        lineColor: [15, 35, 100], lineWidth: 0.2, halign: "center", minCellHeight: 8,
       },
       columnStyles: colStyles,
       didParseCell: (data: any) => {
         if (data.section !== "body") return;
         const rowIdx = data.row.index;
         const colIdx = data.column.index;
+        const isGrandTotal = rowIdx === allRows.length - 1;
+        if (isGrandTotal) return;
 
-        // Determine which employee group this row belongs to
         const groupIdx = Math.floor(rowIdx / ROWS_PER_EMP);
-        const subRowInGroup = rowIdx % ROWS_PER_EMP;
+        const subRow = rowIdx % ROWS_PER_EMP;
 
-        // Alternating light/white background per employee group
-        const bgBase = groupIdx % 2 === 0 ? [250, 252, 255] : [255, 255, 255];
-        data.cell.styles.fillColor = bgBase;
-
-        // First sub-row of each group: slightly darker top border / bolder style
-        if (subRowInGroup === 0) {
-          data.cell.styles.lineWidthTop = 0.3;
+        // Alternating background per employee
+        const bgEven: [number,number,number] = [245, 248, 255];
+        const bgOdd: [number,number,number] = [255, 255, 255];
+        if (!data.cell.styles.fillColor || (Array.isArray(data.cell.styles.fillColor) && data.cell.styles.fillColor[0] !== 255)) {
+          data.cell.styles.fillColor = groupIdx % 2 === 0 ? bgEven : bgOdd;
         }
 
-        // Status column (last of day columns + 1 from end) — color the status codes
-        if (colIdx >= 3 && colIdx < 3 + daysInMonth && subRowInGroup === 5) {
+        // First sub-row: thicker top border, bold paycode
+        if (subRow === 0) {
+          data.cell.styles.lineWidthTop = 0.4;
+          if (colIdx === 1) { data.cell.styles.fontStyle = "bold"; data.cell.styles.fontSize = 6; }
+          if (colIdx === 0) data.cell.styles.fontStyle = "bold";
+        }
+
+        // Type column always bold
+        if (colIdx === 2) data.cell.styles.fontStyle = "bold";
+
+        // Status row colouring
+        if (colIdx >= 3 && colIdx < 3 + daysInMonth && subRow === 5) {
           const s = String(data.cell.raw);
-          if (s === "P-P" || s === "P-A") data.cell.styles.textColor = [10, 120, 10];
-          else if (s === "A-A") data.cell.styles.textColor = [180, 20, 20];
-          else if (s === "OFF") data.cell.styles.textColor = [60, 80, 180];
-          else if (s === "HOL") data.cell.styles.textColor = [160, 100, 10];
-          else if (s !== "") data.cell.styles.textColor = [140, 60, 140];
-        }
-
-        // Row-type column bold
-        if (colIdx === 2) {
-          data.cell.styles.fontStyle = "bold";
-        }
-
-        // Info column: first sub-row = bolder (paycode)
-        if (colIdx === 1 && subRowInGroup === 0) {
-          data.cell.styles.fontStyle = "bold";
-          data.cell.styles.fontSize = 6;
+          if (s === "P-P" || s === "P-A") { data.cell.styles.textColor = [10, 120, 10]; data.cell.styles.fontStyle = "bold"; }
+          else if (s === "A-A") { data.cell.styles.textColor = [190, 20, 20]; data.cell.styles.fontStyle = "bold"; }
+          else if (s === "OFF") { data.cell.styles.textColor = [30, 70, 200]; }
+          else if (s === "HOL") { data.cell.styles.textColor = [150, 90, 0]; }
+          else if (s !== "") { data.cell.styles.textColor = [120, 40, 140]; }
         }
       },
-      tableLineColor: [80, 80, 80],
+      tableLineColor: [30, 58, 138],
       tableLineWidth: 0.25,
     });
+
+    // ── FOOTER ─────────────────────────────────────────────────────
+    const footerY = (doc as any).lastAutoTable.finalY + 8;
+    doc.setFont("helvetica", "normal"); doc.setFontSize(7.5); doc.setTextColor(60, 60, 60);
+    doc.text("Prepared By : ___________________________", ML, footerY);
+    doc.text("HR Manager : ___________________________", PW / 2 - 30, footerY);
+    doc.text("Authorized Signatory : ___________________________", PW - MR - 90, footerY);
+    doc.setTextColor(0, 0, 0);
 
     doc.save(`Monthly_Attendance_Register_${selectedMonth}.pdf`);
     toast({ title: "Downloaded", description: `Monthly_Attendance_Register_${selectedMonth}.pdf has been downloaded.` });
