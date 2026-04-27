@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { loadHindiFont, registerHindiFont, HI, EN } from "@/lib/hindiFont";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { format } from "date-fns";
@@ -2769,7 +2770,7 @@ export default function ReportsPage() {
   };
 
   // ─── Employee Personal File ───────────────────────────────────────────────
-  const generateEmployeePersonalFile = (_fileType: "excel" | "pdf") => {
+  const generateEmployeePersonalFile = async (_fileType: "excel" | "pdf") => {
     const emp = docEmployee ? employees.find(e => e.id === docEmployee) : null;
     const targetEmps = emp ? [emp] : filteredEmployees;
     if (!targetEmps.length) { toast({ title: "No Data", description: "No employee selected or found.", variant: "destructive" }); return; }
@@ -2791,8 +2792,16 @@ export default function ReportsPage() {
     }
 
     // ── PDF: full multi-section Employee Personal File ──────────────────────
+    // Load Devanagari font
+    let hindiBase64: string | null = null;
+    try { hindiBase64 = await loadHindiFont(); } catch { hindiBase64 = null; }
+
     const doc = new jsPDF({ format: "a4", unit: "mm" });
     const PW = 210, ML = 14, MR = 14, UW = PW - ML - MR;
+
+    if (hindiBase64) registerHindiFont(doc, hindiBase64);
+    const setHi = () => { if (hindiBase64) doc.setFont(HI, "normal"); };
+    const setEn = (style: "normal"|"bold" = "normal") => doc.setFont(EN, style);
 
     const fmtDate = (d?: string | null) => {
       if (!d) return "";
@@ -3007,104 +3016,149 @@ export default function ReportsPage() {
       // ══════════════════════════════════════════════════════════
       // PAGE 3 – JOB APPLICATION LETTER (Naukari ki Liye Prarthna Patra)
       // ══════════════════════════════════════════════════════════
-      doc.addPage(); y = 20;
-      y = companyHeader(doc, company, y); y += 8;
-      doc.setFont("helvetica", "bold"); doc.setFontSize(11);
-      doc.text("NAUKARI KI LIYE PRARTHNA PATRA", PW / 2, y, { align: "center" }); y += 5;
-      doc.setFont("helvetica", "normal"); doc.setFontSize(8.5);
-      doc.text("(Application for Employment)", PW / 2, y, { align: "center" }); y += 10;
+      doc.addPage(); y = 10;
 
-      doc.setFontSize(10);
-      doc.text("Vishay :-", ML, y);
-      doc.setFont("helvetica", "bold");
-      doc.text(`${e.designation || "Post"} ke pad ke liye avedan patra`, ML + 20, y); y += 8;
-      doc.setFont("helvetica", "normal");
-      doc.text("Mahoday,", ML, y); y += 7;
-      const appLines = [
-        `Mujhe pata chala hai ki aapki company mein ${e.designation || "____"} ki jagah khaali hai.`,
-        "Mujhe kaam karne ka achha anubhav hai. Yadi aap mujhe ek baar seva ka avsar pradan karen to main",
-        "aapka kaam badi mehnat aur imandaari se karunga/karungi tatha kisi bhi avaidh karya, rajnitik ya",
-        "asamajik gatividhiyon mein bhaag nahi lunga/lungi.",
-      ];
-      appLines.forEach(line => { doc.text(line, ML, y, { maxWidth: UW }); y += 6; });
-      y += 12;
-      doc.text("Sthan :", ML, y); doc.text("Naam :", ML + 100, y);
-      doc.setLineWidth(0.2); doc.line(ML + 15, y + 1, ML + 60, y + 1); y += 8;
-      doc.text("Dinank :", ML, y); doc.text("Hastakshar :", ML + 100, y);
-      doc.line(ML + 20, y + 1, ML + 65, y + 1);
+      // Header bar
+      doc.setFillColor(30, 58, 138);
+      doc.rect(ML, y, UW, 16, "F");
+      doc.setTextColor(255, 255, 255);
+      setEn("bold"); doc.setFontSize(14);
+      doc.text((company?.companyName || "Company").toUpperCase(), PW / 2, y + 7, { align: "center" });
+      setEn(); doc.setFontSize(8);
+      const ra3 = (company as any)?.registeredAddress || "";
+      if (ra3) doc.text(ra3.toUpperCase(), PW / 2, y + 12.5, { align: "center" });
+      doc.setTextColor(0, 0, 0); y += 20;
+
+      // Title
+      doc.setFillColor(239, 246, 255);
+      doc.setDrawColor(30, 58, 138); doc.setLineWidth(0.4);
+      doc.rect(ML, y, UW, 14, "FD");
+      setHi(); doc.setFontSize(14);
+      doc.setTextColor(30, 58, 138);
+      doc.text("नौकरी के लिए प्रार्थना पत्र", PW / 2, y + 7, { align: "center" });
+      setEn(); doc.setFontSize(9); doc.setTextColor(80, 80, 80);
+      doc.text("(Application for Employment)", PW / 2, y + 12, { align: "center" });
+      doc.setTextColor(0, 0, 0); y += 20;
+
+      // Subject
+      setHi(); doc.setFontSize(11);
+      doc.text("विषय :-", ML, y);
+      doc.setFontSize(11);
+      doc.text(`${e.designation || "पद"} के पद के लिए आवेदन पत्र`, ML + 22, y); y += 10;
+
+      doc.text("महोदय,", ML, y); y += 9;
+      const appText = `मुझे पता चला है कि आपकी कम्पनी में ${e.designation || "____"} की जगह खाली है। मुझे काम करने का अच्छा अनुभव है। यदि आप मुझे एक बार सेवा का अवसर प्रदान करें तो मैं आपका काम बड़ी मेहनत और इमानदारी से करूँगा / करूँगी तथा किसी भी अवैध कार्य, राजनीतिक या असामाजिक गतिविधियों में भाग नहीं लूँगा / लूँगी।`;
+      const appLines3 = doc.splitTextToSize(appText, UW);
+      doc.text(appLines3, ML, y); y += appLines3.length * 6.5 + 6;
+
+      doc.text("आपका विश्वासी,", ML, y); y += 20;
+
+      doc.setFontSize(11);
+      doc.text("स्थान :", ML, y);
+      setEn(); doc.setLineWidth(0.25); doc.line(ML + 18, y + 1, ML + 65, y + 1);
+      setHi(); doc.text("नाम :", ML + 98, y);
+      setEn(); doc.line(ML + 110, y + 1, PW - MR, y + 1); y += 10;
+      setHi(); doc.text("दिनांक :", ML, y);
+      setEn(); doc.line(ML + 20, y + 1, ML + 65, y + 1);
+      setHi(); doc.text("हस्ताक्षर :", ML + 98, y);
+      setEn(); doc.line(ML + 118, y + 1, PW - MR, y + 1);
 
       // ══════════════════════════════════════════════════════════
       // PAGE 4 – APPOINTMENT LETTER (Niyukti Patra)
       // ══════════════════════════════════════════════════════════
-      doc.addPage(); y = 15;
-      y = companyHeader(doc, company, y); y += 4;
-      doc.setFont("helvetica", "bold"); doc.setFontSize(9);
-      doc.text(e.employeeCode || "", PW - MR, 15, { align: "right" }); // paycode top-right
+      doc.addPage(); y = 10;
 
-      doc.setFont("helvetica", "normal"); doc.setFontSize(10);
-      doc.text("Sewa mein,", ML, y); doc.text(doj, PW - MR, y, { align: "right" }); y += 6;
-      doc.text("Shrimaan Prabandak Mahoday,", ML, y); y += 5;
-      doc.text((company?.companyName || "").toUpperCase(), ML, y); y += 5;
+      // Header bar
+      doc.setFillColor(30, 58, 138);
+      doc.rect(ML, y, UW, 16, "F");
+      doc.setTextColor(255, 255, 255);
+      setEn("bold"); doc.setFontSize(14);
+      doc.text((company?.companyName || "Company").toUpperCase(), PW / 2, y + 7, { align: "center" });
+      setEn(); doc.setFontSize(8);
       const regAddr = (company as any)?.registeredAddress || "";
+      if (regAddr) doc.text(regAddr.toUpperCase(), PW / 2, y + 12.5, { align: "center" });
+      doc.setTextColor(0, 0, 0); y += 20;
+
+      setEn("bold"); doc.setFontSize(9);
+      doc.text(e.employeeCode || "", PW - MR, y - 5, { align: "right" });
+
+      setHi(); doc.setFontSize(11);
+      doc.text("सेवा में,", ML, y); setEn(); doc.text(doj, PW - MR, y, { align: "right" }); y += 6;
+      setHi(); doc.text("श्रीमान प्रबंधक महोदय,", ML, y); y += 6;
+      setEn(); doc.setFontSize(10);
+      doc.text((company?.companyName || "").toUpperCase(), ML, y); y += 5;
       if (regAddr) { doc.text(regAddr.toUpperCase(), ML, y); y += 5; }
-      y += 5;
+      y += 4;
 
-      doc.setFont("helvetica", "bold"); doc.setFontSize(11);
-      doc.text("vkids ukSdjh ds fy, vkosnu i= vkSj lk{kkRdkj ds lanHkZ esa", PW / 2, y, { align: "center" }); y += 5;
-      doc.setFontSize(9); doc.setFont("helvetica", "normal");
-      doc.text(`(With reference to your job application and interview for ${e.designation || "Post"})`, PW / 2, y, { align: "center" }); y += 8;
+      // Title
+      doc.setFillColor(239, 246, 255);
+      doc.setDrawColor(30, 58, 138); doc.setLineWidth(0.4);
+      doc.rect(ML, y, UW, 14, "FD");
+      setHi(); doc.setFontSize(12); doc.setTextColor(30, 58, 138);
+      doc.text("आपके नौकरी के लिए आवेदन पत्र और साक्षात्कार के संदर्भ में", PW / 2, y + 6, { align: "center" });
+      setEn(); doc.setFontSize(8); doc.setTextColor(80, 80, 80);
+      doc.text(`(With reference to your job application and interview for ${e.designation || "Post"})`, PW / 2, y + 11, { align: "center" });
+      doc.setTextColor(0, 0, 0); y += 18;
 
+      // Employee details table (bilingual labels — Noto Sans supports Latin too)
       const apptData: [string, string][] = [
-        ["Naam / Name", empName],
-        ["Pita/Pati ka Naam / Father's / Husband's Name", e.fatherHusbandName || ""],
-        ["Asthayi Pata / Temporary Address", e.presentAddress || ""],
-        ["Sthayi Pata / Permanent Address", e.permanentAddress || ""],
-        ["Janm Tithi / Date of Birth", dob],
-        ["Kaam Shuru Karne ki Tarikh / Date of Joining", doj],
-        ["Pad / Designation", e.designation || ""],
-        ["Vibhag / Department", e.department || ""],
-        ["Sreni / Category (Akushal/Adh-Kushal/Kushal/Atikushal)", ""],
-        ["Vetan / Salary", grossStr ? `${grossStr} /-` : ""],
+        ["नाम / Name", empName],
+        ["पिता/पति का नाम / Father's / Husband's Name", e.fatherHusbandName || ""],
+        ["अस्थायी पता / Temporary Address", e.presentAddress || ""],
+        ["स्थायी पता / Permanent Address", e.permanentAddress || ""],
+        ["जन्म तिथि / Date of Birth", dob],
+        ["काम शुरू करने की तारीख / Date of Joining", doj],
+        ["पद / Designation", e.designation || ""],
+        ["विभाग / Department", e.department || ""],
+        ["श्रेणी / Category (अकुशल / अद्ध-कुशल / कुशल / अतिकुशल)", ""],
+        ["वेतन / Salary", grossStr ? `Rs. ${grossStr} /-` : ""],
       ];
       autoTable(doc, {
         body: apptData,
         startY: y,
         theme: "grid",
-        styles: { fontSize: 8.5, cellPadding: 2.5, lineColor: [0,0,0], lineWidth: 0.2 },
-        columnStyles: { 0:{fontStyle:"bold", cellWidth:90, fillColor:[248,248,248]}, 1:{cellWidth:86} },
+        styles: { fontSize: 9, cellPadding: 2.5, lineColor: [30, 58, 138], lineWidth: 0.2, font: HI },
+        columnStyles: { 0: { fontStyle: "bold", cellWidth: 90, fillColor: [219, 234, 254] as [number,number,number] }, 1: { cellWidth: 86 } },
         margin: { left: ML },
       });
       y = (doc as any).lastAutoTable.finalY + 6;
       if (y > 220) { doc.addPage(); y = 15; }
 
-      doc.setFont("helvetica", "bold"); doc.setFontSize(9.5);
-      doc.text("NIYAM AUR SHARTEN / TERMS AND CONDITIONS", ML, y); y += 4;
-      doc.setLineWidth(0.3); doc.line(ML, y, PW - MR, y); y += 5;
+      // Terms and Conditions
+      doc.setFillColor(30, 58, 138);
+      doc.rect(ML, y, UW, 9, "F");
+      doc.setTextColor(255, 255, 255);
+      setHi(); doc.setFontSize(11);
+      doc.text("नियम और शर्तें", ML + 4, y + 6.5);
+      setEn("bold"); doc.setFontSize(10);
+      doc.text("/ TERMS AND CONDITIONS", ML + 58, y + 6.5);
+      doc.setTextColor(0, 0, 0); y += 13;
 
       const terms = [
-        `1. Aap 6 mahine tak asthayi/probation par niyukt rahenge. Zaroorat padne par yah avadhi ____ mahine ke liye dobara badhayi ja sakti hai. Kisi bhi sthiti mein probation karya-kal 12 mahine se adhik nahi badhayi ja sakti.`,
-        `2. Asthayi/probation karya-kal ya badhayi gayi asthayi/probation karya-kal ke dauran aapko yah adhikar hoga ki aap bina kisi soochna (notice) diye naukari chhod sakte hain. Is asthayi/probation ke dauran company ko bhi adhikar hoga ki wah aapko bina kisi soochna (notice) ke naukari chhodne ke liye keh sakti hai.`,
-        `3. Kisi ek din ____ ghante karya karne ke uparant aur kisi ek hafte mein ____ ghante karya karne ke baad aap overtime (OT) vetan ke haqdar hain. Factory Act 1948 (Dhara 59) ke tahat OT hamesha aapki sveekrti se hoga.`,
-        `4. Kaam ki zaroorat ke anusaar company aapka tabadala (transfer) company ke kisi doosre vibhag ya Bharat mein company ki kisi anya factory mein kar sakti hai. Agar aapka tabadala ek se doosre rajya mein kiya jaata hai to aapki yatra ka kharch company ke dwara diya jaayega.`,
-        `5. Aapki aayu _____ varsh ki hone par aapko company dwara retire kar diya jaayega.`,
-        `6. Asthayi/probation karya-kal khatm hone ke baad aapki niyukti pakki (permanent) ki jaayegi, company dwara is sandarbh mein aapko patra diya jaayega.`,
-        `7. Jab tak aap is company mein kaam karte hain, aapko bina company ki aagya liye doosri kisi company mein kaam karne ki anumati nahi hai.`,
-        `8. Bhartiya Shram Kanoon ke niyam anusaar jaise hi aap is company mein ____ din kaam kar lete hain to aapko ____ din ki chhutti har ____ karya dinon ke baad vetan sahit lene ka adhikar hoga.`,
-        `9. Aapko varsh mein 7 din ka aakashmik avakash (CL) ka adhikar hoga poore vetan ke saath.`,
-        `10. Aapko varsh mein ESIC ke niyamanusaar bimari ke avakash ka adhikar hoga. Yadi aap ESIC sadasya nahi hain to aapko varsh mein 7 din ka bimari avakash (SL) vetan sahit lene ka adhikar hoga.`,
-        `16. Company mein aane ka samay subah 09:30 baje aur jaane ka samay 18:00 baje hai, jisme bhojan ka samay GENERAL aur chai ka samay 16:00 se 16:15 hai.`,
-        `17. Yadi aapko oopar di gayi sharten manzoor hain to aap is niyukti patra ki doosri prati par sveekriti ke liye apne hastakshar karen aur dinank ${doj} se kaam par aayein.`,
+        `1. आप 6 महीने तक अस्थायी/प्रोबेशन पर नियुक्त रहेंगे। जरूरत पड़ने पर यह अवधि ____ महीने के लिए दोबारा बढ़ाई जा सकती है। किसी भी स्थिति में प्रोबेशन कार्यकाल 12 महीने से अधिक नहीं बढ़ाया जा सकता।`,
+        `2. अस्थायी/प्रोबेशन कार्यकाल के दौरान आपको यह अधिकार होगा कि आप बिना किसी सूचना (Notice) दिये नौकरी छोड़ सकते हैं। इस अस्थायी/प्रोबेशन के दौरान Company को भी अधिकार होगा कि वह आपको बिना किसी सूचना के नौकरी छोड़ने के लिए कह सकती है।`,
+        `3. किसी एक दिन ____ घण्टे कार्य करने के उपरान्त और किसी एक सप्ताह में ____ घण्टे कार्य करने के बाद आप Overtime (OT) वेतन के हकदार हैं। Factory Act 1948 (धारा 59) के तहत OT हमेशा आपकी स्वीकृति से होगा।`,
+        `4. काम की जरूरत के अनुसार Company आपका तबादला (Transfer) Company के किसी दूसरे विभाग या भारत में Company की किसी अन्य Factory में कर सकती है। अगर आपका तबादला एक से दूसरे राज्य में किया जाता है तो आपकी यात्रा का खर्च Company द्वारा दिया जाएगा।`,
+        `5. आपकी आयु _____ वर्ष की होने पर आपको Company द्वारा Retire कर दिया जाएगा।`,
+        `6. अस्थायी/प्रोबेशन कार्यकाल खत्म होने के बाद आपकी नियुक्ति पक्की (Permanent) की जाएगी, Company द्वारा इस संदर्भ में आपको पत्र दिया जाएगा।`,
+        `7. जब तक आप इस Company में काम करते हैं, आपको बिना Company की आज्ञा लिये दूसरी किसी Company में काम करने की अनुमति नहीं है।`,
+        `8. भारतीय श्रम कानून के नियम अनुसार जैसे ही आप इस Company में ____ दिन काम कर लेते हैं तो आपको ____ दिन की छुट्टी हर ____ कार्य दिनों के बाद वेतन सहित लेने का अधिकार होगा।`,
+        `9. आपको वर्ष में 7 दिन का आकस्मिक अवकाश (CL) का अधिकार होगा पूरे वेतन के साथ।`,
+        `10. आपको वर्ष में ESIC के नियमानुसार बीमारी के अवकाश का अधिकार होगा। यदि आप ESIC सदस्य नहीं हैं तो आपको वर्ष में 7 दिन का बीमारी अवकाश (SL) वेतन सहित लेने का अधिकार होगा।`,
+        `11. Company में आने का समय सुबह 09:30 बजे और जाने का समय 18:00 बजे है।`,
+        `12. यदि आपको ऊपर दी गई शर्तें मंजूर हैं तो आप इस नियुक्ति पत्र की दूसरी प्रति पर स्वीकृति के लिए अपने हस्ताक्षर करें और दिनांक ${doj} से काम पर आएं।`,
       ];
-      doc.setFont("helvetica", "normal"); doc.setFontSize(8.5);
+      setHi(); doc.setFontSize(9.5);
       terms.forEach(t => {
         if (y > 265) { doc.addPage(); y = 15; }
         const lines = doc.splitTextToSize(t, UW);
-        doc.text(lines, ML, y); y += lines.length * 5 + 2;
+        doc.text(lines, ML, y); y += lines.length * 6 + 2;
       });
       y += 6;
       if (y > 260) { doc.addPage(); y = 15; }
+      setEn("bold"); doc.setFontSize(10);
       doc.text(`For ${(company?.companyName || "").toUpperCase()}`, ML, y); y += 8;
-      doc.text("Authorized Signatory", ML, y); y += 12;
+      setEn(); doc.text("Authorized Signatory", ML, y); y += 12;
       doc.setFont("helvetica", "bold"); doc.setFontSize(9);
       doc.text("Karmachari ki Sveekrati / Employee Acceptance :", ML, y); y += 6;
       doc.setFont("helvetica", "normal");
@@ -3423,74 +3477,134 @@ export default function ReportsPage() {
       // ══════════════════════════════════════════════════════════
       // PAGE 9 – DUTY JOINING APPLICATION
       // ══════════════════════════════════════════════════════════
-      doc.addPage(); y = 20;
-      doc.setFont("helvetica", "normal"); doc.setFontSize(10);
-      doc.text("Sewa mein,", ML, y); doc.text(doj, PW - MR, y, { align: "right" }); y += 6;
-      doc.text("Prabandak (Karmik evam Prashasan),", ML, y); y += 5;
-      doc.text((company?.companyName || "").toUpperCase(), ML, y); y += 5;
-      if (regAddr) { doc.text(regAddr.toUpperCase(), ML, y); y += 5; }
-      y += 5;
-      doc.setFont("helvetica", "bold"); doc.setFontSize(10);
-      doc.text(e.employeeCode || "", PW - MR, y - 15, { align: "right" });
-      doc.setFont("helvetica", "normal"); doc.setFontSize(10);
+      doc.addPage(); y = 10;
 
-      const dutyText = [
-        `Main ${empName} putra/putri/patni ${e.fatherHusbandName || "___________"} mool nivaasi ${e.permanentAddress || "___________"} Maanvar se nivedan karta/karti hun ki aap mujhe apni company mein aaj dinank ${doj} ko purvaahn/aparahn 09:30 baje duty join karne ki anumati pradan karein.`,
-      ];
-      dutyText.forEach(t => {
-        const lines = doc.splitTextToSize(t, UW);
-        doc.text(lines, ML, y); y += lines.length * 6 + 4;
-      });
-      y += 8;
-      doc.text("Dhanyavaad", ML, y); y += 16;
-      doc.setFont("helvetica", "bold"); doc.text("Asthayi Pata :", ML, y);
-      doc.text("Sthayi Pata :", ML + 98, y); y += 5;
-      doc.setFont("helvetica", "normal");
+      // Header bar
+      doc.setFillColor(30, 58, 138);
+      doc.rect(ML, y, UW, 16, "F");
+      doc.setTextColor(255, 255, 255);
+      setEn("bold"); doc.setFontSize(14);
+      doc.text((company?.companyName || "Company").toUpperCase(), PW / 2, y + 7, { align: "center" });
+      setEn(); doc.setFontSize(8);
+      const raDuty = (company as any)?.registeredAddress || "";
+      if (raDuty) doc.text(raDuty.toUpperCase(), PW / 2, y + 12.5, { align: "center" });
+      doc.setTextColor(0, 0, 0); y += 20;
+
+      // Title
+      doc.setFillColor(239, 246, 255);
+      doc.setDrawColor(30, 58, 138); doc.setLineWidth(0.4);
+      doc.rect(ML, y, UW, 14, "FD");
+      setHi(); doc.setFontSize(14); doc.setTextColor(30, 58, 138);
+      doc.text("ड्यूटी ज्वाइनिंग आवेदन पत्र", PW / 2, y + 7, { align: "center" });
+      setEn(); doc.setFontSize(9); doc.setTextColor(80, 80, 80);
+      doc.text("(Duty Joining Application)", PW / 2, y + 12, { align: "center" });
+      doc.setTextColor(0, 0, 0); y += 20;
+
+      setEn("bold"); doc.setFontSize(9);
+      doc.text(e.employeeCode || "", PW - MR, y, { align: "right" });
+
+      setHi(); doc.setFontSize(11);
+      doc.text("सेवा में,", ML, y); setEn(); doc.text(doj, PW - MR, y + 6, { align: "right" }); y += 7;
+      setHi(); doc.text("प्रबंधक (कार्मिक एवं प्रशासन),", ML, y); y += 7;
+      setEn(); doc.setFontSize(10);
+      doc.text((company?.companyName || "").toUpperCase(), ML, y); y += 5;
+      if (raDuty) { doc.text(raDuty.toUpperCase(), ML, y); y += 5; }
+      y += 5;
+
+      setHi(); doc.setFontSize(11);
+      const dutyBody = `मैं ${empName} पुत्र/पुत्री/पत्नी ${e.fatherHusbandName || "___________"} मूल निवासी ${e.permanentAddress || "___________"} महोदय से निवेदन करता/करती हूँ कि आप मुझे अपनी Company में आज दिनांक ${doj} को पूर्वाह्न/अपराह्न 09:30 बजे ड्यूटी ज्वाइन करने की अनुमति प्रदान करें।`;
+      const dutyLines = doc.splitTextToSize(dutyBody, UW);
+      doc.text(dutyLines, ML, y); y += dutyLines.length * 6.5 + 8;
+
+      doc.text("धन्यवाद", ML, y); y += 20;
+
+      // Address block
+      setHi(); doc.setFontSize(11);
+      doc.text("अस्थायी पता :", ML, y);
+      doc.text("स्थायी पता :", ML + 98, y); y += 7;
+      setEn(); doc.setFontSize(9.5);
       const pAddrLines = doc.splitTextToSize(e.presentAddress || "", 80);
       const perAddrLines = doc.splitTextToSize(e.permanentAddress || "", 80);
       doc.text(pAddrLines, ML, y); doc.text(perAddrLines, ML + 98, y);
+      const maxAddrH = Math.max(pAddrLines.length, perAddrLines.length) * 5.5 + 12;
+      y += maxAddrH;
+
+      // Signature row
+      setHi(); doc.setFontSize(11);
+      doc.text("हस्ताक्षर :", ML, y); setEn(); doc.line(ML + 22, y + 1, ML + 70, y + 1);
+      setHi(); doc.text("दिनांक :", ML + 98, y); setEn(); doc.line(ML + 116, y + 1, PW - MR, y + 1);
 
       // ══════════════════════════════════════════════════════════
       // PAGE 10 – INDUCTION FORM
       // ══════════════════════════════════════════════════════════
-      doc.addPage(); y = 15;
-      y = companyHeader(doc, company, y); y += 4;
-      doc.setFont("helvetica", "bold"); doc.setFontSize(12);
-      doc.text("Induction", PW / 2, y, { align: "center" }); y += 8;
+      doc.addPage(); y = 10;
 
-      doc.setFont("helvetica", "bold"); doc.setFontSize(10);
-      doc.text(`Paycode:- ${e.employeeCode || ""}`, ML, y);
-      doc.text(`Name:- ${empName}`, ML + 60, y); y += 9;
+      // Header bar
+      doc.setFillColor(30, 58, 138);
+      doc.rect(ML, y, UW, 16, "F");
+      doc.setTextColor(255, 255, 255);
+      setEn("bold"); doc.setFontSize(14);
+      doc.text((company?.companyName || "Company").toUpperCase(), PW / 2, y + 7, { align: "center" });
+      setEn(); doc.setFontSize(8);
+      const raInd = (company as any)?.registeredAddress || "";
+      if (raInd) doc.text(raInd.toUpperCase(), PW / 2, y + 12.5, { align: "center" });
+      doc.setTextColor(0, 0, 0); y += 20;
+
+      // Title
+      doc.setFillColor(239, 246, 255);
+      doc.setDrawColor(30, 58, 138); doc.setLineWidth(0.4);
+      doc.rect(ML, y, UW, 14, "FD");
+      setHi(); doc.setFontSize(14); doc.setTextColor(30, 58, 138);
+      doc.text("इंडक्शन फॉर्म", PW / 2, y + 7, { align: "center" });
+      setEn(); doc.setFontSize(9); doc.setTextColor(80, 80, 80);
+      doc.text("(Induction Form)", PW / 2, y + 12, { align: "center" });
+      doc.setTextColor(0, 0, 0); y += 18;
+
+      // Employee info
+      autoTable(doc, {
+        body: [[
+          { content: "Paycode", styles: { fontStyle: "bold", fillColor: [219, 234, 254] as [number,number,number] } },
+          { content: e.employeeCode || "" },
+          { content: "Name / नाम", styles: { fontStyle: "bold", fillColor: [219, 234, 254] as [number,number,number], font: HI } },
+          { content: empName },
+        ]],
+        startY: y,
+        theme: "grid",
+        styles: { fontSize: 9.5, cellPadding: 2.5, lineColor: [30, 58, 138], lineWidth: 0.2 },
+        columnStyles: { 0: { cellWidth: 24 }, 1: { cellWidth: 40 }, 2: { cellWidth: 32 }, 3: { cellWidth: 86 } },
+        margin: { left: ML, right: MR },
+      });
+      y = (doc as any).lastAutoTable.finalY + 6;
 
       const inductionPts = [
-        "Aapko muhaiya karaya gaya rozgaar poornatah aapki marzi ke anusaar hai. Hamare yahan kam se kam 18 varsh se adhik aayu vale vyakti ko rozgaar diya jaata hai.",
-        "Aapko chah mahine ki parekh avadhi par rakha jaayega. Is avadhi mein prabandhan aapke kaam-kaaj ka jayza lega. Yadi aapka kaam-kaaj company ki ummidon par khara hai to aapko sthayi kiya ja sakta hai aur agar sudhar ki zaroorat hai to sudhar ke liye teen mahine ka samay diya ja sakta hai.",
-        "Aapko vetan kanoon tatha rajya mein laagu samay par badalte rahane wale kanunon ke anusaar vetan diya jaayega.",
-        "Agar aapka vetan 21,000/- rupaye prati mah tak hai to aapko arjit vetan ka 0.75% E.S.I. kata jaayega aur 3.25% prabandhan dwara jama karaya jaayega.",
-        "Yadi aapka mul vetan 15,000/- rupaye tak hai to aapki arjit mul vetan ka 12% Provident Fund (PF) kata jaayega aur 12% prabandhan dwara jama karaya jaayega.",
-        "Aapko har 20 din ke kaam ke badle ek din ka arjit avakash paane ka haq hoga barshart 240 din kaam kiya ho. Arjit avakash par hone ke dauran madhya ya pahle ya baad mein padne wale avakash/ravivar ko arjit avakash mein nahi gina jaayega. Aap adhiktam 45 din ka arjit avakash jama rakh sakte hain.",
-        "Aapko pratiyarsh 7 din ka aakashmik avakash diya jaayega yaani aap pratyek 40 din ke baad ek din ka aakashmik avakash le sakte hain.",
-        "Yadi aap E.S.I. ke antargat nahi aate hain to aapko pratyek varsh 7 din ka rugnavakash yaani pratyek 40 din ke baad ek din ka rugnavakash le sakte hain.",
-        "Yadi aap stri hain aur kam se kam 80 din karya kiya hai to chah saptah ka matritva avakash diya jaayega.",
-        "Aapko sal mein 10 vaitanik avakash diye ja'enge, jisme 3 rashtriya avakash, 7 tyohar avakash shamil hain.",
-        "Aapke karya ki avadhi 09:30 baje se 18:00 baje hogi, jisme 30 minute khaan-paan aur 15 minute chai ka samay shamil hai.",
-        "Aap kisi bhi din adhiktam 2 ghante ya saptah mein 12 ghante ya 3 mahine mein 50 ghante ka overtime apni sahimati ke saath kar sakte hain, jiske liye aapko aapke vetan ka 200% vetan diya jaayega.",
-        "Yadi aapne company mein parekh avadhi poori kar li hai to aap ek mahine ka samay dekar ya ek mahine ka vetan uski jagah dekar company se tyagpatra de sakte hain. Company bhi is tarah aapko karya chhodne ke liye keh sakti hai.",
-        "Aapki aayu 58 varsh hone par aap seva nivrit ho jaayenge.",
-        "Factory mein aakashmik nikas peeli patti aur agni shaman lagaaye gaye hain jinaka prayog bataye gaye tarikon se karna hai aur fire mein prashikshit vyaktiyon ke photo-graph pratyek floor par lagaaye gaye hain.",
-        "Agar aapko kuch bhi jaankari leni hai to aap prashasnik vibhag mein mil sakte hain.",
-        "Agar aapko kisi bhi prakar ki shikaayat hai to aap karya samiti ke chune gaye sadasyon ke dwara apni shikaayat prabandhan tak pahuncha sakte hain.",
-        "Aapko apna pahechan patra jo kisi bhi sarkari vibhag dwara jaari kiya gaya ho uski chhaaya pratilhipi deni hogi.",
-        "Company dwara diya gaya pahechan patra company mein ghusane se lekar nikalane tak pahan kar rakhna hoga.",
-        "Aapki prishth bhoomi ke liye prabandhan dwara pulis satyapan karaya ja sakta hai.",
-        "Important Telephone No: Jaankari telephone no. gate par lage hain.",
-        "Threat Awareness: Dhamkiyon se satarkta ke liye samay samay par di gayi prashikshan mein bataye gaye upaayon par dhyan den.",
+        "आपको मुहैया कराया गया रोज़गार पूर्णतः आपकी मर्ज़ी के अनुसार है। हमारे यहाँ कम से कम 18 वर्ष से अधिक आयु वाले व्यक्ति को रोज़गार दिया जाता है।",
+        "आपको छः महीने की परीक्षा अवधि पर रखा जाएगा। इस अवधि में प्रबंधन आपके काम-काज का जायजा लेगा। यदि आपका काम-काज Company की उम्मीदों पर खरा है तो आपको स्थायी किया जा सकता है और अगर सुधार की जरूरत है तो सुधार के लिए तीन महीने का समय दिया जा सकता है।",
+        "आपको वेतन कानून तथा राज्य में लागू समय पर बदलते रहने वाले कानूनों के अनुसार वेतन दिया जाएगा।",
+        "अगर आपका वेतन 21,000/- रुपये प्रति माह तक है तो आपको अर्जित वेतन का 0.75% E.S.I. काटा जाएगा और 3.25% प्रबंधन द्वारा जमा कराया जाएगा।",
+        "यदि आपका मूल वेतन 15,000/- रुपये तक है तो आपकी अर्जित मूल वेतन का 12% Provident Fund (PF) काटा जाएगा और 12% प्रबंधन द्वारा जमा कराया जाएगा।",
+        "आपको हर 20 दिन के काम के बदले एक दिन का अर्जित अवकाश पाने का हक होगा बशर्त 240 दिन काम किया हो। अर्जित अवकाश पर होने के दौरान मध्य या पहले या बाद में पड़ने वाले अवकाश/रविवार को अर्जित अवकाश में नहीं गिना जाएगा। आप अधिकतम 45 दिन का अर्जित अवकाश जमा रख सकते हैं।",
+        "आपको प्रतिवर्ष 7 दिन का आकस्मिक अवकाश दिया जाएगा यानी आप प्रत्येक 40 दिन के बाद एक दिन का आकस्मिक अवकाश ले सकते हैं।",
+        "यदि आप E.S.I. के अंतर्गत नहीं आते हैं तो आपको प्रत्येक वर्ष 7 दिन का रुग्णावकाश यानी प्रत्येक 40 दिन के बाद एक दिन का रुग्णावकाश ले सकते हैं।",
+        "यदि आप स्त्री हैं और कम से कम 80 दिन कार्य किया है तो छः सप्ताह का मातृत्व अवकाश दिया जाएगा।",
+        "आपको साल में 10 वैतनिक अवकाश दिए जाएंगे, जिसमें 3 राष्ट्रीय अवकाश, 7 त्योहार अवकाश शामिल हैं।",
+        "आपके कार्य की अवधि 09:30 बजे से 18:00 बजे होगी, जिसमें 30 मिनट खान-पान और 15 मिनट चाय का समय शामिल है।",
+        "आप किसी भी दिन अधिकतम 2 घण्टे या सप्ताह में 12 घण्टे या 3 महीने में 50 घण्टे का Overtime अपनी सहमति के साथ कर सकते हैं, जिसके लिए आपको आपके वेतन का 200% वेतन दिया जाएगा।",
+        "यदि आपने Company में परीक्षा अवधि पूरी कर ली है तो आप एक महीने का समय देकर या एक महीने का वेतन उसकी जगह देकर Company से त्यागपत्र दे सकते हैं। Company भी इस तरह आपको कार्य छोड़ने के लिए कह सकती है।",
+        "आपकी आयु 58 वर्ष होने पर आप सेवा निवृत हो जाएंगे।",
+        "Factory में आकस्मिक निकास पीली पट्टी और अग्निशमन लगाए गए हैं जिनका प्रयोग बताए गए तरीकों से करना है और fire में प्रशिक्षित व्यक्तियों के Photo-Graph प्रत्येक Floor पर लगाए गए हैं।",
+        "अगर आपको कुछ भी जानकारी लेनी है तो आप प्रशासनिक विभाग में मिल सकते हैं।",
+        "अगर आपको किसी भी प्रकार की शिकायत है तो आप कार्य समिति के चुने गए सदस्यों के द्वारा अपनी शिकायत प्रबंधन तक पहुंचा सकते हैं।",
+        "आपको अपना पहचान पत्र जो किसी भी सरकारी विभाग द्वारा जारी किया गया हो उसकी छाया प्रतिलिपि देनी होगी।",
+        "Company द्वारा दिया गया पहचान पत्र Company में घुसने से लेकर निकलने तक पहन कर रखना होगा।",
+        "आपकी पृष्ठ भूमि के लिए प्रबंधन द्वारा पुलिस सत्यापन कराया जा सकता है।",
+        "Important Telephone No: जानकारी Telephone No. Gate पर लगे हैं।",
+        "Threat Awareness: धमकियों से सतर्कता के लिए समय समय पर दी गई प्रशिक्षण में बताए गए उपायों पर ध्यान दें।",
       ];
-      doc.setFont("helvetica", "normal"); doc.setFontSize(8.5);
+      setHi(); doc.setFontSize(9.5);
       inductionPts.forEach((pt, i) => {
-        if (y > 270) { doc.addPage(); y = 15; }
-        const lines = doc.splitTextToSize(`${i + 1}. ${pt}`, UW);
-        doc.text(lines, ML, y); y += lines.length * 5 + 2;
+        if (y > 268) { doc.addPage(); y = 15; }
+        const lines = doc.splitTextToSize(`${i + 1}.  ${pt}`, UW);
+        doc.text(lines, ML, y); y += lines.length * 6 + 2;
       });
     });
 
