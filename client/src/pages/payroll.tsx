@@ -2,11 +2,11 @@ import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { format } from "date-fns";
-import { DollarSign, Plus, FileText, Users, Calculator, Download, Building2, Edit, Trash2, CheckCircle, Upload, FileSpreadsheet, Loader2, Eye, AlertTriangle, ShieldCheck, HardHat, Briefcase } from "lucide-react";
+import { DollarSign, Plus, FileText, Users, Calculator, Download, Building2, Edit, Trash2, CheckCircle, Upload, FileSpreadsheet, Loader2, Eye, AlertTriangle, ShieldCheck } from "lucide-react";
 import { SearchableEmployeeSelect } from "@/components/searchable-employee-select";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
@@ -1539,39 +1539,6 @@ export default function PayrollPage() {
                         {companies.map((company) => (
                           <SelectItem key={company.id} value={company.id}>{company.companyName}</SelectItem>
                         ))}
-                      </SelectContent>
-                    </Select>
-                  ) : (myContractors.length > 0 || myPrincipalEmployers.length > 0) ? (
-                    <Select value={contractorFilter} onValueChange={setContractorFilter}>
-                      <SelectTrigger className="w-52" data-testid="select-payroll-contractor-filter">
-                        <SelectValue placeholder="Own Company" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="own">Own Company</SelectItem>
-                        {myContractors.length > 0 && (
-                          <SelectGroup>
-                            <SelectLabel className="flex items-center gap-1.5 text-amber-600">
-                              <HardHat className="h-3.5 w-3.5" /> Contractors
-                            </SelectLabel>
-                            {myContractors.map((c) => (
-                              <SelectItem key={c.id} value={`c:${c.companyId}:${c.contractorId}`}>
-                                {c.contractorName}
-                              </SelectItem>
-                            ))}
-                          </SelectGroup>
-                        )}
-                        {myPrincipalEmployers.length > 0 && (
-                          <SelectGroup>
-                            <SelectLabel className="flex items-center gap-1.5 text-blue-600">
-                              <Briefcase className="h-3.5 w-3.5" /> Principal Employers
-                            </SelectLabel>
-                            {myPrincipalEmployers.map((pe) => (
-                              <SelectItem key={pe.id} value={`pe:${pe.companyId}:${pe.contractorId}`}>
-                                {pe.companyName}
-                              </SelectItem>
-                            ))}
-                          </SelectGroup>
-                        )}
                       </SelectContent>
                     </Select>
                   ) : (

@@ -11,9 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
-  SelectGroup,
   SelectItem,
-  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -63,7 +61,6 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useLocation } from "wouter";
 import { useAuth } from "@/lib/auth";
 import { Checkbox } from "@/components/ui/checkbox";
-import { HardHat, Briefcase } from "lucide-react";
 import type { Employee, Company, TimeOfficePolicy, ContractorEmployee } from "@shared/schema";
 
 // ─── Bulk-update field definitions ────────────────────────────────────────────
@@ -684,50 +681,6 @@ export default function Employees() {
                   {companies.map((c) => (
                     <SelectItem key={c.id} value={c.id}>{c.companyName}</SelectItem>
                   ))}
-                </SelectContent>
-              </Select>
-            )}
-
-            {/* Contractor / Principal Employer company filter — company admins only */}
-            {!isSuperAdmin && (myContractors.length > 0 || myPrincipalEmployers.length > 0) && (
-              <Select value={contractorFilter} onValueChange={setContractorFilter}>
-                <SelectTrigger className="w-56" data-testid="select-contractor-company-filter">
-                  <SelectValue placeholder="Own Company" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="own">Own Company</SelectItem>
-
-                  {myContractors.length > 0 && (
-                    <SelectGroup>
-                      <SelectLabel className="flex items-center gap-1.5 text-amber-600">
-                        <HardHat className="h-3.5 w-3.5" /> Contractors
-                      </SelectLabel>
-                      {myContractors.map((c) => (
-                        <SelectItem
-                          key={c.id}
-                          value={`c:${c.companyId}:${c.contractorId}`}
-                        >
-                          {c.contractorName}
-                        </SelectItem>
-                      ))}
-                    </SelectGroup>
-                  )}
-
-                  {myPrincipalEmployers.length > 0 && (
-                    <SelectGroup>
-                      <SelectLabel className="flex items-center gap-1.5 text-blue-600">
-                        <Briefcase className="h-3.5 w-3.5" /> Principal Employers
-                      </SelectLabel>
-                      {myPrincipalEmployers.map((pe) => (
-                        <SelectItem
-                          key={pe.id}
-                          value={`pe:${pe.companyId}:${pe.contractorId}`}
-                        >
-                          {pe.companyName}
-                        </SelectItem>
-                      ))}
-                    </SelectGroup>
-                  )}
                 </SelectContent>
               </Select>
             )}
