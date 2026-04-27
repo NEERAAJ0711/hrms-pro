@@ -3880,8 +3880,9 @@ export default function ReportsPage() {
       return rec.status.toUpperCase();
     };
 
-    const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
-    const PW = 297, PH = 210, ML = 8, MR = 8;
+    const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+    const PW = 210, PH = 297, ML = 8, MR = 8;
+    const UW = PW - ML - MR; // 194 mm usable width
     const company = companies.find(co => co.id === (effectiveCompany || empsToRun[0]?.companyId));
     const companyName = (company?.companyName || "Company").toUpperCase();
     const companyAddr = ((company as any)?.registeredAddress || "").toUpperCase();
@@ -3903,24 +3904,23 @@ export default function ReportsPage() {
       const empName = `${emp.firstName} ${emp.lastName}`.toUpperCase();
       const designation = (emp.designation || "").toUpperCase();
       const department = (emp.department || "").toUpperCase();
-      const designDept = [designation, department].filter(Boolean).join(" / ");
       const dojStr = emp.dateOfJoining ? format(new Date(emp.dateOfJoining + "T00:00:00"), "dd-MM-yyyy") : "";
 
       // ── HEADER ──────────────────────────────────────────────────
-      let y = 9;
+      let y = 8;
       doc.setFillColor(30, 58, 138);
-      doc.rect(ML, y - 1, PW - ML - MR, 12, "F");
+      doc.rect(ML, y - 1, UW, 12, "F");
       doc.setFont("helvetica", "bold"); doc.setFontSize(13);
       doc.setTextColor(255, 255, 255);
       doc.text(companyName, PW / 2, y + 5, { align: "center" }); y += 13;
       doc.setTextColor(0, 0, 0);
 
-      doc.setFont("helvetica", "normal"); doc.setFontSize(8);
+      doc.setFont("helvetica", "normal"); doc.setFontSize(7.5);
       if (companyAddr) { doc.text(companyAddr, PW / 2, y, { align: "center" }); y += 4; }
 
       doc.setFont("helvetica", "bold"); doc.setFontSize(11);
       doc.text("INDIVIDUAL ATTENDANCE SHEET", PW / 2, y, { align: "center" }); y += 5;
-      doc.setFont("helvetica", "normal"); doc.setFontSize(8.5);
+      doc.setFont("helvetica", "normal"); doc.setFontSize(8);
       doc.text(`Period : ${periodLabel}`, PW / 2, y, { align: "center" }); y += 3;
       doc.setDrawColor(30, 58, 138); doc.setLineWidth(0.5);
       doc.line(ML, y, PW - MR, y); y += 2;
@@ -3951,12 +3951,12 @@ export default function ReportsPage() {
           ],
         ],
         startY: y,
-        styles: { fontSize: 8, cellPadding: 2.2, lineColor: [30, 58, 138], lineWidth: 0.2, valign: "middle" },
+        styles: { fontSize: 7.5, cellPadding: 2, lineColor: [30, 58, 138], lineWidth: 0.2, valign: "middle" },
         columnStyles: {
-          0: { cellWidth: 22 }, 1: { cellWidth: 26 },
-          2: { cellWidth: 18 }, 3: { cellWidth: 26 },
-          4: { cellWidth: 26 }, 5: { cellWidth: 70 },
-          6: { cellWidth: 24 }, 7: { cellWidth: 62 },
+          0: { cellWidth: 20 }, 1: { cellWidth: 22 },
+          2: { cellWidth: 17 }, 3: { cellWidth: 22 },
+          4: { cellWidth: 24 }, 5: { cellWidth: 57 },
+          6: { cellWidth: 18 }, 7: { cellWidth: 14 },
         },
         margin: { left: ML, right: MR },
         theme: "grid",
@@ -4022,13 +4022,13 @@ export default function ReportsPage() {
           rate > 0 ? rate.toLocaleString("en-IN") : "—", payDays.toFixed(2),
         ]],
         startY: y,
-        styles: { fontSize: 8, cellPadding: 2, halign: "center" as const, lineColor: [30, 58, 138], lineWidth: 0.2, valign: "middle" },
-        headStyles: { fillColor: [30, 58, 138], textColor: 255, fontStyle: "bold", fontSize: 7.5, halign: "center" as const },
+        styles: { fontSize: 7.5, cellPadding: 1.8, halign: "center" as const, lineColor: [30, 58, 138], lineWidth: 0.2, valign: "middle" },
+        headStyles: { fillColor: [30, 58, 138], textColor: 255, fontStyle: "bold", fontSize: 7, halign: "center" as const },
         bodyStyles: { fillColor: [239, 246, 255] },
         columnStyles: {
-          0: { cellWidth: 21 }, 1: { cellWidth: 18 }, 2: { cellWidth: 20 },
-          3: { cellWidth: 17 }, 4: { cellWidth: 15 }, 5: { cellWidth: 21 },
-          6: { cellWidth: 28 }, 7: { cellWidth: 28 }, 8: { cellWidth: 28 }, 9: { cellWidth: 28 },
+          0: { cellWidth: 19 }, 1: { cellWidth: 16 }, 2: { cellWidth: 19 },
+          3: { cellWidth: 16 }, 4: { cellWidth: 14 }, 5: { cellWidth: 19 },
+          6: { cellWidth: 24 }, 7: { cellWidth: 24 }, 8: { cellWidth: 21 }, 9: { cellWidth: 22 },
         },
         margin: { left: ML, right: MR },
         theme: "grid",
@@ -4083,22 +4083,22 @@ export default function ReportsPage() {
           ],
         ],
         body: tableBody,
-        styles: { fontSize: 7, cellPadding: 1.5, lineColor: [100, 120, 180], lineWidth: 0.15, halign: "center" as const, valign: "middle" as const },
-        headStyles: { fillColor: [30, 58, 138], textColor: 255, fontStyle: "bold", fontSize: 7, lineColor: [20, 40, 120], lineWidth: 0.2 },
+        styles: { fontSize: 6.5, cellPadding: 1.3, lineColor: [100, 120, 180], lineWidth: 0.15, halign: "center" as const, valign: "middle" as const },
+        headStyles: { fillColor: [30, 58, 138], textColor: 255, fontStyle: "bold", fontSize: 6.5, lineColor: [20, 40, 120], lineWidth: 0.2 },
         alternateRowStyles: { fillColor: [248, 250, 255] },
         columnStyles: {
-          0: { cellWidth: 34, halign: "left" as const },
-          1: { cellWidth: 10 },
-          2: { cellWidth: 15 },
-          3: { cellWidth: 15 },
-          4: { cellWidth: 14 },
-          5: { cellWidth: 14 },
-          6: { cellWidth: 14 },
-          7: { cellWidth: 14 },
-          8: { cellWidth: 17 },
-          9: { cellWidth: 15 },
-          10: { cellWidth: 18, fontStyle: "bold" as const },
-          11: { halign: "left" as const },
+          0: { cellWidth: 30, halign: "left" as const },
+          1: { cellWidth: 9 },
+          2: { cellWidth: 13 },
+          3: { cellWidth: 13 },
+          4: { cellWidth: 12 },
+          5: { cellWidth: 12 },
+          6: { cellWidth: 12 },
+          7: { cellWidth: 12 },
+          8: { cellWidth: 14 },
+          9: { cellWidth: 12 },
+          10: { cellWidth: 14, fontStyle: "bold" as const },
+          11: { cellWidth: 31, halign: "left" as const },
         },
         didParseCell: (data: any) => {
           if (data.section === "body" && data.column.index === 10 && data.row.index < tableBody.length - 1) {
@@ -4120,11 +4120,11 @@ export default function ReportsPage() {
       });
 
       // ── FOOTER ──────────────────────────────────────────────────
-      const footerY = PH - 7;
+      const footerY = PH - 10;
       doc.setFont("helvetica", "normal"); doc.setFontSize(7.5); doc.setTextColor(80, 80, 80);
       doc.text("Checked By : _______________________", ML, footerY);
-      doc.text("HR Manager : _______________________", PW / 2 - 35, footerY);
-      doc.text("Authorized Signatory : _______________________", PW - MR - 75, footerY);
+      doc.text("HR Manager : _______________________", PW / 2 - 25, footerY);
+      doc.text("Authorized Signatory : _______________________", PW - MR - 70, footerY);
       doc.setTextColor(0, 0, 0);
     }
 
