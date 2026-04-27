@@ -476,17 +476,35 @@ export default function Users() {
   const companyId = currentUser?.companyId;
 
   const { data: departments = [] } = useQuery<MasterDepartment[]>({
-    queryKey: ["/api/master-departments", companyId],
+    queryKey: ["/api/lookup/departments", companyId],
+    queryFn: async () => {
+      if (!companyId) return [];
+      const res = await fetch(`/api/lookup/departments`, { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
     enabled: !!companyId,
   });
 
   const { data: locations = [] } = useQuery<MasterLocation[]>({
-    queryKey: ["/api/master-locations", companyId],
+    queryKey: ["/api/lookup/locations", companyId],
+    queryFn: async () => {
+      if (!companyId) return [];
+      const res = await fetch(`/api/lookup/locations`, { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
     enabled: !!companyId,
   });
 
   const { data: contractors = [] } = useQuery<ContractorMaster[]>({
-    queryKey: ["/api/contractor-masters"],
+    queryKey: ["/api/lookup/contractors", companyId],
+    queryFn: async () => {
+      if (!companyId) return [];
+      const res = await fetch(`/api/lookup/contractors`, { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
     enabled: !!companyId,
   });
 

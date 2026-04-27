@@ -595,6 +595,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ===== Lookup endpoints (no module-gate — used by User form access pickers) =====
+  app.get("/api/lookup/departments", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const cid = (req.query.companyId as string) || user.companyId;
+      if (!cid) return res.json([]);
+      res.json(await storage.getMasterDepartmentsByCompany(cid));
+    } catch { res.json([]); }
+  });
+
+  app.get("/api/lookup/locations", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const cid = (req.query.companyId as string) || user.companyId;
+      if (!cid) return res.json([]);
+      res.json(await storage.getMasterLocationsByCompany(cid));
+    } catch { res.json([]); }
+  });
+
+  app.get("/api/lookup/contractors", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const cid = (req.query.companyId as string) || user.companyId;
+      if (!cid) return res.json([]);
+      res.json(await storage.getContractorMastersByCompany(cid));
+    } catch { res.json([]); }
+  });
+
   // ===== User Routes =====
   app.get("/api/users", requireAuth, requireModuleAccess("users"), async (req, res) => {
     try {
