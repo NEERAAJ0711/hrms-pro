@@ -30,7 +30,8 @@ import {
   insertBiometricDeviceSchema,
   insertJobPostingSchema,
   insertJobApplicationSchema,
-  insertWageGradeSchema
+  insertWageGradeSchema,
+  insertContractorMasterSchema
 } from "@shared/schema";
 import { z } from "zod";
 import { registerAdmsRoutes, getAdmsActivityLog, getAdmsActivityLogFromDB, getAdmsServerStatus, processAttlog, processUserRecords } from './adms';
@@ -5174,6 +5175,49 @@ export async function registerRoutes(app: Express): Promise<Server> {
       clearInterval(heartbeat);
       removeSSEClient(user.id, res);
     });
+  });
+
+  // ===== Contractor Masters Routes =====
+  app.get("/api/contractor-masters", requireAuth, requireModuleAccess("masters"), async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const { companyId } = req.query;
+      const cid = (companyId as string) || user.companyId;
+      if (!cid) return res.json([]);
+      return res.json(await storage.getContractorMastersByCompany(cid));
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch contractor masters" });
+    }
+  });
+
+  app.post("/api/contractor-masters", requireAuth, async (req, res) => {
+    try {
+      const data = insertContractorMasterSchema.parse(req.body);
+      const record = await storage.createContractorMaster(data);
+      res.status(201).json(record);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to create contractor master" });
+    }
+  });
+
+  app.patch("/api/contractor-masters/:id", requireAuth, async (req, res) => {
+    try {
+      const updated = await storage.updateContractorMaster(req.params.id, req.body);
+      if (!updated) return res.status(404).json({ error: "Contractor master not found" });
+      res.json(updated);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update contractor master" });
+    }
+  });
+
+  app.delete("/api/contractor-masters/:id", requireAuth, async (req, res) => {
+    try {
+      const success = await storage.deleteContractorMaster(req.params.id);
+      if (!success) return res.status(404).json({ error: "Contractor master not found" });
+      res.json({ success });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete contractor master" });
+    }
   });
 
   // Register compliance routes (completely separate module)

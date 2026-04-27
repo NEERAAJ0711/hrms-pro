@@ -913,3 +913,18 @@ export const complianceAdjustments = pgTable("compliance_adjustments", {
 export const insertComplianceAdjustmentSchema = createInsertSchema(complianceAdjustments).omit({ id: true });
 export type InsertComplianceAdjustment = z.infer<typeof insertComplianceAdjustmentSchema>;
 export type ComplianceAdjustment = typeof complianceAdjustments.$inferSelect;
+
+// Contractor Master table (company-specific)
+export const contractorMasters = pgTable("contractor_masters", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  companyId: varchar("company_id", { length: 36 }).notNull(),
+  contractorName: text("contractor_name").notNull(),
+  contractorAddress: text("contractor_address"),
+  serviceChargePercent: real("service_charge_percent").default(0),
+  applicableCompliances: text("applicable_compliances").array(),
+  status: text("status").notNull().default("active"),
+});
+
+export const insertContractorMasterSchema = createInsertSchema(contractorMasters).omit({ id: true });
+export type InsertContractorMaster = z.infer<typeof insertContractorMasterSchema>;
+export type ContractorMaster = typeof contractorMasters.$inferSelect;

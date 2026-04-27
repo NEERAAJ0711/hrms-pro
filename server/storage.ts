@@ -55,6 +55,8 @@ import {
   type UserPermission,
   type CompanyContractor,
   type InsertCompanyContractor,
+  type ContractorMaster,
+  type InsertContractorMaster,
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 
@@ -195,6 +197,13 @@ export interface IStorage {
   createDeductionHead(head: InsertDeductionHead): Promise<DeductionHead>;
   updateDeductionHead(id: string, head: Partial<InsertDeductionHead>): Promise<DeductionHead | undefined>;
   deleteDeductionHead(id: string): Promise<boolean>;
+
+  // Contractor Masters
+  getContractorMastersByCompany(companyId: string): Promise<ContractorMaster[]>;
+  getContractorMaster(id: string): Promise<ContractorMaster | undefined>;
+  createContractorMaster(data: InsertContractorMaster): Promise<ContractorMaster>;
+  updateContractorMaster(id: string, data: Partial<InsertContractorMaster>): Promise<ContractorMaster | undefined>;
+  deleteContractorMaster(id: string): Promise<boolean>;
 
   // Statutory Settings
   getStatutorySettings(id: string): Promise<StatutorySettings | undefined>;
@@ -1191,6 +1200,13 @@ export class MemStorage implements IStorage {
   async deleteDeductionHead(id: string): Promise<boolean> {
     return this.deductionHeadsMap.delete(id);
   }
+
+  // Contractor Masters methods (in-memory stubs)
+  async getContractorMastersByCompany(_companyId: string): Promise<ContractorMaster[]> { return []; }
+  async getContractorMaster(_id: string): Promise<ContractorMaster | undefined> { return undefined; }
+  async createContractorMaster(_data: InsertContractorMaster): Promise<ContractorMaster> { throw new Error("Not implemented"); }
+  async updateContractorMaster(_id: string, _data: Partial<InsertContractorMaster>): Promise<ContractorMaster | undefined> { return undefined; }
+  async deleteContractorMaster(_id: string): Promise<boolean> { return false; }
 
   // Statutory Settings methods
   async getStatutorySettings(id: string): Promise<StatutorySettings | undefined> {

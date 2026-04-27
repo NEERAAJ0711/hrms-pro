@@ -55,6 +55,9 @@ import {
   type UserPermission,
   type CompanyContractor,
   type InsertCompanyContractor,
+  type ContractorMaster,
+  type InsertContractorMaster,
+  contractorMasters,
   companyContractors,
   contractorEmployees,
   companies,
@@ -1084,6 +1087,31 @@ export class DatabaseStorage implements IStorage {
 
   async deleteWageGrade(id: string): Promise<boolean> {
     const result = await db.delete(wageGrades).where(eq(wageGrades.id, id)).returning();
+    return result.length > 0;
+  }
+
+  async getContractorMastersByCompany(companyId: string): Promise<ContractorMaster[]> {
+    return await db.select().from(contractorMasters).where(eq(contractorMasters.companyId, companyId));
+  }
+
+  async getContractorMaster(id: string): Promise<ContractorMaster | undefined> {
+    const result = await db.select().from(contractorMasters).where(eq(contractorMasters.id, id));
+    return result[0];
+  }
+
+  async createContractorMaster(data: InsertContractorMaster): Promise<ContractorMaster> {
+    const id = randomUUID();
+    const result = await db.insert(contractorMasters).values({ ...data, id }).returning();
+    return result[0];
+  }
+
+  async updateContractorMaster(id: string, data: Partial<InsertContractorMaster>): Promise<ContractorMaster | undefined> {
+    const result = await db.update(contractorMasters).set(data).where(eq(contractorMasters.id, id)).returning();
+    return result[0];
+  }
+
+  async deleteContractorMaster(id: string): Promise<boolean> {
+    const result = await db.delete(contractorMasters).where(eq(contractorMasters.id, id)).returning();
     return result.length > 0;
   }
 

@@ -15,7 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth";
-import type { Company, Setting, MasterDepartment, MasterDesignation, MasterLocation, EarningHead, DeductionHead, StatutorySettings, TimeOfficePolicy, Holiday, WageGrade } from "@shared/schema";
+import type { Company, Setting, MasterDepartment, MasterDesignation, MasterLocation, EarningHead, DeductionHead, StatutorySettings, TimeOfficePolicy, Holiday, WageGrade, ContractorMaster } from "@shared/schema";
 import { Textarea } from "@/components/ui/textarea";
 
 interface SettingFormData {
@@ -534,6 +534,7 @@ function MastersSettings({ companyId, selectedCompany, userRole }: { companyId: 
           <TabsTrigger value="earnings">Earning Heads</TabsTrigger>
           <TabsTrigger value="deductions">Deduction Heads</TabsTrigger>
           <TabsTrigger value="wage-grades">Wage Grades</TabsTrigger>
+          <TabsTrigger value="contractor-masters">Contractor Masters</TabsTrigger>
         </TabsList>
 
         <TabsContent value="departments">
@@ -553,6 +554,9 @@ function MastersSettings({ companyId, selectedCompany, userRole }: { companyId: 
         </TabsContent>
         <TabsContent value="wage-grades">
           <WageGradesManager companyId={companyId!} />
+        </TabsContent>
+        <TabsContent value="contractor-masters">
+          <ContractorMastersManager companyId={companyId!} />
         </TabsContent>
       </Tabs>
     </div>
@@ -3068,6 +3072,237 @@ function WageGradesManager({ companyId }: { companyId: string }) {
           </Table>
         )}
       </CardContent>
+    </Card>
+  );
+}
+
+const COMPLIANCE_OPTIONS = ["PF", "ESI", "PT", "LWF", "TDS", "Minimum Wages", "Bonus", "Gratuity"];
+
+function ContractorMastersManager({ companyId }: { companyId: string }) {
+  const { toast } = useToast();
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editingItem, setEditingItem] = useState<ContractorMaster | null>(null);
+  const [formData, setFormData] = useState({
+    contractorName: "",
+    contractorAddress: "",
+    serviceChargePercent: 0,
+    applicableCompliances: [] as string[],
+  });
+
+  const { data: records = [], isLoading } = useQuery<ContractorMaster[]>({
+    queryKey: [`/api/contractor-masters?companyId=${companyId}`],
+    queryFn: async () => {
+      const res = await fetch(`/api/contractor-masters?companyId=${companyId}`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch contractor masters");
+      return res.json();
+    },
+    enabled: !!companyId,
+  });
+
+  const invalidate = () => {
+    queryClient.invalidateQueries({ predicate: (q) => (q.queryKey[0] as string)?.includes("/api/contractor-masters") });
+  };
+
+  const createMutation = useMutation({
+    mutationFn: (data: any) => apiRequest("POST", "/api/contractor-masters", { ...data, companyId }),
+    onSuccess: () => { invalidate(); toast({ title: "Contractor master created" }); setDialogOpen(false); resetForm(); },
+    onError: (err: Error) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: any }) => apiRequest("PATCH", `/api/contractor-masters/${id}`, data),
+    onSuccess: () => { invalidate(); toast({ title: "Contractor master updated" }); setDialogOpen(false); resetForm(); },
+    onError: (err: Error) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => apiRequest("DELETE", `/api/contractor-masters/${id}`),
+    onSuccess: () => { invalidate(); toast({ title: "Contractor master deleted" }); },
+    onError: (err: Error) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const resetForm = () => {
+    setFormData({ contractorName: "", contractorAddress: "", serviceChargePercent: 0, applicableCompliances: [] });
+    setEditingItem(null);
+  };
+
+  const handleEdit = (item: ContractorMaster) => {
+    setEditingItem(item);
+    setFormData({
+      contractorName: item.contractorName,
+      contractorAddress: item.contractorAddress || "",
+      serviceChargePercent: item.serviceChargePercent ?? 0,
+      applicableCompliances: item.applicableCompliances ?? [],
+    });
+    setDialogOpen(true);
+  };
+
+  const toggleCompliance = (c: string) => {
+    setFormData((prev) => ({
+      ...prev,
+      applicableCompliances: prev.applicableCompliances.includes(c)
+        ? prev.applicableCompliances.filter((x) => x !== c)
+        : [...prev.applicableCompliances, c],
+    }));
+  };
+
+  const handleSubmit = () => {
+    if (!formData.contractorName.trim()) {
+      toast({ title: "Contractor Name is required", variant: "destructive" });
+      return;
+    }
+    if (editingItem) {
+      updateMutation.mutate({ id: editingItem.id, data: formData });
+    } else {
+      createMutation.mutate(formData);
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle className="flex items-center gap-2">
+              <Briefcase className="h-5 w-5" />
+              Contractor Masters
+            </CardTitle>
+            <CardDescription>Manage contractor details, service charges and applicable compliances</CardDescription>
+          </div>
+          <Button onClick={() => { resetForm(); setDialogOpen(true); }} data-testid="button-add-contractor-master">
+            <Plus className="h-4 w-4 mr-2" />
+            Add Contractor
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <div className="flex items-center justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
+        ) : records.length === 0 ? (
+          <div className="text-center py-8 text-muted-foreground">
+            No contractors configured. Click "Add Contractor" to create one.
+          </div>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Contractor Name</TableHead>
+                <TableHead>Address</TableHead>
+                <TableHead>Service Charge %</TableHead>
+                <TableHead>Applicable Compliances</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead className="w-24">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {records.map((r) => (
+                <TableRow key={r.id} data-testid={`row-contractor-master-${r.id}`}>
+                  <TableCell className="font-medium">{r.contractorName}</TableCell>
+                  <TableCell className="max-w-[200px] truncate">{r.contractorAddress || "-"}</TableCell>
+                  <TableCell>{r.serviceChargePercent != null ? `${r.serviceChargePercent}%` : "-"}</TableCell>
+                  <TableCell>
+                    <div className="flex flex-wrap gap-1">
+                      {(r.applicableCompliances ?? []).length > 0
+                        ? (r.applicableCompliances ?? []).map((c) => <Badge key={c} variant="secondary">{c}</Badge>)
+                        : <span className="text-muted-foreground">-</span>}
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant={r.status === "active" ? "default" : "secondary"}>{r.status}</Badge>
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex gap-1">
+                      <Button size="icon" variant="ghost" onClick={() => handleEdit(r)} data-testid={`button-edit-contractor-master-${r.id}`}>
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                      <Button size="icon" variant="ghost" onClick={() => { if (confirm(`Delete "${r.contractorName}"?`)) deleteMutation.mutate(r.id); }} data-testid={`button-delete-contractor-master-${r.id}`}>
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </CardContent>
+
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{editingItem ? "Edit Contractor" : "Add Contractor"}</DialogTitle>
+            <DialogDescription>Enter contractor details below.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="contractorName">Contractor Name *</Label>
+              <Input
+                id="contractorName"
+                value={formData.contractorName}
+                onChange={(e) => setFormData({ ...formData, contractorName: e.target.value })}
+                placeholder="Enter contractor name"
+                data-testid="input-contractor-name"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="contractorAddress">Contractor Address</Label>
+              <Textarea
+                id="contractorAddress"
+                value={formData.contractorAddress}
+                onChange={(e) => setFormData({ ...formData, contractorAddress: e.target.value })}
+                placeholder="Enter contractor address"
+                rows={3}
+                data-testid="input-contractor-address"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="serviceCharge">Service Charge %</Label>
+              <Input
+                id="serviceCharge"
+                type="number"
+                min={0}
+                max={100}
+                step={0.01}
+                value={formData.serviceChargePercent}
+                onChange={(e) => setFormData({ ...formData, serviceChargePercent: parseFloat(e.target.value) || 0 })}
+                placeholder="0.00"
+                data-testid="input-service-charge"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Applicable Compliances</Label>
+              <div className="grid grid-cols-2 gap-2">
+                {COMPLIANCE_OPTIONS.map((c) => (
+                  <label key={c} className="flex items-center gap-2 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={formData.applicableCompliances.includes(c)}
+                      onChange={() => toggleCompliance(c)}
+                      data-testid={`checkbox-compliance-${c.toLowerCase().replace(/\s/g, "-")}`}
+                      className="h-4 w-4 rounded border-gray-300 accent-primary"
+                    />
+                    <span className="text-sm">{c}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setDialogOpen(false); resetForm(); }}>Cancel</Button>
+            <Button
+              onClick={handleSubmit}
+              disabled={createMutation.isPending || updateMutation.isPending}
+              data-testid="button-save-contractor-master"
+            >
+              {createMutation.isPending || updateMutation.isPending ? (
+                <><Loader2 className="h-4 w-4 mr-2 animate-spin" />{editingItem ? "Updating..." : "Creating..."}</>
+              ) : (
+                editingItem ? "Update" : "Create"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }
