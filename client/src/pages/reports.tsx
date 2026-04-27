@@ -3077,6 +3077,640 @@ export default function ReportsPage() {
     toast({ title: "Downloaded", description: `Appointment_Letter_${emp.employeeCode}.pdf has been downloaded.` });
   };
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // Individual Attendance Sheet
+  // ─────────────────────────────────────────────────────────────────────────
+  const generateIndividualAttendanceSheet = (_fileType: "excel" | "pdf") => {
+    const empsToRun = docEmployee
+      ? filteredEmployees.filter(e => e.id === docEmployee)
+      : filteredEmployees;
+    if (empsToRun.length === 0) {
+      toast({ title: "No Data", description: "Select an employee or ensure employees exist for the selected company.", variant: "destructive" });
+      return;
+    }
+
+    const tToMins = (t: string): number => {
+      const p = (t || "00:00").split(":").map(Number);
+      return (p[0] || 0) * 60 + (p[1] || 0);
+    };
+    const minsToHHMM = (m: number): string => {
+      const h = Math.floor(Math.abs(m) / 60);
+      const mn = Math.abs(m) % 60;
+      return `${String(h).padStart(2, "0")}.${String(mn).padStart(2, "0")}`;
+    };
+    const fmtT = (t: string): string => (t || "").replace(":", ".");
+
+    const getPolicy = (emp: Employee) => {
+      const pol = emp.timeOfficePolicyId ? timeOfficePolicies.find(p => p.id === emp.timeOfficePolicyId) : null;
+      const cp = timeOfficePolicies.filter(p => p.companyId === emp.companyId);
+      return pol || cp.find(p => p.isDefault && p.status === "active") || cp.find(p => p.status === "active");
+    };
+
+    const getStatusCode = (rec: Attendance | undefined, emp: Employee, dateStr: string): string => {
+      if (!rec) {
+        const s = getDayStatus(dateStr, emp);
+        if (s === "WO") return "OFF";
+        if (s === "H") return "HOL";
+        if (s === "L") return "EL";
+        if (s === "A" || s === "-") return "A-A";
+        return "A-A";
+      }
+      if (rec.status === "present") return "P-P";
+      if (rec.status === "absent") return "A-A";
+      if (rec.status === "weekend") return "OFF";
+      if (rec.status === "holiday") return "HOL";
+      if (rec.status === "on_leave") return rec.leaveTypeCode || "EL";
+      if (rec.status === "half_day") return "P-A";
+      return rec.status.toUpperCase();
+    };
+
+    const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+    const pageW = 297;
+    const ml = 10;
+    const mr = 10;
+    const company = companies.find(co => co.id === (effectiveCompany || empsToRun[0]?.companyId));
+    const companyName = company?.companyName || "Company";
+    const dateFrom = format(new Date(yearNum, monthNum - 1, 1), "dd MMMM, yyyy");
+    const dateTo = format(new Date(yearNum, monthNum - 1, daysInMonth), "dd MMMM, yyyy");
+    const periodStr = `${dateFrom} - ${dateTo}`;
+
+    let isFirst = true;
+
+    for (const emp of empsToRun) {
+      if (!isFirst) doc.addPage();
+      isFirst = false;
+
+      const policy = getPolicy(emp);
+      const dutyStart = policy?.dutyStartTime || "09:30";
+      const dutyEnd = policy?.dutyEndTime || "18:00";
+      const shiftName = policy?.policyName ? policy.policyName.charAt(0).toUpperCase() : "G";
+      const dutyStartMins = tToMins(dutyStart);
+      const dutyEndMins = tToMins(dutyEnd);
+
+      let y = 13;
+
+      // Header
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(13);
+      doc.text("ATTENDANCE REGISTER", pageW / 2, y, { align: "center" });
+      y += 6;
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(9);
+      doc.text(periodStr, pageW / 2, y, { align: "center" });
+      doc.text("Page 1 of 1", pageW - mr, y, { align: "right" });
+      y += 4;
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(8.5);
+      doc.text(companyName, pageW - mr, y + 1, { align: "right" });
+      y += 5;
+
+      // Employee info box
+      doc.setDrawColor(120, 120, 120);
+      doc.setLineWidth(0.3);
+      doc.line(ml, y, pageW - mr, y);
+
+      const col1 = ml + 2;
+      const w0 = 22, w1 = 22, w2 = 58, w3 = 80;
+
+      y += 4;
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(7.5);
+      doc.text("Paycode", col1, y);
+      doc.text("Card", col1 + w0, y);
+      doc.text("Employee Name", col1 + w0 + w1, y);
+      doc.text("Desig./Dept.", col1 + w0 + w1 + w2, y);
+      doc.text("Cadre/Company", col1 + w0 + w1 + w2 + w3, y);
+
+      y += 5;
+      const empName = `${emp.firstName} ${emp.lastName}`;
+      const designation = emp.designation || "";
+      const department = emp.department || "";
+      const cadre = (emp as any).cadre || "STAFF";
+      const designDept = [designation, department].filter(Boolean).join(" / ");
+
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(8);
+      doc.text(emp.employeeCode || "", col1, y);
+      doc.text(emp.employeeCode || "", col1 + w0, y);
+      doc.setFont("helvetica", "normal");
+      doc.text(empName.toUpperCase(), col1 + w0 + w1, y);
+      doc.text(designation.toUpperCase(), col1 + w0 + w1 + w2, y);
+      doc.text(cadre.toUpperCase(), col1 + w0 + w1 + w2 + w3, y);
+
+      // Right side: No of days / DOJ
+      doc.setFontSize(7.5);
+      doc.text(`No of days : ${daysInMonth}`, pageW - mr, y - 5, { align: "right" });
+      doc.text(`Doj : ${emp.dateOfJoining ? format(new Date(emp.dateOfJoining + "T00:00:00"), "dd-MM-yyyy") : "-"}`, pageW - mr, y + 10, { align: "right" });
+
+      y += 4;
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(7);
+      doc.text(department.toUpperCase(), col1 + w0 + w1 + w2, y);
+      doc.text(companyName, col1 + w0 + w1 + w2 + w3, y);
+
+      y += 5;
+      doc.setLineWidth(0.3);
+      doc.line(ml, y, pageW - mr, y);
+      y += 2;
+
+      // Build daily data
+      let presentCount = 0, offCount = 0, holidayCount = 0, leaveCount = 0, tourCount = 0, absentCount = 0;
+      let totalWorkMins = 0, totalOTMins = 0;
+      let totArrE = 0, totArrL = 0, totDepE = 0, totDepL = 0;
+
+      interface DayRow {
+        date: string; day: string; shift: string;
+        inT: string; outT: string;
+        arrE: string; arrL: string; depE: string; depL: string;
+        wh: string; ot: string; status: string; remark: string;
+      }
+      const dailyRows: DayRow[] = [];
+
+      for (let d = 1; d <= daysInMonth; d++) {
+        const dateStr = `${yearStr}-${monthStr}-${String(d).padStart(2, "0")}`;
+        const dateObj = new Date(dateStr + "T00:00:00");
+        const dayAbbr = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][dateObj.getDay()];
+        const rec = attendance.find(a => a.employeeId === emp.id && a.date === dateStr);
+        const sc = getStatusCode(rec, emp, dateStr);
+
+        let inT = "", outT = "", wh = "", ot = "";
+        let arrE = "", arrL = "", depE = "", depL = "";
+
+        if (rec && rec.status === "present" && rec.clockIn && rec.clockOut) {
+          inT = fmtT(rec.clockIn);
+          outT = fmtT(rec.clockOut);
+          wh = rec.workHours || "";
+          ot = rec.otHours && parseFloat(rec.otHours) > 0 ? rec.otHours : "";
+
+          const ciM = tToMins(rec.clockIn);
+          const coM = tToMins(rec.clockOut);
+          const aE = Math.max(0, dutyStartMins - ciM);
+          const aL = Math.max(0, ciM - dutyStartMins);
+          const dE = Math.max(0, dutyEndMins - coM);
+          const dL = Math.max(0, coM - dutyEndMins);
+
+          if (aE > 0) arrE = minsToHHMM(aE);
+          if (aL > 0) arrL = minsToHHMM(aL);
+          if (dE > 0) depE = minsToHHMM(dE);
+          if (dL > 0) depL = minsToHHMM(dL);
+          totArrE += aE; totArrL += aL; totDepE += dE; totDepL += dL;
+
+          if (rec.workHours) {
+            const [wHh, wHm] = rec.workHours.split(".").map(Number);
+            totalWorkMins += (wHh || 0) * 60 + (wHm || 0);
+          }
+          if (rec.otHours && parseFloat(rec.otHours) > 0) {
+            const [oHh, oHm] = rec.otHours.split(".").map(Number);
+            totalOTMins += (oHh || 0) * 60 + (oHm || 0);
+          }
+        }
+
+        if (sc === "P-P" || sc === "P-A" || sc === "A-P") presentCount++;
+        else if (sc === "OFF") offCount++;
+        else if (sc === "HOL") holidayCount++;
+        else if (["EL", "CL", "SL", "PL", "ML", "LOP"].includes(sc)) leaveCount++;
+        else if (sc === "TOUR" || sc === "OD") tourCount++;
+        else absentCount++;
+
+        dailyRows.push({ date: `${String(d).padStart(2, "0")}/${monthStr}/${yearStr}`, day: dayAbbr, shift: shiftName, inT, outT, arrE, arrL, depE, depL, wh, ot, status: sc, remark: rec?.notes || "" });
+      }
+
+      const totalWorkStr = minsToHHMM(totalWorkMins);
+      const totalOTStr = minsToHHMM(totalOTMins);
+      const payDays = Math.min(presentCount + offCount + holidayCount + leaveCount + tourCount, daysInMonth);
+      const ss = salaryStructures.find(s => s.employeeId === emp.id);
+      const rate = ss?.grossSalary || 0;
+
+      // Summary section
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(7.5);
+      ["Present", "Off", "Holiday", "Leave", "Tour", "Absent"].forEach((lbl, i) => {
+        doc.text(lbl, col1 + i * 26, y + 4);
+      });
+      y += 5;
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(7.5);
+      [presentCount, offCount, holidayCount, leaveCount, tourCount, absentCount].forEach((v, i) => {
+        doc.text(v.toFixed(2), col1 + i * 26, y + 4);
+      });
+      doc.setFont("helvetica", "bold");
+      doc.text(`Total working hours : ${totalWorkStr}`, col1 + 160, y + 4);
+      y += 5;
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(7.5);
+      doc.text(`Rate`, col1, y + 3);
+      if (rate > 0) doc.text(String(rate.toLocaleString("en-IN")), col1 - 2, y + 8);
+      doc.text(`Payable : ->`, col1 + 12, y + 3);
+      [presentCount, offCount, holidayCount, leaveCount, tourCount, absentCount].forEach((v, i) => {
+        doc.text(v.toFixed(2), col1 + 38 + i * 22, y + 3);
+      });
+      doc.setFont("helvetica", "bold");
+      doc.text(`Overtime hours : ${totalOTStr}`, col1 + 160, y + 3);
+      doc.text(`Total days payable : ${payDays.toFixed(2)}`, col1 + 205, y + 3);
+      y += 8;
+      doc.setLineWidth(0.2);
+      doc.line(ml, y, pageW - mr, y);
+      y += 3;
+
+      // Daily detail table
+      const tableBody: any[][] = [
+        ...dailyRows.map(r => [
+          `${r.date}  ${r.day}`, r.shift,
+          r.inT, r.outT, r.arrE, r.arrL, r.depE, r.depL,
+          r.wh, r.ot, r.status, r.remark,
+        ]),
+        [
+          { content: "Total", styles: { fontStyle: "bold" as const } },
+          "",
+          "", "",
+          minsToHHMM(totArrE), minsToHHMM(totArrL),
+          minsToHHMM(totDepE), minsToHHMM(totDepL),
+          totalWorkStr, totalOTStr,
+          { content: "", styles: {} },
+          { content: "End of Report", styles: { halign: "left" as const, fontStyle: "bold" as const } },
+        ],
+      ];
+
+      autoTable(doc, {
+        startY: y,
+        head: [
+          [
+            { content: "Date & Day", rowSpan: 2, styles: { valign: "middle" as const, halign: "center" as const } },
+            { content: "Shift", rowSpan: 2, styles: { valign: "middle" as const, halign: "center" as const } },
+            { content: "Time", colSpan: 2, styles: { halign: "center" as const } },
+            { content: "Arrival", colSpan: 2, styles: { halign: "center" as const } },
+            { content: "Departure", colSpan: 2, styles: { halign: "center" as const } },
+            { content: "Working\nHours", rowSpan: 2, styles: { valign: "middle" as const, halign: "center" as const } },
+            { content: "Over-\ntime", rowSpan: 2, styles: { valign: "middle" as const, halign: "center" as const } },
+            { content: "Status", rowSpan: 2, styles: { valign: "middle" as const, halign: "center" as const } },
+            { content: "Remark", rowSpan: 2, styles: { valign: "middle" as const, halign: "center" as const } },
+          ],
+          ["In", "Out", "Early", "Late", "Early", "Late"],
+        ],
+        body: tableBody,
+        styles: { fontSize: 7, cellPadding: 1.3, lineColor: [120, 120, 120], lineWidth: 0.15, halign: "center", valign: "middle" },
+        headStyles: { fillColor: [210, 225, 255], textColor: [20, 30, 80], fontStyle: "bold", fontSize: 7, lineColor: [80, 100, 180], lineWidth: 0.25 },
+        alternateRowStyles: { fillColor: [248, 250, 255] },
+        columnStyles: {
+          0: { cellWidth: 30, halign: "left" as const },
+          1: { cellWidth: 10 },
+          2: { cellWidth: 14 },
+          3: { cellWidth: 14 },
+          4: { cellWidth: 14 },
+          5: { cellWidth: 14 },
+          6: { cellWidth: 14 },
+          7: { cellWidth: 14 },
+          8: { cellWidth: 17 },
+          9: { cellWidth: 13 },
+          10: { cellWidth: 18, fontStyle: "bold" as const },
+          11: { halign: "left" as const },
+        },
+        didParseCell: (data: any) => {
+          if (data.section === "body" && data.row.index === tableBody.length - 1) {
+            data.cell.styles.fontStyle = "bold";
+            data.cell.styles.fillColor = [235, 240, 255];
+          }
+          if (data.section === "body" && data.column.index === 10 && data.row.index < tableBody.length - 1) {
+            const s = String(data.cell.raw);
+            if (s === "P-P" || s === "P-A") data.cell.styles.textColor = [10, 130, 10];
+            else if (s === "A-A") data.cell.styles.textColor = [180, 20, 20];
+            else if (s === "OFF") data.cell.styles.textColor = [60, 80, 180];
+            else if (s === "HOL") data.cell.styles.textColor = [160, 100, 10];
+            else if (s !== "") data.cell.styles.textColor = [140, 60, 140];
+          }
+        },
+        tableLineColor: [80, 80, 120],
+        tableLineWidth: 0.3,
+      });
+    }
+
+    const label = empsToRun.length === 1 ? empsToRun[0].employeeCode : "All";
+    doc.save(`Individual_Attendance_Sheet_${label}_${selectedMonth}.pdf`);
+    toast({ title: "Downloaded", description: `Individual Attendance Sheet saved.` });
+  };
+
+  const viewIndividualAttendanceSheet = () => {
+    const empsToRun = docEmployee
+      ? filteredEmployees.filter(e => e.id === docEmployee)
+      : filteredEmployees;
+    if (empsToRun.length === 0) {
+      toast({ title: "No Data", description: "No employees found.", variant: "destructive" });
+      return;
+    }
+    const fmtT = (t: string) => (t || "").replace(":", ".");
+    const headers = ["Emp Code", "Date", "Day", "Shift", "In", "Out", "Work Hrs", "OT Hrs", "Status"];
+    const rows: (string | number)[][] = [];
+    empsToRun.forEach(emp => {
+      const pol = emp.timeOfficePolicyId ? timeOfficePolicies.find(p => p.id === emp.timeOfficePolicyId) : null;
+      const cp = timeOfficePolicies.filter(p => p.companyId === emp.companyId);
+      const ep = pol || cp.find(p => p.isDefault && p.status === "active") || cp.find(p => p.status === "active");
+      const shiftName = ep?.policyName?.charAt(0).toUpperCase() || "G";
+      for (let d = 1; d <= daysInMonth; d++) {
+        const dateStr = `${yearStr}-${monthStr}-${String(d).padStart(2, "0")}`;
+        const dateObj = new Date(dateStr + "T00:00:00");
+        const dayAbbr = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][dateObj.getDay()];
+        const rec = attendance.find(a => a.employeeId === emp.id && a.date === dateStr);
+        const statusMap: Record<string, string> = { present: "P-P", absent: "A-A", weekend: "OFF", holiday: "HOL", on_leave: "EL", half_day: "P-A" };
+        const sc = rec ? (statusMap[rec.status] || rec.status.toUpperCase()) : (getDayStatus(dateStr, emp) === "WO" ? "OFF" : "A-A");
+        rows.push([emp.employeeCode, dateStr, dayAbbr, shiftName, rec?.clockIn ? fmtT(rec.clockIn) : "", rec?.clockOut ? fmtT(rec.clockOut) : "", rec?.workHours || "", rec?.otHours || "", sc]);
+      }
+    });
+    openViewDialog(`Individual Attendance Sheet - ${monthName} ${yearNum}`, headers, rows);
+  };
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Monthly Attendance Register (Grid)
+  // ─────────────────────────────────────────────────────────────────────────
+  const generateMonthlyAttendanceRegister = (_fileType: "excel" | "pdf") => {
+    const emps = filteredEmployees;
+    if (emps.length === 0) {
+      toast({ title: "No Data", description: "No employees found for selected filters.", variant: "destructive" });
+      return;
+    }
+
+    const fmtT = (t: string): string => {
+      if (!t) return "";
+      const [h, m] = t.split(":").map(Number);
+      return `${String(h).padStart(2, "0")}.${String(m || 0).padStart(2, "0")}`;
+    };
+
+    const getPolicy = (emp: Employee) => {
+      const pol = emp.timeOfficePolicyId ? timeOfficePolicies.find(p => p.id === emp.timeOfficePolicyId) : null;
+      const cp = timeOfficePolicies.filter(p => p.companyId === emp.companyId);
+      return pol || cp.find(p => p.isDefault && p.status === "active") || cp.find(p => p.status === "active");
+    };
+
+    const getStatusCode = (rec: Attendance | undefined, emp: Employee, dateStr: string): string => {
+      if (!rec) {
+        const s = getDayStatus(dateStr, emp);
+        if (s === "WO") return "OFF";
+        if (s === "H") return "HOL";
+        if (s === "L") return "EL";
+        if (s === "A" || s === "-") return "A-A";
+        return "A-A";
+      }
+      if (rec.status === "present") return "P-P";
+      if (rec.status === "absent") return "A-A";
+      if (rec.status === "weekend") return "OFF";
+      if (rec.status === "holiday") return "HOL";
+      if (rec.status === "on_leave") return rec.leaveTypeCode || "EL";
+      if (rec.status === "half_day") return "P-A";
+      return rec.status.toUpperCase();
+    };
+
+    const company = companies.find(co => co.id === (effectiveCompany || emps[0]?.companyId));
+    const companyName = company?.companyName || "Company";
+
+    // Use A3 landscape for maximum width
+    const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a3" });
+    const pageW = 420;
+    const ml = 5;
+
+    // ── Page Header ──
+    let y = 12;
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(11);
+    doc.text(companyName, pageW / 2, y, { align: "center" });
+    y += 6;
+    doc.setFontSize(9.5);
+    doc.text("A T T E N D A N C E     R E G I S T E R", pageW / 2, y, { align: "center" });
+    y += 5;
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8.5);
+    doc.text(`01 ${monthName} ${yearNum}  -  ${daysInMonth} ${monthName} ${yearNum}`, pageW / 2, y, { align: "center" });
+    y += 6;
+
+    // Build day headers (day number + weekday abbreviation)
+    const dayAbbrs = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
+    const dayHeaders = Array.from({ length: daysInMonth }, (_, i) => {
+      const d = i + 1;
+      const dObj = new Date(`${yearStr}-${monthStr}-${String(d).padStart(2, "0")}T00:00:00`);
+      return `${d}\n${dayAbbrs[dObj.getDay()]}`;
+    });
+
+    // Build table
+    // Columns: [S.No, Code+Name Info, Row-Type, D1..D30, Summary]
+    const HEAD_COLS = ["S.No", "Paycode / Name / Desig. / Dept. / Cadre", "Type", ...dayHeaders, "Days Summary"];
+    const ROWS_PER_EMP = 6; // Shift, In, Out, Hours, OT, Status
+
+    const allRows: any[][] = [];
+    const empStartRows: number[] = [];   // track which body row index each employee starts at
+
+    emps.forEach((emp, empIdx) => {
+      const policy = getPolicy(emp);
+      const shiftName = policy?.policyName?.charAt(0).toUpperCase() || "G";
+
+      const shiftCells: string[] = [];
+      const inCells: string[] = [];
+      const outCells: string[] = [];
+      const hrsCells: string[] = [];
+      const otCells: string[] = [];
+      const statusCells: string[] = [];
+
+      let presentCount = 0, offCount = 0, holidayCount = 0, leaveCount = 0, tourCount = 0, absentCount = 0;
+      let totalWorkMins = 0, totalOTMins = 0;
+
+      for (let d = 1; d <= daysInMonth; d++) {
+        const dateStr = `${yearStr}-${monthStr}-${String(d).padStart(2, "0")}`;
+        const rec = attendance.find(a => a.employeeId === emp.id && a.date === dateStr);
+        const sc = getStatusCode(rec, emp, dateStr);
+
+        shiftCells.push(shiftName);
+
+        if (rec && rec.status === "present" && rec.clockIn) {
+          inCells.push(fmtT(rec.clockIn));
+          outCells.push(rec.clockOut ? fmtT(rec.clockOut) : "");
+          hrsCells.push(rec.workHours || "");
+          otCells.push(rec.otHours && parseFloat(rec.otHours) > 0 ? rec.otHours : "");
+          if (rec.workHours) {
+            const [wh, wm] = rec.workHours.split(".").map(Number);
+            totalWorkMins += (wh || 0) * 60 + (wm || 0);
+          }
+          if (rec.otHours && parseFloat(rec.otHours) > 0) {
+            const [oh, om] = rec.otHours.split(".").map(Number);
+            totalOTMins += (oh || 0) * 60 + (om || 0);
+          }
+        } else {
+          inCells.push(""); outCells.push(""); hrsCells.push(""); otCells.push("");
+        }
+        statusCells.push(sc);
+
+        if (sc === "P-P" || sc === "P-A") presentCount++;
+        else if (sc === "OFF") offCount++;
+        else if (sc === "HOL") holidayCount++;
+        else if (["EL", "CL", "SL", "PL", "ML", "LOP"].includes(sc)) leaveCount++;
+        else if (sc === "TOUR" || sc === "OD") tourCount++;
+        else if (sc === "A-A") absentCount++;
+      }
+
+      const payDays = Math.min(presentCount + offCount + holidayCount + leaveCount + tourCount, daysInMonth);
+      const otStr = `${Math.floor(totalOTMins / 60)}.${String(totalOTMins % 60).padStart(2, "0")}`;
+      const wkHrsTotal = `${Math.floor(totalWorkMins / 60)}.${String(totalWorkMins % 60).padStart(2, "0")}`;
+
+      const empFullName = `${emp.firstName} ${emp.lastName}`.toUpperCase();
+      const desig = (emp.designation || "").toUpperCase();
+      const dept = (emp.department || "").toUpperCase();
+      const cadre = ((emp as any).cadre || "STAFF").toUpperCase();
+      const doj = emp.dateOfJoining ? format(new Date(emp.dateOfJoining + "T00:00:00"), "dd/MM/yyyy") : "";
+
+      // Build info lines for the 2nd column across 6 rows
+      const infoLines = [
+        `${emp.employeeCode || ""}`,                  // row 1 — paycode
+        empFullName,                                   // row 2 — name
+        desig,                                         // row 3 — designation
+        dept,                                          // row 4 — dept
+        cadre,                                         // row 5 — cadre
+        doj,                                           // row 6 — DOJ
+      ];
+
+      const summaryLines = [
+        `Present : ${presentCount.toFixed(2)}`,
+        `Off : ${offCount.toFixed(2)}`,
+        `Holiday : ${holidayCount}   Days Payable: ${payDays.toFixed(2)}`,
+        `Leave : ${leaveCount.toFixed(2)}`,
+        `Tour : ${tourCount}`,
+        `Absent : ${absentCount.toFixed(2)}   OT Hrs: ${otStr}`,
+      ];
+
+      const rowTypes = ["Shift", "In", "Out", "Hours", "OT", "Status"];
+      const dayCellGroups = [shiftCells, inCells, outCells, hrsCells, otCells, statusCells];
+
+      empStartRows.push(allRows.length);
+      for (let ri = 0; ri < ROWS_PER_EMP; ri++) {
+        allRows.push([
+          ri === 0 ? (empIdx + 1) : "",           // S.No only in first sub-row
+          infoLines[ri],                           // info column
+          rowTypes[ri],                            // row type
+          ...dayCellGroups[ri],                    // day data
+          summaryLines[ri],                        // summary
+        ]);
+      }
+    });
+
+    // Calculate column widths to fit A3 landscape
+    // Total usable width ≈ 420 - 10 = 410mm
+    // Fixed cols: S.No=8, Info=36, Type=10 → 54mm
+    // Summary=52mm
+    // Remaining for days: 410-54-52 = 304mm / daysInMonth
+    const dayColW = Math.max(5.0, Math.min(8.0, Math.floor((410 - 54 - 52) / daysInMonth * 10) / 10));
+    const colStyles: Record<number, any> = {
+      0: { cellWidth: 8, halign: "center", fontStyle: "bold" },
+      1: { cellWidth: 36, halign: "left", fontSize: 5.5 },
+      2: { cellWidth: 10, halign: "center", fontStyle: "bold", fontSize: 6 },
+    };
+    for (let d = 0; d < daysInMonth; d++) {
+      colStyles[3 + d] = { cellWidth: dayColW, halign: "center", fontSize: 5 };
+    }
+    colStyles[3 + daysInMonth] = { cellWidth: 52, halign: "left", fontSize: 6 };
+
+    autoTable(doc, {
+      startY: y,
+      margin: { left: ml, right: 5 },
+      head: [HEAD_COLS],
+      body: allRows,
+      styles: { fontSize: 5.5, cellPadding: 0.8, lineColor: [150, 150, 150], lineWidth: 0.12, valign: "middle", overflow: "linebreak" },
+      headStyles: {
+        fillColor: [40, 70, 140], textColor: 255, fontStyle: "bold", fontSize: 5.5,
+        lineColor: [20, 40, 100], lineWidth: 0.2, halign: "center",
+      },
+      columnStyles: colStyles,
+      didParseCell: (data: any) => {
+        if (data.section !== "body") return;
+        const rowIdx = data.row.index;
+        const colIdx = data.column.index;
+
+        // Determine which employee group this row belongs to
+        const groupIdx = Math.floor(rowIdx / ROWS_PER_EMP);
+        const subRowInGroup = rowIdx % ROWS_PER_EMP;
+
+        // Alternating light/white background per employee group
+        const bgBase = groupIdx % 2 === 0 ? [250, 252, 255] : [255, 255, 255];
+        data.cell.styles.fillColor = bgBase;
+
+        // First sub-row of each group: slightly darker top border / bolder style
+        if (subRowInGroup === 0) {
+          data.cell.styles.lineWidthTop = 0.3;
+        }
+
+        // Status column (last of day columns + 1 from end) — color the status codes
+        if (colIdx >= 3 && colIdx < 3 + daysInMonth && subRowInGroup === 5) {
+          const s = String(data.cell.raw);
+          if (s === "P-P" || s === "P-A") data.cell.styles.textColor = [10, 120, 10];
+          else if (s === "A-A") data.cell.styles.textColor = [180, 20, 20];
+          else if (s === "OFF") data.cell.styles.textColor = [60, 80, 180];
+          else if (s === "HOL") data.cell.styles.textColor = [160, 100, 10];
+          else if (s !== "") data.cell.styles.textColor = [140, 60, 140];
+        }
+
+        // Row-type column bold
+        if (colIdx === 2) {
+          data.cell.styles.fontStyle = "bold";
+        }
+
+        // Info column: first sub-row = bolder (paycode)
+        if (colIdx === 1 && subRowInGroup === 0) {
+          data.cell.styles.fontStyle = "bold";
+          data.cell.styles.fontSize = 6;
+        }
+      },
+      tableLineColor: [80, 80, 80],
+      tableLineWidth: 0.25,
+    });
+
+    doc.save(`Monthly_Attendance_Register_${selectedMonth}.pdf`);
+    toast({ title: "Downloaded", description: `Monthly_Attendance_Register_${selectedMonth}.pdf has been downloaded.` });
+  };
+
+  const viewMonthlyAttendanceRegister = () => {
+    const emps = filteredEmployees;
+    if (emps.length === 0) {
+      toast({ title: "No Data", description: "No employees found.", variant: "destructive" });
+      return;
+    }
+    const getStatusCode = (rec: Attendance | undefined, emp: Employee, dateStr: string): string => {
+      if (!rec) {
+        const s = getDayStatus(dateStr, emp);
+        if (s === "WO") return "OFF";
+        if (s === "H") return "HOL";
+        if (s === "L") return "EL";
+        return "A-A";
+      }
+      if (rec.status === "present") return "P-P";
+      if (rec.status === "absent") return "A-A";
+      if (rec.status === "weekend") return "OFF";
+      if (rec.status === "holiday") return "HOL";
+      if (rec.status === "on_leave") return rec.leaveTypeCode || "EL";
+      if (rec.status === "half_day") return "P-A";
+      return rec.status.toUpperCase();
+    };
+    const dayHeaders = Array.from({ length: daysInMonth }, (_, i) => String(i + 1));
+    const headers = ["Code", "Name", ...dayHeaders, "P", "Off", "Hol", "Leave", "Absent", "Pay Days", "OT Hrs"];
+    const rows: (string | number)[][] = [];
+    emps.forEach(emp => {
+      let pC = 0, offC = 0, holC = 0, lvC = 0, abC = 0, totalOTMins = 0;
+      const dayCells: string[] = [];
+      for (let d = 1; d <= daysInMonth; d++) {
+        const dateStr = `${yearStr}-${monthStr}-${String(d).padStart(2, "0")}`;
+        const rec = attendance.find(a => a.employeeId === emp.id && a.date === dateStr);
+        const sc = getStatusCode(rec, emp, dateStr);
+        dayCells.push(sc);
+        if (sc === "P-P" || sc === "P-A") pC++;
+        else if (sc === "OFF") offC++;
+        else if (sc === "HOL") holC++;
+        else if (["EL", "CL", "SL", "PL", "ML", "LOP"].includes(sc)) lvC++;
+        else abC++;
+        if (rec?.otHours) {
+          const [oh, om] = rec.otHours.split(".").map(Number);
+          totalOTMins += (oh || 0) * 60 + (om || 0);
+        }
+      }
+      const payDays = Math.min(pC + offC + holC + lvC, daysInMonth);
+      const otStr = `${Math.floor(totalOTMins / 60)}.${String(totalOTMins % 60).padStart(2, "0")}`;
+      rows.push([emp.employeeCode, `${emp.firstName} ${emp.lastName}`, ...dayCells, pC, offC, holC, lvC, abC, payDays, otStr]);
+    });
+    openViewDialog(`Monthly Attendance Register - ${monthName} ${yearNum}`, headers, rows);
+  };
+
   const reportCards = [
     {
       title: "Attendance Sheet",
@@ -3086,6 +3720,16 @@ export default function ReportsPage() {
       bgColor: "bg-blue-50 dark:bg-blue-950",
       generate: generateAttendanceSheet,
       view: viewAttendanceSheet,
+    },
+    {
+      title: "Monthly Attendance Register",
+      description: "Grid-format register showing each employee's daily shift, punch-in/out, working hours, OT, and status for the full month with summary totals",
+      icon: CalendarRange,
+      color: "text-violet-600",
+      bgColor: "bg-violet-50 dark:bg-violet-950",
+      generate: generateMonthlyAttendanceRegister,
+      view: viewMonthlyAttendanceRegister,
+      pdfOnly: true,
     },
     {
       title: "Attendance Punch Report",
@@ -3295,6 +3939,7 @@ export default function ReportsPage() {
 
   // Employee-wise cards
   const employeeWiseCards = [
+    { title: "Individual Attendance Sheet", description: "Per-employee detailed attendance register with daily shift, punch times, arrival/departure variance, working hours, OT, and status for the selected month", icon: ClipboardList, color: "text-violet-600", bgColor: "bg-violet-50 dark:bg-violet-950", generate: generateIndividualAttendanceSheet, view: viewIndividualAttendanceSheet, pdfOnly: true },
     { title: "Employee List", description: "Complete employee directory with personal details, department, designation, and contact info", icon: Users, color: "text-teal-600", bgColor: "bg-teal-50 dark:bg-teal-950", generate: generateEmployeeList, view: viewEmployeeList },
     { title: "Employee Personal File", description: "Complete personal and employment profile of each employee including salary, statutory details, bank info, and address", icon: FileUser, color: "text-indigo-600", bgColor: "bg-indigo-50 dark:bg-indigo-950", generate: generateEmployeePersonalFile, view: viewEmployeePersonalFile },
     { title: "Employee Pay Structure", description: "Salary component breakdown for each employee including basic, allowances, and statutory applicability", icon: ClipboardList, color: "text-blue-600", bgColor: "bg-blue-50 dark:bg-blue-950", generate: generateEmployeePayStructure, view: viewEmployeePayStructure },
@@ -3317,8 +3962,9 @@ export default function ReportsPage() {
 
   type CtrlFilter = "company" | "month" | "period" | "employee" | "contractor";
   const ctrlAllReports: Array<{ key: string; title: string; category: string; filters: CtrlFilter[]; icon: React.ElementType; color: string; bgColor: string; generate: (ft: "excel" | "pdf") => void; view: () => void; pdfOnly?: boolean }> = [
-    { key: "att",      category: "Monthly",       title: "Attendance Sheet",             icon: Calendar,      color: "text-blue-600",   bgColor: "bg-blue-50 dark:bg-blue-950",    filters: ["company","month"],             generate: generateAttendanceSheet,       view: viewAttendanceSheet },
-    { key: "punch",    category: "Monthly",       title: "Attendance Punch",             icon: Clock,         color: "text-sky-600",    bgColor: "bg-sky-50 dark:bg-sky-950",      filters: ["company","month"],             generate: generateAttendancePunchReport, view: viewAttendancePunchReport },
+    { key: "att",      category: "Monthly",       title: "Attendance Sheet",             icon: Calendar,      color: "text-blue-600",   bgColor: "bg-blue-50 dark:bg-blue-950",    filters: ["company","month"],             generate: generateAttendanceSheet,              view: viewAttendanceSheet },
+    { key: "mth_reg",  category: "Monthly",       title: "Monthly Attendance Register",  icon: CalendarRange, color: "text-violet-600", bgColor: "bg-violet-50 dark:bg-violet-950",filters: ["company","month"],             generate: generateMonthlyAttendanceRegister,    view: viewMonthlyAttendanceRegister, pdfOnly: true },
+    { key: "punch",    category: "Monthly",       title: "Attendance Punch",             icon: Clock,         color: "text-sky-600",    bgColor: "bg-sky-50 dark:bg-sky-950",      filters: ["company","month"],             generate: generateAttendancePunchReport,        view: viewAttendancePunchReport },
     { key: "sal",      category: "Monthly",       title: "Salary Sheet",                 icon: CreditCard,    color: "text-green-600",  bgColor: "bg-green-50 dark:bg-green-950",  filters: ["company","month"],             generate: generateSalarySheet,           view: viewSalarySheet },
     { key: "pf",       category: "Monthly",       title: "PF Statement",                 icon: Shield,        color: "text-purple-600", bgColor: "bg-purple-50 dark:bg-purple-950",filters: ["company","month"],             generate: generatePFStatement,           view: viewPFStatement },
     { key: "esic",     category: "Monthly",       title: "ESIC Statement",               icon: Receipt,       color: "text-orange-600", bgColor: "bg-orange-50 dark:bg-orange-950",filters: ["company","month"],             generate: generateESICStatement,         view: viewESICStatement },
@@ -3332,6 +3978,7 @@ export default function ReportsPage() {
     { key: "ypf",      category: "Annual",        title: "Yearly PF Summary",            icon: Shield,        color: "text-purple-600", bgColor: "bg-purple-50 dark:bg-purple-950",filters: ["company","period"],            generate: generateYearlyPFSummary,       view: viewYearlyPFSummary },
     { key: "yesic",    category: "Annual",        title: "Yearly ESIC Summary",          icon: Receipt,       color: "text-orange-600", bgColor: "bg-orange-50 dark:bg-orange-950",filters: ["company","period"],            generate: generateYearlyESICSummary,     view: viewYearlyESICSummary },
     { key: "ysal",     category: "Annual",        title: "Yearly Salary Detail",         icon: TrendingUp,    color: "text-green-600",  bgColor: "bg-green-50 dark:bg-green-950",  filters: ["company","period"],            generate: generateYearlySalaryDetail,    view: viewYearlySalaryDetail },
+    { key: "ind_att",  category: "Employee Wise", title: "Individual Attendance Sheet",   icon: ClipboardList, color: "text-violet-600", bgColor: "bg-violet-50 dark:bg-violet-950",filters: ["company","employee","month"],  generate: generateIndividualAttendanceSheet, view: viewIndividualAttendanceSheet, pdfOnly: true },
     { key: "emplist",  category: "Employee Wise", title: "Employee List",                icon: Users,         color: "text-teal-600",   bgColor: "bg-teal-50 dark:bg-teal-950",    filters: ["company","employee","period"], generate: generateEmployeeList,          view: viewEmployeeList },
     { key: "empfile",  category: "Employee Wise", title: "Employee Personal File",       icon: FileUser,      color: "text-indigo-600", bgColor: "bg-indigo-50 dark:bg-indigo-950",filters: ["company","employee","period"], generate: generateEmployeePersonalFile,  view: viewEmployeePersonalFile },
     { key: "emppay",   category: "Employee Wise", title: "Employee Pay Structure",       icon: ClipboardList, color: "text-blue-600",   bgColor: "bg-blue-50 dark:bg-blue-950",    filters: ["company","employee","period"], generate: generateEmployeePayStructure,  view: viewEmployeePayStructure },
@@ -3558,6 +4205,10 @@ export default function ReportsPage() {
                   {filteredEmployees.map(e => <SelectItem key={e.id} value={e.id}>{e.firstName} {e.lastName} ({e.employeeCode})</SelectItem>)}
                 </SelectContent>
               </Select>
+            </div>
+            <div className="flex items-center gap-2">
+              <label className="text-sm font-medium">Month:</label>
+              <Input type="month" value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)} className="w-40" />
             </div>
             <PeriodPicker />
           </div>
