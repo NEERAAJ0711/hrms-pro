@@ -2773,87 +2773,632 @@ export default function ReportsPage() {
     const emp = docEmployee ? employees.find(e => e.id === docEmployee) : null;
     const targetEmps = emp ? [emp] : filteredEmployees;
     if (!targetEmps.length) { toast({ title: "No Data", description: "No employee selected or found.", variant: "destructive" }); return; }
+
     if (_fileType === "excel") {
       const data = targetEmps.map(e => ({
-        "Emp Code": e.employeeCode,
-        "Name": `${e.firstName} ${e.lastName}`,
-        "Gender": e.gender || "",
-        "Date of Birth": e.dateOfBirth || "",
-        "Date of Joining": e.dateOfJoining || "",
-        "Department": e.department || "",
-        "Designation": e.designation || "",
-        "Employment Type": e.employmentType || "",
-        "Location": e.location || "",
-        "Mobile": e.mobileNumber || "",
-        "Official Email": e.officialEmail || "",
-        "PAN": e.pan || "",
-        "Aadhaar": e.aadhaar || "",
-        "Bank Account": e.bankAccount || "",
-        "IFSC": e.ifsc || "",
-        "UAN": e.uan || "",
-        "ESIC No.": e.esiNumber || "",
-        "Father/Husband Name": e.fatherHusbandName || "",
-        "Present Address": e.presentAddress || "",
-        "Permanent Address": e.permanentAddress || "",
-        "PF Applicable": e.pfApplicable ? "Yes" : "No",
-        "ESI Applicable": e.esiApplicable ? "Yes" : "No",
-        "Status": e.status,
-        "Company": getCompanyName(e.companyId),
+        "Emp Code": e.employeeCode, "Name": `${e.firstName} ${e.lastName}`,
+        "Gender": e.gender || "", "Date of Birth": e.dateOfBirth || "", "Date of Joining": e.dateOfJoining || "",
+        "Department": e.department || "", "Designation": e.designation || "", "Employment Type": e.employmentType || "",
+        "Location": e.location || "", "Mobile": e.mobileNumber || "", "Official Email": e.officialEmail || "",
+        "PAN": e.pan || "", "Aadhaar": e.aadhaar || "", "Bank Account": e.bankAccount || "", "IFSC": e.ifsc || "",
+        "UAN": e.uan || "", "ESIC No.": e.esiNumber || "", "Father/Husband Name": e.fatherHusbandName || "",
+        "Present Address": e.presentAddress || "", "Permanent Address": e.permanentAddress || "",
+        "PF Applicable": e.pfApplicable ? "Yes" : "No", "ESI Applicable": e.esiApplicable ? "Yes" : "No",
+        "Status": e.status, "Company": getCompanyName(e.companyId),
       }));
       downloadExcel(data, `Employee_Personal_File_${selectedYear}`, "Personal File");
       return;
     }
-    // PDF – one page per employee
-    const doc = new jsPDF();
-    targetEmps.forEach((e, idx) => {
-      if (idx > 0) doc.addPage();
+
+    // ── PDF: full multi-section Employee Personal File ──────────────────────
+    const doc = new jsPDF({ format: "a4", unit: "mm" });
+    const PW = 210, ML = 14, MR = 14, UW = PW - ML - MR;
+
+    const fmtDate = (d?: string | null) => {
+      if (!d) return "";
+      try { return format(new Date(d.includes("T") ? d : d + "T00:00:00"), "dd-MMM-yyyy"); } catch { return d; }
+    };
+    const companyHeader = (d: jsPDF, company: typeof companies[0] | undefined, y: number): number => {
+      d.setFont("helvetica", "bold"); d.setFontSize(13);
+      d.text((company?.companyName || "Company").toUpperCase(), PW / 2, y, { align: "center" }); y += 5;
+      d.setFont("helvetica", "normal"); d.setFontSize(8);
+      const addr = (company as any)?.registeredAddress || "";
+      if (addr) { d.text(addr.toUpperCase(), PW / 2, y, { align: "center" }); y += 4; }
+      return y;
+    };
+
+    targetEmps.forEach((e, empIdx) => {
       const company = companies.find(c => c.id === e.companyId);
       const ss = salaryStructures.find(s => s.employeeId === e.id);
-      doc.setFontSize(14);
+      const empName = `${e.firstName} ${e.lastName}`.toUpperCase();
+      const doj = fmtDate(e.dateOfJoining);
+      const dob = fmtDate(e.dateOfBirth);
+      const cityStr = (company as any)?.city || "Gurgaon";
+      const grossStr = ss ? `${ss.grossSalary.toLocaleString("en-IN")}.00` : (e.grossSalary ? `${e.grossSalary.toLocaleString("en-IN")}.00` : "");
+
+      if (empIdx > 0) doc.addPage();
+
+      // ══════════════════════════════════════════════════════════
+      // PAGE 1 – EMPLOYEE'S FILE CHECK LIST
+      // ══════════════════════════════════════════════════════════
+      let y = 20;
+      y = companyHeader(doc, company, y); y += 8;
+      doc.setFont("helvetica", "bold"); doc.setFontSize(12);
+      doc.text("EMPLOYEE'S FILE CHECK LIST", PW / 2, y, { align: "center" }); y += 12;
+
+      doc.setFont("helvetica", "bold"); doc.setFontSize(10);
+      doc.text("NAME :", ML, y);
+      doc.setFont("helvetica", "normal"); doc.text(empName, ML + 18, y);
+      doc.setFont("helvetica", "bold"); doc.text("Designation", ML + 110, y);
+      doc.setFont("helvetica", "normal"); doc.text(e.designation || "", ML + 135, y); y += 7;
+      doc.setFont("helvetica", "bold"); doc.text("PAYCODE NO:", ML, y);
+      doc.setFont("helvetica", "normal"); doc.text(e.employeeCode || "", ML + 28, y);
+      doc.setFont("helvetica", "bold"); doc.text("Department", ML + 110, y);
+      doc.setFont("helvetica", "normal"); doc.text(e.department || "", ML + 132, y); y += 12;
+
+      doc.setFont("helvetica", "bold"); doc.setFontSize(9);
+      doc.text("CHECK POINT", ML + 8, y); doc.text("CHECK LIST", ML + 118, y); y += 4;
+      doc.setLineWidth(0.3); doc.line(ML, y, PW - MR, y); y += 6;
+
+      const checkItems = [
+        "EMP HISTORY SHEET", "BIO-DATA",
+        "NAUKARI KI LIYE PRATHNA PATRA (Application for Employment)",
+        "APPOINTMENT LETTER", "DUTY JOIN", "PF FORM-2", "FORM-11", "FORM-F",
+        "CONFIRMATION LETTER", "FORM-16", "ESIC FORM-1", "INDUCTION",
+        "APPLICATION FORM", "EMP BACK GROUND",
+      ];
+      doc.setFont("helvetica", "normal"); doc.setFontSize(9.5);
+      checkItems.forEach(item => {
+        doc.rect(ML, y - 3.5, 4, 4);
+        doc.text(item, ML + 7, y); y += 8;
+      });
+      // Paycode bottom-right
+      doc.setFont("helvetica", "bold"); doc.setFontSize(10);
+      doc.text(e.employeeCode || "", PW - MR, 280, { align: "right" });
+
+      // ══════════════════════════════════════════════════════════
+      // PAGE 2 – EMPLOYEE HISTORY SHEET
+      // ══════════════════════════════════════════════════════════
+      doc.addPage(); y = 15;
+      doc.setFont("helvetica", "bold"); doc.setFontSize(10);
+      doc.text(e.employeeCode || "", PW - MR, y, { align: "right" });
+      doc.setFontSize(13);
+      doc.text("EMPLOYEE HISTORY SHEET", PW / 2, y, { align: "center" }); y += 12;
+
+      const histPairs: [string, string][] = [
+        ["NAME", empName], ["PAY CODE", e.employeeCode || ""],
+        ["DESIGNATION", e.designation || ""], ["DEPTT", e.department || ""],
+        ["DOJ", doj], ["Card No.", e.employeeCode || ""],
+      ];
+      doc.setFontSize(10);
+      histPairs.forEach(([lbl, val]) => {
+        doc.setFont("helvetica", "bold"); doc.text(lbl, ML, y);
+        doc.setFont("helvetica", "normal"); doc.text(val, ML + 38, y);
+        doc.setLineWidth(0.2); doc.line(ML + 35, y + 1, PW / 2 - 5, y + 1); y += 9;
+      });
+      y += 5;
+
+      autoTable(doc, {
+        head: [["INCREASE DATE", "INCREASE AMOUNT", "CTC SALARY", "REMARKS"]],
+        body: [["", "", "", ""], ["", "", "", ""], ["", "", "", ""]],
+        startY: y,
+        styles: { fontSize: 9, cellPadding: 4.5, lineColor: [0,0,0], lineWidth: 0.2 },
+        headStyles: { fillColor: [220,220,220], textColor: [0,0,0], fontStyle: "bold", halign: "center", lineColor: [0,0,0] },
+        columnStyles: { 0:{cellWidth:42}, 1:{cellWidth:42}, 2:{cellWidth:42}, 3:{cellWidth:54} },
+        margin: { left: ML },
+      });
+      y = (doc as any).lastAutoTable.finalY + 10;
+
+      doc.setFont("helvetica", "bold"); doc.setFontSize(10);
+      doc.text("SALARY GROWTH TABLE", ML, y);
+      doc.text("CAREER HISTORY", ML + 105, y); y += 6;
+
+      const growthRows: [string, string][] = [];
+      if (e.dateOfJoining && (ss || e.grossSalary)) growthRows.push([doj, grossStr]);
+      while (growthRows.length < 6) growthRows.push(["", ""]);
+      autoTable(doc, {
+        head: [["YEAR", "GROSS SALARY"]],
+        body: growthRows,
+        startY: y,
+        styles: { fontSize: 9, cellPadding: 3.5, lineColor: [0,0,0], lineWidth: 0.2 },
+        headStyles: { fillColor: [220,220,220], textColor: [0,0,0], fontStyle: "bold", lineColor: [0,0,0] },
+        columnStyles: { 0:{cellWidth:50}, 1:{cellWidth:50} },
+        margin: { left: ML },
+      });
+
+      // ══════════════════════════════════════════════════════════
+      // PAGE 3 – JOB APPLICATION LETTER (Naukari ki Liye Prarthna Patra)
+      // ══════════════════════════════════════════════════════════
+      doc.addPage(); y = 20;
+      y = companyHeader(doc, company, y); y += 8;
+      doc.setFont("helvetica", "bold"); doc.setFontSize(11);
+      doc.text("NAUKARI KI LIYE PRARTHNA PATRA", PW / 2, y, { align: "center" }); y += 5;
+      doc.setFont("helvetica", "normal"); doc.setFontSize(8.5);
+      doc.text("(Application for Employment)", PW / 2, y, { align: "center" }); y += 10;
+
+      doc.setFontSize(10);
+      doc.text("Vishay :-", ML, y);
       doc.setFont("helvetica", "bold");
-      doc.text(company?.companyName || "Company", 105, 15, { align: "center" });
-      doc.setFontSize(11);
-      doc.text("EMPLOYEE PERSONAL FILE", 105, 22, { align: "center" });
-      doc.setFontSize(9);
+      doc.text(`${e.designation || "Post"} ke pad ke liye avedan patra`, ML + 20, y); y += 8;
       doc.setFont("helvetica", "normal");
-      doc.text(`Generated: ${format(new Date(), "dd-MMM-yyyy")}`, 14, 30);
-      const fields: [string, string][] = [
-        ["Employee Code", e.employeeCode],
-        ["Full Name", `${e.firstName} ${e.lastName}`],
-        ["Gender", e.gender || "N/A"],
-        ["Date of Birth", e.dateOfBirth || "N/A"],
-        ["Father / Husband Name", e.fatherHusbandName || "N/A"],
-        ["Date of Joining", e.dateOfJoining || "N/A"],
-        ["Department", e.department || "N/A"],
-        ["Designation", e.designation || "N/A"],
-        ["Employment Type", e.employmentType || "N/A"],
-        ["Location", e.location || "N/A"],
-        ["Mobile", e.mobileNumber || "N/A"],
-        ["Official Email", e.officialEmail || "N/A"],
-        ["PAN", e.pan || "N/A"],
-        ["Aadhaar", e.aadhaar || "N/A"],
-        ["Bank Account", e.bankAccount || "N/A"],
-        ["IFSC Code", e.ifsc || "N/A"],
-        ["UAN", e.uan || "N/A"],
-        ["ESIC Number", e.esiNumber || "N/A"],
-        ["PF Applicable", e.pfApplicable ? "Yes" : "No"],
-        ["ESI Applicable", e.esiApplicable ? "Yes" : "No"],
-        ["Present Address", e.presentAddress || "N/A"],
-        ["Permanent Address", e.permanentAddress || "N/A"],
-        ["Gross Salary (CTC)", ss ? `₹${ss.grossSalary.toLocaleString("en-IN")} / month` : "N/A"],
-        ["Status", e.status],
+      doc.text("Mahoday,", ML, y); y += 7;
+      const appLines = [
+        `Mujhe pata chala hai ki aapki company mein ${e.designation || "____"} ki jagah khaali hai.`,
+        "Mujhe kaam karne ka achha anubhav hai. Yadi aap mujhe ek baar seva ka avsar pradan karen to main",
+        "aapka kaam badi mehnat aur imandaari se karunga/karungi tatha kisi bhi avaidh karya, rajnitik ya",
+        "asamajik gatividhiyon mein bhaag nahi lunga/lungi.",
+      ];
+      appLines.forEach(line => { doc.text(line, ML, y, { maxWidth: UW }); y += 6; });
+      y += 12;
+      doc.text("Sthan :", ML, y); doc.text("Naam :", ML + 100, y);
+      doc.setLineWidth(0.2); doc.line(ML + 15, y + 1, ML + 60, y + 1); y += 8;
+      doc.text("Dinank :", ML, y); doc.text("Hastakshar :", ML + 100, y);
+      doc.line(ML + 20, y + 1, ML + 65, y + 1);
+
+      // ══════════════════════════════════════════════════════════
+      // PAGE 4 – APPOINTMENT LETTER (Niyukti Patra)
+      // ══════════════════════════════════════════════════════════
+      doc.addPage(); y = 15;
+      y = companyHeader(doc, company, y); y += 4;
+      doc.setFont("helvetica", "bold"); doc.setFontSize(9);
+      doc.text(e.employeeCode || "", PW - MR, 15, { align: "right" }); // paycode top-right
+
+      doc.setFont("helvetica", "normal"); doc.setFontSize(10);
+      doc.text("Sewa mein,", ML, y); doc.text(doj, PW - MR, y, { align: "right" }); y += 6;
+      doc.text("Shrimaan Prabandak Mahoday,", ML, y); y += 5;
+      doc.text((company?.companyName || "").toUpperCase(), ML, y); y += 5;
+      const regAddr = (company as any)?.registeredAddress || "";
+      if (regAddr) { doc.text(regAddr.toUpperCase(), ML, y); y += 5; }
+      y += 5;
+
+      doc.setFont("helvetica", "bold"); doc.setFontSize(11);
+      doc.text("vkids ukSdjh ds fy, vkosnu i= vkSj lk{kkRdkj ds lanHkZ esa", PW / 2, y, { align: "center" }); y += 5;
+      doc.setFontSize(9); doc.setFont("helvetica", "normal");
+      doc.text(`(With reference to your job application and interview for ${e.designation || "Post"})`, PW / 2, y, { align: "center" }); y += 8;
+
+      const apptData: [string, string][] = [
+        ["Naam / Name", empName],
+        ["Pita/Pati ka Naam / Father's / Husband's Name", e.fatherHusbandName || ""],
+        ["Asthayi Pata / Temporary Address", e.presentAddress || ""],
+        ["Sthayi Pata / Permanent Address", e.permanentAddress || ""],
+        ["Janm Tithi / Date of Birth", dob],
+        ["Kaam Shuru Karne ki Tarikh / Date of Joining", doj],
+        ["Pad / Designation", e.designation || ""],
+        ["Vibhag / Department", e.department || ""],
+        ["Sreni / Category (Akushal/Adh-Kushal/Kushal/Atikushal)", ""],
+        ["Vetan / Salary", grossStr ? `${grossStr} /-` : ""],
       ];
       autoTable(doc, {
-        body: fields.map(([k, v]) => [k, v]),
-        startY: 36,
+        body: apptData,
+        startY: y,
         theme: "grid",
-        styles: { fontSize: 9, cellPadding: 2.5 },
-        columnStyles: { 0: { fontStyle: "bold", fillColor: [240, 244, 255], cellWidth: 65 }, 1: { cellWidth: 115 } },
-        headStyles: { fillColor: [59, 130, 246], textColor: 255 },
+        styles: { fontSize: 8.5, cellPadding: 2.5, lineColor: [0,0,0], lineWidth: 0.2 },
+        columnStyles: { 0:{fontStyle:"bold", cellWidth:90, fillColor:[248,248,248]}, 1:{cellWidth:86} },
+        margin: { left: ML },
+      });
+      y = (doc as any).lastAutoTable.finalY + 6;
+      if (y > 220) { doc.addPage(); y = 15; }
+
+      doc.setFont("helvetica", "bold"); doc.setFontSize(9.5);
+      doc.text("NIYAM AUR SHARTEN / TERMS AND CONDITIONS", ML, y); y += 4;
+      doc.setLineWidth(0.3); doc.line(ML, y, PW - MR, y); y += 5;
+
+      const terms = [
+        `1. Aap 6 mahine tak asthayi/probation par niyukt rahenge. Zaroorat padne par yah avadhi ____ mahine ke liye dobara badhayi ja sakti hai. Kisi bhi sthiti mein probation karya-kal 12 mahine se adhik nahi badhayi ja sakti.`,
+        `2. Asthayi/probation karya-kal ya badhayi gayi asthayi/probation karya-kal ke dauran aapko yah adhikar hoga ki aap bina kisi soochna (notice) diye naukari chhod sakte hain. Is asthayi/probation ke dauran company ko bhi adhikar hoga ki wah aapko bina kisi soochna (notice) ke naukari chhodne ke liye keh sakti hai.`,
+        `3. Kisi ek din ____ ghante karya karne ke uparant aur kisi ek hafte mein ____ ghante karya karne ke baad aap overtime (OT) vetan ke haqdar hain. Factory Act 1948 (Dhara 59) ke tahat OT hamesha aapki sveekrti se hoga.`,
+        `4. Kaam ki zaroorat ke anusaar company aapka tabadala (transfer) company ke kisi doosre vibhag ya Bharat mein company ki kisi anya factory mein kar sakti hai. Agar aapka tabadala ek se doosre rajya mein kiya jaata hai to aapki yatra ka kharch company ke dwara diya jaayega.`,
+        `5. Aapki aayu _____ varsh ki hone par aapko company dwara retire kar diya jaayega.`,
+        `6. Asthayi/probation karya-kal khatm hone ke baad aapki niyukti pakki (permanent) ki jaayegi, company dwara is sandarbh mein aapko patra diya jaayega.`,
+        `7. Jab tak aap is company mein kaam karte hain, aapko bina company ki aagya liye doosri kisi company mein kaam karne ki anumati nahi hai.`,
+        `8. Bhartiya Shram Kanoon ke niyam anusaar jaise hi aap is company mein ____ din kaam kar lete hain to aapko ____ din ki chhutti har ____ karya dinon ke baad vetan sahit lene ka adhikar hoga.`,
+        `9. Aapko varsh mein 7 din ka aakashmik avakash (CL) ka adhikar hoga poore vetan ke saath.`,
+        `10. Aapko varsh mein ESIC ke niyamanusaar bimari ke avakash ka adhikar hoga. Yadi aap ESIC sadasya nahi hain to aapko varsh mein 7 din ka bimari avakash (SL) vetan sahit lene ka adhikar hoga.`,
+        `16. Company mein aane ka samay subah 09:30 baje aur jaane ka samay 18:00 baje hai, jisme bhojan ka samay GENERAL aur chai ka samay 16:00 se 16:15 hai.`,
+        `17. Yadi aapko oopar di gayi sharten manzoor hain to aap is niyukti patra ki doosri prati par sveekriti ke liye apne hastakshar karen aur dinank ${doj} se kaam par aayein.`,
+      ];
+      doc.setFont("helvetica", "normal"); doc.setFontSize(8.5);
+      terms.forEach(t => {
+        if (y > 265) { doc.addPage(); y = 15; }
+        const lines = doc.splitTextToSize(t, UW);
+        doc.text(lines, ML, y); y += lines.length * 5 + 2;
+      });
+      y += 6;
+      if (y > 260) { doc.addPage(); y = 15; }
+      doc.text(`For ${(company?.companyName || "").toUpperCase()}`, ML, y); y += 8;
+      doc.text("Authorized Signatory", ML, y); y += 12;
+      doc.setFont("helvetica", "bold"); doc.setFontSize(9);
+      doc.text("Karmachari ki Sveekrati / Employee Acceptance :", ML, y); y += 6;
+      doc.setFont("helvetica", "normal");
+      doc.text(`Main ${empName} upar di gayi sabhi niyam aur sharten se sahmat hun.`, ML, y); y += 8;
+      doc.text("Hastakshar / Signature : ____________________    Dinank / Date : ____________________", ML, y);
+
+      // ══════════════════════════════════════════════════════════
+      // PAGE 5 – PF FORM-2 (Nomination & Declaration)
+      // ══════════════════════════════════════════════════════════
+      doc.addPage(); y = 12;
+      doc.setFont("helvetica", "bold"); doc.setFontSize(8.5);
+      doc.text("Form-2 (Revised)", PW - MR, y, { align: "right" });
+      doc.setFontSize(12);
+      doc.text("NOMINATION AND DECLARATION", PW / 2, y, { align: "center" }); y += 5;
+      doc.setFont("helvetica", "normal"); doc.setFontSize(8);
+      doc.text("(FOR UNEXEMPTED/EXEMPTED ESTABLISHMENTS)", PW / 2, y, { align: "center" }); y += 4;
+      doc.text("Declaration & Nomination Form under the Employee's Provident Fund and Employees Pension Scheme", PW / 2, y, { align: "center" }); y += 4;
+      doc.text("(Paragraph 33 & 61(1) of Employee's Provident Fund Scheme, 1952 & paragraph 18 of the Employee's Pension Scheme 1995)", PW / 2, y, { align: "center" }); y += 8;
+
+      // Two-column fields
+      const f2L: [string, string][] = [
+        ["1. Name (In block letters)", empName],
+        ["2. Father's/Husband's Name", e.fatherHusbandName || ""],
+        ["3. Date of Birth", dob],
+        ["4. Sex", e.gender || ""],
+        ["5. Marital Status", ""],
+      ];
+      const f2R: [string, string][] = [
+        ["6. Account No.", e.uan || ""],
+        ["7. Permanent Address", e.permanentAddress || ""],
+        ["   Temporary Address", e.presentAddress || ""],
+        ["8. Date of Appointment", doj],
+      ];
+      let lyF2 = y, ryF2 = y;
+      doc.setFontSize(8.5);
+      f2L.forEach(([l, v]) => {
+        doc.setFont("helvetica", "bold"); doc.text(`${l} :`, ML, lyF2 + 4);
+        doc.setFont("helvetica", "normal");
+        const vLines = doc.splitTextToSize(v, 50); doc.text(vLines, ML + 55, lyF2 + 4);
+        lyF2 += 8;
+      });
+      f2R.forEach(([l, v]) => {
+        doc.setFont("helvetica", "bold"); doc.text(`${l} :`, PW / 2 + 2, ryF2 + 4);
+        doc.setFont("helvetica", "normal");
+        const vLines = doc.splitTextToSize(v, 44); doc.text(vLines, PW / 2 + 46, ryF2 + 4);
+        ryF2 += Math.max(vLines.length, 1) * 5 + 3;
+      });
+      y = Math.max(lyF2, ryF2) + 5;
+
+      doc.setFont("helvetica", "bold"); doc.setFontSize(10);
+      doc.text("PART - A (EPF)", PW / 2, y, { align: "center" }); y += 5;
+      doc.setFont("helvetica", "normal"); doc.setFontSize(8.5);
+      doc.text("I hereby nominate the person(s) / cancel the nomination made by me previously and nominate the person(s) mentioned below to", ML, y); y += 4;
+      doc.text("receive the amount standing to my credit in the Employee's Provident Fund in the event of my death.", ML, y); y += 7;
+
+      autoTable(doc, {
+        head: [["Name of\nnominee/nominees", "Address", "Nominee's\nrelationship\nwith the member", "Date\nof birth", "Total Amt.\nof share", "Guardian\n(if minor)"]],
+        body: [
+          [e.fatherHusbandName || "", e.permanentAddress || "", "FATHER", "", "100.00 %", ""],
+          ["", "", "", "", "", ""], ["", "", "", "", "", ""],
+        ],
+        startY: y,
+        styles: { fontSize: 7.5, cellPadding: 2, lineColor: [0,0,0], lineWidth: 0.2 },
+        headStyles: { fillColor: [225,225,225], textColor: [0,0,0], fontStyle: "bold", fontSize: 7, lineColor: [0,0,0], halign: "center" },
+        columnStyles: { 0:{cellWidth:32}, 1:{cellWidth:45}, 2:{cellWidth:22}, 3:{cellWidth:18}, 4:{cellWidth:22}, 5:{cellWidth:31} },
+        margin: { left: ML },
+      });
+      y = (doc as any).lastAutoTable.finalY + 5;
+
+      doc.setFont("helvetica", "normal"); doc.setFontSize(8.5);
+      doc.text("1. Certified that I have no family as defined in 2(g) of the Employee's Provident Fund Scheme 1952.", ML, y); y += 5;
+      doc.text("2. Certified that my father/mother is/are dependent upon me.", ML, y); y += 7;
+      doc.text("Signature or thumb Impression of the subscriber : _____________________", PW - MR, y, { align: "right" }); y += 10;
+
+      doc.setFont("helvetica", "bold"); doc.setFontSize(10);
+      doc.text("PARA - B (EPS)    (Para 18)", PW / 2, y, { align: "center" }); y += 5;
+      doc.setFont("helvetica", "normal"); doc.setFontSize(8.5);
+      doc.text("I hereby furnish below particulars of the members of my family who would be eligible to receive widow/children", ML, y); y += 4;
+      doc.text("pension in the event of my death.", ML, y); y += 7;
+
+      autoTable(doc, {
+        head: [["S.No.", "Name & Address of the family member", "Address", "Date of Birth", "Relationship with Member"]],
+        body: [
+          ["1", e.fatherHusbandName || "", e.permanentAddress || "", "", "FATHER"],
+          ["2", "", "", "", ""], ["3", "", "", "", ""],
+          ["4", "", "", "", ""], ["5", "", "", "", ""],
+        ],
+        startY: y,
+        styles: { fontSize: 7.5, cellPadding: 2, lineColor: [0,0,0], lineWidth: 0.2 },
+        headStyles: { fillColor: [225,225,225], textColor: [0,0,0], fontStyle: "bold", fontSize: 7.5, lineColor: [0,0,0] },
+        columnStyles: { 0:{cellWidth:12}, 1:{cellWidth:38}, 2:{cellWidth:50}, 3:{cellWidth:25}, 4:{cellWidth:45} },
+        margin: { left: ML },
+      });
+      y = (doc as any).lastAutoTable.finalY + 5;
+      if (y > 250) { doc.addPage(); y = 15; }
+      doc.text("Certified that I have no family as defined in Para 2(VII) of Employee's Pension Scheme, 1995.", ML, y, { maxWidth: UW }); y += 7;
+      doc.text("Signature or thumb Impression of the subscriber : _____________________", PW - MR, y, { align: "right" }); y += 8;
+
+      doc.setFont("helvetica", "bold"); doc.setFontSize(9);
+      doc.text("CERTIFICATE BY EMPLOYER", ML, y); y += 5;
+      doc.setFont("helvetica", "normal"); doc.setFontSize(8.5);
+      doc.text(`Certified that the above declaration and nomination has been signed/thumb impressed before me by ${empName}`, ML, y, { maxWidth: UW }); y += 5;
+      doc.text(`employed in my establishment after he/she has read the entries have been read over to him/her by me and got confirmed by him/her.`, ML, y, { maxWidth: UW }); y += 7;
+      doc.text(`Place   ${cityStr}`, ML, y); y += 5;
+      doc.text(`Date    ${doj}`, ML, y); y += 5;
+      doc.text(`Name & Address of the factory/Establishment:   ${(company?.companyName || "").toUpperCase()}`, ML, y); y += 4;
+      if (regAddr) { doc.text(regAddr.toUpperCase(), ML + 5, y); y += 4; }
+      doc.text(`For   ${(company?.companyName || "").toUpperCase()}`, PW - MR, y + 3, { align: "right" }); y += 10;
+      doc.text("Authority Signature", PW - MR, y, { align: "right" });
+
+      // ══════════════════════════════════════════════════════════
+      // PAGE 6 – NOMINATION FORM (Factories Act 1950 – Rule 93)
+      // ══════════════════════════════════════════════════════════
+      doc.addPage(); y = 25;
+      doc.setFont("helvetica", "bold"); doc.setFontSize(12);
+      doc.text("NOMINATION FORM", PW / 2, y, { align: "center" }); y += 6;
+      doc.setFontSize(10);
+      doc.text("UNDER RULE 93 OF FACTORIES ACT, 1950", PW / 2, y, { align: "center" }); y += 18;
+
+      doc.setFont("helvetica", "normal"); doc.setFontSize(10);
+      doc.text("I hereby declare that in the event of death before resuming work the", ML, y); y += 6;
+      doc.text("balance of my pay due for the period of leave with wages not availed of shall be paid to :", ML, y); y += 12;
+      doc.text("Shri/Smt/Km :", ML + 10, y);
+      doc.setFont("helvetica", "bold"); doc.text(e.fatherHusbandName || "____________________", ML + 38, y);
+      doc.setFont("helvetica", "normal"); y += 8;
+      doc.text("who is my :", ML + 10, y);
+      doc.setLineWidth(0.2); doc.line(ML + 32, y + 1, ML + 90, y + 1); y += 18;
+
+      doc.text("Signature of worker", PW - MR, y, { align: "right" }); y += 12;
+      doc.text("Witness :", ML, y); y += 8;
+      doc.text("1.", ML + 8, y); doc.text(`Name      ${empName}`, PW / 2 + 10, y); y += 7;
+      doc.text("2.", ML + 8, y); doc.text(`Date      ${doj}`, PW / 2 + 10, y); y += 12;
+      doc.setFont("helvetica", "bold"); doc.text("Present Address :", ML, y); y += 5;
+      doc.setFont("helvetica", "normal"); doc.text(e.presentAddress || "", ML + 4, y); y += 10;
+      doc.setFont("helvetica", "bold"); doc.text("Permanent Home Address :", ML, y); y += 5;
+      doc.setFont("helvetica", "normal"); doc.text(e.permanentAddress || "", ML + 4, y); y += 14;
+      doc.setFont("helvetica", "bold"); doc.text("Employer's Stamp and Signature", ML, y);
+
+      // ══════════════════════════════════════════════════════════
+      // PAGE 7 – FORM 'F' (Payment of Gratuity Nomination)
+      // ══════════════════════════════════════════════════════════
+      doc.addPage(); y = 15;
+      doc.setFont("helvetica", "bold"); doc.setFontSize(12);
+      doc.text("FORM 'F'", PW / 2, y, { align: "center" }); y += 5;
+      doc.setFontSize(11);
+      doc.text("PAYMENT OF GRATUITY", PW / 2, y, { align: "center" }); y += 5;
+      doc.setFont("helvetica", "normal"); doc.setFontSize(8.5);
+      doc.text("(See sub-rule (1) of Rule 5)", PW / 2, y, { align: "center" }); y += 5;
+      doc.setFont("helvetica", "bold"); doc.setFontSize(11);
+      doc.text("NOMINATION", PW / 2, y, { align: "center" }); y += 9;
+
+      doc.setFont("helvetica", "normal"); doc.setFontSize(10);
+      doc.text("To,", ML, y); y += 5;
+      doc.text(`${(company?.companyName || "").toUpperCase()}`, ML + 4, y); y += 5;
+      if (regAddr) { doc.text(regAddr.toUpperCase(), ML + 4, y); y += 5; }
+      doc.setFontSize(8.5); doc.text("(Give here name & description of the establishment with full address)", ML + 4, y); y += 8;
+
+      doc.setFontSize(10);
+      doc.text(`1.   Shri/Smt : ${empName}`, ML, y);
+      doc.setFontSize(8.5); doc.text("(Name in full here)", ML + 130, y); y += 6;
+
+      const fFormText = [
+        "Whose particulars are given in the statement below hereby nominate the person(s) mentioned below to receive the gratuity payable after my death as also the gratuity standing to my credit in the event of my death before the month has become payable and direct that the said amount of gratuity shall be paid in proportion directed against the names of the nominees.",
+        "2. I hereby certify the persons mentioned is/are a member of my family within the meaning of clause (h) of section 2 of the Payment of Gratuity Act, 1972.",
+        "3. I hereby declare that I have no family within meaning of clause (h) of section (2) of said Act.",
+        "4. (a) My father/mother/parents is/are not dependent on me.\n   (b) My husband's/father/mother/parents is/are not dependent on my husband.",
+        "5. I have excluded from my family by a notice dated ................................ to the controlling authority in terms of the provision to clause (h) of section 2 of the said Act.",
+        "6. Nomination made herein invalidates my previous nomination.",
+      ];
+      doc.setFontSize(8.5);
+      fFormText.forEach(t => {
+        const lines = doc.splitTextToSize(t, UW);
+        doc.text(lines, ML, y); y += lines.length * 5 + 3;
+      });
+      y += 3;
+
+      doc.setFont("helvetica", "bold"); doc.setFontSize(9);
+      doc.text("NOMINEE'S", PW / 2, y, { align: "center" }); y += 5;
+      autoTable(doc, {
+        head: [["Name in full with full address of nominee", "Relationship with the employee", "Age of nominee", "Proportion by which the gratuity will be shared"]],
+        body: [
+          [`1.  ${e.fatherHusbandName || ""}\n${e.permanentAddress || ""}`, "FATHER", "", "100 %"],
+          ["2.", "", "", ""], ["3.", "", "", ""], ["4.", "", "", ""],
+        ],
+        startY: y,
+        styles: { fontSize: 8, cellPadding: 3, lineColor: [0,0,0], lineWidth: 0.2 },
+        headStyles: { fillColor: [225,225,225], textColor: [0,0,0], fontStyle: "bold", fontSize: 8, lineColor: [0,0,0], halign: "center" },
+        columnStyles: { 0:{cellWidth:55}, 1:{cellWidth:35}, 2:{cellWidth:25}, 3:{cellWidth:55} },
+        margin: { left: ML },
+      });
+      y = (doc as any).lastAutoTable.finalY + 7;
+      if (y > 240) { doc.addPage(); y = 15; }
+
+      doc.setFont("helvetica", "bold"); doc.setFontSize(9.5);
+      doc.text("Statement", ML, y); y += 5;
+      const stmtData: [string, string][] = [
+        ["1. Name of the employee in full", empName],
+        ["2. Sex", e.gender || ""],
+        ["3. Religion", "Hindu"],
+        ["4. Whether unmarried/married/widow/widower", "Married"],
+        ["5. Department/Branch/Section where employed", e.department || ""],
+        ["6. Post held with Ticket No. or serial no if any", e.designation || ""],
+        ["7. Date of appointment", doj],
+        ["8. Permanent Address", e.permanentAddress || ""],
+      ];
+      autoTable(doc, {
+        body: stmtData,
+        startY: y,
+        styles: { fontSize: 8.5, cellPadding: 2.5, lineColor: [0,0,0], lineWidth: 0.2 },
+        columnStyles: { 0:{fontStyle:"bold", cellWidth:75, fillColor:[248,248,248]}, 1:{cellWidth:95} },
+        margin: { left: ML },
+      });
+      y = (doc as any).lastAutoTable.finalY + 6;
+      if (y > 265) { doc.addPage(); y = 15; }
+      doc.setFont("helvetica", "normal"); doc.setFontSize(8.5);
+      doc.text(`Place : ${cityStr}`, ML, y);
+      doc.text("Signature/Thumb impression of the employee : ___________________", PW - MR, y, { align: "right" }); y += 6;
+      doc.text(`Date : ${doj}`, ML, y); y += 10;
+      doc.text("Declaration by witness : Nomination signed/thumb impressed before me", ML, y); y += 6;
+      doc.text("Name in full & address :", ML, y); doc.text("Signature of witness :", ML + 100, y); y += 10;
+      doc.text(`Place : ${cityStr}`, ML, y); y += 5;
+      doc.text(`Date : ${doj}`, ML, y); y += 8;
+      doc.setFont("helvetica", "bold");
+      doc.text("Certificate by the employer:", ML, y); y += 5;
+      doc.setFont("helvetica", "normal");
+      doc.text("Certificate that the particulars of the above nomination have been verified and recorded in this establishment.", ML, y, { maxWidth: UW }); y += 6;
+      doc.text(`Date :`, ML, y);
+      doc.text("Signature of the employer/officer authorised", PW - MR, y, { align: "right" }); y += 5;
+      doc.text(`Name & address of the establishment: ${(company?.companyName || "").toUpperCase()}`, ML, y); y += 4;
+      if (regAddr) { doc.text(regAddr.toUpperCase(), ML + 4, y); }
+
+      // ══════════════════════════════════════════════════════════
+      // PAGE 8 – NEW FORM NO. 11 (EPF Declaration Form)
+      // ══════════════════════════════════════════════════════════
+      doc.addPage(); y = 12;
+      doc.setFont("helvetica", "bold"); doc.setFontSize(10);
+      doc.text("New Form No. 11 — Declaration Form", PW / 2, y, { align: "center" }); y += 5;
+      doc.setFont("helvetica", "normal"); doc.setFontSize(8);
+      doc.text("(To be retained by the Employer for future reference)", PW / 2, y, { align: "center" }); y += 5;
+      doc.setFont("helvetica", "bold");
+      doc.text("The Employees' Provident Fund Organisation", PW / 2, y, { align: "center" }); y += 4;
+      doc.setFont("helvetica", "normal");
+      doc.text("The Employees' Provident Funds Scheme, 1952 (Paragraph 34 & 57)", PW / 2, y, { align: "center" }); y += 4;
+      doc.text("The Employees' Pension Scheme, 1995 (Paragraph 24)", PW / 2, y, { align: "center" }); y += 4;
+      const form11Intro = "Declaration by a person taking up employment in an establishment in which the E.P.F. Scheme, 1952 AND/OR E.P.S, 1995 is applicable.";
+      doc.text(doc.splitTextToSize(form11Intro, UW), PW / 2, y, { align: "center" }); y += 10;
+
+      const form11Rows: [string, string][] = [
+        ["1   Name of the member", empName],
+        ["2   Father's name / Spouse's name\n    (Please tick whichever is applicable)", e.fatherHusbandName || ""],
+        ["3   Date of Birth (DD/MM/YYYY)", e.dateOfBirth ? format(new Date(e.dateOfBirth + "T00:00:00"), "dd/MM/yyyy") : ""],
+        ["4   Gender (Male/Female/Transgender)", e.gender || ""],
+        ["5   Marital Status (Married/Unmarried/Widow/Widower/Divorcee)", "Married"],
+        ["6   (a) Email ID", e.officialEmail || ""],
+        ["    (b) Mobile No", e.mobileNumber || ""],
+        ["7   Whether earlier a member of Employee's Provident Fund Scheme 1952", e.uan ? "Yes" : "No"],
+        ["8   Whether earlier a member of Employee's Pension Scheme 1995", e.uan ? "Yes" : "No"],
+        ["9   (a) Universal Account Number (UAN)", e.uan || ""],
+        ["    (b) Previous PF Account Number", ""],
+        ["    (c) Date of exit from previous employment (DD/MM/YYYY)", ""],
+        ["    (d) Scheme Certificate No. (if issued)", ""],
+        ["    (e) Pension Payment Order (PPO) No. (if issued)", ""],
+        ["10  (a) International Worker", "No"],
+        ["    (b) Country of origin", "India"],
+        ["    (c) Passport No.", ""],
+        ["    (d) Validity of passport", ""],
+        ["11  (a) Bank Account No. & IFS Code", `${e.bankAccount || ""}   ${e.ifsc || ""}`],
+        ["    (b) Aadhaar Number", e.aadhaar || ""],
+        ["    (c) Permanent Account Number (PAN), if available", e.pan || ""],
+      ];
+      autoTable(doc, {
+        body: form11Rows,
+        startY: y,
+        styles: { fontSize: 8, cellPadding: 2, lineColor: [0,0,0], lineWidth: 0.2 },
+        columnStyles: { 0:{fontStyle:"bold", cellWidth:90, fillColor:[248,248,248]}, 1:{cellWidth:80} },
+        margin: { left: ML },
+      });
+      y = (doc as any).lastAutoTable.finalY + 6;
+      if (y > 230) { doc.addPage(); y = 15; }
+
+      doc.setFont("helvetica", "bold"); doc.setFontSize(9);
+      doc.text("UNDERTAKING", ML, y); y += 5;
+      const undertakingItems = [
+        "1) Certified that the particulars are true to the best of my knowledge.",
+        "2) I authorize EPFO to use my Aadhaar for verification/authentication/eKYC purpose for service delivery.",
+        "3) Kindly transfer the funds and service details, if applicable from the previous PF account as declared above to the present P.F. Account. (The transfer would be possible only if the identified KYC details approved by previous employer has been verified by present employer using his Digital Signature Certificate.)",
+        "4) In case of changes in above details, the same will be intimated to employer at the earliest.",
+      ];
+      doc.setFont("helvetica", "normal"); doc.setFontSize(8.5);
+      undertakingItems.forEach(u => {
+        const lines = doc.splitTextToSize(u, UW);
+        doc.text(lines, ML, y); y += lines.length * 5 + 2;
+      });
+      y += 4;
+      if (y > 255) { doc.addPage(); y = 15; }
+      doc.text(`Date : ${doj}`, ML, y);
+      doc.text("Signature of Member : ___________________", PW - MR, y, { align: "right" }); y += 6;
+      doc.text(`Place : ${cityStr}`, ML, y); y += 10;
+
+      doc.setFont("helvetica", "bold"); doc.setFontSize(9);
+      doc.text("DECLARATION BY THE PRESENT EMPLOYER", ML, y); y += 5;
+      doc.setFont("helvetica", "normal"); doc.setFontSize(8.5);
+      doc.text(`A   THE MEMBER MR./MS/MRS. ${empName} AND HAS BEEN ALLOTTED PF MEMBER ID __________________ HAS JOINED ON ${doj}`, ML, y, { maxWidth: UW }); y += 8;
+      doc.text("B   IN CASE THE PERSON WAS EARLIER NOT A MEMBER OF EPF SCHEME, 1952 AND EPS 1995", ML, y); y += 5;
+      doc.text("    (POST ALLOTMENT OF UAN) THE UAN ALLOTTED FOR MEMBER IS : __________________", ML, y); y += 5;
+      doc.text("    (PLEASE TICK THE APPROPRIATE OPTION)", ML, y); y += 5;
+      doc.text("    [ ] THE KYC DETAILS OF THE ABOVE MEMBER IN UAN DATABASE HAVE NOT BEEN UPLOADED", ML, y); y += 5;
+      doc.text("    [ ] HAVE BEEN UPLOADED BUT NOT APPROVED", ML, y); y += 5;
+      doc.text("    [ ] HAVE BEEN UPLOADED AND APPROVED WITH DSC", ML, y); y += 5;
+      doc.text("C   IN CASE THE PERSON WAS EARLIER A MEMBER OF EPF SCHEME, 1952 AND EPS 1995", ML, y); y += 5;
+      doc.text("    THE ABOVE MEMBER ID HAS BEEN TAGGED WITH HIS/HER PREVIOUS MEMBER ID AS DECLARED BY MEMBER", ML, y, { maxWidth: UW }); y += 8;
+      if (y > 255) { doc.addPage(); y = 15; }
+      doc.text(`DATE ${doj}`, ML, y);
+      doc.text("SIGNATURE OF EMPLOYER WITH ESTABLISHMENT SEAL", PW - MR, y, { align: "right" });
+
+      // ══════════════════════════════════════════════════════════
+      // PAGE 9 – DUTY JOINING APPLICATION
+      // ══════════════════════════════════════════════════════════
+      doc.addPage(); y = 20;
+      doc.setFont("helvetica", "normal"); doc.setFontSize(10);
+      doc.text("Sewa mein,", ML, y); doc.text(doj, PW - MR, y, { align: "right" }); y += 6;
+      doc.text("Prabandak (Karmik evam Prashasan),", ML, y); y += 5;
+      doc.text((company?.companyName || "").toUpperCase(), ML, y); y += 5;
+      if (regAddr) { doc.text(regAddr.toUpperCase(), ML, y); y += 5; }
+      y += 5;
+      doc.setFont("helvetica", "bold"); doc.setFontSize(10);
+      doc.text(e.employeeCode || "", PW - MR, y - 15, { align: "right" });
+      doc.setFont("helvetica", "normal"); doc.setFontSize(10);
+
+      const dutyText = [
+        `Main ${empName} putra/putri/patni ${e.fatherHusbandName || "___________"} mool nivaasi ${e.permanentAddress || "___________"} Maanvar se nivedan karta/karti hun ki aap mujhe apni company mein aaj dinank ${doj} ko purvaahn/aparahn 09:30 baje duty join karne ki anumati pradan karein.`,
+      ];
+      dutyText.forEach(t => {
+        const lines = doc.splitTextToSize(t, UW);
+        doc.text(lines, ML, y); y += lines.length * 6 + 4;
+      });
+      y += 8;
+      doc.text("Dhanyavaad", ML, y); y += 16;
+      doc.setFont("helvetica", "bold"); doc.text("Asthayi Pata :", ML, y);
+      doc.text("Sthayi Pata :", ML + 98, y); y += 5;
+      doc.setFont("helvetica", "normal");
+      const pAddrLines = doc.splitTextToSize(e.presentAddress || "", 80);
+      const perAddrLines = doc.splitTextToSize(e.permanentAddress || "", 80);
+      doc.text(pAddrLines, ML, y); doc.text(perAddrLines, ML + 98, y);
+
+      // ══════════════════════════════════════════════════════════
+      // PAGE 10 – INDUCTION FORM
+      // ══════════════════════════════════════════════════════════
+      doc.addPage(); y = 15;
+      y = companyHeader(doc, company, y); y += 4;
+      doc.setFont("helvetica", "bold"); doc.setFontSize(12);
+      doc.text("Induction", PW / 2, y, { align: "center" }); y += 8;
+
+      doc.setFont("helvetica", "bold"); doc.setFontSize(10);
+      doc.text(`Paycode:- ${e.employeeCode || ""}`, ML, y);
+      doc.text(`Name:- ${empName}`, ML + 60, y); y += 9;
+
+      const inductionPts = [
+        "Aapko muhaiya karaya gaya rozgaar poornatah aapki marzi ke anusaar hai. Hamare yahan kam se kam 18 varsh se adhik aayu vale vyakti ko rozgaar diya jaata hai.",
+        "Aapko chah mahine ki parekh avadhi par rakha jaayega. Is avadhi mein prabandhan aapke kaam-kaaj ka jayza lega. Yadi aapka kaam-kaaj company ki ummidon par khara hai to aapko sthayi kiya ja sakta hai aur agar sudhar ki zaroorat hai to sudhar ke liye teen mahine ka samay diya ja sakta hai.",
+        "Aapko vetan kanoon tatha rajya mein laagu samay par badalte rahane wale kanunon ke anusaar vetan diya jaayega.",
+        "Agar aapka vetan 21,000/- rupaye prati mah tak hai to aapko arjit vetan ka 0.75% E.S.I. kata jaayega aur 3.25% prabandhan dwara jama karaya jaayega.",
+        "Yadi aapka mul vetan 15,000/- rupaye tak hai to aapki arjit mul vetan ka 12% Provident Fund (PF) kata jaayega aur 12% prabandhan dwara jama karaya jaayega.",
+        "Aapko har 20 din ke kaam ke badle ek din ka arjit avakash paane ka haq hoga barshart 240 din kaam kiya ho. Arjit avakash par hone ke dauran madhya ya pahle ya baad mein padne wale avakash/ravivar ko arjit avakash mein nahi gina jaayega. Aap adhiktam 45 din ka arjit avakash jama rakh sakte hain.",
+        "Aapko pratiyarsh 7 din ka aakashmik avakash diya jaayega yaani aap pratyek 40 din ke baad ek din ka aakashmik avakash le sakte hain.",
+        "Yadi aap E.S.I. ke antargat nahi aate hain to aapko pratyek varsh 7 din ka rugnavakash yaani pratyek 40 din ke baad ek din ka rugnavakash le sakte hain.",
+        "Yadi aap stri hain aur kam se kam 80 din karya kiya hai to chah saptah ka matritva avakash diya jaayega.",
+        "Aapko sal mein 10 vaitanik avakash diye ja'enge, jisme 3 rashtriya avakash, 7 tyohar avakash shamil hain.",
+        "Aapke karya ki avadhi 09:30 baje se 18:00 baje hogi, jisme 30 minute khaan-paan aur 15 minute chai ka samay shamil hai.",
+        "Aap kisi bhi din adhiktam 2 ghante ya saptah mein 12 ghante ya 3 mahine mein 50 ghante ka overtime apni sahimati ke saath kar sakte hain, jiske liye aapko aapke vetan ka 200% vetan diya jaayega.",
+        "Yadi aapne company mein parekh avadhi poori kar li hai to aap ek mahine ka samay dekar ya ek mahine ka vetan uski jagah dekar company se tyagpatra de sakte hain. Company bhi is tarah aapko karya chhodne ke liye keh sakti hai.",
+        "Aapki aayu 58 varsh hone par aap seva nivrit ho jaayenge.",
+        "Factory mein aakashmik nikas peeli patti aur agni shaman lagaaye gaye hain jinaka prayog bataye gaye tarikon se karna hai aur fire mein prashikshit vyaktiyon ke photo-graph pratyek floor par lagaaye gaye hain.",
+        "Agar aapko kuch bhi jaankari leni hai to aap prashasnik vibhag mein mil sakte hain.",
+        "Agar aapko kisi bhi prakar ki shikaayat hai to aap karya samiti ke chune gaye sadasyon ke dwara apni shikaayat prabandhan tak pahuncha sakte hain.",
+        "Aapko apna pahechan patra jo kisi bhi sarkari vibhag dwara jaari kiya gaya ho uski chhaaya pratilhipi deni hogi.",
+        "Company dwara diya gaya pahechan patra company mein ghusane se lekar nikalane tak pahan kar rakhna hoga.",
+        "Aapki prishth bhoomi ke liye prabandhan dwara pulis satyapan karaya ja sakta hai.",
+        "Important Telephone No: Jaankari telephone no. gate par lage hain.",
+        "Threat Awareness: Dhamkiyon se satarkta ke liye samay samay par di gayi prashikshan mein bataye gaye upaayon par dhyan den.",
+      ];
+      doc.setFont("helvetica", "normal"); doc.setFontSize(8.5);
+      inductionPts.forEach((pt, i) => {
+        if (y > 270) { doc.addPage(); y = 15; }
+        const lines = doc.splitTextToSize(`${i + 1}. ${pt}`, UW);
+        doc.text(lines, ML, y); y += lines.length * 5 + 2;
       });
     });
-    doc.save(`Employee_Personal_File_${selectedYear}.pdf`);
-    toast({ title: "Downloaded", description: `Employee_Personal_File_${selectedYear}.pdf has been downloaded.` });
+
+    const label = targetEmps.length === 1 ? targetEmps[0].employeeCode : "All";
+    doc.save(`Employee_Personal_File_${label}.pdf`);
+    toast({ title: "Downloaded", description: `Employee Personal File downloaded successfully.` });
   };
 
   const viewEmployeePersonalFile = () => {
