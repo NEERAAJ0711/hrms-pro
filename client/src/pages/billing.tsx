@@ -13,10 +13,13 @@ import {
   Building2,
   Users,
   Wallet,
-  RefreshCw,
   ChevronRight,
   Receipt,
   AlertTriangle,
+  ToggleLeft,
+  ToggleRight,
+  CalendarDays,
+  RefreshCw,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -24,7 +27,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
-import { Separator } from "@/components/ui/separator";
+import { Switch } from "@/components/ui/switch";
 import {
   Dialog,
   DialogContent,
@@ -48,8 +51,16 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+
+const DEFAULT_RATE = 15;
+const DEFAULT_THRESHOLD = 1000;
 
 type BillingAccount = {
   id: string;
@@ -58,7 +69,9 @@ type BillingAccount = {
   companyStatus: string;
   creditBalance: string;
   costPerEmployeePerDay: string;
+  rateEffectiveFrom: string | null;
   lowBalanceThreshold: string;
+  allowNegative: boolean;
   notes: string | null;
   activeEmployeeCount: string;
   createdAt: string;
@@ -85,11 +98,19 @@ function fmt(n: string | number | null | undefined) {
   return v.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-function BalanceBadge({ balance, threshold }: { balance: string; threshold: string }) {
+function today() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function BalanceBadge({ balance, threshold, allowNegative }: { balance: string; threshold: string; allowNegative: boolean }) {
   const b = Number(balance);
-  const t = Number(threshold);
-  if (b <= 0) return <Badge variant="destructive">₹ {fmt(balance)}</Badge>;
-  if (t > 0 && b <= t) return <Badge className="bg-amber-500 hover:bg-amber-600 text-white">₹ {fmt(balance)}</Badge>;
+  const t = Number(threshold) || DEFAULT_THRESHOLD;
+  if (b < 0)
+    return <Badge className="bg-red-700 hover:bg-red-800 text-white">₹ {fmt(balance)}</Badge>;
+  if (b === 0)
+    return <Badge variant="destructive">₹ {fmt(balance)}</Badge>;
+  if (b <= t)
+    return <Badge className="bg-amber-500 hover:bg-amber-600 text-white">₹ {fmt(balance)}</Badge>;
   return <Badge className="bg-green-600 hover:bg-green-700 text-white">₹ {fmt(balance)}</Badge>;
 }
 
@@ -97,8 +118,10 @@ function BalanceBadge({ balance, threshold }: { balance: string; threshold: stri
 function SetupAccountDialog({ onClose }: { onClose: () => void }) {
   const { toast } = useToast();
   const [companyId, setCompanyId] = useState("");
-  const [rate, setRate] = useState("");
-  const [threshold, setThreshold] = useState("");
+  const [rate, setRate] = useState(String(DEFAULT_RATE));
+  const [effectiveFrom, setEffectiveFrom] = useState(today());
+  const [threshold, setThreshold] = useState(String(DEFAULT_THRESHOLD));
+  const [allowNegative, setAllowNegative] = useState(false);
   const [notes, setNotes] = useState("");
 
   const { data: unregistered = [] } = useQuery<UnregisteredCompany[]>({
@@ -108,14 +131,16 @@ function SetupAccountDialog({ onClose }: { onClose: () => void }) {
   const createMutation = useMutation({
     mutationFn: () => apiRequest("POST", "/api/billing/accounts", {
       companyId,
-      costPerEmployeePerDay: Number(rate) || 0,
-      lowBalanceThreshold: Number(threshold) || 0,
+      costPerEmployeePerDay: Number(rate) || DEFAULT_RATE,
+      rateEffectiveFrom: effectiveFrom,
+      lowBalanceThreshold: Number(threshold) || DEFAULT_THRESHOLD,
+      allowNegative,
       notes: notes || null,
     }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/billing/accounts"] });
       queryClient.invalidateQueries({ queryKey: ["/api/billing/unregistered-companies"] });
-      toast({ title: "CD Account Created", description: "Billing account has been set up successfully." });
+      toast({ title: "CD Account Created", description: "Billing account set up successfully." });
       onClose();
     },
     onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
@@ -143,21 +168,31 @@ function SetupAccountDialog({ onClose }: { onClose: () => void }) {
                 ))}
               </SelectContent>
             </Select>
+            {unregistered.length === 0 && (
+              <p className="text-xs text-muted-foreground">All companies already have CD accounts.</p>
+            )}
           </div>
-          <div className="space-y-1.5">
-            <label className="text-sm font-medium">Cost per Employee per Day (₹)</label>
-            <Input
-              type="number"
-              min="0"
-              step="0.01"
-              value={rate}
-              onChange={e => setRate(e.target.value)}
-              placeholder="e.g. 2.50"
-              data-testid="input-billing-rate"
-            />
-            <p className="text-xs text-muted-foreground">
-              Auto-billing deduction rate. Leave 0 if billing manually.
-            </p>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Rate ₹ / Emp / Day</label>
+              <Input
+                type="number"
+                min="0"
+                step="0.01"
+                value={rate}
+                onChange={e => setRate(e.target.value)}
+                data-testid="input-billing-rate"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Effective From</label>
+              <Input
+                type="date"
+                value={effectiveFrom}
+                onChange={e => setEffectiveFrom(e.target.value)}
+                data-testid="input-billing-effective-from"
+              />
+            </div>
           </div>
           <div className="space-y-1.5">
             <label className="text-sm font-medium">Low Balance Alert Threshold (₹)</label>
@@ -166,16 +201,27 @@ function SetupAccountDialog({ onClose }: { onClose: () => void }) {
               min="0"
               value={threshold}
               onChange={e => setThreshold(e.target.value)}
-              placeholder="e.g. 500"
               data-testid="input-billing-threshold"
+            />
+            <p className="text-xs text-muted-foreground">Alert triggers when balance falls below this amount.</p>
+          </div>
+          <div className="flex items-center justify-between rounded-lg border p-3">
+            <div>
+              <p className="text-sm font-medium">Allow Negative Balance</p>
+              <p className="text-xs text-muted-foreground">Account can go below ₹0</p>
+            </div>
+            <Switch
+              checked={allowNegative}
+              onCheckedChange={setAllowNegative}
+              data-testid="switch-billing-allow-negative"
             />
           </div>
           <div className="space-y-1.5">
-            <label className="text-sm font-medium">Notes (optional)</label>
+            <label className="text-sm font-medium">Notes <span className="text-muted-foreground">(optional)</span></label>
             <Textarea
               value={notes}
               onChange={e => setNotes(e.target.value)}
-              placeholder="Internal notes about this account…"
+              placeholder="Internal notes…"
               rows={2}
               data-testid="input-billing-notes"
             />
@@ -200,13 +246,17 @@ function SetupAccountDialog({ onClose }: { onClose: () => void }) {
 function EditAccountDialog({ account, onClose }: { account: BillingAccount; onClose: () => void }) {
   const { toast } = useToast();
   const [rate, setRate] = useState(account.costPerEmployeePerDay);
+  const [effectiveFrom, setEffectiveFrom] = useState(account.rateEffectiveFrom || today());
   const [threshold, setThreshold] = useState(account.lowBalanceThreshold);
+  const [allowNegative, setAllowNegative] = useState(account.allowNegative);
   const [notes, setNotes] = useState(account.notes || "");
 
   const mutation = useMutation({
     mutationFn: () => apiRequest("PATCH", `/api/billing/accounts/${account.companyId}`, {
-      costPerEmployeePerDay: Number(rate) || 0,
-      lowBalanceThreshold: Number(threshold) || 0,
+      costPerEmployeePerDay: Number(rate) || DEFAULT_RATE,
+      rateEffectiveFrom: effectiveFrom || null,
+      lowBalanceThreshold: Number(threshold) || DEFAULT_THRESHOLD,
+      allowNegative,
       notes: notes || null,
     }),
     onSuccess: () => {
@@ -226,17 +276,31 @@ function EditAccountDialog({ account, onClose }: { account: BillingAccount; onCl
           </DialogTitle>
         </DialogHeader>
         <div className="space-y-4 py-2">
-          <div className="space-y-1.5">
-            <label className="text-sm font-medium">Cost per Employee per Day (₹)</label>
-            <Input
-              type="number"
-              min="0"
-              step="0.01"
-              value={rate}
-              onChange={e => setRate(e.target.value)}
-              data-testid="input-edit-billing-rate"
-            />
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Rate ₹ / Emp / Day</label>
+              <Input
+                type="number"
+                min="0"
+                step="0.01"
+                value={rate}
+                onChange={e => setRate(e.target.value)}
+                data-testid="input-edit-billing-rate"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Effective From</label>
+              <Input
+                type="date"
+                value={effectiveFrom}
+                onChange={e => setEffectiveFrom(e.target.value)}
+                data-testid="input-edit-billing-effective-from"
+              />
+            </div>
           </div>
+          <p className="text-xs text-muted-foreground -mt-2 flex items-center gap-1">
+            <CalendarDays className="h-3 w-3" /> New rate applies from the selected effective date.
+          </p>
           <div className="space-y-1.5">
             <label className="text-sm font-medium">Low Balance Alert Threshold (₹)</label>
             <Input
@@ -245,6 +309,17 @@ function EditAccountDialog({ account, onClose }: { account: BillingAccount; onCl
               value={threshold}
               onChange={e => setThreshold(e.target.value)}
               data-testid="input-edit-billing-threshold"
+            />
+          </div>
+          <div className="flex items-center justify-between rounded-lg border p-3">
+            <div>
+              <p className="text-sm font-medium">Allow Negative Balance</p>
+              <p className="text-xs text-muted-foreground">Account can go below ₹0 (usage continues even when balance is zero)</p>
+            </div>
+            <Switch
+              checked={allowNegative}
+              onCheckedChange={setAllowNegative}
+              data-testid="switch-edit-billing-allow-negative"
             />
           </div>
           <div className="space-y-1.5">
@@ -303,6 +378,7 @@ function TransactionDialog({
   });
 
   const isCredit = mode === "credit";
+  const newBalance = Number(account.creditBalance) + (isCredit ? 1 : -1) * Number(amount);
 
   return (
     <Dialog open onOpenChange={onClose}>
@@ -330,12 +406,10 @@ function TransactionDialog({
               placeholder="Enter amount"
               data-testid="input-tx-amount"
             />
-            {amount && (
-              <p className="text-xs text-muted-foreground">
-                New balance: ₹{" "}
-                <strong>
-                  {fmt(Number(account.creditBalance) + (isCredit ? 1 : -1) * Number(amount))}
-                </strong>
+            {amount && Number(amount) > 0 && (
+              <p className={`text-xs font-medium ${newBalance < 0 ? "text-red-600" : "text-muted-foreground"}`}>
+                New balance: ₹ {fmt(newBalance)}
+                {newBalance < 0 && !account.allowNegative && " ⚠ Balance will go negative"}
               </p>
             )}
           </div>
@@ -353,7 +427,7 @@ function TransactionDialog({
             <Input
               value={referenceNo}
               onChange={e => setReferenceNo(e.target.value)}
-              placeholder="Bank ref / voucher no."
+              placeholder="Bank ref / UTR / voucher no."
               data-testid="input-tx-reference"
             />
           </div>
@@ -434,7 +508,9 @@ function TransactionLedger({ account, onClose }: { account: BillingAccount; onCl
                       <TableCell className={`text-right font-semibold text-sm ${isCredit ? "text-green-700" : "text-red-700"}`}>
                         {isCredit ? "+" : "-"}₹{fmt(tx.amount)}
                       </TableCell>
-                      <TableCell className="text-right text-sm">₹{fmt(tx.balanceAfter)}</TableCell>
+                      <TableCell className={`text-right text-sm font-medium ${Number(tx.balanceAfter) < 0 ? "text-red-600" : ""}`}>
+                        ₹{fmt(tx.balanceAfter)}
+                      </TableCell>
                       <TableCell className="text-xs text-muted-foreground">
                         {tx.firstName ? `${tx.firstName} ${tx.lastName || ""}`.trim() : "System"}
                       </TableCell>
@@ -466,18 +542,28 @@ export default function BillingPage() {
   const [debitAccount, setDebitAccount] = useState<BillingAccount | null>(null);
   const [ledgerAccount, setLedgerAccount] = useState<BillingAccount | null>(null);
 
-  const { data: accounts = [], isLoading } = useQuery<BillingAccount[]>({
+  const { data: accounts = [], isLoading, refetch } = useQuery<BillingAccount[]>({
     queryKey: ["/api/billing/accounts"],
+  });
+
+  const toggleNegativeMutation = useMutation({
+    mutationFn: (companyId: string) =>
+      apiRequest("PATCH", `/api/billing/accounts/${companyId}/toggle-negative`, {}),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/billing/accounts"] });
+    },
+    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
   const totalBalance = accounts.reduce((s, a) => s + Number(a.creditBalance), 0);
   const totalCompanies = accounts.length;
   const lowBalanceCount = accounts.filter(a => {
-    const b = Number(a.creditBalance), t = Number(a.lowBalanceThreshold);
-    return t > 0 && b <= t;
+    const b = Number(a.creditBalance);
+    const t = Number(a.lowBalanceThreshold) || DEFAULT_THRESHOLD;
+    return b <= t;
   }).length;
 
-  // Company admin: show their own account view
+  // ── Company Admin View ────────────────────────────────────────────────────
   if (isCompanyAdmin) {
     const acct = accounts[0];
     return (
@@ -502,12 +588,15 @@ export default function BillingPage() {
         ) : (
           <>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <Card className={Number(acct.creditBalance) <= 0 ? "border-red-300 bg-red-50 dark:bg-red-950/20" : ""}>
+              <Card className={Number(acct.creditBalance) < 0 ? "border-red-300 bg-red-50 dark:bg-red-950/20" : Number(acct.creditBalance) === 0 ? "border-red-200" : ""}>
                 <CardContent className="pt-5 pb-4">
                   <p className="text-sm text-muted-foreground mb-1">Credit Balance</p>
                   <p className={`text-3xl font-bold ${Number(acct.creditBalance) <= 0 ? "text-red-600" : "text-green-700"}`}>
                     ₹ {fmt(acct.creditBalance)}
                   </p>
+                  {acct.allowNegative && (
+                    <p className="text-xs text-muted-foreground mt-1">Negative balance allowed</p>
+                  )}
                 </CardContent>
               </Card>
               <Card>
@@ -515,6 +604,9 @@ export default function BillingPage() {
                   <p className="text-sm text-muted-foreground mb-1">Daily Rate</p>
                   <p className="text-2xl font-bold">₹ {fmt(acct.costPerEmployeePerDay)}</p>
                   <p className="text-xs text-muted-foreground">per employee per day</p>
+                  {acct.rateEffectiveFrom && (
+                    <p className="text-xs text-muted-foreground">Effective: {acct.rateEffectiveFrom}</p>
+                  )}
                 </CardContent>
               </Card>
               <Card>
@@ -522,17 +614,19 @@ export default function BillingPage() {
                   <p className="text-sm text-muted-foreground mb-1">Active Employees</p>
                   <p className="text-2xl font-bold">{acct.activeEmployeeCount}</p>
                   <p className="text-xs text-muted-foreground">
-                    Est. daily charge: ₹ {fmt(Number(acct.activeEmployeeCount) * Number(acct.costPerEmployeePerDay))}
+                    Est. daily: ₹ {fmt(Number(acct.activeEmployeeCount) * Number(acct.costPerEmployeePerDay))}
                   </p>
                 </CardContent>
               </Card>
             </div>
 
-            {Number(acct.creditBalance) <= Number(acct.lowBalanceThreshold) && Number(acct.lowBalanceThreshold) > 0 && (
+            {Number(acct.creditBalance) <= (Number(acct.lowBalanceThreshold) || DEFAULT_THRESHOLD) && (
               <Card className="border-amber-300 bg-amber-50 dark:bg-amber-950/20">
                 <CardContent className="pt-4 pb-4 flex items-center gap-3 text-amber-700 dark:text-amber-400">
                   <AlertTriangle className="h-5 w-5 shrink-0" />
-                  <span className="text-sm font-medium">Low balance alert — please contact your administrator to top up.</span>
+                  <span className="text-sm font-medium">
+                    Low balance alert — balance is below ₹{fmt(acct.lowBalanceThreshold || DEFAULT_THRESHOLD)}. Please contact your administrator to top up.
+                  </span>
                 </CardContent>
               </Card>
             )}
@@ -553,7 +647,7 @@ export default function BillingPage() {
     );
   }
 
-  // Super admin view
+  // ── Super Admin View ──────────────────────────────────────────────────────
   return (
     <div className="p-6 space-y-6" data-testid="billing-page-admin">
       {/* Header */}
@@ -564,9 +658,14 @@ export default function BillingPage() {
           </h1>
           <p className="text-muted-foreground">Manage CD accounts, credit balances, and billing rates for all companies.</p>
         </div>
-        <Button onClick={() => setShowSetup(true)} data-testid="button-setup-cd-account">
-          <Plus className="h-4 w-4 mr-2" /> Setup Account
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" size="icon" onClick={() => refetch()} title="Refresh" data-testid="button-refresh-billing">
+            <RefreshCw className="h-4 w-4" />
+          </Button>
+          <Button onClick={() => setShowSetup(true)} data-testid="button-setup-cd-account">
+            <Plus className="h-4 w-4 mr-2" /> Setup Account
+          </Button>
+        </div>
       </div>
 
       {/* Summary Cards */}
@@ -589,7 +688,7 @@ export default function BillingPage() {
             </div>
             <div>
               <p className="text-sm text-muted-foreground">Total Balance</p>
-              <p className="text-2xl font-bold">₹ {fmt(totalBalance)}</p>
+              <p className={`text-2xl font-bold ${totalBalance < 0 ? "text-red-600" : ""}`}>₹ {fmt(totalBalance)}</p>
             </div>
           </CardContent>
         </Card>
@@ -599,7 +698,7 @@ export default function BillingPage() {
               <AlertTriangle className={`h-5 w-5 ${lowBalanceCount > 0 ? "text-amber-600" : "text-muted-foreground"}`} />
             </div>
             <div>
-              <p className="text-sm text-muted-foreground">Low Balance</p>
+              <p className="text-sm text-muted-foreground">Low / Zero Balance</p>
               <p className={`text-2xl font-bold ${lowBalanceCount > 0 ? "text-amber-600" : ""}`}>{lowBalanceCount}</p>
             </div>
           </CardContent>
@@ -610,7 +709,9 @@ export default function BillingPage() {
       <Card>
         <CardHeader className="pb-4">
           <CardTitle className="text-base">All CD Accounts</CardTitle>
-          <CardDescription>Click a row to view transactions or use action buttons to manage credits.</CardDescription>
+          <CardDescription>
+            Standard rate: ₹{DEFAULT_RATE}/employee/day · Low balance alert below ₹{fmt(DEFAULT_THRESHOLD)} · Click row to view ledger.
+          </CardDescription>
         </CardHeader>
         <CardContent className="p-0">
           {isLoading ? (
@@ -619,7 +720,7 @@ export default function BillingPage() {
             <div className="text-center py-16 text-muted-foreground">
               <CreditCard className="h-10 w-10 mx-auto mb-3 opacity-40" />
               <p className="font-semibold">No billing accounts yet</p>
-              <p className="text-sm">Click "Setup Account" to create one.</p>
+              <p className="text-sm">Click "Setup Account" to create one, or accounts are auto-created when trial expires.</p>
             </div>
           ) : (
             <Table>
@@ -628,15 +729,17 @@ export default function BillingPage() {
                   <TableHead>Company</TableHead>
                   <TableHead className="text-right">Balance</TableHead>
                   <TableHead className="text-right">Rate / Emp / Day</TableHead>
+                  <TableHead>Effective From</TableHead>
                   <TableHead className="text-right">Active Emp.</TableHead>
                   <TableHead className="text-right">Est. Daily</TableHead>
+                  <TableHead className="text-center">Neg. OK</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {accounts.map(acct => {
                   const dailyEstimate = Number(acct.activeEmployeeCount) * Number(acct.costPerEmployeePerDay);
-                  const isLow = Number(acct.lowBalanceThreshold) > 0 && Number(acct.creditBalance) <= Number(acct.lowBalanceThreshold);
+                  const isLow = Number(acct.creditBalance) <= (Number(acct.lowBalanceThreshold) || DEFAULT_THRESHOLD);
                   return (
                     <TableRow
                       key={acct.companyId}
@@ -648,13 +751,23 @@ export default function BillingPage() {
                         <div className="flex items-center gap-2">
                           <Building2 className="h-4 w-4 text-muted-foreground" />
                           <span className="font-medium">{acct.companyName}</span>
-                          {isLow && <AlertTriangle className="h-3.5 w-3.5 text-amber-500" title="Low balance" />}
+                          {isLow && (
+                            <Tooltip>
+                              <TooltipTrigger>
+                                <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
+                              </TooltipTrigger>
+                              <TooltipContent>Low balance</TooltipContent>
+                            </Tooltip>
+                          )}
                         </div>
                       </TableCell>
                       <TableCell className="text-right">
-                        <BalanceBadge balance={acct.creditBalance} threshold={acct.lowBalanceThreshold} />
+                        <BalanceBadge balance={acct.creditBalance} threshold={acct.lowBalanceThreshold} allowNegative={acct.allowNegative} />
                       </TableCell>
-                      <TableCell className="text-right text-sm">₹ {fmt(acct.costPerEmployeePerDay)}</TableCell>
+                      <TableCell className="text-right text-sm font-medium">₹ {fmt(acct.costPerEmployeePerDay)}</TableCell>
+                      <TableCell className="text-xs text-muted-foreground">
+                        {acct.rateEffectiveFrom ? format(new Date(acct.rateEffectiveFrom), "dd-MMM-yyyy") : "—"}
+                      </TableCell>
                       <TableCell className="text-right text-sm">
                         <span className="flex items-center justify-end gap-1">
                           <Users className="h-3.5 w-3.5 text-muted-foreground" />
@@ -662,46 +775,81 @@ export default function BillingPage() {
                         </span>
                       </TableCell>
                       <TableCell className="text-right text-sm">₹ {fmt(dailyEstimate)}</TableCell>
+                      <TableCell className="text-center" onClick={e => e.stopPropagation()}>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button
+                              onClick={() => toggleNegativeMutation.mutate(acct.companyId)}
+                              disabled={toggleNegativeMutation.isPending}
+                              className="flex items-center justify-center mx-auto"
+                              data-testid={`button-toggle-negative-${acct.companyId}`}
+                            >
+                              {acct.allowNegative
+                                ? <ToggleRight className="h-6 w-6 text-blue-600" />
+                                : <ToggleLeft className="h-6 w-6 text-muted-foreground" />}
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            {acct.allowNegative ? "Negative allowed — click to disable" : "Negative blocked — click to allow"}
+                          </TooltipContent>
+                        </Tooltip>
+                      </TableCell>
                       <TableCell className="text-right" onClick={e => e.stopPropagation()}>
                         <div className="flex items-center justify-end gap-1">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            title="Add Credits"
-                            className="text-green-600 hover:text-green-700 hover:bg-green-50 dark:hover:bg-green-950/30"
-                            onClick={() => setCreditAccount(acct)}
-                            data-testid={`button-credit-${acct.companyId}`}
-                          >
-                            <ArrowUpCircle className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            title="Deduct Credits"
-                            className="text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/30"
-                            onClick={() => setDebitAccount(acct)}
-                            data-testid={`button-debit-${acct.companyId}`}
-                          >
-                            <ArrowDownCircle className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            title="Edit Settings"
-                            onClick={() => setEditAccount(acct)}
-                            data-testid={`button-edit-billing-${acct.companyId}`}
-                          >
-                            <Settings2 className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            title="View Ledger"
-                            onClick={() => setLedgerAccount(acct)}
-                            data-testid={`button-ledger-${acct.companyId}`}
-                          >
-                            <ChevronRight className="h-4 w-4" />
-                          </Button>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="text-green-600 hover:text-green-700 hover:bg-green-50 dark:hover:bg-green-950/30"
+                                onClick={() => setCreditAccount(acct)}
+                                data-testid={`button-credit-${acct.companyId}`}
+                              >
+                                <ArrowUpCircle className="h-4 w-4" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Add Credits</TooltipContent>
+                          </Tooltip>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/30"
+                                onClick={() => setDebitAccount(acct)}
+                                data-testid={`button-debit-${acct.companyId}`}
+                              >
+                                <ArrowDownCircle className="h-4 w-4" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Deduct Credits</TooltipContent>
+                          </Tooltip>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => setEditAccount(acct)}
+                                data-testid={`button-edit-billing-${acct.companyId}`}
+                              >
+                                <Settings2 className="h-4 w-4" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Edit Settings</TooltipContent>
+                          </Tooltip>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => setLedgerAccount(acct)}
+                                data-testid={`button-ledger-${acct.companyId}`}
+                              >
+                                <ChevronRight className="h-4 w-4" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>View Ledger</TooltipContent>
+                          </Tooltip>
                         </div>
                       </TableCell>
                     </TableRow>
@@ -751,7 +899,9 @@ function CompanyAdminLedger({ companyId }: { companyId: string }) {
               <p className={`text-sm font-semibold ${isCredit ? "text-green-700" : "text-red-700"}`}>
                 {isCredit ? "+" : "-"}₹{fmt(tx.amount)}
               </p>
-              <p className="text-xs text-muted-foreground">Bal: ₹{fmt(tx.balanceAfter)}</p>
+              <p className={`text-xs ${Number(tx.balanceAfter) < 0 ? "text-red-600 font-medium" : "text-muted-foreground"}`}>
+                Bal: ₹{fmt(tx.balanceAfter)}
+              </p>
             </div>
           </div>
         );

@@ -473,13 +473,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       id VARCHAR(36) PRIMARY KEY,
       company_id VARCHAR(36) NOT NULL UNIQUE,
       credit_balance NUMERIC(14,4) NOT NULL DEFAULT 0,
-      cost_per_employee_per_day NUMERIC(10,4) NOT NULL DEFAULT 0,
-      low_balance_threshold NUMERIC(14,4) NOT NULL DEFAULT 0,
+      cost_per_employee_per_day NUMERIC(10,4) NOT NULL DEFAULT 15,
+      rate_effective_from TEXT,
+      low_balance_threshold NUMERIC(14,4) NOT NULL DEFAULT 1000,
+      allow_negative BOOLEAN NOT NULL DEFAULT false,
       notes TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     )
   `).catch(() => {});
+  await db.execute(sql`ALTER TABLE cd_accounts ADD COLUMN IF NOT EXISTS allow_negative BOOLEAN NOT NULL DEFAULT false`).catch(() => {});
+  await db.execute(sql`ALTER TABLE cd_accounts ADD COLUMN IF NOT EXISTS rate_effective_from TEXT`).catch(() => {});
+  await db.execute(sql`ALTER TABLE cd_accounts ALTER COLUMN cost_per_employee_per_day SET DEFAULT 15`).catch(() => {});
+  await db.execute(sql`ALTER TABLE cd_accounts ALTER COLUMN low_balance_threshold SET DEFAULT 1000`).catch(() => {});
 
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS cd_transactions (
@@ -5498,6 +5504,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // ===== CD Accounts (Credits & Billing) =====
 
+  // Auto-create CD accounts for companies whose trial has completed
+  async function autoCreateCdAccounts() {
+    try {
+      const now = new Date();
+      const companies = await db.execute(sql`
+        SELECT id, company_name, trial_start_date, trial_days, trial_extended_days
+        FROM companies
+        WHERE trial_start_date IS NOT NULL
+          AND id NOT IN (SELECT company_id FROM cd_accounts)
+      `);
+      for (const c of companies.rows as any[]) {
+        const startDate = new Date(c.trial_start_date);
+        const totalDays = (c.trial_days ?? 3) + (c.trial_extended_days ?? 0);
+        const expiryDate = new Date(startDate);
+        expiryDate.setDate(expiryDate.getDate() + totalDays);
+        if (now >= expiryDate) {
+          const id = randomUUID();
+          const ts = now.toISOString();
+          await db.execute(sql`
+            INSERT INTO cd_accounts (id, company_id, credit_balance, cost_per_employee_per_day, rate_effective_from, low_balance_threshold, allow_negative, notes, created_at, updated_at)
+            VALUES (${id}, ${c.id}, 0, 15, ${ts.slice(0,10)}, 1000, false, 'Auto-created on trial completion', ${ts}, ${ts})
+          `).catch(() => {});
+        }
+      }
+    } catch (_) {}
+  }
+
+  // Run auto-creation on startup
+  autoCreateCdAccounts();
+
   // Get all CD accounts (super_admin) or own (company_admin)
   app.get("/api/billing/accounts", requireAuth, requireRole("super_admin", "company_admin"), async (req, res) => {
     try {
@@ -5543,15 +5579,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Create CD account for a company
   app.post("/api/billing/accounts", requireAuth, requireRole("super_admin"), async (req, res) => {
     try {
-      const { companyId, costPerEmployeePerDay, lowBalanceThreshold, notes } = req.body;
+      const { companyId, costPerEmployeePerDay, rateEffectiveFrom, lowBalanceThreshold, allowNegative, notes } = req.body;
       if (!companyId) return res.status(400).json({ error: "companyId is required" });
       const id = randomUUID();
       const now = new Date().toISOString();
       await db.execute(sql`
-        INSERT INTO cd_accounts (id, company_id, credit_balance, cost_per_employee_per_day, low_balance_threshold, notes, created_at, updated_at)
-        VALUES (${id}, ${companyId}, 0, ${Number(costPerEmployeePerDay) || 0}, ${Number(lowBalanceThreshold) || 0}, ${notes || null}, ${now}, ${now})
+        INSERT INTO cd_accounts (id, company_id, credit_balance, cost_per_employee_per_day, rate_effective_from, low_balance_threshold, allow_negative, notes, created_at, updated_at)
+        VALUES (${id}, ${companyId}, 0, ${Number(costPerEmployeePerDay) || 15}, ${rateEffectiveFrom || now.slice(0,10)}, ${Number(lowBalanceThreshold) || 1000}, ${allowNegative === true}, ${notes || null}, ${now}, ${now})
       `);
-      const row = await db.execute(sql`SELECT a.*, c.company_name FROM cd_accounts a JOIN companies c ON c.id = a.company_id WHERE a.id = ${id}`);
+      const row = await db.execute(sql`
+        SELECT a.*, c.company_name, c.status as company_status,
+          (SELECT COUNT(*) FROM employees e WHERE e.company_id = a.company_id AND e.status = 'active') as active_employee_count
+        FROM cd_accounts a JOIN companies c ON c.id = a.company_id WHERE a.id = ${id}
+      `);
       res.json(row.rows[0]);
     } catch (error: any) {
       if (error?.message?.includes("unique")) return res.status(409).json({ error: "CD account already exists for this company" });
@@ -5559,24 +5599,46 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Update CD account settings (rate, threshold, notes)
+  // Update CD account settings (rate, threshold, allowNegative, notes)
   app.patch("/api/billing/accounts/:companyId", requireAuth, requireRole("super_admin"), async (req, res) => {
     try {
       const { companyId } = req.params;
-      const { costPerEmployeePerDay, lowBalanceThreshold, notes } = req.body;
+      const { costPerEmployeePerDay, lowBalanceThreshold, allowNegative, rateEffectiveFrom, notes } = req.body;
       const now = new Date().toISOString();
       await db.execute(sql`
         UPDATE cd_accounts
-        SET cost_per_employee_per_day = ${Number(costPerEmployeePerDay) || 0},
-            low_balance_threshold = ${Number(lowBalanceThreshold) || 0},
+        SET cost_per_employee_per_day = ${Number(costPerEmployeePerDay) ?? 15},
+            rate_effective_from = ${rateEffectiveFrom ?? null},
+            low_balance_threshold = ${Number(lowBalanceThreshold) ?? 1000},
+            allow_negative = ${allowNegative === true},
             notes = ${notes ?? null},
             updated_at = ${now}
         WHERE company_id = ${companyId}
       `);
-      const row = await db.execute(sql`SELECT a.*, c.company_name FROM cd_accounts a JOIN companies c ON c.id = a.company_id WHERE a.company_id = ${companyId}`);
+      const row = await db.execute(sql`
+        SELECT a.*, c.company_name, c.status as company_status,
+          (SELECT COUNT(*) FROM employees e WHERE e.company_id = a.company_id AND e.status = 'active') as active_employee_count
+        FROM cd_accounts a JOIN companies c ON c.id = a.company_id WHERE a.company_id = ${companyId}
+      `);
       res.json(row.rows[0]);
     } catch (error) {
       res.status(500).json({ error: "Failed to update billing account" });
+    }
+  });
+
+  // Toggle allow-negative for a company
+  app.patch("/api/billing/accounts/:companyId/toggle-negative", requireAuth, requireRole("super_admin"), async (req, res) => {
+    try {
+      const { companyId } = req.params;
+      const now = new Date().toISOString();
+      await db.execute(sql`
+        UPDATE cd_accounts SET allow_negative = NOT allow_negative, updated_at = ${now}
+        WHERE company_id = ${companyId}
+      `);
+      const row = await db.execute(sql`SELECT allow_negative FROM cd_accounts WHERE company_id = ${companyId}`);
+      res.json({ allowNegative: row.rows[0]?.allow_negative });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to toggle allow-negative" });
     }
   });
 
