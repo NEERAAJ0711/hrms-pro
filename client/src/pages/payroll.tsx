@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { format } from "date-fns";
-import { DollarSign, Plus, FileText, Users, Calculator, Download, Building2, Edit, Trash2, CheckCircle, Upload, FileSpreadsheet, Loader2, Eye, AlertTriangle, ShieldCheck } from "lucide-react";
+import { DollarSign, Plus, FileText, Users, Calculator, Download, Building2, Edit, Trash2, CheckCircle, Upload, FileSpreadsheet, Loader2, Eye, AlertTriangle, ShieldCheck, Search } from "lucide-react";
 import { SearchableEmployeeSelect } from "@/components/searchable-employee-select";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -122,6 +122,7 @@ export default function PayrollPage() {
   const [isPayrollEditOpen, setIsPayrollEditOpen] = useState(false);
   const [viewingPayrollRecord, setViewingPayrollRecord] = useState<Payroll | null>(null);
   const [selectedCompany, setSelectedCompany] = useState<string>(isSuperAdmin ? "__all__" : (user?.companyId || ""));
+  const [structureSearch, setStructureSearch] = useState("");
   const [contractorFilter, setContractorFilter] = useState("own");
   const [selectedMonth, setSelectedMonth] = useState(months[new Date().getMonth()]);
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear().toString());
@@ -277,9 +278,15 @@ export default function PayrollPage() {
     ? statutoryData 
     : (statutoryData ? [statutoryData] : []);
 
-  const filteredStructures = selectedCompany === "__all__"
-    ? salaryStructures
-    : salaryStructures.filter(s => s.companyId === selectedCompany);
+  const filteredStructures = salaryStructures.filter(s => {
+    const companyMatch = selectedCompany === "__all__" || s.companyId === selectedCompany;
+    if (!companyMatch) return false;
+    if (!structureSearch.trim()) return true;
+    const q = structureSearch.trim().toLowerCase();
+    const emp = employees.find(e => e.id === s.employeeId);
+    const name = emp ? `${emp.firstName} ${emp.lastName} ${emp.employeeCode}`.toLowerCase() : "";
+    return name.includes(q);
+  });
 
   const filteredPayroll = payrollRecords.filter(p => 
     (selectedCompany === "__all__" || p.companyId === selectedCompany) &&
@@ -1672,9 +1679,22 @@ export default function PayrollPage() {
 
         <TabsContent value="structures">
           <Card>
-            <CardHeader>
-              <CardTitle>Salary Structures</CardTitle>
-              <CardDescription>Employee salary components and breakdowns</CardDescription>
+            <CardHeader className="flex flex-row items-center justify-between gap-4 flex-wrap">
+              <div>
+                <CardTitle>Salary Structures</CardTitle>
+                <CardDescription>Employee salary components and breakdowns</CardDescription>
+              </div>
+              <div className="relative w-64">
+                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground pointer-events-none" />
+                <input
+                  type="text"
+                  placeholder="Search employee…"
+                  value={structureSearch}
+                  onChange={e => setStructureSearch(e.target.value)}
+                  data-testid="input-structure-search"
+                  className="w-full pl-8 pr-3 py-2 text-sm border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring"
+                />
+              </div>
             </CardHeader>
             <CardContent>
               {isLoadingStructures ? (
