@@ -527,6 +527,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
     CREATE INDEX IF NOT EXISTS invoices_company_period_idx ON invoices (company_id, period_month DESC)
   `).catch(() => {});
 
+  // Daily billing logs table
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS daily_billing_logs (
+      id VARCHAR(36) PRIMARY KEY,
+      company_id VARCHAR(36) NOT NULL,
+      date TEXT NOT NULL,
+      employee_count INTEGER NOT NULL DEFAULT 0,
+      rate_per_day NUMERIC(10,4) NOT NULL,
+      amount NUMERIC(14,4) NOT NULL,
+      created_at TEXT NOT NULL,
+      UNIQUE(company_id, date)
+    )
+  `).catch(() => {});
+  await db.execute(sql`
+    CREATE INDEX IF NOT EXISTS daily_billing_logs_company_date_idx ON daily_billing_logs (company_id, date DESC)
+  `).catch(() => {});
+
   // Create employee_documents table if not exists
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS employee_documents (
@@ -5567,10 +5584,105 @@ export async function registerRoutes(app: Express): Promise<Server> {
     return new Date(year, month, 0).getDate();
   }
 
+  // ── Daily Billing Engine ──────────────────────────────────────────────────
+  // Runs every hour. For each company, bills every unbilled day from account
+  // creation up to today — skipping any month that already has a monthly invoice.
+  // Each daily entry deducts from the CD balance immediately.
+  async function runDailyBilling() {
+    try {
+      const now = new Date();
+      const todayStr = now.toISOString().slice(0, 10); // YYYY-MM-DD
+
+      const accounts = await db.execute(sql`
+        SELECT a.company_id, a.cost_per_employee_per_day, a.created_at,
+          (SELECT COUNT(*) FROM employees e WHERE e.company_id = a.company_id AND e.status = 'active') as emp_count
+        FROM cd_accounts a
+      `);
+
+      let billedDays = 0;
+      for (const acct of accounts.rows as any[]) {
+        const empCount = parseInt(acct.emp_count) || 0;
+        const rate = parseFloat(acct.cost_per_employee_per_day) || 0;
+        const acctCreatedDate = acct.created_at.slice(0, 10);
+
+        // Find all dates from account creation to today that:
+        // 1. Don't already have a daily_billing_log
+        // 2. Don't belong to a month that already has a monthly invoice
+        //    (prevents double-deduction if an invoice was already generated)
+        const missingDates = await db.execute(sql`
+          SELECT gs::date::text AS date
+          FROM generate_series(
+            ${acctCreatedDate}::date,
+            ${todayStr}::date,
+            '1 day'::interval
+          ) gs
+          WHERE gs::date::text NOT IN (
+            SELECT date FROM daily_billing_logs WHERE company_id = ${acct.company_id}
+          )
+          AND LEFT(gs::date::text, 7) NOT IN (
+            SELECT period_month FROM invoices WHERE company_id = ${acct.company_id}
+          )
+          ORDER BY gs::date
+        `);
+
+        for (const row of missingDates.rows as any[]) {
+          const date = row.date;
+          const amount = empCount * rate;
+          const ts = now.toISOString();
+          const logId = randomUUID();
+
+          // Insert daily log (ON CONFLICT DO NOTHING as safety)
+          await db.execute(sql`
+            INSERT INTO daily_billing_logs (id, company_id, date, employee_count, rate_per_day, amount, created_at)
+            VALUES (${logId}, ${acct.company_id}, ${date}, ${empCount}, ${rate}, ${amount}, ${ts})
+            ON CONFLICT (company_id, date) DO NOTHING
+          `);
+
+          // Only deduct if the log was actually inserted (not a duplicate)
+          const inserted = await db.execute(sql`
+            SELECT id FROM daily_billing_logs WHERE id = ${logId}
+          `);
+          if ((inserted.rows as any[]).length === 0) continue;
+
+          // Deduct from CD balance
+          await db.execute(sql`
+            UPDATE cd_accounts SET credit_balance = credit_balance - ${amount}, updated_at = ${ts}
+            WHERE company_id = ${acct.company_id}
+          `);
+
+          // Record transaction
+          const balRow = await db.execute(sql`SELECT credit_balance FROM cd_accounts WHERE company_id = ${acct.company_id}`);
+          const balAfter = (balRow.rows[0] as any)?.credit_balance ?? 0;
+          const txId = randomUUID();
+          await db.execute(sql`
+            INSERT INTO cd_transactions (id, company_id, type, amount, balance_after, description, reference_no, created_by, created_at)
+            VALUES (${txId}, ${acct.company_id}, 'debit', ${amount}, ${balAfter},
+              ${`Daily charge: ${date} — ${empCount} emp × ₹${rate}/day`}, ${date}, null, ${ts})
+          `);
+
+          billedDays++;
+        }
+      }
+
+      if (billedDays > 0) {
+        console.log(`[DailyBilling] Processed ${billedDays} day(s) across all accounts`);
+      }
+    } catch (err) {
+      console.error("[DailyBilling] Error:", err);
+    }
+  }
+
+  // ── Monthly Invoice Generation ────────────────────────────────────────────
+  // Runs on the last day of each month. Sums up daily_billing_logs for the
+  // month and creates a summary invoice. NO balance deduction here — daily
+  // billing already deducted each day.
   async function generateMonthlyInvoices(force = false) {
     try {
       const now = new Date();
       if (!force && !isLastDayOfMonth(now)) return;
+
+      // Ensure today's daily billing is done before generating invoice
+      await runDailyBilling();
 
       const year = now.getFullYear();
       const month = now.getMonth() + 1;
@@ -5579,25 +5691,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const days = daysInMonth(year, month);
       const periodTo = `${periodMonth}-${String(days).padStart(2, "0")}`;
 
-      // Get all CD accounts that don't yet have an invoice for this month
+      // Get companies that have daily logs this month but no invoice yet
       const accounts = await db.execute(sql`
-        SELECT a.company_id, a.cost_per_employee_per_day, a.allow_negative, c.company_name,
-          (SELECT COUNT(*) FROM employees e WHERE e.company_id = a.company_id AND e.status = 'active') as emp_count
-        FROM cd_accounts a
-        JOIN companies c ON c.id = a.company_id
-        WHERE a.company_id NOT IN (
-          SELECT company_id FROM invoices WHERE period_month = ${periodMonth}
-        )
+        SELECT DISTINCT dbl.company_id, c.company_name
+        FROM daily_billing_logs dbl
+        JOIN companies c ON c.id = dbl.company_id
+        WHERE LEFT(dbl.date, 7) = ${periodMonth}
+          AND dbl.company_id NOT IN (
+            SELECT company_id FROM invoices WHERE period_month = ${periodMonth}
+          )
       `);
 
       let generatedCount = 0;
       for (const acct of accounts.rows as any[]) {
-        const empCount = parseInt(acct.emp_count) || 0;
-        const rate = parseFloat(acct.cost_per_employee_per_day) || 0;
-        const total = empCount * rate * days;
-        const ts = now.toISOString();
+        // Aggregate this month's daily logs
+        const summary = await db.execute(sql`
+          SELECT
+            COUNT(*)::integer AS days_billed,
+            SUM(amount) AS total_amount,
+            ROUND(AVG(employee_count))::integer AS avg_emp_count,
+            MIN(rate_per_day) AS rate_per_day
+          FROM daily_billing_logs
+          WHERE company_id = ${acct.company_id}
+            AND date >= ${periodFrom} AND date <= ${periodTo}
+        `);
+        const s = summary.rows[0] as any;
+        const daysBilled = parseInt(s?.days_billed) || 0;
+        const totalAmount = parseFloat(s?.total_amount) || 0;
+        const avgEmpCount = parseInt(s?.avg_emp_count) || 0;
+        const ratePerDay = parseFloat(s?.rate_per_day) || 0;
 
-        // Generate sequential invoice number for this month
+        if (daysBilled === 0) continue;
+
         const seqRow = await db.execute(sql`
           SELECT COUNT(*) as cnt FROM invoices WHERE period_month = ${periodMonth}
         `);
@@ -5605,41 +5730,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const invoiceNo = `INV-${periodMonth.replace("-", "")}-${String(seq).padStart(4, "0")}`;
 
         const invoiceId = randomUUID();
+        const ts = now.toISOString();
+
+        // Insert invoice — balance already deducted daily, no re-deduction
         await db.execute(sql`
           INSERT INTO invoices (id, invoice_no, company_id, period_month, period_from, period_to, employee_count, rate_per_day, days_in_period, total_amount, status, notes, created_at)
-          VALUES (${invoiceId}, ${invoiceNo}, ${acct.company_id}, ${periodMonth}, ${periodFrom}, ${periodTo}, ${empCount}, ${rate}, ${days}, ${total}, 'credited', ${`Auto-generated for ${periodMonth}`}, ${ts})
-        `);
-
-        // Deduct from CD account balance
-        await db.execute(sql`
-          UPDATE cd_accounts SET credit_balance = credit_balance - ${total}, updated_at = ${ts}
-          WHERE company_id = ${acct.company_id}
-        `);
-
-        // Record debit transaction
-        const balRow = await db.execute(sql`SELECT credit_balance FROM cd_accounts WHERE company_id = ${acct.company_id}`);
-        const balAfter = (balRow.rows[0] as any)?.credit_balance ?? 0;
-        const txId = randomUUID();
-        await db.execute(sql`
-          INSERT INTO cd_transactions (id, company_id, type, amount, balance_after, description, reference_no, created_by, created_at)
-          VALUES (${txId}, ${acct.company_id}, 'debit', ${total}, ${balAfter}, ${`Monthly invoice ${invoiceNo} — ${empCount} emp × ₹${rate}/day × ${days} days`}, ${invoiceNo}, null, ${ts})
+          VALUES (${invoiceId}, ${invoiceNo}, ${acct.company_id}, ${periodMonth}, ${periodFrom}, ${periodTo},
+            ${avgEmpCount}, ${ratePerDay}, ${daysBilled}, ${totalAmount},
+            'credited', ${`Auto-generated for ${periodMonth} — ${daysBilled} days billed`}, ${ts})
         `);
 
         generatedCount++;
-        console.log(`[Invoice] Generated ${invoiceNo} for ${acct.company_name} — ₹${total}`);
+        console.log(`[Invoice] Generated ${invoiceNo} for ${acct.company_name} — ₹${totalAmount} (${daysBilled} days)`);
       }
 
       if (generatedCount > 0) {
-        console.log(`[Invoice] Monthly invoices generated: ${generatedCount} accounts for ${periodMonth}`);
+        console.log(`[Invoice] ${generatedCount} invoice(s) generated for ${periodMonth}`);
       }
     } catch (err) {
       console.error("[Invoice] Error generating monthly invoices:", err);
     }
   }
 
-  // Run on startup and schedule every hour
-  generateMonthlyInvoices();
-  setInterval(() => generateMonthlyInvoices(), 60 * 60 * 1000);
+  // Run daily billing on startup + every hour; invoice check runs hourly too
+  runDailyBilling();
+  setInterval(() => {
+    runDailyBilling();
+    generateMonthlyInvoices();
+  }, 60 * 60 * 1000);
 
   // Get all CD accounts (super_admin) or own (company_admin)
   app.get("/api/billing/accounts", requireAuth, requireRole("super_admin", "company_admin"), async (req, res) => {
@@ -5831,6 +5949,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ success: true, message: "Invoice generation triggered for current month." });
     } catch (error) {
       res.status(500).json({ error: "Failed to generate invoices" });
+    }
+  });
+
+  // Get daily billing logs for a company (optionally filtered by month YYYY-MM)
+  app.get("/api/billing/daily-logs/:companyId", requireAuth, requireRole("super_admin", "company_admin"), async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const { companyId } = req.params;
+      const { month } = req.query as { month?: string };
+      if (user.role === "company_admin" && user.companyId !== companyId) return res.status(403).json({ error: "Forbidden" });
+      const rows = await db.execute(sql`
+        SELECT * FROM daily_billing_logs
+        WHERE company_id = ${companyId}
+          ${month ? sql`AND LEFT(date, 7) = ${month}` : sql``}
+        ORDER BY date DESC
+        LIMIT 400
+      `);
+      res.json(rows.rows);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch daily billing logs" });
+    }
+  });
+
+  // Manual trigger for daily billing (super_admin only)
+  app.post("/api/billing/daily/run", requireAuth, requireRole("super_admin"), async (req, res) => {
+    try {
+      await runDailyBilling();
+      res.json({ success: true, message: "Daily billing run completed." });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to run daily billing" });
     }
   });
 

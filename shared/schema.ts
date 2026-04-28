@@ -973,6 +973,20 @@ export const insertCdTransactionSchema = createInsertSchema(cdTransactions).omit
 export type InsertCdTransaction = z.infer<typeof insertCdTransactionSchema>;
 export type CdTransaction = typeof cdTransactions.$inferSelect;
 
+// ─── Daily Billing Logs ───────────────────────────────────────────────────────
+export const dailyBillingLogs = pgTable("daily_billing_logs", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  companyId: varchar("company_id", { length: 36 }).notNull(),
+  date: text("date").notNull(),                    // YYYY-MM-DD
+  employeeCount: integer("employee_count").notNull().default(0),
+  ratePerDay: numeric("rate_per_day", { precision: 10, scale: 4 }).notNull(),
+  amount: numeric("amount", { precision: 14, scale: 4 }).notNull(),
+  createdAt: text("created_at").notNull(),
+});
+export const insertDailyBillingLogSchema = createInsertSchema(dailyBillingLogs).omit({ id: true });
+export type InsertDailyBillingLog = z.infer<typeof insertDailyBillingLogSchema>;
+export type DailyBillingLog = typeof dailyBillingLogs.$inferSelect;
+
 // ─── Invoices (Monthly Auto-Generated) ────────────────────────────────────────
 export const invoices = pgTable("invoices", {
   id: varchar("id", { length: 36 }).primaryKey(),

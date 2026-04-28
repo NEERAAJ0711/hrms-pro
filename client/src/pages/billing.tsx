@@ -23,6 +23,9 @@ import {
   FileText,
   Zap,
   Eye,
+  Loader2,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -111,6 +114,16 @@ type Invoice = {
   totalAmount: string;
   status: string;
   notes: string | null;
+  createdAt: string;
+};
+
+type DailyBillingLog = {
+  id: string;
+  companyId: string;
+  date: string;
+  employeeCount: number;
+  ratePerDay: string;
+  amount: string;
   createdAt: string;
 };
 
@@ -563,9 +576,17 @@ function TransactionLedger({ account, onClose }: { account: BillingAccount; onCl
 
 // ─── Invoice Detail Dialog ────────────────────────────────────────────────────
 function InvoiceDetailDialog({ invoice, onClose }: { invoice: Invoice; onClose: () => void }) {
+  const [showDailyLogs, setShowDailyLogs] = useState(false);
+
+  const { data: dailyLogs = [], isLoading: logsLoading } = useQuery<DailyBillingLog[]>({
+    queryKey: ["/api/billing/daily-logs", invoice.companyId, invoice.periodMonth],
+    queryFn: () => fetch(`/api/billing/daily-logs/${invoice.companyId}?month=${invoice.periodMonth}`, { credentials: "include" }).then(r => r.json()),
+    enabled: showDailyLogs,
+  });
+
   return (
     <Dialog open onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="sm:max-w-xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <FileText className="h-5 w-5 text-primary" /> {invoice.invoiceNo}
@@ -583,11 +604,11 @@ function InvoiceDetailDialog({ invoice, onClose }: { invoice: Invoice; onClose: 
               <span className="font-medium">{invoice.periodFrom} to {invoice.periodTo}</span>
             </div>
             <div className="flex justify-between text-sm">
-              <span className="text-muted-foreground">Days in Period</span>
+              <span className="text-muted-foreground">Days Billed</span>
               <span>{invoice.daysInPeriod} days</span>
             </div>
             <div className="flex justify-between text-sm">
-              <span className="text-muted-foreground">Active Employees</span>
+              <span className="text-muted-foreground">Avg. Active Employees</span>
               <span>{invoice.employeeCount}</span>
             </div>
             <div className="flex justify-between text-sm">
@@ -599,6 +620,7 @@ function InvoiceDetailDialog({ invoice, onClose }: { invoice: Invoice; onClose: 
               <span className="text-red-600">₹ {fmt(invoice.totalAmount)}</span>
             </div>
           </div>
+
           <div className="flex justify-between text-sm">
             <span className="text-muted-foreground">Status</span>
             <Badge className={invoice.status === "credited" ? "bg-green-600" : "bg-amber-500"}>
@@ -612,9 +634,57 @@ function InvoiceDetailDialog({ invoice, onClose }: { invoice: Invoice; onClose: 
           {invoice.notes && (
             <div className="text-xs text-muted-foreground bg-muted/30 rounded p-2">{invoice.notes}</div>
           )}
+
           <div className="rounded-lg border border-blue-200 bg-blue-50 dark:bg-blue-950/20 p-3 text-xs text-blue-700 dark:text-blue-400">
-            <strong>Formula:</strong> {invoice.employeeCount} employees × ₹{fmt(invoice.ratePerDay)}/day × {invoice.daysInPeriod} days = ₹{fmt(invoice.totalAmount)}
+            <strong>Calculation:</strong> Sum of daily charges — each day: employees × ₹{fmt(invoice.ratePerDay)}/day.
+            Total {invoice.daysInPeriod} days billed = <strong>₹{fmt(invoice.totalAmount)}</strong>
           </div>
+
+          {/* Daily log breakdown toggle */}
+          <button
+            className="w-full flex items-center justify-between text-sm font-medium text-muted-foreground hover:text-foreground transition-colors rounded-md border px-3 py-2"
+            onClick={() => setShowDailyLogs(v => !v)}
+            data-testid="toggle-daily-logs"
+          >
+            <span className="flex items-center gap-2">
+              <CalendarDays className="h-4 w-4" />
+              View Daily Billing Log ({invoice.daysInPeriod} entries)
+            </span>
+            {showDailyLogs ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+          </button>
+
+          {showDailyLogs && (
+            <div className="rounded-lg border overflow-hidden">
+              {logsLoading ? (
+                <div className="flex items-center justify-center py-6 text-muted-foreground text-sm gap-2">
+                  <Loader2 className="h-4 w-4 animate-spin" /> Loading daily logs…
+                </div>
+              ) : dailyLogs.length === 0 ? (
+                <div className="text-center py-6 text-sm text-muted-foreground">No daily logs found for this period.</div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-muted/40">
+                      <TableHead className="text-xs">Date</TableHead>
+                      <TableHead className="text-xs text-center">Employees</TableHead>
+                      <TableHead className="text-xs text-right">Rate/Day</TableHead>
+                      <TableHead className="text-xs text-right">Amount</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {[...dailyLogs].sort((a, b) => a.date.localeCompare(b.date)).map(log => (
+                      <TableRow key={log.id} className="text-xs">
+                        <TableCell className="font-medium">{log.date}</TableCell>
+                        <TableCell className="text-center">{log.employeeCount}</TableCell>
+                        <TableCell className="text-right">₹{fmt(log.ratePerDay)}</TableCell>
+                        <TableCell className="text-right text-red-600">₹{fmt(log.amount)}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </div>
+          )}
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Close</Button>
