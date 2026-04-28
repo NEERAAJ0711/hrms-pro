@@ -20,6 +20,9 @@ import {
   ToggleRight,
   CalendarDays,
   RefreshCw,
+  FileText,
+  Zap,
+  Eye,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -56,6 +59,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 
@@ -92,6 +96,23 @@ type CdTransaction = {
 };
 
 type UnregisteredCompany = { id: string; company_name: string };
+
+type Invoice = {
+  id: string;
+  invoiceNo: string;
+  companyId: string;
+  companyName: string;
+  periodMonth: string;
+  periodFrom: string;
+  periodTo: string;
+  employeeCount: number;
+  ratePerDay: string;
+  daysInPeriod: number;
+  totalAmount: string;
+  status: string;
+  notes: string | null;
+  createdAt: string;
+};
 
 function fmt(n: string | number | null | undefined) {
   const v = Number(n) || 0;
@@ -529,6 +550,201 @@ function TransactionLedger({ account, onClose }: { account: BillingAccount; onCl
   );
 }
 
+// ─── Invoice Detail Dialog ────────────────────────────────────────────────────
+function InvoiceDetailDialog({ invoice, onClose }: { invoice: Invoice; onClose: () => void }) {
+  return (
+    <Dialog open onOpenChange={onClose}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <FileText className="h-5 w-5 text-primary" /> {invoice.invoiceNo}
+          </DialogTitle>
+          <DialogDescription>{invoice.companyName}</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4 py-2">
+          <div className="rounded-lg border p-4 bg-muted/30 space-y-3">
+            <div className="flex justify-between text-sm">
+              <span className="text-muted-foreground">Invoice No.</span>
+              <span className="font-semibold">{invoice.invoiceNo}</span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-muted-foreground">Period</span>
+              <span className="font-medium">{invoice.periodFrom} to {invoice.periodTo}</span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-muted-foreground">Days in Period</span>
+              <span>{invoice.daysInPeriod} days</span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-muted-foreground">Active Employees</span>
+              <span>{invoice.employeeCount}</span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-muted-foreground">Rate / Employee / Day</span>
+              <span>₹ {fmt(invoice.ratePerDay)}</span>
+            </div>
+            <div className="border-t pt-2 flex justify-between font-semibold">
+              <span>Total Charged</span>
+              <span className="text-red-600">₹ {fmt(invoice.totalAmount)}</span>
+            </div>
+          </div>
+          <div className="flex justify-between text-sm">
+            <span className="text-muted-foreground">Status</span>
+            <Badge className={invoice.status === "credited" ? "bg-green-600" : "bg-amber-500"}>
+              {invoice.status === "credited" ? "Deducted from Balance" : invoice.status}
+            </Badge>
+          </div>
+          <div className="flex justify-between text-sm">
+            <span className="text-muted-foreground">Generated On</span>
+            <span>{format(new Date(invoice.createdAt), "dd-MMM-yyyy HH:mm")}</span>
+          </div>
+          {invoice.notes && (
+            <div className="text-xs text-muted-foreground bg-muted/30 rounded p-2">{invoice.notes}</div>
+          )}
+          <div className="rounded-lg border border-blue-200 bg-blue-50 dark:bg-blue-950/20 p-3 text-xs text-blue-700 dark:text-blue-400">
+            <strong>Formula:</strong> {invoice.employeeCount} employees × ₹{fmt(invoice.ratePerDay)}/day × {invoice.daysInPeriod} days = ₹{fmt(invoice.totalAmount)}
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Close</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ─── Invoices Tab ─────────────────────────────────────────────────────────────
+function InvoicesTab({ isSuperAdmin }: { isSuperAdmin: boolean }) {
+  const { toast } = useToast();
+  const [viewInvoice, setViewInvoice] = useState<Invoice | null>(null);
+
+  const { data: invoices = [], isLoading, refetch } = useQuery<Invoice[]>({
+    queryKey: ["/api/billing/invoices"],
+  });
+
+  const generateMutation = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/billing/invoices/generate", {}),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/billing/invoices"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/billing/accounts"] });
+      toast({ title: "Invoices Generated", description: "Monthly invoices have been generated and deducted from balances." });
+    },
+    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const totalRevenue = invoices.reduce((s, i) => s + Number(i.totalAmount), 0);
+
+  return (
+    <div className="space-y-4">
+      {isSuperAdmin && (
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm text-muted-foreground">
+              Invoices auto-generate on the <strong>last day of each month</strong>. Use the button below to generate manually for the current month.
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" onClick={() => refetch()} data-testid="button-refresh-invoices">
+              <RefreshCw className="h-3.5 w-3.5 mr-1" /> Refresh
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => generateMutation.mutate()}
+              disabled={generateMutation.isPending}
+              data-testid="button-generate-invoices"
+            >
+              <Zap className="h-3.5 w-3.5 mr-2" />
+              {generateMutation.isPending ? "Generating…" : "Generate Now"}
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {isSuperAdmin && invoices.length > 0 && (
+        <div className="grid grid-cols-3 gap-3">
+          <Card>
+            <CardContent className="pt-4 pb-3">
+              <p className="text-xs text-muted-foreground">Total Invoices</p>
+              <p className="text-2xl font-bold">{invoices.length}</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="pt-4 pb-3">
+              <p className="text-xs text-muted-foreground">Total Revenue Billed</p>
+              <p className="text-2xl font-bold text-red-600">₹ {fmt(totalRevenue)}</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="pt-4 pb-3">
+              <p className="text-xs text-muted-foreground">This Month</p>
+              <p className="text-2xl font-bold">
+                {invoices.filter(i => i.periodMonth === new Date().toISOString().slice(0, 7)).length}
+              </p>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      <Card>
+        <CardContent className="p-0">
+          {isLoading ? (
+            <div className="p-6 space-y-3">{Array(3).fill(0).map((_, i) => <Skeleton key={i} className="h-12 w-full" />)}</div>
+          ) : invoices.length === 0 ? (
+            <div className="text-center py-16 text-muted-foreground">
+              <FileText className="h-10 w-10 mx-auto mb-3 opacity-40" />
+              <p className="font-semibold">No invoices yet</p>
+              <p className="text-sm">Invoices are auto-generated on the last day of each month.</p>
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Invoice No.</TableHead>
+                  {isSuperAdmin && <TableHead>Company</TableHead>}
+                  <TableHead>Period</TableHead>
+                  <TableHead className="text-right">Employees</TableHead>
+                  <TableHead className="text-right">Days</TableHead>
+                  <TableHead className="text-right">Amount</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Generated</TableHead>
+                  <TableHead></TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {invoices.map(inv => (
+                  <TableRow key={inv.id} className="cursor-pointer hover:bg-muted/50" onClick={() => setViewInvoice(inv)} data-testid={`row-invoice-${inv.id}`}>
+                    <TableCell className="font-mono text-sm font-semibold text-primary">{inv.invoiceNo}</TableCell>
+                    {isSuperAdmin && <TableCell className="text-sm">{inv.companyName}</TableCell>}
+                    <TableCell className="text-sm">{inv.periodFrom} → {inv.periodTo}</TableCell>
+                    <TableCell className="text-right text-sm">{inv.employeeCount}</TableCell>
+                    <TableCell className="text-right text-sm">{inv.daysInPeriod}</TableCell>
+                    <TableCell className="text-right font-semibold text-red-600 text-sm">₹ {fmt(inv.totalAmount)}</TableCell>
+                    <TableCell>
+                      <Badge className={inv.status === "credited" ? "bg-green-600 text-white" : "bg-amber-500 text-white"}>
+                        {inv.status === "credited" ? "Deducted" : inv.status}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground">
+                      {format(new Date(inv.createdAt), "dd-MMM-yy HH:mm")}
+                    </TableCell>
+                    <TableCell onClick={e => e.stopPropagation()}>
+                      <Button variant="ghost" size="icon" onClick={() => setViewInvoice(inv)} data-testid={`button-view-invoice-${inv.id}`}>
+                        <Eye className="h-4 w-4" />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+
+      {viewInvoice && <InvoiceDetailDialog invoice={viewInvoice} onClose={() => setViewInvoice(null)} />}
+    </div>
+  );
+}
+
 // ─── Main Page ─────────────────────────────────────────────────────────────────
 export default function BillingPage() {
   const { user } = useAuth();
@@ -631,16 +847,26 @@ export default function BillingPage() {
               </Card>
             )}
 
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-base flex items-center gap-2">
-                  <Receipt className="h-4 w-4" /> Recent Transactions
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <CompanyAdminLedger companyId={acct.companyId} />
-              </CardContent>
-            </Card>
+            <Tabs defaultValue="transactions">
+              <TabsList>
+                <TabsTrigger value="transactions" className="flex items-center gap-1">
+                  <Receipt className="h-3.5 w-3.5" /> Transactions
+                </TabsTrigger>
+                <TabsTrigger value="invoices" className="flex items-center gap-1">
+                  <FileText className="h-3.5 w-3.5" /> Invoices
+                </TabsTrigger>
+              </TabsList>
+              <TabsContent value="transactions">
+                <Card>
+                  <CardContent className="pt-4">
+                    <CompanyAdminLedger companyId={acct.companyId} />
+                  </CardContent>
+                </Card>
+              </TabsContent>
+              <TabsContent value="invoices">
+                <InvoicesTab isSuperAdmin={false} />
+              </TabsContent>
+            </Tabs>
           </>
         )}
       </div>
@@ -656,7 +882,7 @@ export default function BillingPage() {
           <h1 className="text-2xl font-bold flex items-center gap-2">
             <CreditCard className="h-6 w-6 text-primary" /> Credits & Billing
           </h1>
-          <p className="text-muted-foreground">Manage CD accounts, credit balances, and billing rates for all companies.</p>
+          <p className="text-muted-foreground">Manage CD accounts, credit balances, billing rates, and monthly invoices.</p>
         </div>
         <div className="flex gap-2">
           <Button variant="outline" size="icon" onClick={() => refetch()} title="Refresh" data-testid="button-refresh-billing">
@@ -705,7 +931,18 @@ export default function BillingPage() {
         </Card>
       </div>
 
-      {/* Accounts Table */}
+      {/* Tabs: Accounts & Invoices */}
+      <Tabs defaultValue="accounts">
+        <TabsList className="mb-2">
+          <TabsTrigger value="accounts" className="flex items-center gap-2" data-testid="tab-accounts">
+            <CreditCard className="h-4 w-4" /> Accounts
+          </TabsTrigger>
+          <TabsTrigger value="invoices" className="flex items-center gap-2" data-testid="tab-invoices">
+            <FileText className="h-4 w-4" /> Invoices
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="accounts" className="mt-0">
       <Card>
         <CardHeader className="pb-4">
           <CardTitle className="text-base">All CD Accounts</CardTitle>
@@ -860,6 +1097,13 @@ export default function BillingPage() {
           )}
         </CardContent>
       </Card>
+
+        </TabsContent>
+
+        <TabsContent value="invoices" className="mt-0">
+          <InvoicesTab isSuperAdmin={true} />
+        </TabsContent>
+      </Tabs>
 
       {/* Dialogs */}
       {showSetup && <SetupAccountDialog onClose={() => setShowSetup(false)} />}

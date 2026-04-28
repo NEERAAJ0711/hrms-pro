@@ -505,6 +505,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
     CREATE INDEX IF NOT EXISTS cd_transactions_company_idx ON cd_transactions (company_id, created_at DESC)
   `).catch(() => {});
 
+  // Invoices table
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS invoices (
+      id VARCHAR(36) PRIMARY KEY,
+      invoice_no TEXT NOT NULL UNIQUE,
+      company_id VARCHAR(36) NOT NULL,
+      period_month TEXT NOT NULL,
+      period_from TEXT NOT NULL,
+      period_to TEXT NOT NULL,
+      employee_count INTEGER NOT NULL DEFAULT 0,
+      rate_per_day NUMERIC(10,4) NOT NULL,
+      days_in_period INTEGER NOT NULL,
+      total_amount NUMERIC(14,4) NOT NULL,
+      status TEXT NOT NULL DEFAULT 'credited',
+      notes TEXT,
+      created_at TEXT NOT NULL
+    )
+  `).catch(() => {});
+  await db.execute(sql`
+    CREATE INDEX IF NOT EXISTS invoices_company_period_idx ON invoices (company_id, period_month DESC)
+  `).catch(() => {});
+
   // Create employee_documents table if not exists
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS employee_documents (
@@ -5534,6 +5556,91 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Run auto-creation on startup
   autoCreateCdAccounts();
 
+  // ── Monthly Invoice Auto-Generation ─────────────────────────────────────
+  function isLastDayOfMonth(d: Date): boolean {
+    const next = new Date(d);
+    next.setDate(next.getDate() + 1);
+    return next.getDate() === 1;
+  }
+
+  function daysInMonth(year: number, month: number): number {
+    return new Date(year, month, 0).getDate();
+  }
+
+  async function generateMonthlyInvoices(force = false) {
+    try {
+      const now = new Date();
+      if (!force && !isLastDayOfMonth(now)) return;
+
+      const year = now.getFullYear();
+      const month = now.getMonth() + 1;
+      const periodMonth = `${year}-${String(month).padStart(2, "0")}`;
+      const periodFrom = `${periodMonth}-01`;
+      const days = daysInMonth(year, month);
+      const periodTo = `${periodMonth}-${String(days).padStart(2, "0")}`;
+
+      // Get all CD accounts that don't yet have an invoice for this month
+      const accounts = await db.execute(sql`
+        SELECT a.company_id, a.cost_per_employee_per_day, a.allow_negative, c.company_name,
+          (SELECT COUNT(*) FROM employees e WHERE e.company_id = a.company_id AND e.status = 'active') as emp_count
+        FROM cd_accounts a
+        JOIN companies c ON c.id = a.company_id
+        WHERE a.company_id NOT IN (
+          SELECT company_id FROM invoices WHERE period_month = ${periodMonth}
+        )
+      `);
+
+      let generatedCount = 0;
+      for (const acct of accounts.rows as any[]) {
+        const empCount = parseInt(acct.emp_count) || 0;
+        const rate = parseFloat(acct.cost_per_employee_per_day) || 0;
+        const total = empCount * rate * days;
+        const ts = now.toISOString();
+
+        // Generate sequential invoice number for this month
+        const seqRow = await db.execute(sql`
+          SELECT COUNT(*) as cnt FROM invoices WHERE period_month = ${periodMonth}
+        `);
+        const seq = (parseInt((seqRow.rows[0] as any)?.cnt) || 0) + 1;
+        const invoiceNo = `INV-${periodMonth.replace("-", "")}-${String(seq).padStart(4, "0")}`;
+
+        const invoiceId = randomUUID();
+        await db.execute(sql`
+          INSERT INTO invoices (id, invoice_no, company_id, period_month, period_from, period_to, employee_count, rate_per_day, days_in_period, total_amount, status, notes, created_at)
+          VALUES (${invoiceId}, ${invoiceNo}, ${acct.company_id}, ${periodMonth}, ${periodFrom}, ${periodTo}, ${empCount}, ${rate}, ${days}, ${total}, 'credited', ${`Auto-generated for ${periodMonth}`}, ${ts})
+        `);
+
+        // Deduct from CD account balance
+        await db.execute(sql`
+          UPDATE cd_accounts SET credit_balance = credit_balance - ${total}, updated_at = ${ts}
+          WHERE company_id = ${acct.company_id}
+        `);
+
+        // Record debit transaction
+        const balRow = await db.execute(sql`SELECT credit_balance FROM cd_accounts WHERE company_id = ${acct.company_id}`);
+        const balAfter = (balRow.rows[0] as any)?.credit_balance ?? 0;
+        const txId = randomUUID();
+        await db.execute(sql`
+          INSERT INTO cd_transactions (id, company_id, type, amount, balance_after, description, reference_no, created_by, created_at)
+          VALUES (${txId}, ${acct.company_id}, 'debit', ${total}, ${balAfter}, ${`Monthly invoice ${invoiceNo} — ${empCount} emp × ₹${rate}/day × ${days} days`}, ${invoiceNo}, null, ${ts})
+        `);
+
+        generatedCount++;
+        console.log(`[Invoice] Generated ${invoiceNo} for ${acct.company_name} — ₹${total}`);
+      }
+
+      if (generatedCount > 0) {
+        console.log(`[Invoice] Monthly invoices generated: ${generatedCount} accounts for ${periodMonth}`);
+      }
+    } catch (err) {
+      console.error("[Invoice] Error generating monthly invoices:", err);
+    }
+  }
+
+  // Run on startup and schedule every hour
+  generateMonthlyInvoices();
+  setInterval(() => generateMonthlyInvoices(), 60 * 60 * 1000);
+
   // Get all CD accounts (super_admin) or own (company_admin)
   app.get("/api/billing/accounts", requireAuth, requireRole("super_admin", "company_admin"), async (req, res) => {
     try {
@@ -5686,6 +5793,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ success: true, balanceAfter: Number(balAfter) });
     } catch (error) {
       res.status(500).json({ error: "Failed to debit credits" });
+    }
+  });
+
+  // ── Invoice Routes ──────────────────────────────────────────────────────
+
+  // List all invoices (super_admin) or own (company_admin)
+  app.get("/api/billing/invoices", requireAuth, requireRole("super_admin", "company_admin"), async (req, res) => {
+    try {
+      const user = (req as any).user;
+      let rows;
+      if (user.role === "super_admin") {
+        rows = await db.execute(sql`
+          SELECT i.*, c.company_name FROM invoices i
+          JOIN companies c ON c.id = i.company_id
+          ORDER BY i.period_month DESC, i.created_at DESC
+          LIMIT 500
+        `);
+      } else {
+        rows = await db.execute(sql`
+          SELECT i.*, c.company_name FROM invoices i
+          JOIN companies c ON c.id = i.company_id
+          WHERE i.company_id = ${user.companyId}
+          ORDER BY i.period_month DESC, i.created_at DESC
+        `);
+      }
+      res.json(rows.rows);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch invoices" });
+    }
+  });
+
+  // Manual trigger invoice generation for a specific month (super_admin only)
+  app.post("/api/billing/invoices/generate", requireAuth, requireRole("super_admin"), async (req, res) => {
+    try {
+      await generateMonthlyInvoices(true);
+      res.json({ success: true, message: "Invoice generation triggered for current month." });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to generate invoices" });
     }
   });
 

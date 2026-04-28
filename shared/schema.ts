@@ -972,3 +972,23 @@ export const cdTransactions = pgTable("cd_transactions", {
 export const insertCdTransactionSchema = createInsertSchema(cdTransactions).omit({ id: true });
 export type InsertCdTransaction = z.infer<typeof insertCdTransactionSchema>;
 export type CdTransaction = typeof cdTransactions.$inferSelect;
+
+// ─── Invoices (Monthly Auto-Generated) ────────────────────────────────────────
+export const invoices = pgTable("invoices", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  invoiceNo: text("invoice_no").notNull().unique(),
+  companyId: varchar("company_id", { length: 36 }).notNull(),
+  periodMonth: text("period_month").notNull(),     // YYYY-MM
+  periodFrom: text("period_from").notNull(),       // YYYY-MM-DD
+  periodTo: text("period_to").notNull(),           // YYYY-MM-DD
+  employeeCount: integer("employee_count").notNull().default(0),
+  ratePerDay: numeric("rate_per_day", { precision: 10, scale: 4 }).notNull(),
+  daysInPeriod: integer("days_in_period").notNull(),
+  totalAmount: numeric("total_amount", { precision: 14, scale: 4 }).notNull(),
+  status: text("status").notNull().default("credited"), // "credited" | "pending" | "cancelled"
+  notes: text("notes"),
+  createdAt: text("created_at").notNull(),
+});
+export const insertInvoiceSchema = createInsertSchema(invoices).omit({ id: true });
+export type InsertInvoice = z.infer<typeof insertInvoiceSchema>;
+export type Invoice = typeof invoices.$inferSelect;
