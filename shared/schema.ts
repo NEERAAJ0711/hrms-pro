@@ -36,6 +36,9 @@ export const companies = pgTable("companies", {
   faceVerificationEnabled: boolean("face_verification_enabled").default(true),
   gpsVerificationEnabled: boolean("gps_verification_enabled").default(true),
   isContractor: boolean("is_contractor").default(false),
+  trialStartDate: text("trial_start_date"),
+  trialDays: integer("trial_days").default(3),
+  trialExtendedDays: integer("trial_extended_days").default(0),
 });
 
 export const insertCompanySchema = createInsertSchema(companies).omit({ id: true });

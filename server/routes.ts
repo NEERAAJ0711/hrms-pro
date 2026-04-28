@@ -439,6 +439,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     CREATE INDEX IF NOT EXISTS adms_activity_log_sn_idx ON adms_activity_log (device_sn, id DESC)
   `).catch(() => {});
 
+  // Trial columns for companies (self-signup free trial)
+  await db.execute(sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS trial_start_date TEXT`).catch(() => {});
+  await db.execute(sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS trial_days INTEGER NOT NULL DEFAULT 3`).catch(() => {});
+  await db.execute(sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS trial_extended_days INTEGER NOT NULL DEFAULT 0`).catch(() => {});
+
   // Create employee_documents table if not exists
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS employee_documents (
@@ -480,16 +485,46 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/auth/signup", async (req, res) => {
     try {
-      const data = insertUserSchema.parse(req.body);
-      const existingUser = await storage.getUserByUsername(data.username);
-      if (existingUser) {
-        return res.status(400).json({ message: "Username already exists" });
+      const { signupType = "employee" } = req.body;
+
+      // Check for duplicate username and email before anything
+      const existingUsername = await storage.getUserByUsername(req.body.username);
+      if (existingUsername) return res.status(400).json({ message: "Username already taken. Please choose another." });
+      const existingEmail = await storage.getUserByEmail(req.body.email).catch(() => null);
+      if (existingEmail) return res.status(400).json({ message: "An account with this email already exists." });
+
+      if (signupType === "company_admin") {
+        const { companyName, username, email, password, firstName, lastName } = req.body;
+        if (!companyName || !username || !email || !password) {
+          return res.status(400).json({ message: "Company name, username, email, and password are required." });
+        }
+        // Create company with 3-day trial
+        const today = new Date().toISOString().split("T")[0];
+        const { v4: uuidv4 } = await import("uuid");
+        const companyId = uuidv4();
+        await db.execute(sql`
+          INSERT INTO companies (id, company_name, legal_name, status, trial_start_date, trial_days, trial_extended_days)
+          VALUES (${companyId}, ${companyName}, ${companyName}, 'active', ${today}, 3, 0)
+        `);
+        // Create company_admin user
+        const userId = uuidv4();
+        await db.execute(sql`
+          INSERT INTO users (id, username, email, password, first_name, last_name, role, company_id, status)
+          VALUES (${userId}, ${username}, ${email}, ${password}, ${firstName || ""}, ${lastName || ""}, 'company_admin', ${companyId}, 'active')
+        `);
+        const user = await storage.getUser(userId);
+        req.session.userId = userId;
+        return res.status(201).json({ ...user, companyName, trialDaysLeft: 3, trialExpired: false });
       }
-      const user = await storage.createUser(data);
+
+      // Default: employee / job seeker signup
+      const data = insertUserSchema.parse(req.body);
+      const user = await storage.createUser({ ...data, role: "employee" });
       req.session.userId = user.id;
       res.status(201).json(user);
-    } catch (error) {
-      res.status(400).json({ message: "Invalid user data" });
+    } catch (error: any) {
+      console.error("[signup]", error);
+      res.status(400).json({ message: error.message || "Invalid user data" });
     }
   });
 
@@ -532,13 +567,55 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = await storage.getUser(req.session.userId);
       if (!user) return res.status(401).json({ message: "User not found" });
       let companyName: string | null = null;
+      let trialInfo: { trialActive: boolean; trialExpired: boolean; trialDaysLeft: number; trialDaysTotal: number; trialStartDate: string | null } | null = null;
       if (user.companyId) {
         const company = await storage.getCompany(user.companyId);
         companyName = company?.companyName || null;
+        if (company && company.trialStartDate) {
+          const start = new Date(company.trialStartDate);
+          const total = (company.trialDays ?? 3) + (company.trialExtendedDays ?? 0);
+          const expiry = new Date(start);
+          expiry.setDate(expiry.getDate() + total);
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+          expiry.setHours(23, 59, 59, 999);
+          const msLeft = expiry.getTime() - today.getTime();
+          const daysLeft = Math.max(0, Math.ceil(msLeft / (1000 * 60 * 60 * 24)));
+          trialInfo = {
+            trialActive: true,
+            trialExpired: msLeft < 0,
+            trialDaysLeft: daysLeft,
+            trialDaysTotal: total,
+            trialStartDate: company.trialStartDate,
+          };
+        }
       }
-      res.json({ ...user, companyName });
+      res.json({ ...user, companyName, ...(trialInfo ?? {}) });
     } catch (error) {
       res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  // Super admin: extend trial for a company
+  app.patch("/api/companies/:id/trial", requireAuth, requireRole("super_admin"), async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { trialDays, trialExtendedDays } = req.body;
+      const updates: Record<string, any> = {};
+      if (trialDays !== undefined) updates.trial_days = Number(trialDays);
+      if (trialExtendedDays !== undefined) updates.trial_extended_days = Number(trialExtendedDays);
+      if (Object.keys(updates).length === 0) return res.status(400).json({ error: "No values to update" });
+      if (updates.trial_days !== undefined && updates.trial_extended_days !== undefined) {
+        await db.execute(sql`UPDATE companies SET trial_days = ${updates.trial_days}, trial_extended_days = ${updates.trial_extended_days} WHERE id = ${id}`);
+      } else if (updates.trial_days !== undefined) {
+        await db.execute(sql`UPDATE companies SET trial_days = ${updates.trial_days} WHERE id = ${id}`);
+      } else {
+        await db.execute(sql`UPDATE companies SET trial_extended_days = ${updates.trial_extended_days} WHERE id = ${id}`);
+      }
+      const company = await storage.getCompany(id);
+      res.json({ success: true, company });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update trial" });
     }
   });
 

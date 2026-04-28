@@ -10,6 +10,11 @@ interface User {
   lastName: string;
   companyId: string | null;
   companyName?: string | null;
+  trialActive?: boolean;
+  trialExpired?: boolean;
+  trialDaysLeft?: number;
+  trialDaysTotal?: number;
+  trialStartDate?: string | null;
 }
 
 interface AuthContextType {
@@ -19,14 +24,17 @@ interface AuthContextType {
   login: (username: string, password: string) => Promise<void>;
   signup: (data: SignupData) => Promise<void>;
   logout: () => Promise<void>;
+  refreshUser: () => Promise<void>;
 }
 
 interface SignupData {
+  signupType: "company_admin" | "employee";
   username: string;
   email: string;
   password: string;
   firstName: string;
   lastName: string;
+  companyName?: string;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -57,7 +65,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = async (username: string, password: string) => {
     await apiRequest("POST", "/api/auth/login", { username, password });
-    // Re-fetch from /api/auth/me to get companyName included
     const meRes = await fetch("/api/auth/me", { credentials: "include" });
     if (meRes.ok) setUser(await meRes.json());
   };
@@ -73,6 +80,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
   };
 
+  const refreshUser = async () => {
+    const meRes = await fetch("/api/auth/me", { credentials: "include" });
+    if (meRes.ok) setUser(await meRes.json());
+  };
+
   return (
     <AuthContext.Provider
       value={{
@@ -82,6 +94,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         login,
         signup,
         logout,
+        refreshUser,
       }}
     >
       {children}
