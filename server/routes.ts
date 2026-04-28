@@ -500,14 +500,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
         // Create company with 3-day trial
         const today = new Date().toISOString().split("T")[0];
-        const { v4: uuidv4 } = await import("uuid");
-        const companyId = uuidv4();
+        const companyId = crypto.randomUUID();
         await db.execute(sql`
           INSERT INTO companies (id, company_name, legal_name, status, trial_start_date, trial_days, trial_extended_days)
           VALUES (${companyId}, ${companyName}, ${companyName}, 'active', ${today}, 3, 0)
         `);
         // Create company_admin user
-        const userId = uuidv4();
+        const userId = crypto.randomUUID();
         await db.execute(sql`
           INSERT INTO users (id, username, email, password, first_name, last_name, role, company_id, status)
           VALUES (${userId}, ${username}, ${email}, ${password}, ${firstName || ""}, ${lastName || ""}, 'company_admin', ${companyId}, 'active')
