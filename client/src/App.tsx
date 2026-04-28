@@ -30,6 +30,7 @@ import JobApplicationsPage from "@/pages/job-applications";
 import MyProfilePage from "@/pages/my-profile";
 import ProfileRequestsPage from "@/pages/profile-requests";
 import CompliancesPage from "@/pages/compliances";
+import BillingPage from "@/pages/billing";
 import NotFound from "@/pages/not-found";
 import MobilePreview from "@/pages/mobile-preview";
 import WebsiteLayout from "@/pages/website/website-layout";
@@ -118,6 +119,7 @@ function ProtectedRouter() {
       <Route path="/my-profile" component={MyProfilePage} />
       <Route path="/profile-requests" component={ProfileRequestsPage} />
       <Route path="/compliances" component={CompliancesPage} />
+      <Route path="/billing" component={BillingPage} />
       <Route path="/settings" component={SettingsPage} />
       <Route path="/login" component={RedirectToDashboard} />
       <Route path="/signup" component={RedirectToDashboard} />

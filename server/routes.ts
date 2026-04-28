@@ -467,6 +467,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Logo & signature columns for companies
   await db.execute(sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS signature TEXT`).catch(() => {});
 
+  // CD Accounts (Credits & Billing)
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS cd_accounts (
+      id VARCHAR(36) PRIMARY KEY,
+      company_id VARCHAR(36) NOT NULL UNIQUE,
+      credit_balance NUMERIC(14,4) NOT NULL DEFAULT 0,
+      cost_per_employee_per_day NUMERIC(10,4) NOT NULL DEFAULT 0,
+      low_balance_threshold NUMERIC(14,4) NOT NULL DEFAULT 0,
+      notes TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )
+  `).catch(() => {});
+
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS cd_transactions (
+      id VARCHAR(36) PRIMARY KEY,
+      company_id VARCHAR(36) NOT NULL,
+      type TEXT NOT NULL,
+      amount NUMERIC(14,4) NOT NULL,
+      balance_after NUMERIC(14,4) NOT NULL,
+      description TEXT NOT NULL,
+      reference_no TEXT,
+      created_by VARCHAR(36),
+      created_at TEXT NOT NULL
+    )
+  `).catch(() => {});
+
+  await db.execute(sql`
+    CREATE INDEX IF NOT EXISTS cd_transactions_company_idx ON cd_transactions (company_id, created_at DESC)
+  `).catch(() => {});
+
   // Create employee_documents table if not exists
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS employee_documents (
@@ -5463,6 +5495,157 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Register compliance routes (completely separate module)
   registerComplianceRoutes(app);
+
+  // ===== CD Accounts (Credits & Billing) =====
+
+  // Get all CD accounts (super_admin) or own (company_admin)
+  app.get("/api/billing/accounts", requireAuth, requireRole("super_admin", "company_admin"), async (req, res) => {
+    try {
+      const user = (req as any).user;
+      let rows;
+      if (user.role === "super_admin") {
+        rows = await db.execute(sql`
+          SELECT a.*, c.company_name, c.status as company_status,
+            (SELECT COUNT(*) FROM employees e WHERE e.company_id = a.company_id AND e.status = 'active') as active_employee_count
+          FROM cd_accounts a
+          JOIN companies c ON c.id = a.company_id
+          ORDER BY c.company_name ASC
+        `);
+      } else {
+        rows = await db.execute(sql`
+          SELECT a.*, c.company_name, c.status as company_status,
+            (SELECT COUNT(*) FROM employees e WHERE e.company_id = a.company_id AND e.status = 'active') as active_employee_count
+          FROM cd_accounts a
+          JOIN companies c ON c.id = a.company_id
+          WHERE a.company_id = ${user.companyId}
+        `);
+      }
+      res.json(rows.rows);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch billing accounts" });
+    }
+  });
+
+  // Get companies without a CD account (for setup)
+  app.get("/api/billing/unregistered-companies", requireAuth, requireRole("super_admin"), async (req, res) => {
+    try {
+      const rows = await db.execute(sql`
+        SELECT c.id, c.company_name FROM companies c
+        WHERE c.id NOT IN (SELECT company_id FROM cd_accounts)
+        ORDER BY c.company_name ASC
+      `);
+      res.json(rows.rows);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch unregistered companies" });
+    }
+  });
+
+  // Create CD account for a company
+  app.post("/api/billing/accounts", requireAuth, requireRole("super_admin"), async (req, res) => {
+    try {
+      const { companyId, costPerEmployeePerDay, lowBalanceThreshold, notes } = req.body;
+      if (!companyId) return res.status(400).json({ error: "companyId is required" });
+      const id = randomUUID();
+      const now = new Date().toISOString();
+      await db.execute(sql`
+        INSERT INTO cd_accounts (id, company_id, credit_balance, cost_per_employee_per_day, low_balance_threshold, notes, created_at, updated_at)
+        VALUES (${id}, ${companyId}, 0, ${Number(costPerEmployeePerDay) || 0}, ${Number(lowBalanceThreshold) || 0}, ${notes || null}, ${now}, ${now})
+      `);
+      const row = await db.execute(sql`SELECT a.*, c.company_name FROM cd_accounts a JOIN companies c ON c.id = a.company_id WHERE a.id = ${id}`);
+      res.json(row.rows[0]);
+    } catch (error: any) {
+      if (error?.message?.includes("unique")) return res.status(409).json({ error: "CD account already exists for this company" });
+      res.status(500).json({ error: "Failed to create billing account" });
+    }
+  });
+
+  // Update CD account settings (rate, threshold, notes)
+  app.patch("/api/billing/accounts/:companyId", requireAuth, requireRole("super_admin"), async (req, res) => {
+    try {
+      const { companyId } = req.params;
+      const { costPerEmployeePerDay, lowBalanceThreshold, notes } = req.body;
+      const now = new Date().toISOString();
+      await db.execute(sql`
+        UPDATE cd_accounts
+        SET cost_per_employee_per_day = ${Number(costPerEmployeePerDay) || 0},
+            low_balance_threshold = ${Number(lowBalanceThreshold) || 0},
+            notes = ${notes ?? null},
+            updated_at = ${now}
+        WHERE company_id = ${companyId}
+      `);
+      const row = await db.execute(sql`SELECT a.*, c.company_name FROM cd_accounts a JOIN companies c ON c.id = a.company_id WHERE a.company_id = ${companyId}`);
+      res.json(row.rows[0]);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update billing account" });
+    }
+  });
+
+  // Add credits (super_admin manual top-up)
+  app.post("/api/billing/accounts/:companyId/credit", requireAuth, requireRole("super_admin"), async (req, res) => {
+    try {
+      const { companyId } = req.params;
+      const { amount, description, referenceNo } = req.body;
+      const amt = Number(amount);
+      if (!amt || amt <= 0) return res.status(400).json({ error: "Amount must be positive" });
+      const user = (req as any).user;
+      const now = new Date().toISOString();
+      // Update balance
+      await db.execute(sql`UPDATE cd_accounts SET credit_balance = credit_balance + ${amt}, updated_at = ${now} WHERE company_id = ${companyId}`);
+      const acct = await db.execute(sql`SELECT credit_balance FROM cd_accounts WHERE company_id = ${companyId}`);
+      const balAfter = acct.rows[0]?.credit_balance ?? 0;
+      const txId = randomUUID();
+      await db.execute(sql`
+        INSERT INTO cd_transactions (id, company_id, type, amount, balance_after, description, reference_no, created_by, created_at)
+        VALUES (${txId}, ${companyId}, 'credit', ${amt}, ${balAfter}, ${description || "Manual top-up"}, ${referenceNo || null}, ${user.id}, ${now})
+      `);
+      res.json({ success: true, balanceAfter: Number(balAfter) });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to add credits" });
+    }
+  });
+
+  // Deduct credits (super_admin manual adjustment)
+  app.post("/api/billing/accounts/:companyId/debit", requireAuth, requireRole("super_admin"), async (req, res) => {
+    try {
+      const { companyId } = req.params;
+      const { amount, description, referenceNo } = req.body;
+      const amt = Number(amount);
+      if (!amt || amt <= 0) return res.status(400).json({ error: "Amount must be positive" });
+      const user = (req as any).user;
+      const now = new Date().toISOString();
+      await db.execute(sql`UPDATE cd_accounts SET credit_balance = credit_balance - ${amt}, updated_at = ${now} WHERE company_id = ${companyId}`);
+      const acct = await db.execute(sql`SELECT credit_balance FROM cd_accounts WHERE company_id = ${companyId}`);
+      const balAfter = acct.rows[0]?.credit_balance ?? 0;
+      const txId = randomUUID();
+      await db.execute(sql`
+        INSERT INTO cd_transactions (id, company_id, type, amount, balance_after, description, reference_no, created_by, created_at)
+        VALUES (${txId}, ${companyId}, 'debit', ${amt}, ${balAfter}, ${description || "Manual debit"}, ${referenceNo || null}, ${user.id}, ${now})
+      `);
+      res.json({ success: true, balanceAfter: Number(balAfter) });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to debit credits" });
+    }
+  });
+
+  // Get transactions for a company
+  app.get("/api/billing/transactions/:companyId", requireAuth, requireRole("super_admin", "company_admin"), async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const { companyId } = req.params;
+      if (user.role === "company_admin" && user.companyId !== companyId) return res.status(403).json({ error: "Forbidden" });
+      const rows = await db.execute(sql`
+        SELECT t.*, u.first_name, u.last_name
+        FROM cd_transactions t
+        LEFT JOIN users u ON u.id = t.created_by
+        WHERE t.company_id = ${companyId}
+        ORDER BY t.created_at DESC
+        LIMIT 200
+      `);
+      res.json(rows.rows);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch transactions" });
+    }
+  });
 
   return httpServer;
 }

@@ -939,3 +939,34 @@ export const contractorMasters = pgTable("contractor_masters", {
 export const insertContractorMasterSchema = createInsertSchema(contractorMasters).omit({ id: true });
 export type InsertContractorMaster = z.infer<typeof insertContractorMasterSchema>;
 export type ContractorMaster = typeof contractorMasters.$inferSelect;
+
+// ─── CD Accounts (Credits & Billing) ──────────────────────────────────────────
+export const cdAccounts = pgTable("cd_accounts", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  companyId: varchar("company_id", { length: 36 }).notNull().unique(),
+  creditBalance: numeric("credit_balance", { precision: 14, scale: 4 }).notNull().default("0"),
+  costPerEmployeePerDay: numeric("cost_per_employee_per_day", { precision: 10, scale: 4 }).notNull().default("0"),
+  lowBalanceThreshold: numeric("low_balance_threshold", { precision: 14, scale: 4 }).notNull().default("0"),
+  notes: text("notes"),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+export const insertCdAccountSchema = createInsertSchema(cdAccounts).omit({ id: true });
+export type InsertCdAccount = z.infer<typeof insertCdAccountSchema>;
+export type CdAccount = typeof cdAccounts.$inferSelect;
+
+// ─── CD Transactions (Ledger) ─────────────────────────────────────────────────
+export const cdTransactions = pgTable("cd_transactions", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  companyId: varchar("company_id", { length: 36 }).notNull(),
+  type: text("type").notNull(), // "credit" | "debit" | "adjustment"
+  amount: numeric("amount", { precision: 14, scale: 4 }).notNull(),
+  balanceAfter: numeric("balance_after", { precision: 14, scale: 4 }).notNull(),
+  description: text("description").notNull(),
+  referenceNo: text("reference_no"),
+  createdBy: varchar("created_by", { length: 36 }),
+  createdAt: text("created_at").notNull(),
+});
+export const insertCdTransactionSchema = createInsertSchema(cdTransactions).omit({ id: true });
+export type InsertCdTransaction = z.infer<typeof insertCdTransactionSchema>;
+export type CdTransaction = typeof cdTransactions.$inferSelect;

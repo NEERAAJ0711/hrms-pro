@@ -16,7 +16,8 @@ import {
   ClipboardCheck,
   UserCog,
   Wallet,
-  ShieldCheck
+  ShieldCheck,
+  CreditCard,
 } from "lucide-react";
 import { useLocation } from "wouter";
 import {
@@ -61,6 +62,7 @@ const MODULE_ACCESS: Record<string, UserRole[]> = {
   my_profile: ["employee"],
   profile_requests: ["super_admin", "company_admin", "hr_admin"],
   compliances: ["super_admin", "company_admin", "hr_admin"],
+  billing: ["super_admin", "company_admin"],
   settings: ["super_admin", "company_admin"],
 };
 
@@ -88,6 +90,12 @@ const mainMenuItems = [
     url: "/companies",
     icon: Building2,
     module: "companies",
+  },
+  {
+    title: "Credits & Billing",
+    url: "/billing",
+    icon: CreditCard,
+    module: "billing",
   },
   {
     title: "Employees",

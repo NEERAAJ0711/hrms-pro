@@ -12,6 +12,15 @@ HRMS Pro is an enterprise-grade Multi-Company Human Resource Management System d
 - Logo appears top-right in salary sheet PDF and payslip PDFs
 - Signature appears in the signature box of payslip PDFs (right-aligned)
 
+### CD Accounts (Credits & Billing)
+- Tables: `cd_accounts` (per-company balance, rate, threshold) + `cd_transactions` (ledger)
+- Tables created via startup migration in `server/routes.ts`
+- Super admin: `/billing` — full management (setup accounts, add/deduct credits, view ledgers, edit rates)
+- Company admin: `/billing` — read-only view of own balance, rate, daily estimate, and transaction history
+- Billing sidebar entry: "Credits & Billing" (CreditCard icon) for `super_admin` + `company_admin`
+- API routes: `GET /api/billing/accounts`, `POST /api/billing/accounts`, `PATCH /api/billing/accounts/:companyId`, `POST /api/billing/accounts/:companyId/credit`, `POST /api/billing/accounts/:companyId/debit`, `GET /api/billing/transactions/:companyId`, `GET /api/billing/unregistered-companies`
+- Bank account & payment API linkage deferred — referenceNo field reserved for future use
+
 ## User Preferences
 - I prefer simple language.
 - I want iterative development.
