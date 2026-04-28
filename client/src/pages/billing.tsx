@@ -123,6 +123,17 @@ function today() {
   return new Date().toISOString().slice(0, 10);
 }
 
+function safeFormat(val: string | null | undefined, fmt: string): string {
+  if (!val) return "—";
+  try {
+    const d = new Date(val);
+    if (isNaN(d.getTime())) return "—";
+    return format(d, fmt);
+  } catch {
+    return "—";
+  }
+}
+
 function BalanceBadge({ balance, threshold, allowNegative }: { balance: string; threshold: string; allowNegative: boolean }) {
   const b = Number(balance);
   const t = Number(threshold) || DEFAULT_THRESHOLD;
@@ -510,7 +521,7 @@ function TransactionLedger({ account, onClose }: { account: BillingAccount; onCl
                   return (
                     <TableRow key={tx.id} data-testid={`row-tx-${tx.id}`}>
                       <TableCell className="text-xs whitespace-nowrap">
-                        {format(new Date(tx.createdAt), "dd-MMM-yy HH:mm")}
+                        {safeFormat(tx.createdAt, "dd-MMM-yy HH:mm")}
                       </TableCell>
                       <TableCell>
                         <Badge
@@ -596,7 +607,7 @@ function InvoiceDetailDialog({ invoice, onClose }: { invoice: Invoice; onClose: 
           </div>
           <div className="flex justify-between text-sm">
             <span className="text-muted-foreground">Generated On</span>
-            <span>{format(new Date(invoice.createdAt), "dd-MMM-yyyy HH:mm")}</span>
+            <span>{safeFormat(invoice.createdAt, "dd-MMM-yyyy HH:mm")}</span>
           </div>
           {invoice.notes && (
             <div className="text-xs text-muted-foreground bg-muted/30 rounded p-2">{invoice.notes}</div>
@@ -725,7 +736,7 @@ function InvoicesTab({ isSuperAdmin }: { isSuperAdmin: boolean }) {
                       </Badge>
                     </TableCell>
                     <TableCell className="text-xs text-muted-foreground">
-                      {format(new Date(inv.createdAt), "dd-MMM-yy HH:mm")}
+                      {safeFormat(inv.createdAt, "dd-MMM-yy HH:mm")}
                     </TableCell>
                     <TableCell onClick={e => e.stopPropagation()}>
                       <Button variant="ghost" size="icon" onClick={() => setViewInvoice(inv)} data-testid={`button-view-invoice-${inv.id}`}>
@@ -1003,7 +1014,7 @@ export default function BillingPage() {
                       </TableCell>
                       <TableCell className="text-right text-sm font-medium">₹ {fmt(acct.costPerEmployeePerDay)}</TableCell>
                       <TableCell className="text-xs text-muted-foreground">
-                        {acct.rateEffectiveFrom ? format(new Date(acct.rateEffectiveFrom), "dd-MMM-yyyy") : "—"}
+                        {acct.rateEffectiveFrom ? safeFormat(acct.rateEffectiveFrom, "dd-MMM-yyyy") : "—"}
                       </TableCell>
                       <TableCell className="text-right text-sm">
                         <span className="flex items-center justify-end gap-1">
@@ -1136,7 +1147,7 @@ function CompanyAdminLedger({ companyId }: { companyId: string }) {
                 : <TrendingDown className="h-4 w-4 text-red-600 shrink-0" />}
               <div className="min-w-0">
                 <p className="text-sm truncate">{tx.description}</p>
-                <p className="text-xs text-muted-foreground">{format(new Date(tx.createdAt), "dd-MMM-yyyy")}</p>
+                <p className="text-xs text-muted-foreground">{safeFormat(tx.createdAt, "dd-MMM-yyyy")}</p>
               </div>
             </div>
             <div className="text-right shrink-0 ml-4">
