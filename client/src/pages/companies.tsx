@@ -503,14 +503,17 @@ export default function Companies() {
   });
 
   const trialMutation = useMutation({
-    mutationFn: async ({ id, trialExtendedDays }: { id: string; trialExtendedDays: number }) => {
-      const res = await apiRequest("PATCH", `/api/companies/${id}/trial`, { trialExtendedDays });
+    mutationFn: async ({ id, trialDays, trialExtendedDays }: { id: string; trialDays: number; trialExtendedDays: number }) => {
+      const res = await apiRequest("PATCH", `/api/companies/${id}/trial`, { trialDays, trialExtendedDays });
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (_data, vars) => {
       queryClient.invalidateQueries({ queryKey: ["/api/companies"] });
       setTrialCompany(null);
-      toast({ title: "Trial Extended", description: "Service access has been extended successfully." });
+      const msg = vars.trialDays === 0
+        ? "Trial has been expired for this company."
+        : "Service access has been updated successfully.";
+      toast({ title: "Trial Updated", description: msg });
     },
     onError: (error: Error) => {
       toast({ title: "Error", description: error.message, variant: "destructive" });
@@ -663,7 +666,11 @@ export default function Companies() {
                               variant="ghost"
                               size="icon"
                               title="Manage Trial"
-                              onClick={() => { setTrialCompany(company); setExtendDays("7"); }}
+                              onClick={() => {
+                                const ts = getTrialStatus(company);
+                                setTrialCompany(company);
+                                setExtendDays(String(ts?.total ?? 3));
+                              }}
                               className="text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-950/30"
                               data-testid={`button-trial-${company.id}`}
                             >
@@ -724,11 +731,14 @@ export default function Companies() {
               <Clock className="h-5 w-5 text-blue-600" /> Manage Trial Access
             </DialogTitle>
             <DialogDescription>
-              Extend or activate service access for <strong>{trialCompany?.companyName}</strong>
+              Set total trial days for <strong>{trialCompany?.companyName}</strong>. Set to 0 to expire immediately.
             </DialogDescription>
           </DialogHeader>
           {trialCompany && (() => {
             const ts = getTrialStatus(trialCompany);
+            const newTotal = extendDays === "" ? 0 : Number(extendDays);
+            const willExpire = newTotal === 0;
+            const willReactivate = (ts?.expired) && newTotal > 0;
             return (
               <div className="space-y-4 py-2">
                 <div className="grid grid-cols-3 gap-3 text-center">
@@ -737,8 +747,8 @@ export default function Companies() {
                     <p className="font-semibold text-sm">{ts?.startDate || "—"}</p>
                   </div>
                   <div className="rounded-lg border bg-muted/40 p-3">
-                    <p className="text-xs text-muted-foreground mb-1">Total Days</p>
-                    <p className="font-semibold text-sm">{ts?.total ?? 0}</p>
+                    <p className="text-xs text-muted-foreground mb-1">Current Total</p>
+                    <p className="font-semibold text-sm">{ts?.total ?? 0}d</p>
                   </div>
                   <div className={`rounded-lg border p-3 ${ts?.expired ? "bg-red-50 border-red-200 dark:bg-red-950/30" : "bg-green-50 border-green-200 dark:bg-green-950/30"}`}>
                     <p className="text-xs text-muted-foreground mb-1">Days Left</p>
@@ -747,33 +757,53 @@ export default function Companies() {
                     </p>
                   </div>
                 </div>
+
                 <div className="space-y-2">
-                  <label className="text-sm font-medium">Add Extended Days</label>
-                  <div className="flex gap-2">
-                    {[7, 14, 30, 90].map(d => (
-                      <button key={d} onClick={() => setExtendDays(String(d))}
-                        className={`px-3 py-1.5 rounded-md text-sm font-medium border transition-colors ${extendDays === String(d) ? "bg-primary text-primary-foreground border-primary" : "border-input hover:bg-muted"}`}>
-                        +{d}d
+                  <label className="text-sm font-medium">Set Total Trial Days</label>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      onClick={() => setExtendDays("0")}
+                      className={`px-3 py-1.5 rounded-md text-sm font-medium border transition-colors ${extendDays === "0" ? "bg-destructive text-destructive-foreground border-destructive" : "border-red-300 text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30"}`}
+                      data-testid="button-trial-expire"
+                    >
+                      Expire (0)
+                    </button>
+                    {[3, 7, 14, 30, 90].map(d => (
+                      <button
+                        key={d}
+                        onClick={() => setExtendDays(String(d))}
+                        className={`px-3 py-1.5 rounded-md text-sm font-medium border transition-colors ${extendDays === String(d) ? "bg-primary text-primary-foreground border-primary" : "border-input hover:bg-muted"}`}
+                        data-testid={`button-trial-preset-${d}`}
+                      >
+                        {d}d
                       </button>
                     ))}
                   </div>
                   <Input
                     type="number"
-                    min="1"
+                    min="0"
                     value={extendDays}
                     onChange={e => setExtendDays(e.target.value)}
-                    placeholder="Custom days"
+                    placeholder="Enter total days (0 = expired)"
                     className="mt-2"
                     data-testid="input-trial-extend-days"
                   />
                 </div>
-                <div className="rounded-lg bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 p-3 text-sm text-blue-700 dark:text-blue-300 flex items-start gap-2">
-                  <CheckCircle2 className="h-4 w-4 shrink-0 mt-0.5" />
-                  <span>
-                    New total: <strong>{(trialCompany.trialDays ?? 3) + Number(extendDays || 0)}</strong> days
-                    {ts?.expired ? " (account will be reactivated)" : ""}
-                  </span>
-                </div>
+
+                {willExpire ? (
+                  <div className="rounded-lg bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 p-3 text-sm text-red-700 dark:text-red-300 flex items-start gap-2">
+                    <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+                    <span>Trial will be set to <strong>0 days</strong> — this company's access will be expired immediately.</span>
+                  </div>
+                ) : (
+                  <div className={`rounded-lg border p-3 text-sm flex items-start gap-2 ${willReactivate ? "bg-green-50 dark:bg-green-950/30 border-green-200 dark:border-green-800 text-green-700 dark:text-green-300" : "bg-blue-50 dark:bg-blue-950/30 border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300"}`}>
+                    <CheckCircle2 className="h-4 w-4 shrink-0 mt-0.5" />
+                    <span>
+                      New total: <strong>{newTotal} days</strong>
+                      {willReactivate ? " — account will be reactivated." : "."}
+                    </span>
+                  </div>
+                )}
               </div>
             );
           })()}
@@ -782,12 +812,14 @@ export default function Companies() {
             <Button
               onClick={() => {
                 if (!trialCompany) return;
-                trialMutation.mutate({ id: trialCompany.id, trialExtendedDays: Number(extendDays || 0) });
+                const newTotal = extendDays === "" ? 0 : Math.max(0, Number(extendDays));
+                trialMutation.mutate({ id: trialCompany.id, trialDays: newTotal, trialExtendedDays: 0 });
               }}
-              disabled={trialMutation.isPending || !extendDays || Number(extendDays) < 1}
+              disabled={trialMutation.isPending || extendDays === "" || isNaN(Number(extendDays)) || Number(extendDays) < 0}
+              variant={extendDays === "0" ? "destructive" : "default"}
               data-testid="button-confirm-trial-extend"
             >
-              {trialMutation.isPending ? "Saving…" : "Extend Access"}
+              {trialMutation.isPending ? "Saving…" : extendDays === "0" ? "Expire Trial" : "Update Trial"}
             </Button>
           </DialogFooter>
         </DialogContent>
