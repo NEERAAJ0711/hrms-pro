@@ -6,7 +6,7 @@ import {
   Clock, XCircle, Settings, Plus, Trash2, Signal, SignalLow, Download, Users,
   ShieldAlert, ShieldCheck, Pencil, KeyRound, Activity, UserCheck, FileUp,
   RotateCcw, ChevronDown, ChevronUp, User, CalendarDays, Timer, Wifi, WifiOff,
-  Building2, BadgeCheck, Link2, Zap
+  Building2, BadgeCheck, Link2, Zap, Copy, ClipboardList
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -136,6 +136,7 @@ export default function BiometricPage() {
   const [editPushToken, setEditPushToken] = useState("");
   const [editAllowedCidr, setEditAllowedCidr] = useState("");
   const [editAutoDelete, setEditAutoDelete] = useState(false);
+  const [connSettingsDevice, setConnSettingsDevice] = useState<any>(null);
 
   const openEditDialog = (d: any) => {
     setEditDevice(d);
@@ -856,6 +857,11 @@ export default function BiometricPage() {
                                     <Pencil className="h-3.5 w-3.5" />
                                   </Button>
                                 </TooltipTrigger><TooltipContent>Edit device</TooltipContent></Tooltip>
+                                <Tooltip><TooltipTrigger asChild>
+                                  <Button variant="ghost" size="icon" className="h-7 w-7 text-blue-500 hover:text-blue-600" onClick={() => setConnSettingsDevice(device)} data-testid={`button-conn-settings-${device.id}`}>
+                                    <ClipboardList className="h-3.5 w-3.5" />
+                                  </Button>
+                                </TooltipTrigger><TooltipContent>Connection settings</TooltipContent></Tooltip>
                                 <Tooltip><TooltipTrigger asChild>
                                   <Button variant="ghost" size="icon" className="h-7 w-7 text-red-500 hover:text-red-600" onClick={() => setDeviceToDelete(device)} data-testid={`button-delete-device-${device.id}`}>
                                     <Trash2 className="h-3.5 w-3.5" />
