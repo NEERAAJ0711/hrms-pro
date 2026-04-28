@@ -63,7 +63,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useLocation } from "wouter";
 import { useAuth } from "@/lib/auth";
 import { Checkbox } from "@/components/ui/checkbox";
-import type { Employee, Company, TimeOfficePolicy, ContractorEmployee } from "@shared/schema";
+import type { Employee, Company, TimeOfficePolicy, ContractorEmployee, ContractorMaster } from "@shared/schema";
 
 // ─── Bulk-update field definitions ────────────────────────────────────────────
 const BULK_UPDATE_GROUPS: { group: string; fields: { label: string; hint?: string }[] }[] = [
@@ -193,6 +193,10 @@ export default function Employees() {
 
   const { data: companies = [] } = useQuery<Company[]>({
     queryKey: ["/api/companies"],
+  });
+
+  const { data: contractorMasterList = [] } = useQuery<ContractorMaster[]>({
+    queryKey: ["/api/contractor-masters"],
   });
 
   // Contractors and principal employers for company admin filter dropdown
@@ -412,12 +416,18 @@ export default function Employees() {
     return matchesCompany && matchesSearch && matchesStatus;
   });
 
+  const getContractorName = (contractorMasterId: string | null) => {
+    if (!contractorMasterId) return null;
+    return contractorMasterList.find(c => c.id === contractorMasterId)?.contractorName || null;
+  };
+
   const { sort: empSort, toggle: toggleEmpSort } = useSort("name");
   const sortedEmployees = sortData(filteredEmployees, empSort, (e, col) => {
     if (col === "name") return `${e.firstName} ${e.lastName}`;
     if (col === "company") return getCompanyName(e.companyId);
     if (col === "department") return e.department || "";
     if (col === "designation") return e.designation || "";
+    if (col === "contractor") return getContractorName(e.contractorMasterId) || "On Roll";
     if (col === "status") return e.status;
     return "";
   });
@@ -745,7 +755,9 @@ export default function Employees() {
                 <TableHeader>
                   <TableRow>
                     <TableHead className="w-10 text-center">Sr.</TableHead>
-                    <SortableHead col="name" sort={empSort} onToggle={toggleEmpSort}>Employee</SortableHead>
+                    <TableHead className="w-24">Emp. ID</TableHead>
+                    <SortableHead col="name" sort={empSort} onToggle={toggleEmpSort}>Name</SortableHead>
+                    <SortableHead col="contractor" sort={empSort} onToggle={toggleEmpSort}>Contractor</SortableHead>
                     <SortableHead col="department" sort={empSort} onToggle={toggleEmpSort}>Department</SortableHead>
                     <SortableHead col="designation" sort={empSort} onToggle={toggleEmpSort}>Designation</SortableHead>
                     <TableHead>Time Policy</TableHead>
@@ -758,15 +770,17 @@ export default function Employees() {
                     <TableRow key={employee.id} data-testid={`employee-row-${employee.id}`} className={employee.status === "inactive" ? "opacity-75" : ""}>
                       <TableCell className="text-center text-muted-foreground font-medium text-sm">{idx + 1}</TableCell>
                       <TableCell>
+                        <span className="font-mono text-xs font-semibold text-primary">{employee.employeeCode}</span>
+                      </TableCell>
+                      <TableCell>
                         <div className="flex items-center gap-3">
-                          <Avatar className="h-10 w-10">
+                          <Avatar className="h-9 w-9">
                             <AvatarFallback className={employee.status === "inactive" ? "bg-muted text-muted-foreground" : "bg-primary/10 text-primary"}>
                               {[employee.firstName, employee.lastName].filter(Boolean).join(" ").trim().split(/\s+/).slice(0, 2).map(p => p[0]).join("").toUpperCase() || "?"}
                             </AvatarFallback>
                           </Avatar>
                           <div>
                             <div className="font-medium">
-                              <span className="text-primary font-semibold">[{employee.employeeCode}]</span>{" "}
                               {[employee.firstName, employee.lastName].filter(Boolean).join(" ").trim()}
                             </div>
                             {employee.exitDate && (
@@ -776,6 +790,11 @@ export default function Employees() {
                             )}
                           </div>
                         </div>
+                      </TableCell>
+                      <TableCell>
+                        {getContractorName(employee.contractorMasterId)
+                          ? <span className="text-xs font-medium">{getContractorName(employee.contractorMasterId)}</span>
+                          : <span className="text-xs text-muted-foreground">On Roll</span>}
                       </TableCell>
                       <TableCell>
                         {employee.department || <span className="text-muted-foreground">-</span>}
