@@ -1,5 +1,7 @@
 import { useState, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { useSort, sortData } from "@/lib/use-sort";
+import { SortableHead } from "@/components/sortable-head";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -410,6 +412,16 @@ export default function Employees() {
     return matchesCompany && matchesSearch && matchesStatus;
   });
 
+  const { sort: empSort, toggle: toggleEmpSort } = useSort("name");
+  const sortedEmployees = sortData(filteredEmployees, empSort, (e, col) => {
+    if (col === "name") return `${e.firstName} ${e.lastName}`;
+    if (col === "company") return getCompanyName(e.companyId);
+    if (col === "department") return e.department || "";
+    if (col === "designation") return e.designation || "";
+    if (col === "status") return e.status;
+    return "";
+  });
+
   const getCompanyName = (companyId: string) => {
     const company = companies.find((c) => c.id === companyId);
     return company?.companyName || "Unknown";
@@ -733,17 +745,17 @@ export default function Employees() {
                 <TableHeader>
                   <TableRow>
                     <TableHead className="w-10 text-center">Sr.</TableHead>
-                    <TableHead>Employee</TableHead>
-                    <TableHead>Company</TableHead>
-                    <TableHead>Department</TableHead>
-                    <TableHead>Designation</TableHead>
+                    <SortableHead col="name" sort={empSort} onToggle={toggleEmpSort}>Employee</SortableHead>
+                    <SortableHead col="company" sort={empSort} onToggle={toggleEmpSort}>Company</SortableHead>
+                    <SortableHead col="department" sort={empSort} onToggle={toggleEmpSort}>Department</SortableHead>
+                    <SortableHead col="designation" sort={empSort} onToggle={toggleEmpSort}>Designation</SortableHead>
                     <TableHead>Time Policy</TableHead>
-                    <TableHead>Status</TableHead>
+                    <SortableHead col="status" sort={empSort} onToggle={toggleEmpSort}>Status</SortableHead>
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredEmployees.map((employee, idx) => (
+                  {sortedEmployees.map((employee, idx) => (
                     <TableRow key={employee.id} data-testid={`employee-row-${employee.id}`} className={employee.status === "inactive" ? "opacity-75" : ""}>
                       <TableCell className="text-center text-muted-foreground font-medium text-sm">{idx + 1}</TableCell>
                       <TableCell>

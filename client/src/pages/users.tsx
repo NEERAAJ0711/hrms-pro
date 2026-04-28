@@ -1,5 +1,7 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { useSort, sortData } from "@/lib/use-sort";
+import { SortableHead } from "@/components/sortable-head";
 import { useAuth } from "@/lib/auth";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -622,6 +624,15 @@ export default function Users() {
     return company?.companyName || "Unknown";
   };
 
+  const { sort: userSort, toggle: toggleUserSort } = useSort("username");
+  const sortedUsers = sortData(filteredUsers, userSort, (u, col) => {
+    if (col === "username") return `${u.firstName || ""} ${u.lastName || ""} ${u.username}`;
+    if (col === "role") return u.role;
+    if (col === "company") return getCompanyName(u.companyId);
+    if (col === "status") return u.status;
+    return "";
+  });
+
   return (
     <div className="p-6" data-testid="users-page">
       <div className="flex items-center justify-between mb-6">
@@ -700,15 +711,15 @@ export default function Users() {
                 <TableHeader>
                   <TableRow>
                     <TableHead className="w-10 text-center">Sr.</TableHead>
-                    <TableHead>User</TableHead>
-                    <TableHead>Role</TableHead>
-                    <TableHead>Company</TableHead>
-                    <TableHead>Status</TableHead>
+                    <SortableHead col="username" sort={userSort} onToggle={toggleUserSort}>User</SortableHead>
+                    <SortableHead col="role" sort={userSort} onToggle={toggleUserSort}>Role</SortableHead>
+                    <SortableHead col="company" sort={userSort} onToggle={toggleUserSort}>Company</SortableHead>
+                    <SortableHead col="status" sort={userSort} onToggle={toggleUserSort}>Status</SortableHead>
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredUsers.map((user, idx) => (
+                  {sortedUsers.map((user, idx) => (
                     <TableRow key={user.id} data-testid={`user-row-${user.id}`}>
                       <TableCell className="text-center text-muted-foreground font-medium text-sm">{idx + 1}</TableCell>
                       <TableCell>

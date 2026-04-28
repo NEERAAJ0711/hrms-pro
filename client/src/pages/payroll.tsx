@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { useSort, sortData } from "@/lib/use-sort";
+import { SortableHead } from "@/components/sortable-head";
 import { useAuth } from "@/lib/auth";
 import { format } from "date-fns";
 import { DollarSign, Plus, FileText, Users, Calculator, Download, Building2, Edit, Trash2, CheckCircle, Upload, FileSpreadsheet, Loader2, Eye, AlertTriangle, ShieldCheck, Search } from "lucide-react";
@@ -286,6 +288,17 @@ export default function PayrollPage() {
     const emp = employees.find(e => e.id === s.employeeId);
     const name = emp ? `${emp.firstName} ${emp.lastName} ${emp.employeeCode}`.toLowerCase() : "";
     return name.includes(q);
+  });
+
+  const { sort: structSort, toggle: toggleStructSort } = useSort("name");
+  const sortedStructures = sortData(filteredStructures, structSort, (s, col) => {
+    if (col === "name") { const emp = employees.find(e => e.id === s.employeeId); return emp ? `${emp.firstName} ${emp.lastName}` : ""; }
+    if (col === "basic") return s.basicSalary;
+    if (col === "hra") return s.hra || 0;
+    if (col === "gross") return s.grossSalary;
+    if (col === "net") return s.netSalary;
+    if (col === "effective") return s.effectiveFrom;
+    return "";
   });
 
   const filteredPayroll = payrollRecords.filter(p => 
@@ -1714,19 +1727,19 @@ export default function PayrollPage() {
                   <TableHeader>
                     <TableRow>
                       <TableHead className="w-10 text-center">Sr.</TableHead>
-                      <TableHead>Employee</TableHead>
-                      <TableHead className="text-right">Basic</TableHead>
-                      <TableHead className="text-right">HRA</TableHead>
-                      <TableHead className="text-right">Gross</TableHead>
+                      <SortableHead col="name" sort={structSort} onToggle={toggleStructSort}>Employee</SortableHead>
+                      <SortableHead col="basic" sort={structSort} onToggle={toggleStructSort} className="text-right">Basic</SortableHead>
+                      <SortableHead col="hra" sort={structSort} onToggle={toggleStructSort} className="text-right">HRA</SortableHead>
+                      <SortableHead col="gross" sort={structSort} onToggle={toggleStructSort} className="text-right">Gross</SortableHead>
                       <TableHead className="text-right">Deductions</TableHead>
-                      <TableHead className="text-right">Net</TableHead>
-                      <TableHead>Effective</TableHead>
+                      <SortableHead col="net" sort={structSort} onToggle={toggleStructSort} className="text-right">Net</SortableHead>
+                      <SortableHead col="effective" sort={structSort} onToggle={toggleStructSort}>Effective</SortableHead>
                       <TableHead>Min. Wage</TableHead>
                       <TableHead>Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredStructures.map((structure, idx) => {
+                    {sortedStructures.map((structure, idx) => {
                       const structureWageGrade = getEmployeeWageGrade(structure.employeeId);
                       const structureMinWageCompliant = !structureWageGrade || structure.grossSalary >= (structureWageGrade.minimumWage ?? 0);
                       return (
