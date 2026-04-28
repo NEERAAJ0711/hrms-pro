@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
+import { useAuth } from "@/lib/auth";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -315,6 +316,9 @@ export default function Companies() {
   const [trialCompany, setTrialCompany] = useState<Company | null>(null);
   const [extendDays, setExtendDays] = useState("7");
   const { toast } = useToast();
+  const { user } = useAuth();
+  const isSuperAdmin = user?.role === "super_admin";
+  const isCompanyAdmin = user?.role === "company_admin";
 
   const { data: companies = [], isLoading } = useQuery<Company[]>({
     queryKey: ["/api/companies"],
@@ -390,47 +394,53 @@ export default function Companies() {
     <div className="p-6" data-testid="companies-page">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold">Companies</h1>
-          <p className="text-muted-foreground">Manage your organization entities</p>
+          <h1 className="text-2xl font-bold">{isCompanyAdmin ? "My Company" : "Companies"}</h1>
+          <p className="text-muted-foreground">
+            {isCompanyAdmin ? "View and edit your company details" : "Manage your organization entities"}
+          </p>
         </div>
-        <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
-          <DialogTrigger asChild>
-            <Button data-testid="button-create-company">
-              <Plus className="h-4 w-4 mr-2" />
-              Add Company
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="sm:max-w-[600px]">
-            <DialogHeader>
-              <DialogTitle>Create Company</DialogTitle>
-              <DialogDescription>Add a new company to your HRMS.</DialogDescription>
-            </DialogHeader>
-            <CompanyForm
-              onSubmit={(data) => createMutation.mutate(data)}
-              isLoading={createMutation.isPending}
-            />
-          </DialogContent>
-        </Dialog>
+        {isSuperAdmin && (
+          <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
+            <DialogTrigger asChild>
+              <Button data-testid="button-create-company">
+                <Plus className="h-4 w-4 mr-2" />
+                Add Company
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-[600px]">
+              <DialogHeader>
+                <DialogTitle>Create Company</DialogTitle>
+                <DialogDescription>Add a new company to your HRMS.</DialogDescription>
+              </DialogHeader>
+              <CompanyForm
+                onSubmit={(data) => createMutation.mutate(data)}
+                isLoading={createMutation.isPending}
+              />
+            </DialogContent>
+          </Dialog>
+        )}
       </div>
 
       <Card>
-        <CardHeader className="pb-4">
-          <div className="flex items-center gap-4">
-            <div className="relative flex-1 max-w-sm">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search companies..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-9"
-                data-testid="input-search-companies"
-              />
+        {isSuperAdmin && (
+          <CardHeader className="pb-4">
+            <div className="flex items-center gap-4">
+              <div className="relative flex-1 max-w-sm">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search companies..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-9"
+                  data-testid="input-search-companies"
+                />
+              </div>
+              <Badge variant="secondary" className="text-xs">
+                {filteredCompanies.length} companies
+              </Badge>
             </div>
-            <Badge variant="secondary" className="text-xs">
-              {filteredCompanies.length} companies
-            </Badge>
-          </div>
-        </CardHeader>
+          </CardHeader>
+        )}
         <CardContent>
           {isLoading ? (
             <CompaniesTableSkeleton />
@@ -515,7 +525,7 @@ export default function Companies() {
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-1">
-                          {company.trialStartDate && (
+                          {isSuperAdmin && company.trialStartDate && (
                             <Button
                               variant="ghost"
                               size="icon"
@@ -527,36 +537,41 @@ export default function Companies() {
                               <Clock className="h-4 w-4" />
                             </Button>
                           )}
+                          {isSuperAdmin && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              title="Manage Contractors"
+                              onClick={() => setLocation(`/companies/${company.id}/contractors`)}
+                              className="text-amber-600 hover:text-amber-700 hover:bg-amber-50 dark:hover:bg-amber-950/30"
+                              data-testid={`button-contractors-${company.id}`}
+                            >
+                              <HardHat className="h-4 w-4" />
+                            </Button>
+                          )}
                           <Button
                             variant="ghost"
                             size="icon"
-                            title="Manage Contractors"
-                            onClick={() => setLocation(`/companies/${company.id}/contractors`)}
-                            className="text-amber-600 hover:text-amber-700 hover:bg-amber-50 dark:hover:bg-amber-950/30"
-                            data-testid={`button-contractors-${company.id}`}
-                          >
-                            <HardHat className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
+                            title="Edit Company"
                             onClick={() => setEditingCompany(company)}
                             data-testid={`button-edit-company-${company.id}`}
                           >
                             <Edit className="h-4 w-4" />
                           </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => {
-                              if (confirm("Are you sure you want to delete this company?")) {
-                                deleteMutation.mutate(company.id);
-                              }
-                            }}
-                            data-testid={`button-delete-company-${company.id}`}
-                          >
-                            <Trash2 className="h-4 w-4 text-destructive" />
-                          </Button>
+                          {isSuperAdmin && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => {
+                                if (confirm("Are you sure you want to delete this company?")) {
+                                  deleteMutation.mutate(company.id);
+                                }
+                              }}
+                              data-testid={`button-delete-company-${company.id}`}
+                            >
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button>
+                          )}
                         </div>
                       </TableCell>
                     </TableRow>

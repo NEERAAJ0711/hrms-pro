@@ -47,7 +47,7 @@ type UserRole = User["role"];
 
 const MODULE_ACCESS: Record<string, UserRole[]> = {
   dashboard: ["super_admin", "company_admin", "hr_admin", "recruiter", "manager", "employee"],
-  companies: ["super_admin"],
+  companies: ["super_admin", "company_admin"],
   users: ["super_admin", "company_admin"],
   employees: ["super_admin", "company_admin", "hr_admin", "manager"],
   attendance: ["super_admin", "company_admin", "hr_admin", "manager", "employee"],
