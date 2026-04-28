@@ -459,10 +459,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
     CREATE INDEX IF NOT EXISTS adms_activity_log_sn_idx ON adms_activity_log (device_sn, id DESC)
   `).catch(() => {});
 
-  // Trial columns for companies (self-signup free trial)
+  // Trial columns for companies (free trial — 3 days for all companies)
   await db.execute(sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS trial_start_date TEXT`).catch(() => {});
   await db.execute(sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS trial_days INTEGER NOT NULL DEFAULT 3`).catch(() => {});
   await db.execute(sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS trial_extended_days INTEGER NOT NULL DEFAULT 0`).catch(() => {});
+  // Backfill: any company without a trial_start_date gets today as their trial start
+  // trial_days stays 3 (default) — billing kicks in after 3 days from today
+  await db.execute(sql`
+    UPDATE companies
+    SET trial_start_date = TO_CHAR(NOW(), 'YYYY-MM-DD'),
+        trial_days = 3,
+        trial_extended_days = 0
+    WHERE trial_start_date IS NULL OR trial_start_date = ''
+  `).catch(() => {});
 
   // Logo & signature columns for companies
   await db.execute(sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS signature TEXT`).catch(() => {});
@@ -833,7 +842,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/companies", requireAuth, requireRole("super_admin"), async (req, res) => {
     try {
       const data = insertCompanySchema.parse(req.body);
-      const company = await storage.createCompany(data);
+      // Always set a 3-day trial from today so billing kicks in after trial
+      const today = new Date().toISOString().slice(0, 10);
+      const company = await storage.createCompany({
+        ...data,
+        trialStartDate: data.trialStartDate || today,
+        trialDays: data.trialDays ?? 3,
+        trialExtendedDays: data.trialExtendedDays ?? 0,
+      });
       res.status(201).json(company);
     } catch (error) {
       res.status(500).json({ error: "Failed to create company" });
@@ -5570,7 +5586,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (_) {}
   }
 
-  // Run auto-creation on startup
+  // Run auto-creation on startup + every hour
   autoCreateCdAccounts();
 
   // ── Monthly Invoice Auto-Generation ─────────────────────────────────────
@@ -5752,11 +5768,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   }
 
-  // Run daily billing on startup + every hour; invoice check runs hourly too
+  // Run daily billing on startup + every hour; invoice check and CD account creation also runs hourly
   runDailyBilling();
   setInterval(() => {
-    runDailyBilling();
-    generateMonthlyInvoices();
+    autoCreateCdAccounts();   // Create CD accounts for newly-expired trials
+    runDailyBilling();        // Bill each company for today
+    generateMonthlyInvoices(); // Generate monthly invoice on last day of month
   }, 60 * 60 * 1000);
 
   // Get all CD accounts (super_admin) or own (company_admin)

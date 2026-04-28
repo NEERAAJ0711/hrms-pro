@@ -59,6 +59,7 @@ import {
   X,
   ImageIcon,
   PenLine,
+  CreditCard,
 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
@@ -641,15 +642,19 @@ export default function Companies() {
                       <TableCell>
                         {(() => {
                           const ts = getTrialStatus(company);
-                          if (!ts) return <span className="text-muted-foreground text-xs">—</span>;
+                          if (!ts) return (
+                            <Badge variant="outline" className="gap-1 text-xs text-green-600 border-green-400">
+                              <CreditCard className="h-3 w-3" /> Billing Active
+                            </Badge>
+                          );
                           if (ts.expired) return (
                             <Badge variant="destructive" className="gap-1 text-xs">
-                              <AlertTriangle className="h-3 w-3" /> Expired
+                              <AlertTriangle className="h-3 w-3" /> Trial Expired
                             </Badge>
                           );
                           return (
                             <Badge variant="outline" className="gap-1 text-xs text-amber-600 border-amber-400">
-                              <Clock className="h-3 w-3" /> {ts.daysLeft}d left
+                              <Clock className="h-3 w-3" /> Trial: {ts.daysLeft}d left
                             </Badge>
                           );
                         })()}
@@ -661,7 +666,7 @@ export default function Companies() {
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-1">
-                          {isSuperAdmin && company.trialStartDate && (
+                          {isSuperAdmin && (
                             <Button
                               variant="ghost"
                               size="icon"
