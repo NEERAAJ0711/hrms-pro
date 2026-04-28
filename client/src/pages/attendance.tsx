@@ -86,6 +86,8 @@ export default function AttendancePage() {
     halfDays: "0",
     otHours: "0",
   });
+  const [quickEntryAllEmp, setQuickEntryAllEmp] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState<{ done: number; total: number; errors: string[] } | null>(null);
 
   const { data: companies = [] } = useQuery<Company[]>({
     queryKey: ["/api/companies"],
@@ -365,16 +367,74 @@ export default function AttendancePage() {
     },
   });
 
-  const handleQuickEntrySubmit = () => {
+  const handleQuickEntrySubmit = async () => {
     const [yearStr, monthStr] = selectedMonth.split("-");
-    quickEntryMutation.mutate({
-      employeeId: quickEntryData.employeeId,
-      companyId: quickEntryData.companyId,
-      month: monthStr,
-      year: yearStr,
-      payDays: quickEntryData.payDays,
-      halfDays: quickEntryData.halfDays || "0",
-      otHours: quickEntryData.otHours,
+    if (!quickEntryAllEmp) {
+      quickEntryMutation.mutate({
+        employeeId: quickEntryData.employeeId,
+        companyId: quickEntryData.companyId,
+        month: monthStr,
+        year: yearStr,
+        payDays: quickEntryData.payDays,
+        halfDays: quickEntryData.halfDays || "0",
+        otHours: quickEntryData.otHours,
+      });
+      return;
+    }
+
+    // Bulk mode — process all eligible employees one by one
+    const companyId = quickEntryData.companyId;
+    const monthStart = `${yearStr}-${monthStr}-01`;
+    const monthEnd = new Date(parseInt(yearStr), parseInt(monthStr), 0).toISOString().split("T")[0];
+    const eligibleEmps = employees.filter(e => {
+      if (e.companyId !== companyId) return false;
+      if (e.status !== "active" && !e.exitDate) return false;
+      const joined = (e as any).dateOfJoining;
+      const exited = (e as any).exitDate;
+      if (joined && joined > monthEnd) return false;
+      if (exited && exited < monthStart) return false;
+      return true;
+    });
+
+    if (eligibleEmps.length === 0) {
+      toast({ title: "No eligible employees found", variant: "destructive" });
+      return;
+    }
+
+    setBulkProgress({ done: 0, total: eligibleEmps.length, errors: [] });
+    const errors: string[] = [];
+    let done = 0;
+
+    for (const emp of eligibleEmps) {
+      try {
+        const res = await apiRequest("POST", "/api/attendance/quick-entry", {
+          employeeId: emp.id,
+          companyId,
+          month: monthStr,
+          year: yearStr,
+          payDays: quickEntryData.payDays,
+          halfDays: quickEntryData.halfDays || "0",
+          otHours: quickEntryData.otHours,
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          errors.push(`${emp.employeeCode}: ${err.error || "Failed"}`);
+        }
+      } catch {
+        errors.push(`${emp.employeeCode}: Network error`);
+      }
+      done++;
+      setBulkProgress({ done, total: eligibleEmps.length, errors: [...errors] });
+    }
+
+    queryClient.invalidateQueries({ queryKey: ["/api/attendance"] });
+    setIsQuickEntryOpen(false);
+    setBulkProgress(null);
+    setQuickEntryAllEmp(false);
+    setQuickEntryData({ employeeId: "", companyId: isSuperAdmin ? "" : (user?.companyId || ""), payDays: "", halfDays: "0", otHours: "0" });
+    toast({
+      title: `Bulk Quick Entry Complete`,
+      description: `Applied to ${done - errors.length} of ${done} employees.${errors.length > 0 ? ` ${errors.length} skipped.` : ""}`,
     });
   };
 
@@ -1020,21 +1080,60 @@ export default function AttendancePage() {
               </div>
             )}
             <div className="space-y-2">
-              <label className="text-sm font-medium">Employee</label>
-              <SearchableEmployeeSelect
-                employees={employees.filter(e => {
-                  if (e.companyId !== quickEntryData.companyId) return false;
-                  const joined = (e as any).dateOfJoining;
-                  const exited = (e as any).exitDate;
-                  if (joined && joined > monthEndStr) return false;
-                  if (exited && exited < monthStartStr) return false;
-                  return true;
-                })}
-                value={quickEntryData.employeeId}
-                onValueChange={(v) => setQuickEntryData({ ...quickEntryData, employeeId: v })}
-                placeholder="Search by name or ID..."
-              />
+              <div className="flex items-center justify-between">
+                <label className="text-sm font-medium">Employee</label>
+                <label className="flex items-center gap-2 cursor-pointer text-sm">
+                  <Checkbox
+                    checked={quickEntryAllEmp}
+                    onCheckedChange={(v) => {
+                      setQuickEntryAllEmp(!!v);
+                      if (v) setQuickEntryData(d => ({ ...d, employeeId: "" }));
+                    }}
+                    data-testid="checkbox-quick-all-emp"
+                  />
+                  <span className="font-medium text-primary">All Employees</span>
+                </label>
+              </div>
+              {quickEntryAllEmp ? (
+                <div className="rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-sm">
+                  <span className="font-medium text-primary">
+                    {employees.filter(e => e.companyId === quickEntryData.companyId && (e.status === "active" || e.exitDate)).length}
+                  </span>
+                  <span className="text-muted-foreground"> active employees will be processed</span>
+                </div>
+              ) : (
+                <SearchableEmployeeSelect
+                  employees={employees.filter(e => {
+                    if (e.companyId !== quickEntryData.companyId) return false;
+                    const joined = (e as any).dateOfJoining;
+                    const exited = (e as any).exitDate;
+                    if (joined && joined > monthEndStr) return false;
+                    if (exited && exited < monthStartStr) return false;
+                    return true;
+                  })}
+                  value={quickEntryData.employeeId}
+                  onValueChange={(v) => setQuickEntryData({ ...quickEntryData, employeeId: v })}
+                  placeholder="Search by name or ID..."
+                />
+              )}
             </div>
+            {bulkProgress && (
+              <div className="space-y-1">
+                <div className="flex items-center justify-between text-xs text-muted-foreground">
+                  <span>Processing… {bulkProgress.done} / {bulkProgress.total}</span>
+                  <span>{Math.round(bulkProgress.done / bulkProgress.total * 100)}%</span>
+                </div>
+                <div className="h-2 rounded-full bg-muted overflow-hidden">
+                  <div
+                    className="h-full bg-primary transition-all duration-200"
+                    style={{ width: `${Math.round(bulkProgress.done / bulkProgress.total * 100)}%` }}
+                  />
+                </div>
+                {bulkProgress.errors.length > 0 && (
+                  <p className="text-xs text-amber-600">{bulkProgress.errors.length} skipped so far</p>
+                )}
+              </div>
+            )}
             <div className="space-y-2">
               <label className="text-sm font-medium">Month</label>
               <Input type="month" value={selectedMonth} disabled className="bg-muted" />
@@ -1081,12 +1180,25 @@ export default function AttendancePage() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsQuickEntryOpen(false)}>Cancel</Button>
+            <Button variant="outline" onClick={() => { setIsQuickEntryOpen(false); setQuickEntryAllEmp(false); setBulkProgress(null); }}>Cancel</Button>
             <Button
               onClick={handleQuickEntrySubmit}
-              disabled={quickEntryMutation.isPending || !quickEntryData.employeeId || !quickEntryData.payDays}
+              disabled={
+                !!bulkProgress ||
+                quickEntryMutation.isPending ||
+                !quickEntryData.payDays ||
+                (!quickEntryAllEmp && !quickEntryData.employeeId) ||
+                (quickEntryAllEmp && !quickEntryData.companyId)
+              }
+              data-testid="button-apply-quick-entry"
             >
-              {quickEntryMutation.isPending ? "Processing..." : "Apply Quick Entry"}
+              {bulkProgress
+                ? `Processing ${bulkProgress.done}/${bulkProgress.total}…`
+                : quickEntryMutation.isPending
+                ? "Processing..."
+                : quickEntryAllEmp
+                ? "Apply to All Employees"
+                : "Apply Quick Entry"}
             </Button>
           </DialogFooter>
         </DialogContent>
