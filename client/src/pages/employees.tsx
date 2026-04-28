@@ -746,7 +746,6 @@ export default function Employees() {
                   <TableRow>
                     <TableHead className="w-10 text-center">Sr.</TableHead>
                     <SortableHead col="name" sort={empSort} onToggle={toggleEmpSort}>Employee</SortableHead>
-                    <SortableHead col="company" sort={empSort} onToggle={toggleEmpSort}>Company</SortableHead>
                     <SortableHead col="department" sort={empSort} onToggle={toggleEmpSort}>Department</SortableHead>
                     <SortableHead col="designation" sort={empSort} onToggle={toggleEmpSort}>Designation</SortableHead>
                     <TableHead>Time Policy</TableHead>
@@ -778,7 +777,6 @@ export default function Employees() {
                           </div>
                         </div>
                       </TableCell>
-                      <TableCell>{getCompanyName(employee.companyId)}</TableCell>
                       <TableCell>
                         {employee.department || <span className="text-muted-foreground">-</span>}
                       </TableCell>
