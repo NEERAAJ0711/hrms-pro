@@ -3584,8 +3584,50 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // ===== Salary Structure Bulk Upload Routes =====
   app.get("/api/salary-structures/bulk-template", requireAuth, requireModuleAccess("payroll"), async (req, res) => {
-    const templateData = [
-      {
+    const user = (req as any).user;
+    const requestedCompanyId = req.query.companyId as string | undefined;
+    const companyId = user.role === "super_admin" ? requestedCompanyId : user.companyId;
+
+    let templateData: Record<string, string | number>[] = [];
+
+    if (companyId) {
+      // Pre-fill with existing salary structures for the company
+      const employees = await storage.getEmployeesByCompany(companyId);
+      const empCodeMap = new Map(employees.map(e => [e.id, e.employeeCode]));
+      const allStructures = await storage.getAllSalaryStructures();
+      const companyStructures = allStructures
+        .filter(s => s.companyId === companyId && s.status === "active")
+        .sort((a, b) => {
+          const codeA = empCodeMap.get(a.employeeId) || "";
+          const codeB = empCodeMap.get(b.employeeId) || "";
+          return codeA.localeCompare(codeB);
+        });
+
+      if (companyStructures.length > 0) {
+        templateData = companyStructures.map(s => ({
+          "Employee Code": empCodeMap.get(s.employeeId) || "",
+          "Basic Salary": s.basicSalary,
+          "HRA": s.hra ?? 0,
+          "Conveyance": s.conveyance ?? 0,
+          "Special Allowance": s.specialAllowance ?? 0,
+          "Other Allowances": s.otherAllowances ?? 0,
+          "Gross Salary": s.grossSalary,
+          "PF Employee": s.pfEmployee ?? 0,
+          "PF Employer": s.pfEmployer ?? 0,
+          "ESI": s.esi ?? 0,
+          "Professional Tax": s.professionalTax ?? 0,
+          "LWF Employee": s.lwfEmployee ?? 0,
+          "TDS": s.tds ?? 0,
+          "Other Deductions": s.otherDeductions ?? 0,
+          "Net Salary": s.netSalary,
+          "Effective From": s.effectiveFrom,
+        }));
+      }
+    }
+
+    // Fall back to sample row if nothing to pre-fill
+    if (templateData.length === 0) {
+      templateData = [{
         "Employee Code": "EMP001",
         "Basic Salary": 20000,
         "HRA": 8000,
@@ -3602,8 +3644,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         "Other Deductions": 0,
         "Net Salary": 33850,
         "Effective From": "2026-01-01",
-      }
-    ];
+      }];
+    }
+
     const ws = XLSX.utils.json_to_sheet(templateData);
     const colWidths = Object.keys(templateData[0]).map(k => ({ wch: Math.max(k.length + 2, 18) }));
     ws['!cols'] = colWidths;
@@ -3611,7 +3654,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     XLSX.utils.book_append_sheet(wb, ws, "SalaryStructures");
     const buffer = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
     res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-    res.setHeader("Content-Disposition", "attachment; filename=salary_structure_bulk_template.xlsx");
+    const filename = companyId ? "salary_structures_prefilled.xlsx" : "salary_structure_bulk_template.xlsx";
+    res.setHeader("Content-Disposition", `attachment; filename=${filename}`);
     res.send(buffer);
   });
 

@@ -1030,7 +1030,9 @@ export default function PayrollPage() {
   const totalDeductions = filteredPayroll.reduce((sum, p) => sum + p.totalDeductions, 0);
 
   const handleDownloadSalaryTemplate = () => {
-    window.open("/api/salary-structures/bulk-template", "_blank");
+    const companyId = isSuperAdmin ? selectedCompany : user?.companyId;
+    const params = companyId && companyId !== "__all__" ? `?companyId=${encodeURIComponent(companyId)}` : "";
+    window.open(`/api/salary-structures/bulk-template${params}`, "_blank");
   };
 
   const handleBulkSalaryUpload = async (file: File) => {
