@@ -925,6 +925,19 @@ async function handlePostCdata(req: Request, res: Response) {
       triggerBiometricAttendanceSync(device.companyId);
     }
 
+    // Auto-delete: if enabled, queue DATA CLEAR ATTLOG so the device frees
+    // its internal memory after every successful upload. This prevents the
+    // "Reach T&A data max capacity" error on devices with limited storage.
+    if (device.autoDeletePunches && (r.inserted > 0 || r.duplicates > 0)) {
+      await enqueueDeviceCommand(device.id, "DATA CLEAR ATTLOG");
+      console.log(
+        `[ADMS] AUTO-DELETE queued DATA CLEAR ATTLOG for SN="${effectiveSn}" ` +
+        `(ins=${r.inserted} dups=${r.duplicates})`
+      );
+      admsLog("OUT", effectiveSn,
+        `AUTO-DELETE: queued DATA CLEAR ATTLOG (ins=${r.inserted} dups=${r.duplicates})`, true);
+    }
+
     admsLog("OUT", effectiveSn,
       `ATTLOG ack ins=${r.inserted} dups=${r.duplicates} bad=${r.bad} stamp=${ackStamp}`, true);
 

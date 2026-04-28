@@ -418,6 +418,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     ALTER TABLE biometric_devices ADD COLUMN IF NOT EXISTS adms_server_ip text
   `).catch((err) => console.error("[migrations] add adms_server_ip failed:", err));
 
+  // Auto-delete: when enabled the server queues DATA CLEAR ATTLOG after every
+  // successful ATTLOG upload, keeping the device memory from filling up.
+  await db.execute(sql`
+    ALTER TABLE biometric_devices ADD COLUMN IF NOT EXISTS auto_delete_punches boolean NOT NULL DEFAULT false
+  `).catch((err) => console.error("[migrations] add auto_delete_punches failed:", err));
+
   // Mirror of migrations/011: persistent ADMS activity log — survives server
   // restarts, powers the live activity feed in the Biometric Integration UI.
   await db.execute(sql`
@@ -1227,7 +1233,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (user.role !== "super_admin" && device.companyId !== user.companyId) {
         return res.status(403).json({ error: "Access denied. You can only edit devices that belong to your company." });
       }
-      const { name, code, deviceSerial, ipAddress, port, status, companyId, pushToken, allowedIpCidr } = req.body || {};
+      const { name, code, deviceSerial, ipAddress, port, status, companyId, pushToken, allowedIpCidr, autoDeletePunches } = req.body || {};
       const patch: Record<string, any> = {};
       if (name !== undefined) patch.name = name;
       if (code !== undefined) patch.code = code === "" ? null : String(code).trim();
@@ -1239,6 +1245,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (companyId !== undefined && user.role === "super_admin") patch.companyId = companyId;
       if (pushToken !== undefined) patch.pushToken = pushToken === "" ? null : pushToken;
       if (allowedIpCidr !== undefined) patch.allowedIpCidr = allowedIpCidr === "" ? null : allowedIpCidr;
+      if (autoDeletePunches !== undefined) patch.autoDeletePunches = !!autoDeletePunches;
 
       // SSRF guard: validate any new ipAddress/port the same way create does.
       const nextIp = patch.ipAddress !== undefined ? patch.ipAddress : device.ipAddress;

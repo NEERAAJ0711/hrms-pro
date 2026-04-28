@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
@@ -134,6 +135,7 @@ export default function BiometricPage() {
   const [editCompanyId, setEditCompanyId] = useState("");
   const [editPushToken, setEditPushToken] = useState("");
   const [editAllowedCidr, setEditAllowedCidr] = useState("");
+  const [editAutoDelete, setEditAutoDelete] = useState(false);
 
   const openEditDialog = (d: any) => {
     setEditDevice(d);
@@ -146,6 +148,7 @@ export default function BiometricPage() {
     setEditCompanyId(d.companyId || "");
     setEditPushToken(d.pushToken || "");
     setEditAllowedCidr(d.allowedIpCidr || "");
+    setEditAutoDelete(!!d.autoDeletePunches);
   };
 
   const autoDetectSourceIp = async (setter: (v: string) => void) => {
@@ -286,6 +289,7 @@ export default function BiometricPage() {
         ipAddress: editIp.trim() || null, admsServerIp: editServerIp.trim() || null,
         port: editPort === "" ? null : Number(editPort), companyId: editCompanyId || null,
         pushToken: tokenTrim || null, allowedIpCidr: cidrTrim || null,
+        autoDeletePunches: editAutoDelete,
       },
     });
   };
@@ -1140,6 +1144,21 @@ export default function BiometricPage() {
                     <KeyRound className="h-3.5 w-3.5 mr-1" /> Gen
                   </Button>
                 </div>
+              </div>
+            </div>
+            <div className="border rounded-lg p-3 bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex-1">
+                  <p className="text-sm font-medium">Auto-delete punches after sync</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    After each upload the server sends <span className="font-mono">DATA CLEAR ATTLOG</span> to erase synced records from the machine, preventing "T&A data max capacity" errors.
+                  </p>
+                </div>
+                <Switch
+                  checked={editAutoDelete}
+                  onCheckedChange={setEditAutoDelete}
+                  data-testid="switch-edit-auto-delete"
+                />
               </div>
             </div>
           </div>

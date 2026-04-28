@@ -624,6 +624,9 @@ export const biometricDevices = pgTable("biometric_devices", {
   lastAttlogStamp: integer("last_attlog_stamp").notNull().default(0),
   // Pending ADMS commands queued for the device (persisted across restarts).
   pendingCommands: json("pending_commands").$type<string[]>().default([]),
+  // When true, server sends DATA CLEAR ATTLOG to the device after every
+  // successful ATTLOG upload, keeping device memory free.
+  autoDeletePunches: boolean("auto_delete_punches").notNull().default(false),
 });
 
 export const insertBiometricDeviceSchema = createInsertSchema(biometricDevices).omit({ id: true });
