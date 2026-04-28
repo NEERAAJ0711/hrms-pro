@@ -51,9 +51,25 @@ import {
   Trash2,
   MapPin,
   HardHat,
+  Clock,
+  CheckCircle2,
+  AlertTriangle,
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Company, InsertCompany } from "@shared/schema";
+
+function getTrialStatus(company: Company) {
+  if (!company.trialStartDate) return null;
+  const start = new Date(company.trialStartDate);
+  const total = (company.trialDays ?? 3) + (company.trialExtendedDays ?? 0);
+  const expiry = new Date(start);
+  expiry.setDate(expiry.getDate() + total);
+  expiry.setHours(23, 59, 59, 999);
+  const now = new Date();
+  const msLeft = expiry.getTime() - now.getTime();
+  const daysLeft = Math.max(0, Math.ceil(msLeft / (1000 * 60 * 60 * 24)));
+  return { total, daysLeft, expired: msLeft < 0, startDate: company.trialStartDate };
+}
 
 // ─── Company Form ─────────────────────────────────────────────────────────────
 const companyFormSchema = z.object({
@@ -296,6 +312,8 @@ export default function Companies() {
   const [searchQuery, setSearchQuery] = useState("");
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [editingCompany, setEditingCompany] = useState<Company | null>(null);
+  const [trialCompany, setTrialCompany] = useState<Company | null>(null);
+  const [extendDays, setExtendDays] = useState("7");
   const { toast } = useToast();
 
   const { data: companies = [], isLoading } = useQuery<Company[]>({
@@ -341,6 +359,21 @@ export default function Companies() {
       queryClient.invalidateQueries({ queryKey: ["/api/companies"] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
       toast({ title: "Company Deleted", description: "The company has been successfully deleted." });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const trialMutation = useMutation({
+    mutationFn: async ({ id, trialExtendedDays }: { id: string; trialExtendedDays: number }) => {
+      const res = await apiRequest("PATCH", `/api/companies/${id}/trial`, { trialExtendedDays });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/companies"] });
+      setTrialCompany(null);
+      toast({ title: "Trial Extended", description: "Service access has been extended successfully." });
     },
     onError: (error: Error) => {
       toast({ title: "Error", description: error.message, variant: "destructive" });
@@ -425,6 +458,7 @@ export default function Companies() {
                     <TableHead>Legal Name</TableHead>
                     <TableHead>PAN</TableHead>
                     <TableHead>GSTIN</TableHead>
+                    <TableHead>Trial</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
@@ -459,12 +493,40 @@ export default function Companies() {
                         {company.gstin || <span className="text-muted-foreground">-</span>}
                       </TableCell>
                       <TableCell>
+                        {(() => {
+                          const ts = getTrialStatus(company);
+                          if (!ts) return <span className="text-muted-foreground text-xs">—</span>;
+                          if (ts.expired) return (
+                            <Badge variant="destructive" className="gap-1 text-xs">
+                              <AlertTriangle className="h-3 w-3" /> Expired
+                            </Badge>
+                          );
+                          return (
+                            <Badge variant="outline" className="gap-1 text-xs text-amber-600 border-amber-400">
+                              <Clock className="h-3 w-3" /> {ts.daysLeft}d left
+                            </Badge>
+                          );
+                        })()}
+                      </TableCell>
+                      <TableCell>
                         <Badge variant={company.status === "active" ? "default" : "secondary"}>
                           {company.status}
                         </Badge>
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-1">
+                          {company.trialStartDate && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              title="Manage Trial"
+                              onClick={() => { setTrialCompany(company); setExtendDays("7"); }}
+                              className="text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-950/30"
+                              data-testid={`button-trial-${company.id}`}
+                            >
+                              <Clock className="h-4 w-4" />
+                            </Button>
+                          )}
                           <Button
                             variant="ghost"
                             size="icon"
@@ -505,6 +567,83 @@ export default function Companies() {
           )}
         </CardContent>
       </Card>
+
+      {/* Trial Management Dialog */}
+      <Dialog open={!!trialCompany} onOpenChange={(open) => !open && setTrialCompany(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Clock className="h-5 w-5 text-blue-600" /> Manage Trial Access
+            </DialogTitle>
+            <DialogDescription>
+              Extend or activate service access for <strong>{trialCompany?.companyName}</strong>
+            </DialogDescription>
+          </DialogHeader>
+          {trialCompany && (() => {
+            const ts = getTrialStatus(trialCompany);
+            return (
+              <div className="space-y-4 py-2">
+                <div className="grid grid-cols-3 gap-3 text-center">
+                  <div className="rounded-lg border bg-muted/40 p-3">
+                    <p className="text-xs text-muted-foreground mb-1">Started</p>
+                    <p className="font-semibold text-sm">{ts?.startDate || "—"}</p>
+                  </div>
+                  <div className="rounded-lg border bg-muted/40 p-3">
+                    <p className="text-xs text-muted-foreground mb-1">Total Days</p>
+                    <p className="font-semibold text-sm">{ts?.total ?? 0}</p>
+                  </div>
+                  <div className={`rounded-lg border p-3 ${ts?.expired ? "bg-red-50 border-red-200 dark:bg-red-950/30" : "bg-green-50 border-green-200 dark:bg-green-950/30"}`}>
+                    <p className="text-xs text-muted-foreground mb-1">Days Left</p>
+                    <p className={`font-bold text-sm ${ts?.expired ? "text-red-600" : "text-green-600"}`}>
+                      {ts?.expired ? "Expired" : `${ts?.daysLeft}d`}
+                    </p>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Add Extended Days</label>
+                  <div className="flex gap-2">
+                    {[7, 14, 30, 90].map(d => (
+                      <button key={d} onClick={() => setExtendDays(String(d))}
+                        className={`px-3 py-1.5 rounded-md text-sm font-medium border transition-colors ${extendDays === String(d) ? "bg-primary text-primary-foreground border-primary" : "border-input hover:bg-muted"}`}>
+                        +{d}d
+                      </button>
+                    ))}
+                  </div>
+                  <Input
+                    type="number"
+                    min="1"
+                    value={extendDays}
+                    onChange={e => setExtendDays(e.target.value)}
+                    placeholder="Custom days"
+                    className="mt-2"
+                    data-testid="input-trial-extend-days"
+                  />
+                </div>
+                <div className="rounded-lg bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 p-3 text-sm text-blue-700 dark:text-blue-300 flex items-start gap-2">
+                  <CheckCircle2 className="h-4 w-4 shrink-0 mt-0.5" />
+                  <span>
+                    New total: <strong>{(trialCompany.trialDays ?? 3) + Number(extendDays || 0)}</strong> days
+                    {ts?.expired ? " (account will be reactivated)" : ""}
+                  </span>
+                </div>
+              </div>
+            );
+          })()}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setTrialCompany(null)}>Cancel</Button>
+            <Button
+              onClick={() => {
+                if (!trialCompany) return;
+                trialMutation.mutate({ id: trialCompany.id, trialExtendedDays: Number(extendDays || 0) });
+              }}
+              disabled={trialMutation.isPending || !extendDays || Number(extendDays) < 1}
+              data-testid="button-confirm-trial-extend"
+            >
+              {trialMutation.isPending ? "Saving…" : "Extend Access"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Edit Dialog */}
       <Dialog open={!!editingCompany} onOpenChange={(open) => !open && setEditingCompany(null)}>

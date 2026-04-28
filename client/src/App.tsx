@@ -40,6 +40,8 @@ import DirectorsPage from "@/pages/website/directors-page";
 import ContactPage from "@/pages/website/contact-page";
 import { Loader2 } from "lucide-react";
 import { NotificationBell } from "@/components/notification-bell";
+import { TrialExpiredWall } from "@/components/trial-expired-wall";
+import { TrialBanner } from "@/components/trial-banner";
 
 function RedirectToDashboard() {
   const [, setLocation] = useLocation();
@@ -177,6 +179,11 @@ function AppContent() {
     return <PublicRouter />;
   }
 
+  // Show trial expired wall for company admins whose trial has ended
+  if (user?.trialExpired && user.role === "company_admin") {
+    return <TrialExpiredWall />;
+  }
+
   const publicPages = ["/services", "/compliance", "/directors", "/contact"];
   const isPublicPage = publicPages.includes(location);
 
@@ -193,11 +200,14 @@ function AppContent() {
       <div className="flex h-screen w-full">
         <AppSidebar />
         <div className="flex flex-col flex-1 overflow-hidden">
-          <header className="flex items-center justify-between px-4 py-2 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-0 z-50">
-            <SidebarTrigger data-testid="button-sidebar-toggle" />
-            <div className="flex items-center gap-1">
-              <NotificationBell />
-              <ThemeToggle />
+          <header className="sticky top-0 z-50 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+            <TrialBanner />
+            <div className="flex items-center justify-between px-4 py-2">
+              <SidebarTrigger data-testid="button-sidebar-toggle" />
+              <div className="flex items-center gap-1">
+                <NotificationBell />
+                <ThemeToggle />
+              </div>
             </div>
           </header>
           <main className="flex-1 overflow-auto">
