@@ -28,6 +28,7 @@ export const companies = pgTable("companies", {
   lwfState: text("lwf_state"),
   registeredAddress: text("registered_address"),
   logo: text("logo"),
+  signature: text("signature"),
   financialYear: text("financial_year"),
   status: text("status").notNull().default("active"),
   officeLatitude: text("office_latitude"),

@@ -50,6 +50,28 @@ const months = [
 
 const REPORTS_ALLOWED_ROLES = ["super_admin", "company_admin", "hr_admin"];
 
+// Load an image URL as a base64 data-URL (for embedding in jsPDF)
+const imgCache = new Map<string, string>();
+async function loadImageBase64(url: string): Promise<string> {
+  if (imgCache.has(url)) return imgCache.get(url)!;
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      const ctx = canvas.getContext("2d")!;
+      ctx.drawImage(img, 0, 0);
+      const b64 = canvas.toDataURL("image/png");
+      imgCache.set(url, b64);
+      resolve(b64);
+    };
+    img.onerror = () => reject(new Error("Failed to load image"));
+    img.src = url;
+  });
+}
+
 export default function ReportsPage() {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -566,7 +588,13 @@ export default function ReportsPage() {
     }
   };
 
-  const generateSalarySheet = (fileType: "excel" | "pdf", empOverride?: Employee[]) => {
+  const generateSalarySheet = async (fileType: "excel" | "pdf", empOverride?: Employee[]) => {
+    // Pre-load company logo for PDF (do this early while data is being prepared)
+    const sheetCompany = companies.find(c => c.id === effectiveCompany);
+    const sheetLogoB64 = (fileType === "pdf" && (sheetCompany as any)?.logo)
+      ? await loadImageBase64((sheetCompany as any).logo).catch(() => undefined)
+      : undefined;
+
     const monthPayroll = payrollRecords.filter(p =>
       p.month === monthName && p.year === yearNum &&
       (effectiveCompany ? p.companyId === effectiveCompany : true)
@@ -709,6 +737,11 @@ export default function ReportsPage() {
     const companyCityState = [(company as any)?.city, (company as any)?.state].filter(Boolean).join(" - ");
 
     let y = 14;
+
+    // ── Company Logo (top-right) ──
+    if (sheetLogoB64) {
+      try { doc.addImage(sheetLogoB64, "PNG", pageW - ml - 36, 6, 36, 14); } catch { /* skip */ }
+    }
 
     // ── Company Header ──
     doc.setFont("helvetica", "bold");
@@ -985,7 +1018,7 @@ export default function ReportsPage() {
     }
   };
 
-  const generatePaySlip = (fileType: "excel" | "pdf") => {
+  const generatePaySlip = async (fileType: "excel" | "pdf") => {
     const monthPayroll = payrollRecords.filter(p =>
       p.month === monthName && p.year === yearNum &&
       (effectiveCompany ? p.companyId === effectiveCompany : true) &&
@@ -993,6 +1026,19 @@ export default function ReportsPage() {
     );
 
     const emps = docEmployee ? filteredEmployees.filter(e => e.id === docEmployee) : filteredEmployees;
+
+    // Pre-load company logo and signature as base64 for PDF embedding
+    const companyForAssets = companies.find(c => c.id === (effectiveCompany || emps[0]?.companyId));
+    let logoB64: string | undefined;
+    let sigB64: string | undefined;
+    if (fileType === "pdf" && companyForAssets) {
+      if ((companyForAssets as any).logo) {
+        logoB64 = await loadImageBase64((companyForAssets as any).logo).catch(() => undefined);
+      }
+      if ((companyForAssets as any).signature) {
+        sigB64 = await loadImageBase64((companyForAssets as any).signature).catch(() => undefined);
+      }
+    }
 
     const buildPaySlipPDF = (emp: Employee, c: ReturnType<typeof getProRatedComponents>, workingDays?: number, presentDays?: number, leaveDays?: number, payDays?: number, otHoursArg?: number, otAmountArg?: number, pr?: Payroll | null) => {
       const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
@@ -1023,6 +1069,23 @@ export default function ReportsPage() {
       };
 
       let y = 16;
+
+      // ── Company Logo (top-right) ──
+      if (logoB64) {
+        try {
+          const logoMaxW = 40;
+          const logoMaxH = 16;
+          const tmpImg = new Image();
+          tmpImg.src = logoB64;
+          let lw = logoMaxW, lh = logoMaxH;
+          if (tmpImg.naturalWidth && tmpImg.naturalHeight) {
+            const ratio = tmpImg.naturalWidth / tmpImg.naturalHeight;
+            if (ratio > logoMaxW / logoMaxH) { lw = logoMaxW; lh = logoMaxW / ratio; }
+            else { lh = logoMaxH; lw = logoMaxH * ratio; }
+          }
+          doc.addImage(logoB64, "PNG", pageW - ml - lw, 10, lw, lh);
+        } catch { /* logo unavailable — skip */ }
+      }
 
       // ── Company Name ──
       doc.setFont("helvetica", "bold");
@@ -1227,14 +1290,28 @@ export default function ReportsPage() {
       ty += 14;
 
       // ── Signature Space ──
-      doc.rect(ml, ty, contentW, 18);
-      ty += 23;
+      doc.rect(ml, ty, contentW, 20);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(7.5);
+      doc.setTextColor(80, 80, 80);
+      doc.text("Authorized Signatory", ml + contentW - 2, ty + 18, { align: "right" });
+      doc.setTextColor(0, 0, 0);
+      if (sigB64) {
+        try {
+          const sigMaxW = 50;
+          const sigMaxH = 14;
+          doc.addImage(sigB64, "PNG", ml + contentW - sigMaxW - 2, ty + 2, sigMaxW, sigMaxH);
+        } catch { /* signature unavailable — skip */ }
+      }
+      ty += 25;
 
       // ── Footer ──
       doc.setFont("helvetica", "italic");
       doc.setFontSize(8);
       doc.setTextColor(80, 80, 80);
-      doc.text("This is a system generated document does not require Signature", pageW / 2, ty, { align: "center" });
+      if (!sigB64) {
+        doc.text("This is a system generated document does not require Signature", pageW / 2, ty, { align: "center" });
+      }
       doc.setTextColor(0, 0, 0);
 
       doc.save(`PaySlip_${emp.employeeCode}_${selectedMonth}.pdf`);

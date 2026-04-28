@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useLocation } from "wouter";
 import { useAuth } from "@/lib/auth";
 import { useQuery, useMutation } from "@tanstack/react-query";
@@ -55,7 +55,13 @@ import {
   Clock,
   CheckCircle2,
   AlertTriangle,
+  Upload,
+  X,
+  ImageIcon,
+  PenLine,
 } from "lucide-react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Separator } from "@/components/ui/separator";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Company, InsertCompany } from "@shared/schema";
 
@@ -303,6 +309,133 @@ function CompaniesTableSkeleton() {
           <Skeleton className="h-6 w-16" />
         </div>
       ))}
+    </div>
+  );
+}
+
+// ─── Company Assets Panel (Logo & Signature) ──────────────────────────────────
+function AssetUploadZone({
+  label,
+  hint,
+  current,
+  assetType,
+  companyId,
+  icon: Icon,
+  onDone,
+}: {
+  label: string;
+  hint: string;
+  current: string | null | undefined;
+  assetType: "logo" | "signature";
+  companyId: string;
+  icon: React.ElementType;
+  onDone: () => void;
+}) {
+  const { toast } = useToast();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const [removing, setRemoving] = useState(false);
+
+  const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await fetch(`/api/companies/${companyId}/assets/${assetType}`, {
+        method: "POST",
+        body: formData,
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || "Upload failed");
+      }
+      queryClient.invalidateQueries({ queryKey: ["/api/companies"] });
+      toast({ title: `${label} uploaded`, description: "Successfully updated." });
+      onDone();
+    } catch (err: any) {
+      toast({ title: "Upload failed", description: err.message, variant: "destructive" });
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
+  const handleRemove = async () => {
+    setRemoving(true);
+    try {
+      await apiRequest("DELETE", `/api/companies/${companyId}/assets/${assetType}`);
+      queryClient.invalidateQueries({ queryKey: ["/api/companies"] });
+      toast({ title: `${label} removed` });
+      onDone();
+    } catch {
+      toast({ title: "Remove failed", variant: "destructive" });
+    } finally {
+      setRemoving(false);
+    }
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-2">
+        <Icon className="h-4 w-4 text-muted-foreground" />
+        <span className="font-medium text-sm">{label}</span>
+      </div>
+      <p className="text-xs text-muted-foreground">{hint}</p>
+
+      {current ? (
+        <div className="relative border rounded-lg p-3 bg-muted/30 flex items-center justify-center min-h-[100px]">
+          <img
+            src={current}
+            alt={label}
+            className="max-h-24 max-w-full object-contain"
+            data-testid={`img-company-${assetType}`}
+          />
+          <button
+            className="absolute top-1.5 right-1.5 bg-destructive text-destructive-foreground rounded-full p-0.5 hover:opacity-80"
+            onClick={handleRemove}
+            disabled={removing}
+            title={`Remove ${label}`}
+            data-testid={`button-remove-${assetType}`}
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={uploading}
+          className="w-full border-2 border-dashed border-muted-foreground/25 rounded-lg p-6 flex flex-col items-center gap-2 text-muted-foreground hover:border-primary/50 hover:bg-muted/30 transition-colors cursor-pointer disabled:opacity-50"
+          data-testid={`button-upload-${assetType}`}
+        >
+          <Upload className="h-6 w-6" />
+          <span className="text-sm font-medium">{uploading ? "Uploading…" : `Click to upload ${label}`}</span>
+          <span className="text-xs">PNG, JPG, WebP — max 5 MB</span>
+        </button>
+      )}
+
+      {current && (
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={uploading}
+          onClick={() => fileInputRef.current?.click()}
+          data-testid={`button-replace-${assetType}`}
+        >
+          <Upload className="h-3.5 w-3.5 mr-1.5" />
+          {uploading ? "Uploading…" : `Replace ${label}`}
+        </Button>
+      )}
+
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/jpeg,image/png,image/webp,image/gif"
+        className="hidden"
+        onChange={handleFile}
+      />
     </div>
   );
 }
@@ -662,31 +795,78 @@ export default function Companies() {
 
       {/* Edit Dialog */}
       <Dialog open={!!editingCompany} onOpenChange={(open) => !open && setEditingCompany(null)}>
-        <DialogContent className="sm:max-w-[600px]">
+        <DialogContent className="sm:max-w-[640px] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Edit Company</DialogTitle>
-            <DialogDescription>Update the company information.</DialogDescription>
+            <DialogDescription>Update company information, logo, and authorized signature.</DialogDescription>
           </DialogHeader>
           {editingCompany && (
-            <CompanyForm
-              onSubmit={(data) => updateMutation.mutate({ id: editingCompany.id, data })}
-              defaultValues={{
-                companyName: editingCompany.companyName,
-                legalName: editingCompany.legalName,
-                cin: editingCompany.cin || "",
-                pan: editingCompany.pan || "",
-                gstin: editingCompany.gstin || "",
-                pfCode: editingCompany.pfCode || "",
-                esiCode: editingCompany.esiCode || "",
-                ptState: editingCompany.ptState || "",
-                lwfState: editingCompany.lwfState || "",
-                registeredAddress: editingCompany.registeredAddress || "",
-                financialYear: editingCompany.financialYear || "",
-                status: editingCompany.status as "active" | "inactive",
-              }}
-              isLoading={updateMutation.isPending}
-              submitLabel="Update Company"
-            />
+            <Tabs defaultValue="details">
+              <TabsList className="w-full">
+                <TabsTrigger value="details" className="flex-1" data-testid="tab-company-details">
+                  Company Details
+                </TabsTrigger>
+                <TabsTrigger value="assets" className="flex-1" data-testid="tab-company-assets">
+                  Logo & Signature
+                </TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="details" className="mt-4">
+                <CompanyForm
+                  onSubmit={(data) => updateMutation.mutate({ id: editingCompany.id, data })}
+                  defaultValues={{
+                    companyName: editingCompany.companyName,
+                    legalName: editingCompany.legalName,
+                    cin: editingCompany.cin || "",
+                    pan: editingCompany.pan || "",
+                    gstin: editingCompany.gstin || "",
+                    pfCode: editingCompany.pfCode || "",
+                    esiCode: editingCompany.esiCode || "",
+                    ptState: editingCompany.ptState || "",
+                    lwfState: editingCompany.lwfState || "",
+                    registeredAddress: editingCompany.registeredAddress || "",
+                    financialYear: editingCompany.financialYear || "",
+                    status: editingCompany.status as "active" | "inactive",
+                  }}
+                  isLoading={updateMutation.isPending}
+                  submitLabel="Update Company"
+                />
+              </TabsContent>
+
+              <TabsContent value="assets" className="mt-4 space-y-6">
+                <AssetUploadZone
+                  label="Company Logo"
+                  hint="Appears on PDF reports, salary slips, and dashboards. Recommended: transparent PNG, at least 200×100 px."
+                  current={
+                    (companies.find(c => c.id === editingCompany.id) as any)?.logo ||
+                    editingCompany.logo
+                  }
+                  assetType="logo"
+                  companyId={editingCompany.id}
+                  icon={ImageIcon}
+                  onDone={() => {
+                    const fresh = companies.find(c => c.id === editingCompany.id);
+                    if (fresh) setEditingCompany({ ...fresh });
+                  }}
+                />
+                <Separator />
+                <AssetUploadZone
+                  label="Authorized Signature"
+                  hint="Appears at the bottom of salary slips, appointment letters, and formal reports. Recommended: transparent PNG on white background."
+                  current={
+                    (companies.find(c => c.id === editingCompany.id) as any)?.signature ||
+                    editingCompany.signature
+                  }
+                  assetType="signature"
+                  companyId={editingCompany.id}
+                  icon={PenLine}
+                  onDone={() => {
+                    const fresh = companies.find(c => c.id === editingCompany.id);
+                    if (fresh) setEditingCompany({ ...fresh });
+                  }}
+                />
+              </TabsContent>
+            </Tabs>
           )}
         </DialogContent>
       </Dialog>

@@ -122,6 +122,26 @@ const docStorage = multer.diskStorage({
 });
 const docUpload = multer({ storage: docStorage, limits: { fileSize: 10 * 1024 * 1024 } });
 
+const COMPANY_ASSETS_DIR = path.join(process.cwd(), 'uploads', 'company-assets');
+if (!fs.existsSync(COMPANY_ASSETS_DIR)) fs.mkdirSync(COMPANY_ASSETS_DIR, { recursive: true });
+const companyAssetStorage = multer.diskStorage({
+  destination: (_req, _file, cb) => cb(null, COMPANY_ASSETS_DIR),
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname);
+    const companyId = (req.params as any).id || "unknown";
+    const type = (req.params as any).type || "asset";
+    cb(null, `${companyId}-${type}${ext}`);
+  },
+});
+const companyAssetUpload = multer({
+  storage: companyAssetStorage,
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const allowed = ["image/jpeg", "image/png", "image/webp", "image/gif"];
+    cb(null, allowed.includes(file.mimetype));
+  },
+});
+
 // Extend Express Request type for session
 declare module "express-session" {
   interface SessionData {
@@ -444,6 +464,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   await db.execute(sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS trial_days INTEGER NOT NULL DEFAULT 3`).catch(() => {});
   await db.execute(sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS trial_extended_days INTEGER NOT NULL DEFAULT 0`).catch(() => {});
 
+  // Logo & signature columns for companies
+  await db.execute(sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS signature TEXT`).catch(() => {});
+
   // Create employee_documents table if not exists
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS employee_documents (
@@ -617,6 +640,69 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ error: "Failed to update trial" });
     }
   });
+
+  // Upload company logo or signature
+  app.post(
+    "/api/companies/:id/assets/:type",
+    requireAuth,
+    requireRole("super_admin", "company_admin"),
+    companyAssetUpload.single("file"),
+    async (req, res) => {
+      try {
+        const user = (req as any).user;
+        const { id, type } = req.params;
+        if (!["logo", "signature"].includes(type)) return res.status(400).json({ error: "Invalid asset type" });
+        if (user.role === "company_admin" && user.companyId !== id) {
+          return res.status(403).json({ error: "Forbidden" });
+        }
+        if (!req.file) return res.status(400).json({ error: "No file uploaded or invalid type (jpeg/png/webp/gif only)" });
+        const urlPath = `/uploads/company-assets/${req.file.filename}`;
+        if (type === "logo") {
+          await db.execute(sql`UPDATE companies SET logo = ${urlPath} WHERE id = ${id}`);
+        } else {
+          await db.execute(sql`UPDATE companies SET signature = ${urlPath} WHERE id = ${id}`);
+        }
+        const company = await storage.getCompany(id);
+        res.json({ success: true, url: urlPath, company });
+      } catch (error) {
+        console.error("Company asset upload error:", error);
+        res.status(500).json({ error: "Upload failed" });
+      }
+    }
+  );
+
+  // Remove company logo or signature
+  app.delete(
+    "/api/companies/:id/assets/:type",
+    requireAuth,
+    requireRole("super_admin", "company_admin"),
+    async (req, res) => {
+      try {
+        const user = (req as any).user;
+        const { id, type } = req.params;
+        if (!["logo", "signature"].includes(type)) return res.status(400).json({ error: "Invalid asset type" });
+        if (user.role === "company_admin" && user.companyId !== id) {
+          return res.status(403).json({ error: "Forbidden" });
+        }
+        const company = await storage.getCompany(id);
+        if (company) {
+          const existing = type === "logo" ? company.logo : (company as any).signature;
+          if (existing) {
+            const filePath = path.join(process.cwd(), existing);
+            if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+          }
+        }
+        if (type === "logo") {
+          await db.execute(sql`UPDATE companies SET logo = NULL WHERE id = ${id}`);
+        } else {
+          await db.execute(sql`UPDATE companies SET signature = NULL WHERE id = ${id}`);
+        }
+        res.json({ success: true });
+      } catch (error) {
+        res.status(500).json({ error: "Failed to remove asset" });
+      }
+    }
+  );
 
   // ===== Dashboard Routes =====
   app.get("/api/dashboard/stats", requireAuth, async (req, res) => {

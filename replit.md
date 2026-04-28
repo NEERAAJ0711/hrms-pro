@@ -3,6 +3,15 @@
 ## Overview
 HRMS Pro is an enterprise-grade Multi-Company Human Resource Management System designed for managing employees, payroll, attendance, and compliance across multiple organizations. Its purpose is to provide a comprehensive, multi-tenant solution for HR operations, enhancing efficiency and ensuring compliance across diverse business entities.
 
+### Company Logo & Signature
+- Companies have `logo` and `signature` fields (text URL path)
+- Upload via POST `/api/companies/:id/assets/logo` or `/api/companies/:id/assets/signature` (multipart/form-data, field `file`)
+- Delete via DELETE `/api/companies/:id/assets/logo` or `/api/companies/:id/assets/signature`
+- Files stored in `uploads/company-assets/` and served statically via `/uploads`
+- Edit Company dialog has a "Logo & Signature" tab with upload/remove zones
+- Logo appears top-right in salary sheet PDF and payslip PDFs
+- Signature appears in the signature box of payslip PDFs (right-aligned)
+
 ## User Preferences
 - I prefer simple language.
 - I want iterative development.
