@@ -2413,16 +2413,17 @@ export default function ReportsPage() {
     const tableHead = [["S.N.", "Employee Name", "Department", "Designation", "Location", "In Time", "Out Time", "Working Hrs", "Status"]];
     const tableBody: (string | number)[][] = [];
 
+    let seq = 0;
     if (groupKey === "none") {
       rows.forEach(r => {
-        tableBody.push([r.sn, r.name, r.department, r.designation, r.location, r.inTime, r.outTime, r.workHours, r.status]);
+        tableBody.push([++seq, r.name, r.department, r.designation, r.location, r.inTime, r.outTime, r.workHours, r.status]);
       });
     } else {
       const groups = [...new Set(rows.map(r => r[groupKey]))].sort();
       groups.forEach(group => {
         const gRows = rows.filter(r => r[groupKey] === group);
         gRows.forEach(r => {
-          tableBody.push([r.sn, r.name, r.department, r.designation, r.location, r.inTime, r.outTime, r.workHours, r.status]);
+          tableBody.push([++seq, r.name, r.department, r.designation, r.location, r.inTime, r.outTime, r.workHours, r.status]);
         });
         const subtotalMins = gRows.reduce((s, r) => s + r.workMinutes, 0);
         tableBody.push([
