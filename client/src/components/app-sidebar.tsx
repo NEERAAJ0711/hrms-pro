@@ -56,7 +56,7 @@ const MODULE_ACCESS: Record<string, UserRole[]> = {
   loan_advances: ["super_admin", "company_admin", "hr_admin", "manager", "employee"],
   payroll: ["super_admin", "company_admin", "hr_admin"],
   reports: ["super_admin", "company_admin", "hr_admin"],
-  biometric: ["super_admin", "company_admin", "hr_admin"],
+  biometric: ["super_admin", "company_admin"],
   job_postings: ["super_admin", "company_admin", "hr_admin", "recruiter"],
   job_applications: ["super_admin", "company_admin", "hr_admin", "recruiter", "employee"],
   my_profile: ["employee"],

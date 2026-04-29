@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import {
@@ -78,7 +78,8 @@ export default function BiometricPage() {
   const { user } = useAuth();
   const [, setLocation] = useLocation();
   const isSuperAdmin = user?.role === "super_admin";
-  const canViewAdmsLog = isSuperAdmin || user?.role === "company_admin";
+  const isCompanyAdmin = user?.role === "company_admin";
+  const canViewAdmsLog = isSuperAdmin || isCompanyAdmin;
 
   const [admsMode, setAdmsMode] = useState<"domain" | "ip">("ip");
   const [setupExpanded, setSetupExpanded] = useState(false);
@@ -385,6 +386,15 @@ export default function BiometricPage() {
     },
     onError: (err: any) => toast({ title: "Delete failed", description: err?.message, variant: "destructive" }),
   });
+
+  // Redirect non-admin roles away from this page
+  useEffect(() => {
+    if (user && !isSuperAdmin && !isCompanyAdmin) {
+      setLocation("/dashboard");
+    }
+  }, [user, isSuperAdmin, isCompanyAdmin]);
+
+  if (user && !isSuperAdmin && !isCompanyAdmin) return null;
 
   const handleAddDevice = () => {
     if (!deviceName || !deviceSerial) { toast({ title: "Name and serial are required", variant: "destructive" }); return; }
