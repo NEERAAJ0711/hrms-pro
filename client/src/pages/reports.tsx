@@ -96,6 +96,7 @@ export default function ReportsPage() {
   const [ctrlReport, setCtrlReport] = useState<string>("");
   const [empSearchQuery, setEmpSearchQuery] = useState("");
   const [empSearchOpen, setEmpSearchOpen] = useState(false);
+  const [selectedDate, setSelectedDate] = useState(format(new Date(), "yyyy-MM-dd"));
 
   const { data: companies = [] } = useQuery<Company[]>({
     queryKey: ["/api/companies"],
@@ -2201,6 +2202,154 @@ export default function ReportsPage() {
       allRows.push(inCells, outCells, totalCells, otCells, statusCells);
     });
     openViewDialog(`Attendance Punch Report - ${monthName} ${yearNum}`, headers, allRows);
+  };
+
+  // ── Date-wise Attendance Report ──────────────────────────────────────────────
+  const getDatewiseRows = () => {
+    const emps = filteredEmployees;
+    const statusLabel: Record<string, string> = {
+      present: "Present", absent: "Absent", half_day: "Half Day",
+      on_leave: "On Leave", holiday: "Holiday", weekend: "Weekend",
+    };
+
+    const calcWorkHours = (inT: string | null, outT: string | null): string => {
+      if (!inT || !outT) return "—";
+      const [ih, im] = inT.split(":").map(Number);
+      const [oh, om] = outT.split(":").map(Number);
+      let diff = (oh * 60 + om) - (ih * 60 + im);
+      if (diff < 0) diff += 1440;
+      const h = Math.floor(diff / 60);
+      const m = diff % 60;
+      return `${h}h ${m.toString().padStart(2, "0")}m`;
+    };
+
+    return emps.map((emp, idx) => {
+      const rec = attendance.find(a => a.employeeId === emp.id && a.date === selectedDate);
+      const inTime  = rec?.clockIn  || "—";
+      const outTime = rec?.clockOut || "—";
+      const wh = rec?.workHours
+        ? rec.workHours
+        : calcWorkHours(rec?.clockIn ?? null, rec?.clockOut ?? null);
+      const status = rec ? (statusLabel[rec.status] ?? rec.status) : "Absent";
+      return {
+        sn: idx + 1,
+        name: `${emp.firstName} ${emp.lastName}`,
+        designation: emp.designation || "—",
+        inTime,
+        outTime,
+        workHours: wh,
+        status,
+      };
+    });
+  };
+
+  const generateDatewiseAttendance = async (fileType: "excel" | "pdf") => {
+    const rows = getDatewiseRows();
+    if (rows.length === 0) {
+      toast({ title: "No Data", description: "No employees found for selected filters.", variant: "destructive" });
+      return;
+    }
+
+    const dateLabel = selectedDate; // yyyy-MM-dd
+    const company = companies.find(c => c.id === effectiveCompany);
+    const companyName = company?.companyName || "All Companies";
+
+    if (fileType === "excel") {
+      const excelRows = rows.map(r => ({
+        "S.N.": r.sn,
+        "Employee Name": r.name,
+        "Designation": r.designation,
+        "In Time": r.inTime,
+        "Out Time": r.outTime,
+        "Working Hours": r.workHours,
+        "Status": r.status,
+      }));
+      downloadExcel(excelRows, `Datewise_Attendance_${dateLabel}`, "Date-wise Attendance");
+      return;
+    }
+
+    // PDF
+    const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+    await loadHindiFont(doc);
+    registerHindiFont(doc);
+
+    const pageW = doc.internal.pageSize.getWidth();
+    const pageH = doc.internal.pageSize.getHeight();
+    let y = 12;
+
+    // Logo
+    if (company?.logo) {
+      try {
+        const b64 = await loadImageBase64(company.logo);
+        doc.addImage(b64, "PNG", 10, y, 18, 18);
+      } catch {}
+    }
+
+    // Header
+    doc.setFont("Helvetica", "bold");
+    doc.setFontSize(13);
+    doc.text(companyName.toUpperCase(), pageW / 2, y + 4, { align: "center" });
+    doc.setFontSize(10);
+    doc.text("DATE-WISE ATTENDANCE REPORT", pageW / 2, y + 10, { align: "center" });
+    doc.setFont("Helvetica", "normal");
+    doc.setFontSize(9);
+    doc.text(`Date: ${dateLabel}`, pageW / 2, y + 16, { align: "center" });
+    y += 24;
+
+    // Table
+    const tableHead = [["S.N.", "Employee Name", "Designation", "In Time", "Out Time", "Working Hours", "Status"]];
+    const tableBody = rows.map(r => [r.sn, r.name, r.designation, r.inTime, r.outTime, r.workHours, r.status]);
+
+    autoTable(doc, {
+      head: tableHead,
+      body: tableBody,
+      startY: y,
+      theme: "grid",
+      styles: { fontSize: 8, cellPadding: 2 },
+      headStyles: { fillColor: [30, 64, 175], textColor: 255, fontStyle: "bold", halign: "center" },
+      columnStyles: {
+        0: { halign: "center", cellWidth: 12 },
+        1: { cellWidth: 50 },
+        2: { cellWidth: 45 },
+        3: { halign: "center", cellWidth: 22 },
+        4: { halign: "center", cellWidth: 22 },
+        5: { halign: "center", cellWidth: 28 },
+        6: { halign: "center", cellWidth: 22 },
+      },
+      alternateRowStyles: { fillColor: [240, 245, 255] },
+      didDrawPage: (data) => {
+        doc.setFontSize(7);
+        doc.setTextColor(120);
+        doc.text(`Page ${data.pageNumber}`, pageW - 14, pageH - 6, { align: "right" });
+        doc.text(`Generated: ${format(new Date(), "dd MMM yyyy HH:mm")}`, 14, pageH - 6);
+        doc.setTextColor(0);
+      },
+    });
+
+    // Summary footer
+    const afterY = (doc as any).lastAutoTable.finalY + 4;
+    const total   = rows.length;
+    const present = rows.filter(r => r.status === "Present").length;
+    const absent  = rows.filter(r => r.status === "Absent").length;
+    const halfDay = rows.filter(r => r.status === "Half Day").length;
+    const onLeave = rows.filter(r => r.status === "On Leave").length;
+    const holiday = rows.filter(r => r.status === "Holiday" || r.status === "Weekend").length;
+
+    doc.setFont("Helvetica", "bold");
+    doc.setFontSize(8);
+    doc.text(
+      `Total: ${total}  |  Present: ${present}  |  Absent: ${absent}  |  Half Day: ${halfDay}  |  On Leave: ${onLeave}  |  Holiday/Weekend: ${holiday}`,
+      pageW / 2, afterY, { align: "center" }
+    );
+
+    doc.save(`Datewise_Attendance_${dateLabel}.pdf`);
+    toast({ title: "Downloaded", description: `Date-wise Attendance report for ${dateLabel} downloaded.` });
+  };
+
+  const viewDatewiseAttendance = () => {
+    const rows = getDatewiseRows();
+    const headers = ["S.N.", "Employee Name", "Designation", "In Time", "Out Time", "Working Hours", "Status"];
+    openViewDialog(`Date-wise Attendance — ${selectedDate}`, headers, rows.map(r => [r.sn, r.name, r.designation, r.inTime, r.outTime, r.workHours, r.status]));
   };
 
   const viewSalarySheet = (empOverride?: Employee[]) => {
@@ -4829,6 +4978,7 @@ export default function ReportsPage() {
     { title: "Monthly Attendance Register", description: "Grid-format register with daily shift, punch in/out, working hours, OT and status for the full month", icon: CalendarRange, color: "text-violet-600", bgColor: "bg-violet-50 dark:bg-violet-950", generate: generateMonthlyAttendanceRegister, view: viewMonthlyAttendanceRegister, pdfOnly: true },
     { title: "Attendance Punch Report", description: "Daily in/out punch times for all employees with timings based on duty schedule", icon: Clock, color: "text-sky-600", bgColor: "bg-sky-50 dark:bg-sky-950", generate: generateAttendancePunchReport, view: viewAttendancePunchReport },
     { title: "Individual Attendance Sheet", description: "Per-employee detailed attendance with daily shift, punch times, working hours, OT and status for selected month", icon: ClipboardList, color: "text-indigo-600", bgColor: "bg-indigo-50 dark:bg-indigo-950", generate: generateIndividualAttendanceSheet, view: viewIndividualAttendanceSheet, pdfOnly: true },
+    { title: "Date-wise Attendance", description: "All employees' attendance for a specific date — shows In Time, Out Time, Working Hours and Status (use the Date filter above)", icon: CalendarRange, color: "text-emerald-600", bgColor: "bg-emerald-50 dark:bg-emerald-950", generate: generateDatewiseAttendance, view: viewDatewiseAttendance },
     { title: "Leave Report", description: "Employee-wise leave application history with leave type, dates, duration, reason and approval status", icon: CalendarX, color: "text-purple-600", bgColor: "bg-purple-50 dark:bg-purple-950", generate: generateLeaveReport, view: viewLeaveReport },
   ];
 
@@ -4892,6 +5042,7 @@ export default function ReportsPage() {
 
   // ─── Contextual filter bar content ────────────────────────────────────────
   const showMonthFilter   = ["all", "attendance", "payroll", "statutory"].includes(activeTab);
+  const showDateFilter    = ["all", "attendance"].includes(activeTab);
   const showPeriodFilter  = ["all", "annual", "employee", "hr"].includes(activeTab);
   const showEmpFilter     = ["all", "employee", "hr", "payroll"].includes(activeTab);
   const showContractor    = activeTab === "contractor";
@@ -5056,6 +5207,14 @@ export default function ReportsPage() {
               <div className="flex items-center gap-2">
                 <label className="text-sm font-medium whitespace-nowrap">Month:</label>
                 <Input type="month" value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)} className="w-40 h-9" data-testid="filter-month" />
+              </div>
+            )}
+
+            {/* Date — for Date-wise Attendance */}
+            {showDateFilter && (
+              <div className="flex items-center gap-2">
+                <label className="text-sm font-medium whitespace-nowrap">Date:</label>
+                <Input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)} className="w-40 h-9" data-testid="filter-date" />
               </div>
             )}
 
