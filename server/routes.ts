@@ -1043,6 +1043,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         employees = await storage.getAllEmployees();
       } else if (user.companyId) {
         employees = await storage.getEmployeesByCompany(user.companyId);
+        // Enforce contractor access restriction
+        const allowedContractors: string[] | null = user.accessContractors;
+        if (allowedContractors && allowedContractors.length > 0) {
+          employees = employees.filter((e: any) =>
+            e.contractorMasterId && allowedContractors.includes(e.contractorMasterId)
+          );
+        }
       } else {
         employees = [];
       }
@@ -3251,6 +3258,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         } else {
           records = (await storage.getAllAttendance()).filter((a: any) => a.companyId === user.companyId);
         }
+        // Enforce contractor access restriction
+        const allowedContractors: string[] | null = user.accessContractors;
+        if (allowedContractors && allowedContractors.length > 0) {
+          const companyEmployees = await storage.getEmployeesByCompany(user.companyId);
+          const allowedEmployeeIds = new Set(
+            companyEmployees
+              .filter((e: any) => e.contractorMasterId && allowedContractors.includes(e.contractorMasterId))
+              .map((e: any) => e.id)
+          );
+          records = records.filter((r: any) => allowedEmployeeIds.has(r.employeeId));
+        }
       } else {
         records = [];
       }
@@ -3771,6 +3789,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         requests = await storage.getAllLeaveRequests();
       } else if (user.companyId) {
         requests = await storage.getLeaveRequestsByCompany(user.companyId);
+        // Enforce contractor access restriction
+        const allowedContractors: string[] | null = user.accessContractors;
+        if (allowedContractors && allowedContractors.length > 0) {
+          const companyEmployees = await storage.getEmployeesByCompany(user.companyId);
+          const allowedEmployeeIds = new Set(
+            companyEmployees
+              .filter((e: any) => e.contractorMasterId && allowedContractors.includes(e.contractorMasterId))
+              .map((e: any) => e.id)
+          );
+          requests = requests.filter((r: any) => allowedEmployeeIds.has(r.employeeId));
+        }
       } else {
         requests = [];
       }
@@ -4045,6 +4074,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         structures = await storage.getAllSalaryStructures();
       } else if (user.companyId) {
         structures = (await storage.getAllSalaryStructures()).filter(s => s.companyId === user.companyId);
+        // Enforce contractor access restriction
+        const allowedContractors: string[] | null = user.accessContractors;
+        if (allowedContractors && allowedContractors.length > 0) {
+          const companyEmployees = await storage.getEmployeesByCompany(user.companyId);
+          const allowedEmployeeIds = new Set(
+            companyEmployees
+              .filter((e: any) => e.contractorMasterId && allowedContractors.includes(e.contractorMasterId))
+              .map((e: any) => e.id)
+          );
+          structures = structures.filter((s: any) => allowedEmployeeIds.has(s.employeeId));
+        }
       } else {
         structures = [];
       }
@@ -4211,6 +4251,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
           records = await storage.getPayrollByMonth(user.companyId, month as string, parseInt(year as string));
         } else {
           records = (await storage.getAllPayroll()).filter(p => p.companyId === user.companyId);
+        }
+        // Enforce contractor access restriction
+        const allowedContractors: string[] | null = user.accessContractors;
+        if (allowedContractors && allowedContractors.length > 0) {
+          const companyEmployees = await storage.getEmployeesByCompany(user.companyId);
+          const allowedEmployeeIds = new Set(
+            companyEmployees
+              .filter((e: any) => e.contractorMasterId && allowedContractors.includes(e.contractorMasterId))
+              .map((e: any) => e.id)
+          );
+          records = records.filter((p: any) => allowedEmployeeIds.has(p.employeeId));
         }
       } else {
         records = [];
@@ -5194,6 +5245,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       } else if (["company_admin", "hr_admin", "manager"].includes(user.role)) {
         if (!user.companyId) return res.json([]);
         records = await storage.getLoanAdvancesByCompany(user.companyId);
+        // Enforce contractor access restriction
+        const allowedContractors: string[] | null = user.accessContractors;
+        if (allowedContractors && allowedContractors.length > 0) {
+          const companyEmployees = await storage.getEmployeesByCompany(user.companyId);
+          const allowedEmployeeIds = new Set(
+            companyEmployees
+              .filter((e: any) => e.contractorMasterId && allowedContractors.includes(e.contractorMasterId))
+              .map((e: any) => e.id)
+          );
+          records = records.filter((r: any) => allowedEmployeeIds.has(r.employeeId));
+        }
       } else {
         const employee = await storage.getEmployeeByUserId(user.id);
         if (!employee) return res.json([]);
