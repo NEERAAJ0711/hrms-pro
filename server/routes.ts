@@ -6,8 +6,8 @@ import { registerComplianceRoutes } from "./compliance-routes";
 import { createNotification, createNotificationForMany } from "./notifications";
 import { addSSEClient, removeSSEClient } from "./sse";
 import { db } from "./db";
-import { notifications, profileUpdateRequests } from "../shared/schema";
-import { eq, and, desc, sql } from "drizzle-orm";
+import { notifications, profileUpdateRequests, users as usersTable } from "../shared/schema";
+import { eq, and, desc, sql, inArray } from "drizzle-orm";
 import { 
   insertUserSchema, 
   insertCompanySchema, 
@@ -223,6 +223,44 @@ function formatAge(ms: number): string {
   if (ms < 3_600_000) return `${Math.round(ms / 60_000)}m`;
   if (ms < 86_400_000) return `${Math.round(ms / 3_600_000)}h`;
   return `${Math.round(ms / 86_400_000)}d`;
+}
+
+/**
+ * Resolve the userId for an employee — tries employee.userId first,
+ * then falls back to matching a user by officialEmail so employees
+ * who were created before the user-link system still receive notifications.
+ */
+async function resolveEmployeeUserId(emp: any): Promise<string | null> {
+  if (emp?.userId) return emp.userId;
+  if (!emp?.officialEmail) return null;
+  try {
+    const rows = await db.select({ id: usersTable.id })
+      .from(usersTable)
+      .where(eq(usersTable.email, emp.officialEmail))
+      .limit(1);
+    return rows[0]?.id ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Fetch all user IDs for HR / admin roles in a given company.
+ * Returns a unique, deduplicated list excluding the requesting user.
+ */
+async function getHrAdminIds(companyId: string | null, excludeUserId?: string): Promise<string[]> {
+  try {
+    const rows = await db.select({ id: usersTable.id, role: usersTable.role, companyId: usersTable.companyId })
+      .from(usersTable)
+      .where(inArray(usersTable.role, ["hr_admin", "company_admin", "super_admin"]));
+    return rows
+      .filter(u => u.role === "super_admin" || u.companyId === companyId)
+      .map(u => u.id)
+      .filter(id => id !== excludeUserId);
+  } catch (err) {
+    console.error("[Notification] getHrAdminIds failed:", err);
+    return [];
+  }
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -3816,14 +3854,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const request = await storage.createLeaveRequest(data);
       // Notify HR/admins about new leave request
       try {
-        const companyUsers = await db.query.users.findMany({ where: (u: any, { eq: eqFn, inArray }: any) => inArray(u.role, ["hr_admin", "company_admin", "super_admin"]) });
-        const hrIds = companyUsers.filter((u: any) => u.role === "super_admin" || u.companyId === user.companyId).map((u: any) => u.id).filter((id: any) => id !== user.id);
+        const hrIds = await getHrAdminIds(user.companyId, user.id);
         const emp = await storage.getEmployeeByUserId(user.id);
-        const empName = emp ? `${emp.firstName} ${emp.lastName}` : user.username;
-        await createNotificationForMany(hrIds, { companyId: user.companyId, type: "leave_request", title: "New Leave Request", message: `${empName} has submitted a leave request.`, link: "/leave" });
-        // Also notify the employee themselves
+        const empName = emp ? `${emp.firstName} ${emp.lastName}` : (user.username || user.email);
+        if (hrIds.length > 0) {
+          await createNotificationForMany(hrIds, { companyId: user.companyId, type: "leave_request", title: "New Leave Request", message: `${empName} has submitted a leave request.`, link: "/leave" });
+        }
+        // Also notify the submitting user
         await createNotification({ userId: user.id, companyId: user.companyId, type: "leave_submitted", title: "Leave Request Submitted", message: "Your leave request has been submitted and is awaiting approval.", link: "/leave" });
-      } catch {}
+      } catch (err) {
+        console.error("[Notification] leave submission notify failed:", err);
+      }
       res.status(201).json(request);
     } catch (error) {
       res.status(500).json({ error: "Failed to create leave request" });
@@ -3847,18 +3888,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Notify employee when leave is approved or rejected
       if (req.body.status === "approved" || req.body.status === "rejected") {
         try {
-          const empRecord = await storage.getEmployeeByUserId ? null : null; // fallback
-          // Find the user linked to the employee of this leave request
           const leaveEmp = existing.employeeId ? await storage.getEmployee(existing.employeeId) : null;
-          if (leaveEmp) {
-            const empUsers = await db.query.users.findMany({ where: (u: any, { eq: eqFn }: any) => eqFn(u.id, leaveEmp.userId) });
-            const empUser = empUsers[0];
-            if (empUser) {
-              const statusLabel = req.body.status === "approved" ? "Approved ✓" : "Rejected ✗";
-              await createNotification({ userId: empUser.id, companyId: existing.companyId, type: `leave_${req.body.status}`, title: `Leave Request ${statusLabel}`, message: req.body.status === "approved" ? "Your leave request has been approved." : `Your leave request has been rejected. ${req.body.rejectionReason || ""}`, link: "/leave" });
-            }
+          const empUserId = leaveEmp ? await resolveEmployeeUserId(leaveEmp) : null;
+          if (empUserId) {
+            const statusLabel = req.body.status === "approved" ? "Approved ✓" : "Rejected ✗";
+            const msg = req.body.status === "approved"
+              ? "Your leave request has been approved."
+              : `Your leave request has been rejected.${req.body.rejectionReason ? " Reason: " + req.body.rejectionReason : ""}`;
+            await createNotification({ userId: empUserId, companyId: existing.companyId, type: `leave_${req.body.status}`, title: `Leave Request ${statusLabel}`, message: msg, link: "/leave" });
           }
-        } catch {}
+        } catch (err) {
+          console.error("[Notification] leave approval notify failed:", err);
+        }
       }
       res.json(updated);
     } catch (error) {
@@ -4442,14 +4483,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (isNowFinalized) {
         try {
           const emp = await storage.getEmployee(existing.employeeId);
-          if (emp && (emp as any).userId) {
+          const empUserId = await resolveEmployeeUserId(emp);
+          if (empUserId) {
             const label = req.body.status === "paid" ? "Salary Credited" : "Payslip Ready";
             const msg = req.body.status === "paid"
-              ? `Your salary for ${existing.month} ${existing.year} has been credited. ₹${Number((updated as any).netPay || 0).toLocaleString("en-IN")}`
-              : `Your payslip for ${existing.month} ${existing.year} has been generated.`;
-            await createNotification({ userId: (emp as any).userId, companyId: existing.companyId, type: "payroll_" + req.body.status, title: label, message: msg, link: "/payroll" });
+              ? `Your salary for ${existing.month} ${existing.year} has been credited. ₹${Number((updated as any).netPay || (updated as any).netSalary || 0).toLocaleString("en-IN")}`
+              : `Your payslip for ${existing.month} ${existing.year} has been generated. Please check the Payroll section.`;
+            await createNotification({ userId: empUserId, companyId: existing.companyId, type: "payroll_" + req.body.status, title: label, message: msg, link: "/payroll" });
           }
-        } catch {}
+        } catch (err) {
+          console.error("[Notification] payroll notify failed:", err);
+        }
       }
       res.json(updated);
     } catch (error) {
@@ -5302,14 +5346,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Notify HR/admins about new loan/advance request
       try {
         const requestUser = (req as any).user;
-        const allUsers = await db.query.users.findMany({});
-        const hrIds = allUsers.filter((u: any) => ["hr_admin","company_admin","super_admin"].includes(u.role) && (u.role === "super_admin" || u.companyId === record.companyId)).map((u: any) => u.id).filter((id: any) => id !== requestUser.id);
+        const hrIds = await getHrAdminIds(record.companyId, requestUser.id);
         const emp2 = await storage.getEmployee(record.employeeId);
-        const empName2 = emp2 ? `${emp2.firstName} ${emp2.lastName}` : requestUser.username;
+        const empName2 = emp2 ? `${emp2.firstName} ${emp2.lastName}` : (requestUser.username || requestUser.email);
         const typeLabel = record.type === "loan" ? "Loan" : "Salary Advance";
-        await createNotificationForMany(hrIds, { companyId: record.companyId, type: "loan_request", title: `New ${typeLabel} Request`, message: `${empName2} has applied for a ${typeLabel.toLowerCase()} of ₹${Number(record.amount).toLocaleString("en-IN")}.`, link: "/loan-advances" });
-        await createNotification({ userId: requestUser.id, companyId: record.companyId, type: "loan_submitted", title: `${typeLabel} Request Submitted`, message: `Your ${typeLabel.toLowerCase()} request of ₹${Number(record.amount).toLocaleString("en-IN")} has been submitted.`, link: "/loan-advances" });
-      } catch {}
+        if (hrIds.length > 0) {
+          await createNotificationForMany(hrIds, { companyId: record.companyId, type: "loan_request", title: `New ${typeLabel} Request`, message: `${empName2} has applied for a ${typeLabel.toLowerCase()} of ₹${Number(record.amount).toLocaleString("en-IN")}.`, link: "/loan-advances" });
+        }
+        await createNotification({ userId: requestUser.id, companyId: record.companyId, type: "loan_submitted", title: `${typeLabel} Request Submitted`, message: `Your ${typeLabel.toLowerCase()} request of ₹${Number(record.amount).toLocaleString("en-IN")} has been submitted and is awaiting approval.`, link: "/loan-advances" });
+      } catch (err) {
+        console.error("[Notification] loan submission notify failed:", err);
+      }
       res.status(201).json(record);
     } catch (error) {
       res.status(500).json({ error: "Failed to create loan/advance application" });
@@ -5369,11 +5416,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Notify employee of approval
       try {
         const loanEmp = await storage.getEmployee(record.employeeId);
-        if (loanEmp && (loanEmp as any).userId) {
+        const loanEmpUserId = await resolveEmployeeUserId(loanEmp);
+        if (loanEmpUserId) {
           const typeLabel = record.type === "loan" ? "Loan" : "Salary Advance";
-          await createNotification({ userId: (loanEmp as any).userId, companyId: record.companyId, type: "loan_approved", title: `${typeLabel} Approved ✓`, message: `Your ${typeLabel.toLowerCase()} request of ₹${Number(record.amount).toLocaleString("en-IN")} has been approved. EMI: ₹${Number(installmentAmount).toLocaleString("en-IN")}/month.`, link: "/loan-advances" });
+          await createNotification({ userId: loanEmpUserId, companyId: record.companyId, type: "loan_approved", title: `${typeLabel} Approved ✓`, message: `Your ${typeLabel.toLowerCase()} request of ₹${Number(record.amount).toLocaleString("en-IN")} has been approved. EMI: ₹${Number(installmentAmount).toLocaleString("en-IN")}/month.`, link: "/loan-advances" });
         }
-      } catch {}
+      } catch (err) {
+        console.error("[Notification] loan approval notify failed:", err);
+      }
       res.json(updated);
     } catch (error) {
       res.status(500).json({ error: "Failed to approve loan/advance" });
@@ -5462,11 +5512,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Notify employee of rejection
       try {
         const loanEmpR = await storage.getEmployee(record.employeeId);
-        if (loanEmpR && (loanEmpR as any).userId) {
+        const loanEmpRUserId = await resolveEmployeeUserId(loanEmpR);
+        if (loanEmpRUserId) {
           const typeLabel = record.type === "loan" ? "Loan" : "Salary Advance";
-          await createNotification({ userId: (loanEmpR as any).userId, companyId: record.companyId, type: "loan_rejected", title: `${typeLabel} Rejected`, message: `Your ${typeLabel.toLowerCase()} request of ₹${Number(record.amount).toLocaleString("en-IN")} was rejected. Reason: ${req.body.rejectionReason || "No reason provided"}.`, link: "/loan-advances" });
+          await createNotification({ userId: loanEmpRUserId, companyId: record.companyId, type: "loan_rejected", title: `${typeLabel} Rejected`, message: `Your ${typeLabel.toLowerCase()} request of ₹${Number(record.amount).toLocaleString("en-IN")} was rejected. Reason: ${req.body.rejectionReason || "No reason provided"}.`, link: "/loan-advances" });
         }
-      } catch {}
+      } catch (err) {
+        console.error("[Notification] loan rejection notify failed:", err);
+      }
       res.json(updated);
     } catch (error) {
       res.status(500).json({ error: "Failed to reject loan/advance" });
