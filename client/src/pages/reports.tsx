@@ -42,7 +42,7 @@ import { useToast } from "@/hooks/use-toast";
 import * as XLSX from "xlsx";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
-import type { Company, Employee, Payroll, SalaryStructure, Attendance, StatutorySettings, FnfSettlement, LeaveRequest, TimeOfficePolicy, Holiday, LoanAdvance, EarningHead, DeductionHead } from "@shared/schema";
+import type { Company, Employee, Payroll, SalaryStructure, Attendance, StatutorySettings, FnfSettlement, LeaveRequest, TimeOfficePolicy, Holiday, LoanAdvance, EarningHead, DeductionHead, ContractorMaster } from "@shared/schema";
 import { apiRequest } from "@/lib/queryClient";
 
 const months = [
@@ -97,6 +97,10 @@ export default function ReportsPage() {
   const [empSearchQuery, setEmpSearchQuery] = useState("");
   const [empSearchOpen, setEmpSearchOpen] = useState(false);
   const [selectedDate, setSelectedDate] = useState(format(new Date(), "yyyy-MM-dd"));
+  const [dwDept, setDwDept]   = useState<string>("");
+  const [dwDesig, setDwDesig] = useState<string>("");
+  const [dwLoc, setDwLoc]     = useState<string>("");
+  const [dwCont, setDwCont]   = useState<string>("");
 
   const { data: companies = [] } = useQuery<Company[]>({
     queryKey: ["/api/companies"],
@@ -227,6 +231,18 @@ export default function ReportsPage() {
       return res.json();
     },
     enabled: !!hasAccess && !!contractorPrincipalId && !!selectedContractorId,
+  });
+
+  const { data: contractorMastersList = [] } = useQuery<ContractorMaster[]>({
+    queryKey: ["/api/contractor-masters", selectedCompany],
+    queryFn: async () => {
+      const cid = selectedCompany && selectedCompany !== "__all__" ? selectedCompany : (user?.companyId || "");
+      const url = cid ? `/api/contractor-masters?companyId=${cid}` : "/api/contractor-masters";
+      const res = await fetch(url, { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: !!hasAccess,
   });
 
   const getStatutorySettings = (companyId: string | null): StatutorySettings | undefined => {
@@ -2205,39 +2221,57 @@ export default function ReportsPage() {
   };
 
   // ── Date-wise Attendance Report ──────────────────────────────────────────────
+  const dwParseToMinutes = (wh: string): number => {
+    if (!wh || wh === "—") return 0;
+    const hm = wh.match(/(\d+)h\s*(\d+)m/);
+    if (hm) return parseInt(hm[1]) * 60 + parseInt(hm[2]);
+    const colon = wh.match(/^(\d+):(\d+)/);
+    if (colon) return parseInt(colon[1]) * 60 + parseInt(colon[2]);
+    const dec = parseFloat(wh);
+    if (!isNaN(dec)) return Math.round(dec * 60);
+    return 0;
+  };
+  const dwMinsToHM = (m: number): string => `${Math.floor(m / 60)}h ${(m % 60).toString().padStart(2, "0")}m`;
+
   const getDatewiseRows = () => {
-    const emps = filteredEmployees;
     const statusLabel: Record<string, string> = {
       present: "Present", absent: "Absent", half_day: "Half Day",
       on_leave: "On Leave", holiday: "Holiday", weekend: "Weekend",
     };
-
-    const calcWorkHours = (inT: string | null, outT: string | null): string => {
+    const calcWH = (inT: string | null, outT: string | null): string => {
       if (!inT || !outT) return "—";
       const [ih, im] = inT.split(":").map(Number);
       const [oh, om] = outT.split(":").map(Number);
       let diff = (oh * 60 + om) - (ih * 60 + im);
       if (diff < 0) diff += 1440;
-      const h = Math.floor(diff / 60);
-      const m = diff % 60;
-      return `${h}h ${m.toString().padStart(2, "0")}m`;
+      return dwMinsToHM(diff);
     };
+
+    let emps = filteredEmployees;
+    if (dwDept)  emps = emps.filter(e => (e.department  || "—") === dwDept);
+    if (dwDesig) emps = emps.filter(e => (e.designation || "—") === dwDesig);
+    if (dwLoc)   emps = emps.filter(e => (e.location    || "—") === dwLoc);
+    if (dwCont)  emps = emps.filter(e => e.contractorMasterId === dwCont);
 
     return emps.map((emp, idx) => {
       const rec = attendance.find(a => a.employeeId === emp.id && a.date === selectedDate);
       const inTime  = rec?.clockIn  || "—";
       const outTime = rec?.clockOut || "—";
-      const wh = rec?.workHours
-        ? rec.workHours
-        : calcWorkHours(rec?.clockIn ?? null, rec?.clockOut ?? null);
-      const status = rec ? (statusLabel[rec.status] ?? rec.status) : "Absent";
+      const wh = rec?.workHours ? rec.workHours : calcWH(rec?.clockIn ?? null, rec?.clockOut ?? null);
+      const status  = rec ? (statusLabel[rec.status] ?? rec.status) : "Absent";
+      const cname   = contractorMastersList.find(c => c.id === emp.contractorMasterId)?.contractorName || "—";
       return {
-        sn: idx + 1,
-        name: `${emp.firstName} ${emp.lastName}`,
-        designation: emp.designation || "—",
+        sn:           idx + 1,
+        name:         `${emp.firstName} ${emp.lastName}`,
+        department:   emp.department   || "—",
+        designation:  emp.designation  || "—",
+        location:     emp.location     || "—",
+        contractor:   cname,
+        contractorId: emp.contractorMasterId || "",
         inTime,
         outTime,
-        workHours: wh,
+        workHours:    wh,
+        workMinutes:  dwParseToMinutes(wh),
         status,
       };
     });
@@ -2250,106 +2284,354 @@ export default function ReportsPage() {
       return;
     }
 
-    const dateLabel = selectedDate; // yyyy-MM-dd
-    const company = companies.find(c => c.id === effectiveCompany);
+    const dateLabel   = selectedDate;
+    const company     = companies.find(c => c.id === effectiveCompany);
     const companyName = company?.companyName || "All Companies";
 
+    // ── helper: build summary groups ──────────────────────────────────────────
+    const buildGroup = (key: keyof typeof rows[0]) => {
+      const map = new Map<string, number>();
+      rows.forEach(r => {
+        const k = String(r[key]);
+        map.set(k, (map.get(k) ?? 0) + r.workMinutes);
+      });
+      return [...map.entries()].sort((a, b) => b[1] - a[1]);
+    };
+    const deptSummary  = buildGroup("department");
+    const desigSummary = buildGroup("designation");
+    const locSummary   = buildGroup("location");
+    const contSummary  = buildGroup("contractor");
+
+    // ── EXCEL ─────────────────────────────────────────────────────────────────
     if (fileType === "excel") {
-      const excelRows = rows.map(r => ({
-        "S.N.": r.sn,
-        "Employee Name": r.name,
-        "Designation": r.designation,
-        "In Time": r.inTime,
-        "Out Time": r.outTime,
-        "Working Hours": r.workHours,
-        "Status": r.status,
+      const wb = XLSX.utils.book_new();
+
+      // Sheet 1 – Detail
+      const detailRows = rows.map(r => ({
+        "S.N.":           r.sn,
+        "Employee Name":  r.name,
+        "Department":     r.department,
+        "Designation":    r.designation,
+        "Location":       r.location,
+        "Contractor":     r.contractor,
+        "In Time":        r.inTime,
+        "Out Time":       r.outTime,
+        "Working Hours":  r.workHours,
+        "Status":         r.status,
       }));
-      downloadExcel(excelRows, `Datewise_Attendance_${dateLabel}`, "Date-wise Attendance");
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(detailRows), "Attendance");
+
+      // Sheet 2 – Summary
+      const summaryData: Record<string, string>[] = [
+        { "Category": "─── By Department ───", "Group": "", "Total Working Hours": "" },
+        ...deptSummary.map(([g, m]) => ({ "Category": "Department", "Group": g, "Total Working Hours": dwMinsToHM(m) })),
+        { "Category": "", "Group": "", "Total Working Hours": "" },
+        { "Category": "─── By Designation ───", "Group": "", "Total Working Hours": "" },
+        ...desigSummary.map(([g, m]) => ({ "Category": "Designation", "Group": g, "Total Working Hours": dwMinsToHM(m) })),
+        { "Category": "", "Group": "", "Total Working Hours": "" },
+        { "Category": "─── By Location ───", "Group": "", "Total Working Hours": "" },
+        ...locSummary.map(([g, m]) => ({ "Category": "Location", "Group": g, "Total Working Hours": dwMinsToHM(m) })),
+        { "Category": "", "Group": "", "Total Working Hours": "" },
+        { "Category": "─── By Contractor ───", "Group": "", "Total Working Hours": "" },
+        ...contSummary.map(([g, m]) => ({ "Category": "Contractor", "Group": g, "Total Working Hours": dwMinsToHM(m) })),
+      ];
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(summaryData), "Summary");
+
+      XLSX.writeFile(wb, `Datewise_Attendance_${dateLabel}.xlsx`);
+      toast({ title: "Downloaded", description: `Date-wise Attendance Excel for ${dateLabel} downloaded.` });
       return;
     }
 
-    // PDF
-    const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+    // ── PDF (Portrait A4, full-page margins 10mm) ──────────────────────────────
+    const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
     await loadHindiFont(doc);
     registerHindiFont(doc);
 
+    const ML  = 10; // margin left
+    const MR  = 10; // margin right
+    const MT  = 10; // margin top
     const pageW = doc.internal.pageSize.getWidth();
     const pageH = doc.internal.pageSize.getHeight();
-    let y = 12;
+    const usableW = pageW - ML - MR;
 
-    // Logo
+    const drawPageFooter = (pageNum: number) => {
+      doc.setFontSize(7);
+      doc.setTextColor(130);
+      doc.text(`Page ${pageNum}`, pageW - MR, pageH - 5, { align: "right" });
+      doc.text(`Generated: ${format(new Date(), "dd MMM yyyy HH:mm")}`, ML, pageH - 5);
+      doc.setTextColor(0);
+    };
+
+    // ── HEADER ────────────────────────────────────────────────────────────────
+    let y = MT;
+
     if (company?.logo) {
       try {
         const b64 = await loadImageBase64(company.logo);
-        doc.addImage(b64, "PNG", 10, y, 18, 18);
+        doc.addImage(b64, "PNG", ML, y, 18, 18);
       } catch {}
     }
 
-    // Header
     doc.setFont("Helvetica", "bold");
-    doc.setFontSize(13);
-    doc.text(companyName.toUpperCase(), pageW / 2, y + 4, { align: "center" });
-    doc.setFontSize(10);
-    doc.text("DATE-WISE ATTENDANCE REPORT", pageW / 2, y + 10, { align: "center" });
+    doc.setFontSize(14);
+    doc.text(companyName.toUpperCase(), pageW / 2, y + 6, { align: "center" });
+
+    doc.setFontSize(11);
+    doc.text("DATE-WISE ATTENDANCE REPORT", pageW / 2, y + 13, { align: "center" });
+
     doc.setFont("Helvetica", "normal");
     doc.setFontSize(9);
-    doc.text(`Date: ${dateLabel}`, pageW / 2, y + 16, { align: "center" });
-    y += 24;
+    const filterLine = [
+      `Date: ${dateLabel}`,
+      dwDept  ? `Dept: ${dwDept}`   : "",
+      dwDesig ? `Desig: ${dwDesig}` : "",
+      dwLoc   ? `Loc: ${dwLoc}`     : "",
+      dwCont  ? `Contractor: ${contractorMastersList.find(c => c.id === dwCont)?.contractorName ?? ""}` : "",
+    ].filter(Boolean).join("   |   ");
+    doc.text(filterLine, pageW / 2, y + 20, { align: "center" });
 
-    // Table
-    const tableHead = [["S.N.", "Employee Name", "Designation", "In Time", "Out Time", "Working Hours", "Status"]];
-    const tableBody = rows.map(r => [r.sn, r.name, r.designation, r.inTime, r.outTime, r.workHours, r.status]);
+    // Thin rule
+    y += 25;
+    doc.setDrawColor(30, 64, 175);
+    doc.setLineWidth(0.5);
+    doc.line(ML, y, pageW - MR, y);
+    y += 3;
 
+    // ── MAIN TABLE (grouped by department with subtotals) ─────────────────────
+    const departments = [...new Set(rows.map(r => r.department))].sort();
+    const HEADER_COLOR: [number, number, number] = [30, 64, 175];
+    const SUBTOTAL_COLOR: [number, number, number] = [220, 230, 255];
+    const ALT_ROW: [number, number, number] = [245, 248, 255];
+
+    const tableHead = [["S.N.", "Employee Name", "Department", "Designation", "Location", "In Time", "Out Time", "Working Hrs", "Status"]];
+    const tableBody: (string | number)[][] = [];
+
+    departments.forEach(dept => {
+      const dRows = rows.filter(r => r.department === dept);
+      dRows.forEach(r => {
+        tableBody.push([r.sn, r.name, r.department, r.designation, r.location, r.inTime, r.outTime, r.workHours, r.status]);
+      });
+      // Subtotal row for this department
+      const subtotalMins = dRows.reduce((s, r) => s + r.workMinutes, 0);
+      tableBody.push([
+        "", `Sub-total: ${dept} (${dRows.length} emp)`, "", "", "", "", "",
+        subtotalMins > 0 ? dwMinsToHM(subtotalMins) : "—", "",
+      ]);
+    });
+
+    let pageCount = 1;
     autoTable(doc, {
       head: tableHead,
       body: tableBody,
       startY: y,
+      margin: { left: ML, right: MR, bottom: 14 },
       theme: "grid",
-      styles: { fontSize: 8, cellPadding: 2 },
-      headStyles: { fillColor: [30, 64, 175], textColor: 255, fontStyle: "bold", halign: "center" },
+      styles: { fontSize: 7.5, cellPadding: 1.8, overflow: "linebreak" },
+      headStyles: { fillColor: HEADER_COLOR, textColor: 255, fontStyle: "bold", halign: "center", fontSize: 8 },
       columnStyles: {
-        0: { halign: "center", cellWidth: 12 },
-        1: { cellWidth: 50 },
-        2: { cellWidth: 45 },
-        3: { halign: "center", cellWidth: 22 },
-        4: { halign: "center", cellWidth: 22 },
-        5: { halign: "center", cellWidth: 28 },
-        6: { halign: "center", cellWidth: 22 },
+        0: { halign: "center", cellWidth: 10 },
+        1: { cellWidth: 38 },
+        2: { cellWidth: 25 },
+        3: { cellWidth: 28 },
+        4: { cellWidth: 22 },
+        5: { halign: "center", cellWidth: 18 },
+        6: { halign: "center", cellWidth: 18 },
+        7: { halign: "center", cellWidth: 18, fontStyle: "bold" },
+        8: { halign: "center", cellWidth: 16 },
       },
-      alternateRowStyles: { fillColor: [240, 245, 255] },
+      alternateRowStyles: { fillColor: ALT_ROW },
+      willDrawCell: (data) => {
+        // Style subtotal rows
+        if (data.section === "body") {
+          const cell0 = data.row.cells[0];
+          const cell1 = data.row.cells[1];
+          const text0 = Array.isArray(cell0?.text) ? cell0.text.join("") : String(cell0?.text ?? "");
+          const text1 = Array.isArray(cell1?.text) ? cell1.text.join("") : String(cell1?.text ?? "");
+          if (text0 === "" && text1.startsWith("Sub-total:")) {
+            doc.setFillColor(SUBTOTAL_COLOR[0], SUBTOTAL_COLOR[1], SUBTOTAL_COLOR[2]);
+            doc.rect(data.cell.x, data.cell.y, data.cell.width, data.cell.height, "F");
+            doc.setFont("Helvetica", "bold");
+            doc.setFontSize(7.5);
+            doc.setTextColor(30, 64, 175);
+          } else {
+            doc.setFont("Helvetica", "normal");
+            doc.setTextColor(0);
+          }
+        }
+      },
       didDrawPage: (data) => {
-        doc.setFontSize(7);
-        doc.setTextColor(120);
-        doc.text(`Page ${data.pageNumber}`, pageW - 14, pageH - 6, { align: "right" });
-        doc.text(`Generated: ${format(new Date(), "dd MMM yyyy HH:mm")}`, 14, pageH - 6);
-        doc.setTextColor(0);
+        drawPageFooter(pageCount++);
       },
     });
 
-    // Summary footer
-    const afterY = (doc as any).lastAutoTable.finalY + 4;
-    const total   = rows.length;
+    // Grand total row
+    const grandMins = rows.reduce((s, r) => s + r.workMinutes, 0);
+    const grandY = (doc as any).lastAutoTable.finalY + 4;
     const present = rows.filter(r => r.status === "Present").length;
     const absent  = rows.filter(r => r.status === "Absent").length;
     const halfDay = rows.filter(r => r.status === "Half Day").length;
     const onLeave = rows.filter(r => r.status === "On Leave").length;
-    const holiday = rows.filter(r => r.status === "Holiday" || r.status === "Weekend").length;
+    const holiday = rows.filter(r => ["Holiday", "Weekend"].includes(r.status)).length;
 
     doc.setFont("Helvetica", "bold");
     doc.setFontSize(8);
+    doc.setTextColor(30, 64, 175);
     doc.text(
-      `Total: ${total}  |  Present: ${present}  |  Absent: ${absent}  |  Half Day: ${halfDay}  |  On Leave: ${onLeave}  |  Holiday/Weekend: ${holiday}`,
-      pageW / 2, afterY, { align: "center" }
+      `GRAND TOTAL: ${rows.length} Employees  |  Present: ${present}  |  Absent: ${absent}  |  Half Day: ${halfDay}  |  On Leave: ${onLeave}  |  Holiday/WD: ${holiday}  |  Total Working Hours: ${dwMinsToHM(grandMins)}`,
+      pageW / 2, grandY, { align: "center", maxWidth: usableW }
+    );
+    doc.setTextColor(0);
+
+    // ── SUMMARY PAGE ──────────────────────────────────────────────────────────
+    doc.addPage();
+    drawPageFooter(pageCount++);
+    y = MT;
+
+    doc.setFont("Helvetica", "bold");
+    doc.setFontSize(12);
+    doc.setTextColor(30, 64, 175);
+    doc.text("ATTENDANCE SUMMARY", pageW / 2, y + 6, { align: "center" });
+    doc.setFontSize(9);
+    doc.setFont("Helvetica", "normal");
+    doc.setTextColor(80);
+    doc.text(`Date: ${dateLabel}  |  Company: ${companyName}`, pageW / 2, y + 13, { align: "center" });
+    doc.setTextColor(0);
+    y += 20;
+    doc.setDrawColor(30, 64, 175);
+    doc.line(ML, y, pageW - MR, y);
+    y += 5;
+
+    const drawSummaryTable = (title: string, data: [string, number][], startY: number): number => {
+      doc.setFont("Helvetica", "bold");
+      doc.setFontSize(9);
+      doc.setTextColor(30, 64, 175);
+      doc.text(title, ML, startY);
+      doc.setTextColor(0);
+
+      autoTable(doc, {
+        head: [["#", title.replace(" Summary", ""), "Total Working Hours"]],
+        body: data.map(([g, m], i) => [i + 1, g, dwMinsToHM(m)]),
+        startY: startY + 3,
+        margin: { left: ML, right: ML + usableW / 2 + 2 },
+        theme: "grid",
+        styles: { fontSize: 8, cellPadding: 2 },
+        headStyles: { fillColor: HEADER_COLOR, textColor: 255, fontStyle: "bold" },
+        columnStyles: {
+          0: { halign: "center", cellWidth: 10 },
+          1: { cellWidth: 60 },
+          2: { halign: "center", cellWidth: 35, fontStyle: "bold" },
+        },
+        alternateRowStyles: { fillColor: ALT_ROW },
+        didParseCell: (data) => {
+          if (data.section === "body" && data.column.index === 2) {
+            data.cell.styles.textColor = [30, 64, 175];
+          }
+        },
+      });
+      return (doc as any).lastAutoTable.finalY + 8;
+    };
+
+    // Two-column layout for summary tables
+    const halfW  = usableW / 2 - 3;
+    const col2X  = ML + halfW + 6;
+
+    // Dept summary (left)
+    doc.setFont("Helvetica", "bold"); doc.setFontSize(9); doc.setTextColor(30, 64, 175);
+    doc.text("Department Summary", ML, y);
+    autoTable(doc, {
+      head: [["#", "Department", "Total Working Hours"]],
+      body: deptSummary.map(([g, m], i) => [i + 1, g, dwMinsToHM(m)]),
+      startY: y + 3,
+      margin: { left: ML, right: col2X },
+      theme: "grid",
+      styles: { fontSize: 8, cellPadding: 2 },
+      headStyles: { fillColor: HEADER_COLOR, textColor: 255, fontStyle: "bold" },
+      columnStyles: { 0: { halign: "center", cellWidth: 8 }, 1: {}, 2: { halign: "center", fontStyle: "bold", textColor: [30, 64, 175] as [number,number,number] } },
+      alternateRowStyles: { fillColor: ALT_ROW },
+    });
+    const deptEndY = (doc as any).lastAutoTable.finalY;
+
+    // Designation summary (right)
+    doc.setTextColor(30, 64, 175);
+    doc.text("Designation Summary", col2X, y);
+    autoTable(doc, {
+      head: [["#", "Designation", "Total Working Hours"]],
+      body: desigSummary.map(([g, m], i) => [i + 1, g, dwMinsToHM(m)]),
+      startY: y + 3,
+      margin: { left: col2X, right: MR },
+      theme: "grid",
+      styles: { fontSize: 8, cellPadding: 2 },
+      headStyles: { fillColor: HEADER_COLOR, textColor: 255, fontStyle: "bold" },
+      columnStyles: { 0: { halign: "center", cellWidth: 8 }, 1: {}, 2: { halign: "center", fontStyle: "bold", textColor: [30, 64, 175] as [number,number,number] } },
+      alternateRowStyles: { fillColor: ALT_ROW },
+    });
+    const desigEndY = (doc as any).lastAutoTable.finalY;
+
+    y = Math.max(deptEndY, desigEndY) + 10;
+
+    // Location summary (left)
+    doc.setTextColor(30, 64, 175);
+    doc.text("Location Summary", ML, y);
+    autoTable(doc, {
+      head: [["#", "Location", "Total Working Hours"]],
+      body: locSummary.map(([g, m], i) => [i + 1, g, dwMinsToHM(m)]),
+      startY: y + 3,
+      margin: { left: ML, right: col2X },
+      theme: "grid",
+      styles: { fontSize: 8, cellPadding: 2 },
+      headStyles: { fillColor: HEADER_COLOR, textColor: 255, fontStyle: "bold" },
+      columnStyles: { 0: { halign: "center", cellWidth: 8 }, 1: {}, 2: { halign: "center", fontStyle: "bold", textColor: [30, 64, 175] as [number,number,number] } },
+      alternateRowStyles: { fillColor: ALT_ROW },
+    });
+    const locEndY = (doc as any).lastAutoTable.finalY;
+
+    // Contractor summary (right)
+    doc.setTextColor(30, 64, 175);
+    doc.text("Contractor Summary", col2X, y);
+    autoTable(doc, {
+      head: [["#", "Contractor Name", "Total Working Hours"]],
+      body: contSummary.map(([g, m], i) => [i + 1, g, dwMinsToHM(m)]),
+      startY: y + 3,
+      margin: { left: col2X, right: MR },
+      theme: "grid",
+      styles: { fontSize: 8, cellPadding: 2 },
+      headStyles: { fillColor: HEADER_COLOR, textColor: 255, fontStyle: "bold" },
+      columnStyles: { 0: { halign: "center", cellWidth: 8 }, 1: {}, 2: { halign: "center", fontStyle: "bold", textColor: [30, 64, 175] as [number,number,number] } },
+      alternateRowStyles: { fillColor: ALT_ROW },
+    });
+    const contEndY = (doc as any).lastAutoTable.finalY;
+
+    doc.setTextColor(0);
+    y = Math.max(locEndY, contEndY) + 10;
+
+    // Grand totals box at bottom of summary
+    doc.setDrawColor(30, 64, 175);
+    doc.setLineWidth(0.4);
+    doc.roundedRect(ML, y, usableW, 14, 2, 2, "S");
+    doc.setFont("Helvetica", "bold");
+    doc.setFontSize(9);
+    doc.setTextColor(30, 64, 175);
+    doc.text("OVERALL SUMMARY", pageW / 2, y + 5.5, { align: "center" });
+    doc.setFont("Helvetica", "normal");
+    doc.setFontSize(8);
+    doc.setTextColor(0);
+    doc.text(
+      `Employees: ${rows.length}  |  Present: ${present}  |  Absent: ${absent}  |  Half Day: ${halfDay}  |  On Leave: ${onLeave}  |  Holiday/WD: ${holiday}  |  Total Hours: ${dwMinsToHM(grandMins)}`,
+      pageW / 2, y + 11, { align: "center", maxWidth: usableW - 4 }
     );
 
     doc.save(`Datewise_Attendance_${dateLabel}.pdf`);
-    toast({ title: "Downloaded", description: `Date-wise Attendance report for ${dateLabel} downloaded.` });
+    toast({ title: "Downloaded", description: `Date-wise Attendance report for ${dateLabel} saved.` });
   };
 
   const viewDatewiseAttendance = () => {
     const rows = getDatewiseRows();
-    const headers = ["S.N.", "Employee Name", "Designation", "In Time", "Out Time", "Working Hours", "Status"];
-    openViewDialog(`Date-wise Attendance — ${selectedDate}`, headers, rows.map(r => [r.sn, r.name, r.designation, r.inTime, r.outTime, r.workHours, r.status]));
+    const headers = ["S.N.", "Employee Name", "Department", "Designation", "Location", "Contractor", "In Time", "Out Time", "Working Hours", "Status"];
+    openViewDialog(
+      `Date-wise Attendance — ${selectedDate}`,
+      headers,
+      rows.map(r => [r.sn, r.name, r.department, r.designation, r.location, r.contractor, r.inTime, r.outTime, r.workHours, r.status])
+    );
   };
 
   const viewSalarySheet = (empOverride?: Employee[]) => {
@@ -5217,6 +5499,66 @@ export default function ReportsPage() {
                 <Input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)} className="w-40 h-9" data-testid="filter-date" />
               </div>
             )}
+
+            {/* Date-wise Attendance sub-filters: Dept / Designation / Location / Contractor */}
+            {activeTab === "attendance" && (() => {
+              const uniq = <T extends string>(arr: T[]) => [...new Set(arr)].sort();
+              const depts  = uniq(filteredEmployees.map(e => e.department  || "—"));
+              const desigs = uniq(filteredEmployees.map(e => e.designation || "—"));
+              const locs   = uniq(filteredEmployees.map(e => e.location    || "—"));
+              return (
+                <>
+                  {depts.length > 0 && (
+                    <div className="flex items-center gap-2">
+                      <label className="text-sm font-medium whitespace-nowrap">Dept:</label>
+                      <Select value={dwDept || "__all__"} onValueChange={v => setDwDept(v === "__all__" ? "" : v)}>
+                        <SelectTrigger className="h-9 w-36" data-testid="filter-dw-dept"><SelectValue placeholder="All Depts" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__all__">All Depts</SelectItem>
+                          {depts.map(d => <SelectItem key={d} value={d}>{d}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+                  {desigs.length > 0 && (
+                    <div className="flex items-center gap-2">
+                      <label className="text-sm font-medium whitespace-nowrap">Designation:</label>
+                      <Select value={dwDesig || "__all__"} onValueChange={v => setDwDesig(v === "__all__" ? "" : v)}>
+                        <SelectTrigger className="h-9 w-40" data-testid="filter-dw-desig"><SelectValue placeholder="All Desigs" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__all__">All Designations</SelectItem>
+                          {desigs.map(d => <SelectItem key={d} value={d}>{d}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+                  {locs.length > 0 && (
+                    <div className="flex items-center gap-2">
+                      <label className="text-sm font-medium whitespace-nowrap">Location:</label>
+                      <Select value={dwLoc || "__all__"} onValueChange={v => setDwLoc(v === "__all__" ? "" : v)}>
+                        <SelectTrigger className="h-9 w-36" data-testid="filter-dw-loc"><SelectValue placeholder="All Locations" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__all__">All Locations</SelectItem>
+                          {locs.map(l => <SelectItem key={l} value={l}>{l}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+                  {contractorMastersList.length > 0 && (
+                    <div className="flex items-center gap-2">
+                      <label className="text-sm font-medium whitespace-nowrap">Contractor:</label>
+                      <Select value={dwCont || "__all__"} onValueChange={v => setDwCont(v === "__all__" ? "" : v)}>
+                        <SelectTrigger className="h-9 w-44" data-testid="filter-dw-cont"><SelectValue placeholder="All Contractors" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__all__">All Contractors</SelectItem>
+                          {contractorMastersList.map(c => <SelectItem key={c.id} value={c.id}>{c.contractorName}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+                </>
+              );
+            })()}
 
             {/* Period */}
             {showPeriodFilter && <PeriodPicker />}
