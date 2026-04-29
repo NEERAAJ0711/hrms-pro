@@ -97,10 +97,11 @@ export default function ReportsPage() {
   const [empSearchQuery, setEmpSearchQuery] = useState("");
   const [empSearchOpen, setEmpSearchOpen] = useState(false);
   const [selectedDate, setSelectedDate] = useState(format(new Date(), "yyyy-MM-dd"));
-  const [dwDept, setDwDept]   = useState<string>("");
-  const [dwDesig, setDwDesig] = useState<string>("");
-  const [dwLoc, setDwLoc]     = useState<string>("");
-  const [dwCont, setDwCont]   = useState<string>("");
+  const [dwDept, setDwDept]         = useState<string>("");
+  const [dwDesig, setDwDesig]       = useState<string>("");
+  const [dwLoc, setDwLoc]           = useState<string>("");
+  const [dwCont, setDwCont]         = useState<string>("");
+  const [dwSubtotalBy, setDwSubtotalBy] = useState<string>("department");
 
   const { data: companies = [] } = useQuery<Company[]>({
     queryKey: ["/api/companies"],
@@ -2397,27 +2398,39 @@ export default function ReportsPage() {
     doc.line(ML, y, pageW - MR, y);
     y += 3;
 
-    // ── MAIN TABLE (grouped by department with subtotals) ─────────────────────
-    const departments = [...new Set(rows.map(r => r.department))].sort();
+    // ── MAIN TABLE (grouped by selected dimension with subtotals) ────────────
     const HEADER_COLOR: [number, number, number] = [30, 64, 175];
     const SUBTOTAL_COLOR: [number, number, number] = [220, 230, 255];
     const ALT_ROW: [number, number, number] = [245, 248, 255];
 
+    type RowKey = "department" | "designation" | "location" | "contractor";
+    const groupKey: RowKey | "none" = dwSubtotalBy as RowKey | "none";
+    const groupLabel: Record<string, string> = {
+      department: "Department", designation: "Designation",
+      location: "Location", contractor: "Contractor", none: "None",
+    };
+
     const tableHead = [["S.N.", "Employee Name", "Department", "Designation", "Location", "In Time", "Out Time", "Working Hrs", "Status"]];
     const tableBody: (string | number)[][] = [];
 
-    departments.forEach(dept => {
-      const dRows = rows.filter(r => r.department === dept);
-      dRows.forEach(r => {
+    if (groupKey === "none") {
+      rows.forEach(r => {
         tableBody.push([r.sn, r.name, r.department, r.designation, r.location, r.inTime, r.outTime, r.workHours, r.status]);
       });
-      // Subtotal row for this department
-      const subtotalMins = dRows.reduce((s, r) => s + r.workMinutes, 0);
-      tableBody.push([
-        "", `Sub-total: ${dept} (${dRows.length} emp)`, "", "", "", "", "",
-        subtotalMins > 0 ? dwMinsToHM(subtotalMins) : "—", "",
-      ]);
-    });
+    } else {
+      const groups = [...new Set(rows.map(r => r[groupKey]))].sort();
+      groups.forEach(group => {
+        const gRows = rows.filter(r => r[groupKey] === group);
+        gRows.forEach(r => {
+          tableBody.push([r.sn, r.name, r.department, r.designation, r.location, r.inTime, r.outTime, r.workHours, r.status]);
+        });
+        const subtotalMins = gRows.reduce((s, r) => s + r.workMinutes, 0);
+        tableBody.push([
+          "", `Sub-total [${groupLabel[groupKey]}]: ${group} (${gRows.length} emp)`, "", "", "", "", "",
+          subtotalMins > 0 ? dwMinsToHM(subtotalMins) : "—", "",
+        ]);
+      });
+    }
 
     let pageCount = 1;
     autoTable(doc, {
@@ -2447,7 +2460,7 @@ export default function ReportsPage() {
           const cell1 = data.row.cells[1];
           const text0 = Array.isArray(cell0?.text) ? cell0.text.join("") : String(cell0?.text ?? "");
           const text1 = Array.isArray(cell1?.text) ? cell1.text.join("") : String(cell1?.text ?? "");
-          if (text0 === "" && text1.startsWith("Sub-total:")) {
+          if (text0 === "" && text1.startsWith("Sub-total")) {
             doc.setFillColor(SUBTOTAL_COLOR[0], SUBTOTAL_COLOR[1], SUBTOTAL_COLOR[2]);
             doc.rect(data.cell.x, data.cell.y, data.cell.width, data.cell.height, "F");
             doc.setFont("Helvetica", "bold");
@@ -5500,7 +5513,7 @@ export default function ReportsPage() {
               </div>
             )}
 
-            {/* Date-wise Attendance sub-filters: Dept / Designation / Location / Contractor */}
+            {/* Date-wise Attendance sub-filters: Subtotal By / Dept / Designation / Location / Contractor */}
             {activeTab === "attendance" && (() => {
               const uniq = <T extends string>(arr: T[]) => [...new Set(arr)].sort();
               const depts  = uniq(filteredEmployees.map(e => e.department  || "—"));
@@ -5508,6 +5521,21 @@ export default function ReportsPage() {
               const locs   = uniq(filteredEmployees.map(e => e.location    || "—"));
               return (
                 <>
+                  {/* Subtotal By */}
+                  <div className="flex items-center gap-2">
+                    <label className="text-sm font-medium whitespace-nowrap">Subtotal By:</label>
+                    <Select value={dwSubtotalBy} onValueChange={setDwSubtotalBy}>
+                      <SelectTrigger className="h-9 w-38" data-testid="filter-dw-subtotal-by"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="department">Department</SelectItem>
+                        <SelectItem value="designation">Designation</SelectItem>
+                        <SelectItem value="location">Location</SelectItem>
+                        <SelectItem value="contractor">Contractor</SelectItem>
+                        <SelectItem value="none">None</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
                   {depts.length > 0 && (
                     <div className="flex items-center gap-2">
                       <label className="text-sm font-medium whitespace-nowrap">Dept:</label>
