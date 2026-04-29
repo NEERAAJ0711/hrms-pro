@@ -29,13 +29,15 @@ import {
   Building2,
   BookOpen,
   SlidersHorizontal,
+  Search,
+  ChevronRight,
+  Filter,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import * as XLSX from "xlsx";
 import { jsPDF } from "jspdf";
@@ -84,7 +86,7 @@ export default function ReportsPage() {
   const [customFromMonth, setCustomFromMonth] = useState(format(new Date(), "yyyy-MM"));
   const [customToMonth, setCustomToMonth] = useState(format(new Date(), "yyyy-MM"));
   const [docEmployee, setDocEmployee] = useState<string>("");
-  const [activeTab, setActiveTab] = useState("monthly");
+  const [activeTab, setActiveTab] = useState("all");
   const [contractorPrincipalId, setContractorPrincipalId] = useState<string>(isSuperAdmin ? "" : (user?.companyId || ""));
   const [selectedContractorId, setSelectedContractorId] = useState<string>("");
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
@@ -4821,276 +4823,261 @@ export default function ReportsPage() {
   ];
   const ctrlSelected = ctrlAllReports.find(r => r.key === ctrlReport) ?? null;
 
+  // ─── Categorized report definitions ─────────────────────────────────────────
+  const attendanceReports = [
+    { title: "Attendance Sheet", description: "Monthly attendance record with day-wise status, present/absent counts and OT hours", icon: Calendar, color: "text-blue-600", bgColor: "bg-blue-50 dark:bg-blue-950", generate: generateAttendanceSheet, view: viewAttendanceSheet },
+    { title: "Monthly Attendance Register", description: "Grid-format register with daily shift, punch in/out, working hours, OT and status for the full month", icon: CalendarRange, color: "text-violet-600", bgColor: "bg-violet-50 dark:bg-violet-950", generate: generateMonthlyAttendanceRegister, view: viewMonthlyAttendanceRegister, pdfOnly: true },
+    { title: "Attendance Punch Report", description: "Daily in/out punch times for all employees with timings based on duty schedule", icon: Clock, color: "text-sky-600", bgColor: "bg-sky-50 dark:bg-sky-950", generate: generateAttendancePunchReport, view: viewAttendancePunchReport },
+    { title: "Individual Attendance Sheet", description: "Per-employee detailed attendance with daily shift, punch times, working hours, OT and status for selected month", icon: ClipboardList, color: "text-indigo-600", bgColor: "bg-indigo-50 dark:bg-indigo-950", generate: generateIndividualAttendanceSheet, view: viewIndividualAttendanceSheet, pdfOnly: true },
+    { title: "Leave Report", description: "Employee-wise leave application history with leave type, dates, duration, reason and approval status", icon: CalendarX, color: "text-purple-600", bgColor: "bg-purple-50 dark:bg-purple-950", generate: generateLeaveReport, view: viewLeaveReport },
+  ];
+
+  const payrollReports = [
+    { title: "Salary Sheet", description: "Monthly salary register with earnings breakdown, deductions, and net salary for payroll processing", icon: CreditCard, color: "text-green-600", bgColor: "bg-green-50 dark:bg-green-950", generate: generateSalarySheet, view: viewSalarySheet },
+    { title: "Pay Slip", description: "Individual employee pay slips with complete earnings, deductions, and net salary details", icon: FileText, color: "text-red-600", bgColor: "bg-red-50 dark:bg-red-950", generate: generatePaySlip, view: viewPaySlip },
+    { title: "CTC Register", description: "Cost-to-company register showing all employees with full CTC components and employer contribution summary", icon: Building2, color: "text-teal-600", bgColor: "bg-teal-50 dark:bg-teal-950", generate: generateCTCRegister, view: viewCTCRegister },
+    { title: "Full & Final Settlement", description: "Settlement report for exited employees with earnings, deductions, and net payable amounts", icon: HandCoins, color: "text-rose-600", bgColor: "bg-rose-50 dark:bg-rose-950", generate: generateFnFReport, view: viewFnFReport },
+    { title: "Advance & Loan Report", description: "All employee loans and advances with amounts, installment schedule, remaining balance and current status", icon: Banknote, color: "text-emerald-600", bgColor: "bg-emerald-50 dark:bg-emerald-950", generate: generateAdvanceReport, view: viewAdvanceReport },
+  ];
+
+  const statutoryReports = [
+    { title: "PF Statement (ECR)", description: "Electronic Challan cum Return format with UAN, EPF/EPS wages, and contribution details", icon: Shield, color: "text-purple-600", bgColor: "bg-purple-50 dark:bg-purple-950", generate: generatePFStatement, view: viewPFStatement },
+    { title: "ESIC Statement", description: "Monthly ESIC contribution statement with IP and employer contribution breakdowns", icon: Receipt, color: "text-orange-600", bgColor: "bg-orange-50 dark:bg-orange-950", generate: generateESICStatement, view: viewESICStatement },
+    { title: "LWF Report", description: "Labour Welfare Fund statement with employee and employer contribution breakdowns", icon: Scale, color: "text-cyan-600", bgColor: "bg-cyan-50 dark:bg-cyan-950", generate: generateLWFReport, view: viewLWFReport },
+    { title: "Bonus Report", description: "Statutory bonus statement for all bonus-applicable employees with calculation details", icon: Landmark, color: "text-amber-600", bgColor: "bg-amber-50 dark:bg-amber-950", generate: generateBonusReport, view: viewBonusReport },
+  ];
+
+  const annualReports = [
+    { title: "Yearly PF Summary", description: "Month-wise PF employee and employer contributions for all PF-applicable employees", icon: Shield, color: "text-purple-600", bgColor: "bg-purple-50 dark:bg-purple-950", generate: generateYearlyPFSummary, view: viewYearlyPFSummary },
+    { title: "Yearly ESIC Summary", description: "Month-wise ESIC IP and employer contributions for all ESIC-applicable employees", icon: Receipt, color: "text-orange-600", bgColor: "bg-orange-50 dark:bg-orange-950", generate: generateYearlyESICSummary, view: viewYearlyESICSummary },
+    { title: "Yearly Salary Detail", description: "Month-wise gross and net salary breakdown for all employees — full-year payroll register", icon: TrendingUp, color: "text-green-600", bgColor: "bg-green-50 dark:bg-green-950", generate: generateYearlySalaryDetail, view: viewYearlySalaryDetail },
+  ];
+
+  const employeeReports = [
+    { title: "Employee List", description: "Complete employee directory with personal details, department, designation, and contact info", icon: Users, color: "text-teal-600", bgColor: "bg-teal-50 dark:bg-teal-950", generate: generateEmployeeList, view: viewEmployeeList },
+    { title: "Employee Personal File", description: "Complete personal and employment profile including salary, statutory details, bank info, and address", icon: FileUser, color: "text-indigo-600", bgColor: "bg-indigo-50 dark:bg-indigo-950", generate: generateEmployeePersonalFile, view: viewEmployeePersonalFile },
+    { title: "Employee Pay Structure", description: "Salary component breakdown for each employee including basic, allowances, and statutory applicability", icon: ClipboardList, color: "text-blue-600", bgColor: "bg-blue-50 dark:bg-blue-950", generate: generateEmployeePayStructure, view: viewEmployeePayStructure },
+  ];
+
+  const hrDocReports = [
+    { title: "Offer Letter", description: "Generate formal offer letter with designation, department, joining date, and CTC breakdown", icon: FilePen, color: "text-sky-600", bgColor: "bg-sky-50 dark:bg-sky-950", generate: generateOfferLetter, view: () => toast({ title: "PDF Only", description: "Offer Letter is available as PDF download only." }), pdfOnly: true },
+    { title: "Appointment Letter", description: "Generate formal appointment letter with terms, compensation details, and acceptance section", icon: BookOpen, color: "text-violet-600", bgColor: "bg-violet-50 dark:bg-violet-950", generate: generateAppointmentLetter, view: () => toast({ title: "PDF Only", description: "Appointment Letter is available as PDF download only." }), pdfOnly: true },
+    { title: "Employee Leave Register", description: "Year-wise leave register showing approved leaves by type for each employee with day counts", icon: CalendarRange, color: "text-rose-600", bgColor: "bg-rose-50 dark:bg-rose-950", generate: generateEmployeeLeaveRegister, view: viewEmployeeLeaveRegister },
+  ];
+
+  // ─── Sidebar categories ───────────────────────────────────────────────────
+  const totalCount = attendanceReports.length + payrollReports.length + statutoryReports.length + annualReports.length + employeeReports.length + hrDocReports.length + contractorCards.length;
+
+  const sidebarCategories = [
+    { id: "all",        label: "All Reports",           icon: BarChart3,     color: "text-gray-600",     activeBg: "bg-gray-100 dark:bg-gray-800",       count: totalCount },
+    { id: "attendance", label: "Attendance & Time",     icon: Calendar,      color: "text-blue-600",     activeBg: "bg-blue-50 dark:bg-blue-950",        count: attendanceReports.length },
+    { id: "payroll",    label: "Payroll & Salary",      icon: CreditCard,    color: "text-green-600",    activeBg: "bg-green-50 dark:bg-green-950",      count: payrollReports.length },
+    { id: "statutory",  label: "Statutory Compliance",  icon: Shield,        color: "text-purple-600",   activeBg: "bg-purple-50 dark:bg-purple-950",    count: statutoryReports.length },
+    { id: "annual",     label: "Annual Reports",        icon: TrendingUp,    color: "text-amber-600",    activeBg: "bg-amber-50 dark:bg-amber-950",      count: annualReports.length },
+    { id: "employee",   label: "Employee Records",      icon: UserRound,     color: "text-teal-600",     activeBg: "bg-teal-50 dark:bg-teal-950",        count: employeeReports.length },
+    { id: "hr",         label: "HR Documents",          icon: FilePen,       color: "text-sky-600",      activeBg: "bg-sky-50 dark:bg-sky-950",          count: hrDocReports.length },
+    { id: "contractor", label: "Contractor Reports",    icon: Building2,     color: "text-rose-600",     activeBg: "bg-rose-50 dark:bg-rose-950",        count: contractorCards.length },
+  ];
+
+  // ─── Which reports are shown for active category ──────────────────────────
+  const reportsByCategory: Record<string, typeof attendanceReports> = {
+    attendance: attendanceReports,
+    payroll:    payrollReports,
+    statutory:  statutoryReports,
+    annual:     annualReports,
+    employee:   employeeReports,
+    hr:         hrDocReports,
+    contractor: contractorCards as typeof attendanceReports,
+  };
+
+  // ─── Contextual filter bar content ────────────────────────────────────────
+  const showMonthFilter   = ["all", "attendance", "payroll", "statutory"].includes(activeTab);
+  const showPeriodFilter  = ["all", "annual", "employee", "hr"].includes(activeTab);
+  const showEmpFilter     = ["all", "employee", "hr", "payroll"].includes(activeTab);
+  const showContractor    = activeTab === "contractor";
+
+  const EmployeePicker = () => {
+    const selectedEmp = filteredEmployees.find(e => e.id === docEmployee);
+    const empMatches  = filteredEmployees.filter(e => {
+      const q = empSearchQuery.toLowerCase();
+      return !q || `${e.firstName} ${e.lastName}`.toLowerCase().includes(q) || e.employeeCode.toLowerCase().includes(q);
+    });
+    return (
+      <div className="flex items-center gap-2">
+        <label className="text-sm font-medium whitespace-nowrap">Employee:</label>
+        <div className="relative">
+          <Input
+            data-testid="emp-search-input"
+            placeholder="Search employee…"
+            className="w-56 h-9"
+            value={empSearchOpen ? empSearchQuery : (selectedEmp ? `${selectedEmp.firstName} ${selectedEmp.lastName} (${selectedEmp.employeeCode})` : "")}
+            onFocus={() => { setEmpSearchOpen(true); setEmpSearchQuery(""); }}
+            onChange={e => setEmpSearchQuery(e.target.value)}
+            onBlur={() => setTimeout(() => setEmpSearchOpen(false), 150)}
+            autoComplete="off"
+          />
+          {empSearchOpen && (
+            <div className="absolute z-50 w-full mt-1 bg-popover border rounded-md shadow-lg max-h-56 overflow-y-auto">
+              <div className="cursor-pointer px-3 py-2 text-sm hover:bg-accent text-muted-foreground" onMouseDown={() => { setDocEmployee(""); setEmpSearchOpen(false); setEmpSearchQuery(""); }}>All Employees</div>
+              {empMatches.map(e => (
+                <div key={e.id} className={`cursor-pointer px-3 py-2 text-sm hover:bg-accent flex items-center justify-between ${docEmployee === e.id ? "bg-accent/60 font-medium" : ""}`} onMouseDown={() => { setDocEmployee(e.id); setEmpSearchOpen(false); setEmpSearchQuery(""); }}>
+                  <span>{e.firstName} {e.lastName}</span>
+                  <span className="text-xs text-muted-foreground ml-2">{e.employeeCode}</span>
+                </div>
+              ))}
+              {empMatches.length === 0 && <div className="px-3 py-2 text-sm text-muted-foreground">No employees found</div>}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  // ─── Enhanced card renderer ───────────────────────────────────────────────
+  const renderEnhancedCard = (report: { title: string; description: string; icon: React.ElementType; color: string; bgColor: string; generate: (f: "excel" | "pdf") => void; view: () => void; pdfOnly?: boolean }) => (
+    <Card key={report.title} className="group hover:shadow-md transition-all duration-200 border hover:border-primary/20 flex flex-col">
+      <CardHeader className="pb-3 flex-1">
+        <div className="flex items-start gap-3">
+          <div className={`p-2.5 rounded-xl ${report.bgColor} shrink-0 group-hover:scale-105 transition-transform`}>
+            <report.icon className={`h-5 w-5 ${report.color}`} />
+          </div>
+          <div className="flex-1 min-w-0">
+            <CardTitle className="text-sm font-semibold leading-tight mb-1">{report.title}</CardTitle>
+            <CardDescription className="text-xs leading-relaxed line-clamp-2">{report.description}</CardDescription>
+          </div>
+        </div>
+        <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+          {!report.pdfOnly
+            ? <><span className="inline-flex items-center gap-1 text-[10px] font-medium bg-green-100 dark:bg-green-950 text-green-700 dark:text-green-300 px-2 py-0.5 rounded-full"><FileSpreadsheet className="h-2.5 w-2.5" />Excel</span><span className="inline-flex items-center gap-1 text-[10px] font-medium bg-red-100 dark:bg-red-950 text-red-700 dark:text-red-300 px-2 py-0.5 rounded-full"><Download className="h-2.5 w-2.5" />PDF</span></>
+            : <span className="inline-flex items-center gap-1 text-[10px] font-medium bg-red-100 dark:bg-red-950 text-red-700 dark:text-red-300 px-2 py-0.5 rounded-full"><Download className="h-2.5 w-2.5" />PDF Only</span>
+          }
+        </div>
+      </CardHeader>
+      <CardContent className="pt-0">
+        <div className="flex items-center gap-1.5">
+          <Button variant="outline" size="sm" className="flex-none px-3" onClick={() => report.view()} data-testid={`view-${report.title.toLowerCase().replace(/\s+/g,"-")}`}>
+            <Eye className="h-3.5 w-3.5 mr-1 text-blue-500" />View
+          </Button>
+          {!report.pdfOnly && (
+            <Button variant="outline" size="sm" className="flex-1" onClick={() => report.generate("excel")} data-testid={`excel-${report.title.toLowerCase().replace(/\s+/g,"-")}`}>
+              <FileSpreadsheet className="h-3.5 w-3.5 mr-1 text-green-600" />Excel
+            </Button>
+          )}
+          <Button variant="outline" size="sm" className="flex-1" onClick={() => report.generate("pdf")} data-testid={`pdf-${report.title.toLowerCase().replace(/\s+/g,"-")}`}>
+            <Download className="h-3.5 w-3.5 mr-1 text-red-500" />PDF
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+
+  // ─── Section renderer for "All Reports" view ─────────────────────────────
+  const renderSection = (title: string, icon: React.ElementType, color: string, bgColor: string, reports: typeof attendanceReports, filterNote?: string) => (
+    <div key={title} className="mb-8">
+      <div className={`flex items-center gap-2 px-3 py-2 rounded-lg ${bgColor} mb-3`}>
+        {(() => { const Icon = icon; return <Icon className={`h-4 w-4 ${color}`} />; })()}
+        <h2 className={`text-sm font-semibold ${color}`}>{title}</h2>
+        <span className="ml-auto text-xs font-medium text-muted-foreground">{reports.length} report{reports.length !== 1 ? "s" : ""}</span>
+      </div>
+      {filterNote && <p className="text-xs text-amber-600 bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 rounded-md px-3 py-1.5 mb-3">{filterNote}</p>}
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+        {reports.map(r => renderEnhancedCard(r))}
+      </div>
+    </div>
+  );
+
   return (
-    <div className="p-6" data-testid="reports-page">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold flex items-center gap-2"><BarChart3 className="h-6 w-6" />Reports</h1>
-        <p className="text-muted-foreground">Generate and download reports in Excel and PDF format</p>
+    <div className="flex gap-0 min-h-full" data-testid="reports-page">
+
+      {/* ── Left Category Sidebar ── */}
+      <div className="w-56 shrink-0 border-r bg-muted/10">
+        <div className="sticky top-0 p-3 space-y-0.5">
+          <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider px-3 pt-2 pb-1">Categories</p>
+          {sidebarCategories.map(cat => {
+            const isActive = activeTab === cat.id;
+            const Icon = cat.icon;
+            return (
+              <button
+                key={cat.id}
+                data-testid={`category-${cat.id}`}
+                onClick={() => setActiveTab(cat.id)}
+                className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-all duration-150 group ${
+                  isActive
+                    ? `${cat.activeBg} font-semibold ${cat.color}`
+                    : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                }`}
+              >
+                <Icon className={`h-4 w-4 shrink-0 ${isActive ? cat.color : "group-hover:text-foreground"}`} />
+                <span className="flex-1 text-left text-xs leading-tight">{cat.label}</span>
+                <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${isActive ? "bg-white/40 dark:bg-black/20" : "bg-muted text-muted-foreground"}`}>
+                  {cat.count}
+                </span>
+              </button>
+            );
+          })}
+        </div>
       </div>
 
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-        <TabsList className="flex flex-wrap gap-1 h-auto">
-          <TabsTrigger value="ctrl" className="flex items-center gap-1.5"><SlidersHorizontal className="h-4 w-4" />Quick Generate</TabsTrigger>
-          <TabsTrigger value="monthly" className="flex items-center gap-1.5"><Calendar className="h-4 w-4" />Monthly</TabsTrigger>
-          <TabsTrigger value="annual" className="flex items-center gap-1.5"><TrendingUp className="h-4 w-4" />Annual</TabsTrigger>
-          <TabsTrigger value="employee" className="flex items-center gap-1.5"><UserRound className="h-4 w-4" />Employee Wise</TabsTrigger>
-          <TabsTrigger value="hr" className="flex items-center gap-1.5"><FilePen className="h-4 w-4" />HR Documents</TabsTrigger>
-          <TabsTrigger value="contractor" className="flex items-center gap-1.5"><Building2 className="h-4 w-4" />Contractor Compliances</TabsTrigger>
-        </TabsList>
+      {/* ── Main Content ── */}
+      <div className="flex-1 min-w-0 p-6">
 
-        {/* ── Quick Generate Controller ── */}
-        <TabsContent value="ctrl">
-          <div className="max-w-xl mx-auto">
-            <Card className="shadow-sm">
-              <CardContent className="pt-6 space-y-4">
-
-                {/* Report dropdown */}
-                <div className="space-y-1.5">
-                  <label className="text-sm font-medium">Report</label>
-                  <Select value={ctrlReport || "__none__"} onValueChange={v => setCtrlReport(v === "__none__" ? "" : v)}>
-                    <SelectTrigger className="w-full" data-testid="ctrl-report-select">
-                      <SelectValue placeholder="— Select report —" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__none__">— Select report —</SelectItem>
-                      {(["Monthly", "Annual", "Employee Wise", "HR Documents", "Contractor"] as const).map(cat => (
-                        <SelectGroup key={cat}>
-                          <SelectLabel>{cat}</SelectLabel>
-                          {ctrlAllReports.filter(r => r.category === cat).map(r => (
-                            <SelectItem key={r.key} value={r.key}>{r.title}</SelectItem>
-                          ))}
-                        </SelectGroup>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                {/* Filters — appear only after a report is picked */}
-                {ctrlSelected && (
-                  <>
-                    {/* Company */}
-                    {ctrlSelected.filters.includes("company") && isSuperAdmin && (
-                      <div className="space-y-1.5">
-                        <label className="text-sm font-medium">Company</label>
-                        <Select value={selectedCompany || "__all__"} onValueChange={setSelectedCompany}>
-                          <SelectTrigger className="w-full" data-testid="ctrl-company-select"><SelectValue placeholder="All Companies" /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="__all__">All Companies</SelectItem>
-                            {companies.map(c => <SelectItem key={c.id} value={c.id}>{c.companyName}</SelectItem>)}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    )}
-
-                    {/* Month */}
-                    {ctrlSelected.filters.includes("month") && (
-                      <div className="space-y-1.5">
-                        <label className="text-sm font-medium">Month</label>
-                        <Input type="month" value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)} className="w-full" data-testid="ctrl-month-input" />
-                      </div>
-                    )}
-
-                    {/* Period */}
-                    {ctrlSelected.filters.includes("period") && (
-                      <div className="space-y-1.5">
-                        <label className="text-sm font-medium">Period</label>
-                        <PeriodPicker />
-                      </div>
-                    )}
-
-                    {/* Employee — searchable combobox */}
-                    {ctrlSelected.filters.includes("employee") && (() => {
-                      const selectedEmp = filteredEmployees.find(e => e.id === docEmployee);
-                      const empMatches = filteredEmployees.filter(e => {
-                        const q = empSearchQuery.toLowerCase();
-                        return !q || `${e.firstName} ${e.lastName}`.toLowerCase().includes(q) || e.employeeCode.toLowerCase().includes(q);
-                      });
-                      return (
-                        <div className="space-y-1.5">
-                          <label className="text-sm font-medium">Employee</label>
-                          <div className="relative">
-                            <Input
-                              data-testid="ctrl-employee-search"
-                              placeholder="Search employee…"
-                              value={empSearchOpen ? empSearchQuery : (selectedEmp ? `${selectedEmp.firstName} ${selectedEmp.lastName} (${selectedEmp.employeeCode})` : "")}
-                              onFocus={() => { setEmpSearchOpen(true); setEmpSearchQuery(""); }}
-                              onChange={e => setEmpSearchQuery(e.target.value)}
-                              onBlur={() => setTimeout(() => setEmpSearchOpen(false), 150)}
-                              autoComplete="off"
-                            />
-                            {empSearchOpen && (
-                              <div className="absolute z-50 w-full mt-1 bg-popover border rounded-md shadow-lg max-h-56 overflow-y-auto">
-                                <div
-                                  className="cursor-pointer px-3 py-2 text-sm hover:bg-accent text-muted-foreground"
-                                  onMouseDown={() => { setDocEmployee(""); setEmpSearchOpen(false); setEmpSearchQuery(""); }}
-                                >
-                                  All Employees
-                                </div>
-                                {empMatches.map(e => (
-                                  <div
-                                    key={e.id}
-                                    className={`cursor-pointer px-3 py-2 text-sm hover:bg-accent flex items-center justify-between ${docEmployee === e.id ? "bg-accent/60 font-medium" : ""}`}
-                                    onMouseDown={() => { setDocEmployee(e.id); setEmpSearchOpen(false); setEmpSearchQuery(""); }}
-                                  >
-                                    <span>{e.firstName} {e.lastName}</span>
-                                    <span className="text-xs text-muted-foreground ml-2">{e.employeeCode}</span>
-                                  </div>
-                                ))}
-                                {empMatches.length === 0 && (
-                                  <div className="px-3 py-2 text-sm text-muted-foreground">No employees found</div>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })()}
-
-                    {/* Contractor */}
-                    {ctrlSelected.filters.includes("contractor") && (
-                      <>
-                        {isSuperAdmin && (
-                          <div className="space-y-1.5">
-                            <label className="text-sm font-medium">Principal Company</label>
-                            <Select value={contractorPrincipalId || "__none__"} onValueChange={v => { const val = v === "__none__" ? "" : v; setContractorPrincipalId(val); setSelectedContractorId(""); setSelectedCompany(""); }}>
-                              <SelectTrigger className="w-full" data-testid="ctrl-principal-select"><SelectValue placeholder="Select principal company…" /></SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="__none__">— Select Principal Company —</SelectItem>
-                                {companies.map(c => <SelectItem key={c.id} value={c.id}>{c.companyName}</SelectItem>)}
-                              </SelectContent>
-                            </Select>
-                          </div>
-                        )}
-                        <div className="space-y-1.5">
-                          <label className="text-sm font-medium">Contractor</label>
-                          <Select value={selectedContractorId || "__none__"} onValueChange={v => { const val = v === "__none__" ? "" : v; setSelectedContractorId(val); setSelectedCompany(val); }} disabled={!contractorPrincipalId}>
-                            <SelectTrigger className="w-full" data-testid="ctrl-contractor-select"><SelectValue placeholder={companyContractors.length === 0 ? "No contractors mapped" : "Select contractor…"} /></SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="__none__">— Select Contractor —</SelectItem>
-                              {companyContractors.map(c => <SelectItem key={c.contractorId} value={c.contractorId}>{c.contractorName}</SelectItem>)}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      </>
-                    )}
-
-                    {/* Action buttons */}
-                    <div className="flex gap-2 pt-2 border-t">
-                      <Button className="flex-1" variant="outline" onClick={() => ctrlSelected.view()} data-testid="ctrl-view-btn">
-                        <Eye className="h-4 w-4 mr-1.5 text-blue-600" />View
-                      </Button>
-                      {!ctrlSelected.pdfOnly && (
-                        <Button className="flex-1" variant="outline" onClick={() => ctrlSelected.generate("excel")} data-testid="ctrl-excel-btn">
-                          <FileSpreadsheet className="h-4 w-4 mr-1.5 text-green-600" />Excel
-                        </Button>
-                      )}
-                      <Button className="flex-1" variant="outline" onClick={() => ctrlSelected.generate("pdf")} data-testid="ctrl-pdf-btn">
-                        <Download className="h-4 w-4 mr-1.5 text-red-600" />PDF
-                      </Button>
-                    </div>
-                  </>
-                )}
-
-              </CardContent>
-            </Card>
+        {/* Page header */}
+        <div className="flex items-center gap-3 mb-5">
+          <div>
+            <h1 className="text-xl font-bold flex items-center gap-2">
+              <BarChart3 className="h-5 w-5 text-primary" />
+              {sidebarCategories.find(c => c.id === activeTab)?.label ?? "Reports"}
+            </h1>
+            <p className="text-sm text-muted-foreground mt-0.5">Generate and download reports in Excel and PDF format</p>
           </div>
-        </TabsContent>
+        </div>
 
-        {/* ── Monthly ── */}
-        <TabsContent value="monthly">
-          <div className="flex flex-wrap items-center gap-4 mb-5 p-3 bg-muted/30 rounded-lg border">
-            {companyFilter}
-            <div className="flex items-center gap-2">
-              <label className="text-sm font-medium">Month:</label>
-              <Input type="month" value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)} className="w-44" />
-            </div>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-            {reportCards.map(r => renderCard(r))}
-          </div>
-        </TabsContent>
+        {/* ── Contextual Filter Bar ── */}
+        {activeTab !== "contractor" && (
+          <div className="flex flex-wrap items-center gap-3 mb-5 p-3 bg-muted/30 rounded-xl border">
+            <Filter className="h-4 w-4 text-muted-foreground shrink-0" />
 
-        {/* ── Annual ── */}
-        <TabsContent value="annual">
-          <div className="flex flex-wrap items-center gap-4 mb-5 p-3 bg-muted/30 rounded-lg border">
-            {companyFilter}
-            <PeriodPicker />
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-            {annualCards.map(r => renderCard(r))}
-          </div>
-        </TabsContent>
-
-        {/* ── Employee Wise ── */}
-        <TabsContent value="employee">
-          <div className="flex flex-wrap items-center gap-4 mb-5 p-3 bg-muted/30 rounded-lg border">
-            {companyFilter}
-            <div className="flex items-center gap-2">
-              <label className="text-sm font-medium">Employee:</label>
-              <Select value={docEmployee || "__none__"} onValueChange={v => setDocEmployee(v === "__none__" ? "" : v)}>
-                <SelectTrigger className="w-56"><SelectValue placeholder="All Employees" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__none__">All Employees</SelectItem>
-                  {filteredEmployees.map(e => <SelectItem key={e.id} value={e.id}>{e.firstName} {e.lastName} ({e.employeeCode})</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex items-center gap-2">
-              <label className="text-sm font-medium">Month:</label>
-              <Input type="month" value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)} className="w-40" />
-            </div>
-            <PeriodPicker />
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-            {employeeWiseCards.map(r => renderCard(r))}
-          </div>
-        </TabsContent>
-
-        {/* ── HR Documents ── */}
-        <TabsContent value="hr">
-          <div className="flex flex-wrap items-center gap-4 mb-5 p-3 bg-muted/30 rounded-lg border">
-            {companyFilter}
-            <div className="flex items-center gap-2">
-              <label className="text-sm font-medium">Employee:</label>
-              <Select value={docEmployee || "__none__"} onValueChange={v => setDocEmployee(v === "__none__" ? "" : v)}>
-                <SelectTrigger className="w-64"><SelectValue placeholder="Select employee for letters" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__none__">— All Employees —</SelectItem>
-                  {filteredEmployees.map(e => <SelectItem key={e.id} value={e.id}>{e.firstName} {e.lastName} ({e.employeeCode})</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            <PeriodPicker />
-          </div>
-          {!docEmployee && (
-            <p className="text-sm text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-4 py-2 mb-5">
-              Select an employee above to generate Offer Letter or Appointment Letter. Leave Register works for all employees too.
-            </p>
-          )}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-            {hrDocCards.map(r => renderCard(r))}
-          </div>
-        </TabsContent>
-
-        {/* ── Contractor Compliances ── */}
-        <TabsContent value="contractor">
-          <div className="flex flex-wrap items-center gap-4 mb-5 p-3 bg-muted/30 rounded-lg border">
-
-            {/* Step 1: Principal Employer Company — only super admin needs to pick */}
+            {/* Company — super admin only */}
             {isSuperAdmin && (
               <div className="flex items-center gap-2">
-                <div className="flex items-center justify-center w-5 h-5 rounded-full bg-primary text-primary-foreground text-xs font-bold shrink-0">1</div>
-                <label className="text-sm font-medium">Principal Company:</label>
-                <Select
-                  value={contractorPrincipalId || "__none__"}
-                  onValueChange={v => {
-                    const val = v === "__none__" ? "" : v;
-                    setContractorPrincipalId(val);
-                    setSelectedContractorId("");
-                    setSelectedCompany("");
-                  }}
-                >
-                  <SelectTrigger className="w-60"><SelectValue placeholder="Select company…" /></SelectTrigger>
+                <label className="text-sm font-medium whitespace-nowrap">Company:</label>
+                <Select value={selectedCompany || "__all__"} onValueChange={setSelectedCompany}>
+                  <SelectTrigger className="w-52 h-9" data-testid="filter-company"><SelectValue placeholder="All Companies" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__all__">All Companies</SelectItem>
+                    {companies.map(c => <SelectItem key={c.id} value={c.id}>{c.companyName}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            {/* Month */}
+            {showMonthFilter && (
+              <div className="flex items-center gap-2">
+                <label className="text-sm font-medium whitespace-nowrap">Month:</label>
+                <Input type="month" value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)} className="w-40 h-9" data-testid="filter-month" />
+              </div>
+            )}
+
+            {/* Period */}
+            {showPeriodFilter && <PeriodPicker />}
+
+            {/* Employee */}
+            {showEmpFilter && <EmployeePicker />}
+          </div>
+        )}
+
+        {/* ── Contractor Filter Bar ── */}
+        {showContractor && (
+          <div className="flex flex-wrap items-center gap-3 mb-5 p-3 bg-muted/30 rounded-xl border">
+            <Filter className="h-4 w-4 text-muted-foreground shrink-0" />
+
+            {isSuperAdmin && (
+              <div className="flex items-center gap-2">
+                <div className="flex items-center justify-center w-5 h-5 rounded-full bg-primary text-primary-foreground text-[10px] font-bold shrink-0">1</div>
+                <label className="text-sm font-medium whitespace-nowrap">Principal Company:</label>
+                <Select value={contractorPrincipalId || "__none__"} onValueChange={v => { const val = v === "__none__" ? "" : v; setContractorPrincipalId(val); setSelectedContractorId(""); setSelectedCompany(""); }}>
+                  <SelectTrigger className="w-52 h-9" data-testid="contractor-principal"><SelectValue placeholder="Select company…" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="__none__">— Select Principal Company —</SelectItem>
                     {companies.map(c => <SelectItem key={c.id} value={c.id}>{c.companyName}</SelectItem>)}
@@ -5099,24 +5086,13 @@ export default function ReportsPage() {
               </div>
             )}
 
-            {/* Step 2 (or Step 1 for company admin): Contractor mapped to that company */}
             <div className="flex items-center gap-2">
               {isSuperAdmin && (
-                <div className={`flex items-center justify-center w-5 h-5 rounded-full text-xs font-bold shrink-0 ${contractorPrincipalId ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>2</div>
+                <div className={`flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-bold shrink-0 ${contractorPrincipalId ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>2</div>
               )}
-              <label className="text-sm font-medium">Contractor:</label>
-              <Select
-                value={selectedContractorId || "__none__"}
-                onValueChange={v => {
-                  const val = v === "__none__" ? "" : v;
-                  setSelectedContractorId(val);
-                  setSelectedCompany(val);
-                }}
-                disabled={!contractorPrincipalId}
-              >
-                <SelectTrigger className="w-60">
-                  <SelectValue placeholder={companyContractors.length === 0 ? "No contractors mapped" : "Select contractor…"} />
-                </SelectTrigger>
+              <label className="text-sm font-medium whitespace-nowrap">Contractor:</label>
+              <Select value={selectedContractorId || "__none__"} onValueChange={v => { const val = v === "__none__" ? "" : v; setSelectedContractorId(val); setSelectedCompany(val); }} disabled={!contractorPrincipalId}>
+                <SelectTrigger className="w-52 h-9" data-testid="contractor-select"><SelectValue placeholder={companyContractors.length === 0 ? "No contractors mapped" : "Select contractor…"} /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="__none__">— All Contractors —</SelectItem>
                   {companyContractors.map(c => <SelectItem key={c.contractorId} value={c.contractorId}>{c.contractorName}</SelectItem>)}
@@ -5125,38 +5101,89 @@ export default function ReportsPage() {
             </div>
 
             <div className="flex items-center gap-2">
-              <label className="text-sm font-medium">Month:</label>
-              <Input type="month" value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)} className="w-44" />
+              <label className="text-sm font-medium whitespace-nowrap">Month:</label>
+              <Input type="month" value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)} className="w-40 h-9" data-testid="contractor-month" />
             </div>
           </div>
+        )}
 
-          {!contractorPrincipalId ? (
-            <div className="text-center py-14 text-muted-foreground">
-              <Building2 className="h-12 w-12 mx-auto mb-3 opacity-30" />
-              <p className="font-medium">Select a Principal Company to get started</p>
+        {/* ── Reports Content ── */}
+
+        {/* All Reports — sections view */}
+        {activeTab === "all" && (
+          <div>
+            {renderSection("Attendance & Time", Calendar, "text-blue-600", "bg-blue-50 dark:bg-blue-950", attendanceReports)}
+            {renderSection("Payroll & Salary", CreditCard, "text-green-600", "bg-green-50 dark:bg-green-950", payrollReports,
+              "Pay Slip uses the selected employee filter above. Leave blank for all employees."
+            )}
+            {renderSection("Statutory Compliance", Shield, "text-purple-600", "bg-purple-50 dark:bg-purple-950", statutoryReports)}
+            {renderSection("Annual Reports", TrendingUp, "text-amber-600", "bg-amber-50 dark:bg-amber-950", annualReports)}
+            {renderSection("Employee Records", UserRound, "text-teal-600", "bg-teal-50 dark:bg-teal-950", employeeReports)}
+            {renderSection("HR Documents", FilePen, "text-sky-600", "bg-sky-50 dark:bg-sky-950", hrDocReports,
+              "Select an employee above before generating Offer Letter or Appointment Letter."
+            )}
+            {renderSection("Contractor Reports", Building2, "text-rose-600", "bg-rose-50 dark:bg-rose-950", contractorCards as typeof attendanceReports)}
+          </div>
+        )}
+
+        {/* Single-category grid views */}
+        {activeTab !== "all" && activeTab !== "contractor" && (() => {
+          const activeReports = reportsByCategory[activeTab] ?? [];
+          if (activeReports.length === 0) return (
+            <div className="text-center py-20 text-muted-foreground">
+              <BarChart3 className="h-10 w-10 mx-auto mb-3 opacity-25" />
+              <p className="font-medium">No reports in this category</p>
+            </div>
+          );
+          const noteMap: Record<string, string> = {
+            payroll:  "Pay Slip uses the selected Employee filter. Leave blank to generate for all employees.",
+            hr:       "Select an Employee above before generating Offer Letter or Appointment Letter.",
+            employee: "Employee filter narrows results for individual reports like Personal File and Individual Attendance.",
+          };
+          return (
+            <>
+              {noteMap[activeTab] && (
+                <p className="text-xs text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 rounded-lg px-3 py-2 mb-4">
+                  {noteMap[activeTab]}
+                </p>
+              )}
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                {activeReports.map(r => renderEnhancedCard(r))}
+              </div>
+            </>
+          );
+        })()}
+
+        {/* Contractor category */}
+        {activeTab === "contractor" && (
+          !contractorPrincipalId ? (
+            <div className="text-center py-20 text-muted-foreground">
+              <Building2 className="h-12 w-12 mx-auto mb-3 opacity-25" />
+              <p className="font-semibold text-base">Select a Principal Company to get started</p>
               <p className="text-sm mt-1">Then choose a contractor mapped to that company to view compliance reports.</p>
             </div>
           ) : companyContractors.length === 0 ? (
-            <div className="text-center py-14 text-muted-foreground">
-              <Building2 className="h-12 w-12 mx-auto mb-3 opacity-30" />
-              <p className="font-medium">No contractors mapped to this company</p>
+            <div className="text-center py-20 text-muted-foreground">
+              <Building2 className="h-12 w-12 mx-auto mb-3 opacity-25" />
+              <p className="font-semibold text-base">No contractors mapped to this company</p>
               <p className="text-sm mt-1">Go to Company settings and add contractor companies first.</p>
             </div>
           ) : (
             <>
               {selectedContractorId && (
-                <p className="text-sm text-muted-foreground mb-4">
-                  Showing {filteredContractorEmployees.length} employee(s) for contractor: <span className="font-medium text-foreground">{companyContractors.find(c => c.contractorId === selectedContractorId)?.contractorName}</span>
+                <p className="text-xs text-muted-foreground bg-muted/40 border rounded-lg px-3 py-2 mb-4">
+                  Showing <span className="font-semibold text-foreground">{filteredContractorEmployees.length}</span> employee(s) for contractor: <span className="font-semibold text-foreground">{companyContractors.find(c => c.contractorId === selectedContractorId)?.contractorName}</span>
                 </p>
               )}
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-                {contractorCards.map(r => renderCard(r))}
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                {contractorCards.map(r => renderEnhancedCard(r))}
               </div>
             </>
-          )}
-        </TabsContent>
-      </Tabs>
+          )
+        )}
+      </div>
 
+      {/* ── View Data Dialog ── */}
       <Dialog open={viewDialogOpen} onOpenChange={setViewDialogOpen}>
         <DialogContent className="max-w-[95vw] max-h-[90vh] overflow-hidden flex flex-col">
           <DialogHeader><DialogTitle>{viewTitle}</DialogTitle></DialogHeader>
