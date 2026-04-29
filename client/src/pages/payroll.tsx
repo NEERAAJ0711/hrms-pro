@@ -167,6 +167,41 @@ export default function PayrollPage() {
     enabled: !isSuperAdmin && !!user?.companyId,
   });
 
+  // Parse contractor filter
+  const prFilterParts = contractorFilter.split(":");
+  const prFilterType = prFilterParts[0]; // "own" | "c" | "pe"
+  const prFilterCompanyId = prFilterParts[1] || "";
+  const prFilterContractorId = prFilterParts[2] || "";
+  const prIsContractorView = prFilterType !== "own";
+
+  type ContractorEmployee = { id?: string; employeeId: string };
+
+  const { data: prTaggedRecords = [] } = useQuery<ContractorEmployee[]>({
+    queryKey: ["/api/companies", prFilterCompanyId, "contractors", prFilterContractorId, "employees"],
+    queryFn: async () => {
+      const res = await fetch(`/api/companies/${prFilterCompanyId}/contractors/${prFilterContractorId}/employees`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed");
+      return res.json();
+    },
+    enabled: prIsContractorView && !!prFilterCompanyId && !!prFilterContractorId,
+  });
+
+  const prTaggedIds = new Set(prTaggedRecords.map((r) => (r as any).id ?? r.employeeId));
+
+  const prContractorCompanyId = prFilterType === "c" ? prFilterContractorId : "";
+  const { data: prContractorEmployees = [] } = useQuery<Employee[]>({
+    queryKey: ["/api/companies", prContractorCompanyId, "employees"],
+    queryFn: async () => {
+      const res = await fetch(`/api/companies/${prContractorCompanyId}/employees`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed");
+      return res.json();
+    },
+    enabled: prFilterType === "c" && !!prContractorCompanyId,
+  });
+
+  // Combined employee pool for payroll view
+  const prAllEmployees: Employee[] = prFilterType === "c" ? [...employees, ...prContractorEmployees] : employees;
+
   useEffect(() => {
     if (isSuperAdmin) return;
     const parts = contractorFilter.split(":");
@@ -174,9 +209,10 @@ export default function PayrollPage() {
     if (type === "own") {
       setSelectedCompany(user?.companyId || "");
     } else if (type === "c") {
-      setSelectedCompany(parts[2] || user?.companyId || "");
+      // contractor employees fetched separately; keep own company for now
+      setSelectedCompany(user?.companyId || "");
     } else if (type === "pe") {
-      setSelectedCompany(parts[1] || user?.companyId || "");
+      setSelectedCompany(user?.companyId || "");
     }
   }, [contractorFilter]);
 
@@ -281,18 +317,20 @@ export default function PayrollPage() {
     : (statutoryData ? [statutoryData] : []);
 
   const filteredStructures = salaryStructures.filter(s => {
-    const companyMatch = selectedCompany === "__all__" || s.companyId === selectedCompany;
+    const companyMatch = selectedCompany === "__all__" || s.companyId === selectedCompany
+      || (prFilterType === "c" && s.companyId === prContractorCompanyId);
     if (!companyMatch) return false;
+    if (prIsContractorView && !prTaggedIds.has(s.employeeId)) return false;
     if (!structureSearch.trim()) return true;
     const q = structureSearch.trim().toLowerCase();
-    const emp = employees.find(e => e.id === s.employeeId);
+    const emp = prAllEmployees.find(e => e.id === s.employeeId);
     const name = emp ? `${emp.firstName} ${emp.lastName} ${emp.employeeCode}`.toLowerCase() : "";
     return name.includes(q);
   });
 
   const { sort: structSort, toggle: toggleStructSort } = useSort("name");
   const sortedStructures = sortData(filteredStructures, structSort, (s, col) => {
-    if (col === "name") { const emp = employees.find(e => e.id === s.employeeId); return emp ? `${emp.firstName} ${emp.lastName}` : ""; }
+    if (col === "name") { const emp = prAllEmployees.find(e => e.id === s.employeeId); return emp ? `${emp.firstName} ${emp.lastName}` : ""; }
     if (col === "basic") return s.basicSalary;
     if (col === "hra") return s.hra || 0;
     if (col === "gross") return s.grossSalary;
@@ -301,11 +339,13 @@ export default function PayrollPage() {
     return "";
   });
 
-  const filteredPayroll = payrollRecords.filter(p => 
-    (selectedCompany === "__all__" || p.companyId === selectedCompany) &&
-    p.month === selectedMonth &&
-    p.year === parseInt(selectedYear)
-  );
+  const filteredPayroll = payrollRecords.filter(p => {
+    const companyMatch = selectedCompany === "__all__" || p.companyId === selectedCompany
+      || (prFilterType === "c" && p.companyId === prContractorCompanyId);
+    if (!companyMatch) return false;
+    if (prIsContractorView && !prTaggedIds.has(p.employeeId)) return false;
+    return p.month === selectedMonth && p.year === parseInt(selectedYear);
+  });
 
   const calculateStatutoryDeductions = (companyId: string, employeeId: string, basicSalary: number, grossSalary: number) => {
     // Find settings specifically for the company
@@ -1008,7 +1048,7 @@ export default function PayrollPage() {
   });
 
   const getEmployeeName = (employeeId: string) => {
-    const employee = employees.find(e => e.id === employeeId);
+    const employee = prAllEmployees.find(e => e.id === employeeId);
     return employee ? `[${employee.employeeCode}] ${employee.firstName} ${employee.lastName}` : "Unknown";
   };
 
@@ -1566,6 +1606,26 @@ export default function PayrollPage() {
                   ) : (
                     <span className="text-sm font-medium">{companies.find(c => c.id === user?.companyId)?.companyName || ""}</span>
                   )}
+                  {!isSuperAdmin && (myContractors.length > 0 || myPrincipalEmployers.length > 0) && (
+                    <Select value={contractorFilter} onValueChange={setContractorFilter}>
+                      <SelectTrigger className="w-52" data-testid="select-payroll-contractor-filter">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="own">Own Employees</SelectItem>
+                        {myContractors.map((c) => (
+                          <SelectItem key={c.id} value={`c:${c.companyId}:${c.contractorId}`}>
+                            Contractor: {c.contractorName}
+                          </SelectItem>
+                        ))}
+                        {myPrincipalEmployers.map((pe) => (
+                          <SelectItem key={pe.id} value={`pe:${pe.companyId}:${pe.contractorId}`}>
+                            PE: {pe.companyName}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
                   <Select value={selectedMonth} onValueChange={setSelectedMonth}>
                     <SelectTrigger className="w-36" data-testid="select-payroll-month">
                       <SelectValue />
@@ -1948,7 +2008,7 @@ export default function PayrollPage() {
           </DialogHeader>
           {viewingPayrollRecord && (() => {
             const record = viewingPayrollRecord;
-            const emp = employees.find(e => e.id === record.employeeId);
+            const emp = prAllEmployees.find(e => e.id === record.employeeId);
             const MONTH_NAMES = ["January","February","March","April","May","June","July","August","September","October","November","December"];
             const mIdx = MONTH_NAMES.indexOf(record.month);
             const payrollYM = mIdx >= 0 ? `${record.year}-${String(mIdx + 1).padStart(2, "0")}` : "";

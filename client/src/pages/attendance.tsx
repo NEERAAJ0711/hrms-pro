@@ -121,6 +121,38 @@ export default function AttendancePage() {
     enabled: !isSuperAdmin && !!user?.companyId,
   });
 
+  // Parse contractor filter
+  const attFilterParts = contractorFilter.split(":");
+  const attFilterType = attFilterParts[0]; // "own" | "c" | "pe"
+  const attFilterCompanyId = attFilterParts[1] || "";
+  const attFilterContractorId = attFilterParts[2] || "";
+  const attIsContractorView = attFilterType !== "own";
+
+  type ContractorEmployee = { id?: string; employeeId: string };
+
+  const { data: attTaggedRecords = [] } = useQuery<ContractorEmployee[]>({
+    queryKey: ["/api/companies", attFilterCompanyId, "contractors", attFilterContractorId, "employees"],
+    queryFn: async () => {
+      const res = await fetch(`/api/companies/${attFilterCompanyId}/contractors/${attFilterContractorId}/employees`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed");
+      return res.json();
+    },
+    enabled: attIsContractorView && !!attFilterCompanyId && !!attFilterContractorId,
+  });
+
+  const attTaggedIds = new Set(attTaggedRecords.map((r) => (r as any).id ?? r.employeeId));
+
+  const attContractorCompanyId = attFilterType === "c" ? attFilterContractorId : "";
+  const { data: attContractorEmployees = [] } = useQuery<Employee[]>({
+    queryKey: ["/api/companies", attContractorCompanyId, "employees"],
+    queryFn: async () => {
+      const res = await fetch(`/api/companies/${attContractorCompanyId}/employees`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed");
+      return res.json();
+    },
+    enabled: attFilterType === "c" && !!attContractorCompanyId,
+  });
+
   useEffect(() => {
     if (isSuperAdmin) return;
     const parts = contractorFilter.split(":");
@@ -128,9 +160,11 @@ export default function AttendancePage() {
     if (type === "own") {
       setSelectedCompany(user?.companyId || "");
     } else if (type === "c") {
-      setSelectedCompany(parts[2] || user?.companyId || "");
+      // contractor company employees are fetched separately; keep own company ID for attendance records
+      setSelectedCompany(user?.companyId || "");
     } else if (type === "pe") {
-      setSelectedCompany(parts[1] || user?.companyId || "");
+      // viewing own employees tagged for a PE — keep own company ID
+      setSelectedCompany(user?.companyId || "");
     }
   }, [contractorFilter]);
 
@@ -209,10 +243,12 @@ export default function AttendancePage() {
   const monthEndDate = endOfMonth(parseISO(monthStartStr));
   const monthEndStr = format(monthEndDate, "yyyy-MM-dd");
 
-  const filteredEmployees = (selectedCompany === "__all__" 
-    ? employees 
-    : employees.filter(e => e.companyId === selectedCompany)
+  const attBaseEmployees: Employee[] = attFilterType === "c" ? attContractorEmployees : employees;
+  const filteredEmployees = (selectedCompany === "__all__"
+    ? attBaseEmployees
+    : attBaseEmployees.filter(e => e.companyId === selectedCompany)
   ).filter(e => {
+    if (attIsContractorView && !attTaggedIds.has(e.id)) return false;
     const joined = (e as any).dateOfJoining;
     const exited = (e as any).exitDate;
     if (joined && joined > monthEndStr) return false;
@@ -1288,6 +1324,26 @@ export default function AttendancePage() {
                 </Select>
               ) : (
                 <span className="text-sm font-medium">{companies.find(c => c.id === user?.companyId)?.companyName || ""}</span>
+              )}
+              {!isSuperAdmin && (myContractors.length > 0 || myPrincipalEmployers.length > 0) && (
+                <Select value={contractorFilter} onValueChange={setContractorFilter}>
+                  <SelectTrigger className="w-52" data-testid="select-att-contractor-filter">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="own">Own Employees</SelectItem>
+                    {myContractors.map((c) => (
+                      <SelectItem key={c.id} value={`c:${c.companyId}:${c.contractorId}`}>
+                        Contractor: {c.contractorName}
+                      </SelectItem>
+                    ))}
+                    {myPrincipalEmployers.map((pe) => (
+                      <SelectItem key={pe.id} value={`pe:${pe.companyId}:${pe.contractorId}`}>
+                        PE: {pe.companyName}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               )}
               <Input
                 type="month"

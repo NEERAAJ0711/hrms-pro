@@ -707,6 +707,27 @@ export default function Employees() {
               </Select>
             )}
 
+            {!isSuperAdmin && (myContractors.length > 0 || myPrincipalEmployers.length > 0) && (
+              <Select value={contractorFilter} onValueChange={setContractorFilter}>
+                <SelectTrigger className="w-56" data-testid="select-contractor-filter">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="own">Own Employees</SelectItem>
+                  {myContractors.map((c) => (
+                    <SelectItem key={c.id} value={`c:${c.companyId}:${c.contractorId}`}>
+                      Contractor: {c.contractorName}
+                    </SelectItem>
+                  ))}
+                  {myPrincipalEmployers.map((pe) => (
+                    <SelectItem key={pe.id} value={`pe:${pe.companyId}:${pe.contractorId}`}>
+                      PE: {pe.companyName}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+
             <div className="relative flex-1 min-w-[200px] max-w-sm">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
