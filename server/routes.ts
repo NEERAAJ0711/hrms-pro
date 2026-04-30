@@ -1352,9 +1352,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     "IFSC Code": "ifsc",
     "PAN": "pan",
     "Aadhaar": "aadhaar",
+    "Location": "location",
+    "Wage Grade": "__wageGrade__",       // resolved via name → ID
+    "Contractor": "__contractor__",     // resolved via name → ID
+    "Biometric Device ID": "biometricDeviceId",
   };
   const BOOL_FIELDS = new Set(["pfApplicable", "esiApplicable", "lwfApplicable"]);
   const DATE_FIELDS = new Set(["dateOfBirth", "dateOfJoining"]);
+  // Fields that need name→ID resolution (not simple direct DB column writes)
+  const NAME_LOOKUP_FIELDS = new Set(["__wageGrade__", "__contractor__"]);
 
   // GET  /api/employees/bulk-update-template?fields=f1,f2,...&companyId=xxx
   app.get("/api/employees/bulk-update-template", requireAuth, requireModuleAccess("employees"), async (req, res) => {
@@ -1369,6 +1375,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const employees = await storage.getEmployeesByCompany(companyId);
       if (employees.length === 0) return res.status(400).json({ error: "No employees found for this company" });
 
+      // Pre-fetch lookup tables if needed
+      const needsWageGrade = rawFields.includes("Wage Grade");
+      const needsContractor = rawFields.includes("Contractor");
+      const wageGrades = needsWageGrade ? await storage.getWageGradesByCompany(companyId) : [];
+      const contractors = needsContractor ? await storage.getContractorMastersByCompany(companyId) : [];
+      const wageGradeIdToName = new Map(wageGrades.map((g: any) => [g.id, g.name]));
+      const contractorIdToName = new Map(contractors.map((c: any) => [c.id, c.contractorName]));
+
       // Build rows: fixed cols Employee Code + Employee Name, then blank selected cols
       const rows = employees.map(emp => {
         const row: Record<string, any> = {
@@ -1378,13 +1392,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         for (const label of rawFields) {
           const dbField = BULK_UPDATE_FIELD_MAP[label];
           if (!dbField) continue;
-          const current = (emp as any)[dbField];
-          if (BOOL_FIELDS.has(dbField)) {
+          if (dbField === "__wageGrade__") {
+            row[label] = wageGradeIdToName.get((emp as any).wageGradeId ?? "") ?? "";
+          } else if (dbField === "__contractor__") {
+            row[label] = contractorIdToName.get((emp as any).contractorMasterId ?? "") ?? "";
+          } else if (BOOL_FIELDS.has(dbField)) {
+            const current = (emp as any)[dbField];
             row[label] = current ? "Yes" : "No";
           } else if (DATE_FIELDS.has(dbField)) {
-            row[label] = toDisplayDate(current); // DD-MM-YYYY
+            row[label] = toDisplayDate((emp as any)[dbField]);
           } else {
-            row[label] = current ?? "";
+            row[label] = (emp as any)[dbField] ?? "";
           }
         }
         return row;
@@ -1426,6 +1444,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const employees = await storage.getEmployeesByCompany(companyId);
       const empMap = new Map(employees.map(e => [e.employeeCode.toLowerCase(), e]));
 
+      // Pre-fetch name→ID maps for lookup fields if those columns exist in the file
+      const hasWageGrade = updateLabels.includes("Wage Grade");
+      const hasContractor = updateLabels.includes("Contractor");
+      const wageGradesList = hasWageGrade ? await storage.getWageGradesByCompany(companyId) : [];
+      const contractorsList = hasContractor ? await storage.getContractorMastersByCompany(companyId) : [];
+      const wageGradeNameToId = new Map(wageGradesList.map((g: any) => [g.name.toLowerCase(), g.id]));
+      const contractorNameToId = new Map(contractorsList.map((c: any) => [c.contractorName.toLowerCase(), c.id]));
+
       const results = { updated: 0, skipped: 0, errors: [] as string[] };
 
       for (let i = 0; i < rows.length; i++) {
@@ -1444,7 +1470,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const cellVal = row[label];
           const raw = String(cellVal ?? "").trim();
           if (raw === "") continue; // skip blank cells
-          if (BOOL_FIELDS.has(dbField)) {
+
+          if (dbField === "__wageGrade__") {
+            const id = wageGradeNameToId.get(raw.toLowerCase());
+            if (id) updates["wageGradeId"] = id;
+            else results.errors.push(`Row ${rowNum} (${code}): Wage grade '${raw}' not found — skipped`);
+          } else if (dbField === "__contractor__") {
+            const id = contractorNameToId.get(raw.toLowerCase());
+            if (id) updates["contractorMasterId"] = id;
+            else results.errors.push(`Row ${rowNum} (${code}): Contractor '${raw}' not found — skipped`);
+          } else if (BOOL_FIELDS.has(dbField)) {
             updates[dbField] = raw.toLowerCase() === "yes";
           } else if (DATE_FIELDS.has(dbField)) {
             const parsed = parseExcelDate(cellVal);

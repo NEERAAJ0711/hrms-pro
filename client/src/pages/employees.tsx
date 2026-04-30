@@ -106,6 +106,15 @@ const BULK_UPDATE_GROUPS: { group: string; fields: { label: string; hint?: strin
       { label: "Aadhaar" },
     ],
   },
+  {
+    group: "Other",
+    fields: [
+      { label: "Location" },
+      { label: "Wage Grade", hint: "Enter wage grade name" },
+      { label: "Contractor", hint: "Enter contractor name" },
+      { label: "Biometric Device ID" },
+    ],
+  },
 ];
 
 function EmployeesTableSkeleton() {
