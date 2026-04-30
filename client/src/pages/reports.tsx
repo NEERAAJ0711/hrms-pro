@@ -32,6 +32,7 @@ import {
   Search,
   ChevronRight,
   Filter,
+  Loader2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -116,6 +117,22 @@ export default function ReportsPage() {
   const { data: attendance = [] } = useQuery<Attendance[]>({
     queryKey: ["/api/attendance"],
     enabled: !!hasAccess,
+  });
+
+  // Dedicated date-wise attendance query — fetches ONLY the selected date's records
+  // directly from the server so no records are ever missed.
+  const { data: dwAttendanceData = [], isLoading: dwLoading } = useQuery<Attendance[]>({
+    queryKey: ["/api/attendance", "datewise", selectedDate, selectedCompany],
+    queryFn: async () => {
+      const cid = selectedCompany && selectedCompany !== "__all__" ? selectedCompany : "";
+      const params = new URLSearchParams({ date: selectedDate });
+      if (cid) params.set("companyId", cid);
+      const res = await fetch(`/api/attendance?${params}`, { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: !!hasAccess && !!selectedDate,
+    staleTime: 30_000,
   });
 
   const { data: salaryStructures = [] } = useQuery<SalaryStructure[]>({
@@ -2255,7 +2272,8 @@ export default function ReportsPage() {
     if (dwCont)  emps = emps.filter(e => e.contractorMasterId === dwCont);
 
     return emps.map((emp, idx) => {
-      const rec = attendance.find(a => a.employeeId === emp.id && a.date === selectedDate);
+      // Use the dedicated date-specific query data (complete, server-fresh records for this date)
+      const rec = dwAttendanceData.find(a => a.employeeId === emp.id);
       const inTime  = rec?.clockIn  || "—";
       const outTime = rec?.clockOut || "—";
       const wh = rec?.workHours ? rec.workHours : calcWH(rec?.clockIn ?? null, rec?.clockOut ?? null);
@@ -5118,7 +5136,7 @@ export default function ReportsPage() {
   ];
 
   // Reusable card renderer
-  const renderCard = (report: { title: string; description: string; icon: React.ElementType; color: string; bgColor: string; generate: (f: "excel" | "pdf") => void; view: () => void; pdfOnly?: boolean }) => (
+  const renderCard = (report: { title: string; description: string; icon: React.ElementType; color: string; bgColor: string; generate: (f: "excel" | "pdf") => void; view: () => void; pdfOnly?: boolean; loading?: boolean }) => (
     <Card key={report.title} className="hover:shadow-lg transition-shadow">
       <CardHeader className="pb-3">
         <div className="flex items-start gap-3">
@@ -5133,16 +5151,16 @@ export default function ReportsPage() {
       </CardHeader>
       <CardContent>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" className="flex-1" onClick={() => report.view()}>
-            <Eye className="h-4 w-4 mr-1.5 text-blue-600" />View
+          <Button variant="outline" size="sm" className="flex-1" onClick={() => report.view()} disabled={!!report.loading}>
+            {report.loading ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Eye className="h-4 w-4 mr-1.5 text-blue-600" />}View
           </Button>
           {!report.pdfOnly && (
-            <Button variant="outline" size="sm" className="flex-1" onClick={() => report.generate("excel")}>
-              <FileSpreadsheet className="h-4 w-4 mr-1.5 text-green-600" />Excel
+            <Button variant="outline" size="sm" className="flex-1" onClick={() => report.generate("excel")} disabled={!!report.loading}>
+              {report.loading ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <FileSpreadsheet className="h-4 w-4 mr-1.5 text-green-600" />}Excel
             </Button>
           )}
-          <Button variant="outline" size="sm" className="flex-1" onClick={() => report.generate("pdf")}>
-            <Download className="h-4 w-4 mr-1.5 text-red-600" />PDF
+          <Button variant="outline" size="sm" className="flex-1" onClick={() => report.generate("pdf")} disabled={!!report.loading}>
+            {report.loading ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Download className="h-4 w-4 mr-1.5 text-red-600" />}PDF
           </Button>
         </div>
       </CardContent>
@@ -5274,7 +5292,7 @@ export default function ReportsPage() {
     { title: "Monthly Attendance Register", description: "Grid-format register with daily shift, punch in/out, working hours, OT and status for the full month", icon: CalendarRange, color: "text-violet-600", bgColor: "bg-violet-50 dark:bg-violet-950", generate: generateMonthlyAttendanceRegister, view: viewMonthlyAttendanceRegister, pdfOnly: true },
     { title: "Attendance Punch Report", description: "Daily in/out punch times for all employees with timings based on duty schedule", icon: Clock, color: "text-sky-600", bgColor: "bg-sky-50 dark:bg-sky-950", generate: generateAttendancePunchReport, view: viewAttendancePunchReport },
     { title: "Individual Attendance Sheet", description: "Per-employee detailed attendance with daily shift, punch times, working hours, OT and status for selected month", icon: ClipboardList, color: "text-indigo-600", bgColor: "bg-indigo-50 dark:bg-indigo-950", generate: generateIndividualAttendanceSheet, view: viewIndividualAttendanceSheet, pdfOnly: true },
-    { title: "Date-wise Attendance", description: "All employees' attendance for a specific date — shows In Time, Out Time, Working Hours and Status (use the Date filter above)", icon: CalendarRange, color: "text-emerald-600", bgColor: "bg-emerald-50 dark:bg-emerald-950", generate: generateDatewiseAttendance, view: viewDatewiseAttendance },
+    { title: "Date-wise Attendance", description: "All employees' attendance for a specific date — shows In Time, Out Time, Working Hours and Status (use the Date filter above)", icon: CalendarRange, color: "text-emerald-600", bgColor: "bg-emerald-50 dark:bg-emerald-950", generate: generateDatewiseAttendance, view: viewDatewiseAttendance, loading: dwLoading },
     { title: "Leave Report", description: "Employee-wise leave application history with leave type, dates, duration, reason and approval status", icon: CalendarX, color: "text-purple-600", bgColor: "bg-purple-50 dark:bg-purple-950", generate: generateLeaveReport, view: viewLeaveReport },
   ];
 
@@ -5381,7 +5399,7 @@ export default function ReportsPage() {
   };
 
   // ─── Enhanced card renderer ───────────────────────────────────────────────
-  const renderEnhancedCard = (report: { title: string; description: string; icon: React.ElementType; color: string; bgColor: string; generate: (f: "excel" | "pdf") => void; view: () => void; pdfOnly?: boolean }) => (
+  const renderEnhancedCard = (report: { title: string; description: string; icon: React.ElementType; color: string; bgColor: string; generate: (f: "excel" | "pdf") => void; view: () => void; pdfOnly?: boolean; loading?: boolean }) => (
     <Card key={report.title} className="group hover:shadow-md transition-all duration-200 border hover:border-primary/20 flex flex-col">
       <CardHeader className="pb-3 flex-1">
         <div className="flex items-start gap-3">
@@ -5394,24 +5412,26 @@ export default function ReportsPage() {
           </div>
         </div>
         <div className="flex items-center gap-1.5 mt-2 flex-wrap">
-          {!report.pdfOnly
-            ? <><span className="inline-flex items-center gap-1 text-[10px] font-medium bg-green-100 dark:bg-green-950 text-green-700 dark:text-green-300 px-2 py-0.5 rounded-full"><FileSpreadsheet className="h-2.5 w-2.5" />Excel</span><span className="inline-flex items-center gap-1 text-[10px] font-medium bg-red-100 dark:bg-red-950 text-red-700 dark:text-red-300 px-2 py-0.5 rounded-full"><Download className="h-2.5 w-2.5" />PDF</span></>
-            : <span className="inline-flex items-center gap-1 text-[10px] font-medium bg-red-100 dark:bg-red-950 text-red-700 dark:text-red-300 px-2 py-0.5 rounded-full"><Download className="h-2.5 w-2.5" />PDF Only</span>
+          {report.loading
+            ? <span className="inline-flex items-center gap-1 text-[10px] font-medium bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300 px-2 py-0.5 rounded-full"><Loader2 className="h-2.5 w-2.5 animate-spin" />Loading data…</span>
+            : !report.pdfOnly
+              ? <><span className="inline-flex items-center gap-1 text-[10px] font-medium bg-green-100 dark:bg-green-950 text-green-700 dark:text-green-300 px-2 py-0.5 rounded-full"><FileSpreadsheet className="h-2.5 w-2.5" />Excel</span><span className="inline-flex items-center gap-1 text-[10px] font-medium bg-red-100 dark:bg-red-950 text-red-700 dark:text-red-300 px-2 py-0.5 rounded-full"><Download className="h-2.5 w-2.5" />PDF</span></>
+              : <span className="inline-flex items-center gap-1 text-[10px] font-medium bg-red-100 dark:bg-red-950 text-red-700 dark:text-red-300 px-2 py-0.5 rounded-full"><Download className="h-2.5 w-2.5" />PDF Only</span>
           }
         </div>
       </CardHeader>
       <CardContent className="pt-0">
         <div className="flex items-center gap-1.5">
-          <Button variant="outline" size="sm" className="flex-none px-3" onClick={() => report.view()} data-testid={`view-${report.title.toLowerCase().replace(/\s+/g,"-")}`}>
-            <Eye className="h-3.5 w-3.5 mr-1 text-blue-500" />View
+          <Button variant="outline" size="sm" className="flex-none px-3" onClick={() => report.view()} disabled={!!report.loading} data-testid={`view-${report.title.toLowerCase().replace(/\s+/g,"-")}`}>
+            {report.loading ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Eye className="h-3.5 w-3.5 mr-1 text-blue-500" />}View
           </Button>
           {!report.pdfOnly && (
-            <Button variant="outline" size="sm" className="flex-1" onClick={() => report.generate("excel")} data-testid={`excel-${report.title.toLowerCase().replace(/\s+/g,"-")}`}>
-              <FileSpreadsheet className="h-3.5 w-3.5 mr-1 text-green-600" />Excel
+            <Button variant="outline" size="sm" className="flex-1" onClick={() => report.generate("excel")} disabled={!!report.loading} data-testid={`excel-${report.title.toLowerCase().replace(/\s+/g,"-")}`}>
+              {report.loading ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <FileSpreadsheet className="h-3.5 w-3.5 mr-1 text-green-600" />}Excel
             </Button>
           )}
-          <Button variant="outline" size="sm" className="flex-1" onClick={() => report.generate("pdf")} data-testid={`pdf-${report.title.toLowerCase().replace(/\s+/g,"-")}`}>
-            <Download className="h-3.5 w-3.5 mr-1 text-red-500" />PDF
+          <Button variant="outline" size="sm" className="flex-1" onClick={() => report.generate("pdf")} disabled={!!report.loading} data-testid={`pdf-${report.title.toLowerCase().replace(/\s+/g,"-")}`}>
+            {report.loading ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Download className="h-3.5 w-3.5 mr-1 text-red-500" />}PDF
           </Button>
         </div>
       </CardContent>
