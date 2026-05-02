@@ -693,7 +693,10 @@ async function healNightShiftCrossDay(): Promise<void> {
     }>(sql`
       SELECT id, employee_id, company_id, date, clock_in
       FROM   attendance
-      WHERE  status           = 'miss_punch'
+      WHERE  (
+               status = 'miss_punch'
+               OR (status = 'present' AND date < CURRENT_DATE)
+             )
         AND  clock_in_method  = 'biometric'
         AND  clock_in         IS NOT NULL
         AND  clock_out        IS NULL
@@ -790,7 +793,9 @@ async function healNightShiftCrossDay(): Promise<void> {
         WHERE  id = ${row.id}
       `);
 
-      // Remove orphan Day N+1 miss_punch if it was created solely from this punch
+      // Remove orphan Day N+1 record if it was created solely from this morning punch.
+      // correctMissPunchFromAllLogs may have already reset it from 'miss_punch' → 'present'
+      // (in-only), so we check both statuses.
       await db.execute(sql`
         DELETE FROM attendance
         WHERE  employee_id      = ${row.employee_id}
@@ -798,7 +803,7 @@ async function healNightShiftCrossDay(): Promise<void> {
           AND  date             = ${nextDay}
           AND  clock_in         = ${clockOut}
           AND  clock_out        IS NULL
-          AND  status           = 'miss_punch'
+          AND  status           IN ('miss_punch', 'present')
           AND  clock_in_method  = 'biometric'
       `);
 
