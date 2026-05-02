@@ -34,6 +34,7 @@ import {
   Filter,
   Loader2,
   X,
+  ArrowRightLeft,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -1993,6 +1994,135 @@ export default function ReportsPage() {
       });
       downloadPDF(`LWF Report - ${monthName} ${yearStr}`, headers, rows, `LWF_Report_${monthName}_${yearStr}`);
     }
+  };
+
+  // ── Bank Transfer Report ─────────────────────────────────────────────────────
+  const generateBankTransferReport = (fileType: "excel" | "pdf") => {
+    const activeEmps = filteredEmployees.filter(e => e.status === "active");
+    if (activeEmps.length === 0) {
+      toast({ title: "No Data", description: "No active employees found.", variant: "destructive" });
+      return;
+    }
+    const monthPayrolls = payrollRecords.filter(p => p.month === monthName && p.year === yearNum);
+    const totalAmount = monthPayrolls.reduce((s, p) => {
+      const emp = activeEmps.find(e => e.id === p.employeeId);
+      return emp ? s + (p.netSalary || 0) : s;
+    }, 0);
+
+    if (fileType === "excel") {
+      const rows = activeEmps.map((emp, idx) => {
+        const pr = monthPayrolls.find(p => p.employeeId === emp.id);
+        return {
+          "S.No.": idx + 1,
+          "Employee Code": emp.employeeCode,
+          "Employee Name": `${emp.firstName} ${emp.lastName}`,
+          "Bank Account No.": emp.bankAccount || "",
+          "IFSC Code": emp.ifsc || "",
+          "Amount (₹)": pr?.netSalary || 0,
+        };
+      });
+      downloadExcel(rows, `Bank_Transfer_${monthName}_${yearStr}`, `Bank Transfer ${monthName} ${yearStr}`);
+    } else {
+      const company = companies.find(c => c.id === effectiveCompany) || companies[0];
+      const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+      const PW = 210, ML = 10, MR = 10, UW = PW - ML - MR;
+
+      // ── Header ─────────────────────────────────────────────────────────────
+      doc.setFillColor(30, 58, 138);
+      doc.rect(ML, 8, UW, 16, "F");
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(13);
+      doc.setTextColor(255, 255, 255);
+      doc.text((company?.companyName || "Company").toUpperCase(), PW / 2, 16, { align: "center" });
+      doc.setFontSize(8);
+      doc.setFont("helvetica", "normal");
+      const addr = [company?.city, company?.state].filter(Boolean).join(", ");
+      if (addr) doc.text(addr, PW / 2, 21.5, { align: "center" });
+      doc.setTextColor(0, 0, 0);
+
+      // ── Title ──────────────────────────────────────────────────────────────
+      doc.setFillColor(239, 246, 255);
+      doc.setDrawColor(30, 58, 138);
+      doc.setLineWidth(0.4);
+      doc.rect(ML, 27, UW, 9, "FD");
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(11);
+      doc.setTextColor(30, 58, 138);
+      doc.text(`BANK TRANSFER REPORT — ${monthName.toUpperCase()} ${yearStr}`, PW / 2, 33, { align: "center" });
+      doc.setTextColor(0, 0, 0);
+
+      // ── Table ──────────────────────────────────────────────────────────────
+      const headers = [["S.No.", "Emp Code", "Employee Name", "Bank Account No.", "IFSC Code", "Amount (₹)"]];
+      const body = activeEmps.map((emp, idx) => {
+        const pr = monthPayrolls.find(p => p.employeeId === emp.id);
+        return [
+          String(idx + 1),
+          emp.employeeCode,
+          `${emp.firstName} ${emp.lastName}`,
+          emp.bankAccount || "—",
+          emp.ifsc || "—",
+          (pr?.netSalary || 0).toLocaleString("en-IN"),
+        ];
+      });
+      // Total row
+      body.push(["", "", "", "", "TOTAL", totalAmount.toLocaleString("en-IN")]);
+
+      autoTable(doc, {
+        head: headers,
+        body,
+        startY: 39,
+        theme: "grid",
+        styles: { fontSize: 8.5, cellPadding: 1.8, lineColor: [180, 198, 230], lineWidth: 0.25, valign: "middle" },
+        headStyles: { fillColor: [30, 58, 138], textColor: 255, fontStyle: "bold", fontSize: 8.5, halign: "center" },
+        alternateRowStyles: { fillColor: [245, 248, 255] },
+        columnStyles: {
+          0: { cellWidth: 12, halign: "center" as const, fontStyle: "bold" },
+          1: { cellWidth: 22 },
+          2: { cellWidth: 52 },
+          3: { cellWidth: 40 },
+          4: { cellWidth: 28 },
+          5: { cellWidth: 28, halign: "right" as const },
+        },
+        didParseCell(data) {
+          if (data.row.index === body.length - 1) {
+            data.cell.styles.fontStyle = "bold";
+            data.cell.styles.fillColor = [219, 234, 254];
+            data.cell.styles.textColor = [30, 58, 138];
+          }
+        },
+        margin: { left: ML, right: MR },
+      });
+
+      // ── Footer ─────────────────────────────────────────────────────────────
+      const finalY = (doc as any).lastAutoTable.finalY + 6;
+      doc.setFontSize(8);
+      doc.setTextColor(120, 120, 120);
+      doc.text(`Generated: ${new Date().toLocaleDateString("en-IN")}   |   Total Employees: ${activeEmps.length}   |   Total Amount: ₹${totalAmount.toLocaleString("en-IN")}`, ML, finalY);
+
+      doc.save(`Bank_Transfer_${monthName}_${yearStr}.pdf`);
+    }
+  };
+
+  const viewBankTransferReport = () => {
+    const activeEmps = filteredEmployees.filter(e => e.status === "active");
+    if (activeEmps.length === 0) {
+      toast({ title: "No Data", description: "No active employees found.", variant: "destructive" });
+      return;
+    }
+    const monthPayrolls = payrollRecords.filter(p => p.month === monthName && p.year === yearNum);
+    const headers = ["S.No.", "Emp Code", "Employee Name", "Bank Account No.", "IFSC Code", "Amount (₹)"];
+    const rows = activeEmps.map((emp, idx) => {
+      const pr = monthPayrolls.find(p => p.employeeId === emp.id);
+      return [
+        idx + 1,
+        emp.employeeCode,
+        `${emp.firstName} ${emp.lastName}`,
+        emp.bankAccount || "—",
+        emp.ifsc || "—",
+        pr?.netSalary || 0,
+      ] as (string | number)[];
+    });
+    openViewDialog(`Bank Transfer Report — ${monthName} ${yearStr}`, headers, rows);
   };
 
   const shufflePunchTime = (baseTime: string, dateStr: string, empId: string, isIn: boolean): string => {
@@ -5182,6 +5312,15 @@ export default function ReportsPage() {
       generate: generateLeaveReport,
       view: viewLeaveReport,
     },
+    {
+      title: "Bank Transfer Report",
+      description: "Monthly bank transfer advice listing each employee's net salary, bank account number, and IFSC code for salary disbursement",
+      icon: ArrowRightLeft,
+      color: "text-blue-700",
+      bgColor: "bg-blue-50 dark:bg-blue-950",
+      generate: generateBankTransferReport,
+      view: viewBankTransferReport,
+    },
   ];
 
   // Reusable card renderer
@@ -5259,8 +5398,9 @@ export default function ReportsPage() {
     { key: "bonus",    category: "Monthly",       title: "Bonus Report",                 icon: Landmark,      color: "text-amber-600",  bgColor: "bg-amber-50 dark:bg-amber-950",  filters: ["company","month"],             generate: generateBonusReport,           view: viewBonusReport },
     { key: "lwf",      category: "Monthly",       title: "LWF Report",                   icon: Scale,         color: "text-cyan-600",   bgColor: "bg-cyan-50 dark:bg-cyan-950",    filters: ["company","month"],             generate: generateLWFReport,             view: viewLWFReport },
     { key: "loan",     category: "Monthly",       title: "Advance & Loan",               icon: Banknote,      color: "text-emerald-600",bgColor: "bg-emerald-50 dark:bg-emerald-950",filters: ["company"],                  generate: generateAdvanceReport,         view: viewAdvanceReport },
-    { key: "leave",    category: "Monthly",       title: "Leave Report",                 icon: CalendarX,     color: "text-purple-600", bgColor: "bg-purple-50 dark:bg-purple-950",filters: ["company","month"],             generate: generateLeaveReport,           view: viewLeaveReport },
-    { key: "ctc",      category: "Monthly",       title: "CTC Register",                 icon: Building2,     color: "text-teal-600",   bgColor: "bg-teal-50 dark:bg-teal-950",    filters: ["company"],                    generate: generateCTCRegister,           view: viewCTCRegister },
+    { key: "leave",    category: "Monthly",       title: "Leave Report",                 icon: CalendarX,       color: "text-purple-600", bgColor: "bg-purple-50 dark:bg-purple-950",  filters: ["company","month"],            generate: generateLeaveReport,           view: viewLeaveReport },
+    { key: "bank",     category: "Monthly",       title: "Bank Transfer Report",         icon: ArrowRightLeft,  color: "text-blue-700",   bgColor: "bg-blue-50 dark:bg-blue-950",      filters: ["company","month"],            generate: generateBankTransferReport,    view: viewBankTransferReport },
+    { key: "ctc",      category: "Monthly",       title: "CTC Register",                 icon: Building2,       color: "text-teal-600",   bgColor: "bg-teal-50 dark:bg-teal-950",      filters: ["company"],                   generate: generateCTCRegister,           view: viewCTCRegister },
     { key: "ypf",      category: "Annual",        title: "Yearly PF Summary",            icon: Shield,        color: "text-purple-600", bgColor: "bg-purple-50 dark:bg-purple-950",filters: ["company","period"],            generate: generateYearlyPFSummary,       view: viewYearlyPFSummary },
     { key: "yesic",    category: "Annual",        title: "Yearly ESIC Summary",          icon: Receipt,       color: "text-orange-600", bgColor: "bg-orange-50 dark:bg-orange-950",filters: ["company","period"],            generate: generateYearlyESICSummary,     view: viewYearlyESICSummary },
     { key: "ysal",     category: "Annual",        title: "Yearly Salary Detail",         icon: TrendingUp,    color: "text-green-600",  bgColor: "bg-green-50 dark:bg-green-950",  filters: ["company","period"],            generate: generateYearlySalaryDetail,    view: viewYearlySalaryDetail },
