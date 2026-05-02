@@ -5725,7 +5725,7 @@ export default function ReportsPage() {
             <>
               {selectedContractorId && (
                 <p className="text-xs text-muted-foreground bg-muted/40 border rounded-lg px-3 py-2 mb-4">
-                  Showing <span className="font-semibold text-foreground">{filteredContractorEmployees.length}</span> employee(s) for contractor: <span className="font-semibold text-foreground">{companyContractors.find(c => c.contractorId === selectedContractorId)?.contractorName}</span>
+                  Showing <span className="font-semibold text-foreground">{contractorTaggedEmpList.length}</span> employee(s) for contractor: <span className="font-semibold text-foreground">{companyContractors.find(c => c.contractorId === selectedContractorId)?.contractorName}</span>
                 </p>
               )}
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
