@@ -584,12 +584,14 @@ export default function AttendancePage() {
     if (empPolicy) {
       const wosPerWeek = (empPolicy.weeklyOff1 ? 1 : 0) + ((empPolicy.weeklyOff2 || "") ? 1 : 0);
       const workingDaysPerWeek = Math.max(1, 7 - wosPerWeek);
+      // "auto" means no fixed day — any unrecorded past day can absorb the earned WO
+      const hasAutoWO = empPolicy.weeklyOff1 === "auto" || (empPolicy.weeklyOff2 || "") === "auto";
 
       let unrecordedWoDays = 0;
       for (const day of daysInMonth) {
         if (day > today) break;
         const record = getAttendanceForDay(employee.id, day);
-        if (!record && isWeeklyOffForEmployee(employee, day)) unrecordedWoDays++;
+        if (!record && (hasAutoWO || isWeeklyOffForEmployee(employee, day))) unrecordedWoDays++;
       }
 
       if (unrecordedWoDays > 0) {

@@ -4456,13 +4456,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
             const daysInMonth = new Date(Date.UTC(calcYear, calcMonthNum, 0)).getUTCDate();
             const today = new Date();
 
+            // "auto" WO: any unrecorded past day can absorb the earned WO
+            const hasAutoWO = wo1 === "auto" || wo2 === "auto";
             let unrecordedWOs = 0;
             for (let d = 1; d <= daysInMonth; d++) {
               const dateStr = `${calcYear}-${String(calcMonthNum).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
               const utcDate = new Date(Date.UTC(calcYear, calcMonthNum - 1, d));
               if (utcDate > today) break;
               const dayName = dayNames[utcDate.getUTCDay()];
-              if ((dayName === wo1 || dayName === wo2) && !periodAtt.find(a => a.date === dateStr)) {
+              const isWODay = hasAutoWO ? true : (dayName === wo1 || dayName === wo2);
+              if (isWODay && !periodAtt.find(a => a.date === dateStr)) {
                 unrecordedWOs++;
               }
             }

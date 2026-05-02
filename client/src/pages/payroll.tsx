@@ -744,6 +744,8 @@ export default function PayrollPage() {
         const presentTotal = storedPresents + storedHalfDays * 0.5;
 
         // Count WO days with no stored record (past dates only)
+        // "auto" WO means any unrecorded past day can absorb the earned WO
+        const hasAutoWO = policy.weeklyOff1 === "auto" || policy.weeklyOff2 === "auto";
         let unrecordedWoDays = 0;
         for (let d = 1; d <= daysCount; d++) {
           const date = new Date(year, monthIdx, d);
@@ -751,7 +753,7 @@ export default function PayrollPage() {
           // Build date string directly to avoid UTC timezone shift (toISOString shifts IST dates back 1 day)
           const dateStr = `${year}-${String(monthIdx + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
           const storedRecord = periodAtt.find((a: any) => a.date === dateStr);
-          if (!storedRecord && isDayWeeklyOff(policy, date)) unrecordedWoDays++;
+          if (!storedRecord && (hasAutoWO || isDayWeeklyOff(policy, date))) unrecordedWoDays++;
         }
 
         if (unrecordedWoDays === 0) return 0;

@@ -2065,6 +2065,7 @@ function StatutorySettingsTab({ companyId, selectedCompany }: { companyId: strin
 }
 
 const DAYS_OF_WEEK = [
+  { value: "auto", label: "Auto" },
   { value: "sunday", label: "Sunday" },
   { value: "monday", label: "Monday" },
   { value: "tuesday", label: "Tuesday" },
