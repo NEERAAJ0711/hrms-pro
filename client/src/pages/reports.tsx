@@ -710,6 +710,8 @@ export default function ReportsPage() {
         customDeductions: customDeductionsMap,
         customDed,
         netPay: c?.netSalary || 0,
+        loc:  emp.location || "—",
+        cont: contractorMastersList.find(cm => cm.id === (emp as any).contractorMasterId)?.contractorName || "—",
         get rateTotal() { return this.rateBasic + this.rateHra + this.rateConv + this.rateOth; },
         get earnTotal() { return this.earnBasic + this.earnHra + this.earnConv + this.earnOth + this.customEarn + this.bonus + this.otAmount; },
         get dedTotal() { return this.pf + this.esic + this.lwf + this.tds + this.pt + this.adv + this.customDed; },
@@ -748,8 +750,53 @@ export default function ReportsPage() {
       name: deductionHeads.find(h => h.id === id)?.name || "Custom",
     }));
 
+    // ── Grouping helpers ────────────────────────────────────────────────────
+    const getSubKey = (r: typeof dataRows[0]) => {
+      if (dwSubtotalBy === "department")  return r.dept;
+      if (dwSubtotalBy === "designation") return r.desig;
+      if (dwSubtotalBy === "location")    return r.loc;
+      if (dwSubtotalBy === "contractor")  return r.cont;
+      return null;
+    };
+
+    const buildGroups = () => {
+      const map = new Map<string, typeof dataRows>();
+      for (const r of dataRows) {
+        const k = getSubKey(r) ?? "—";
+        if (!map.has(k)) map.set(k, []);
+        map.get(k)!.push(r);
+      }
+      return map;
+    };
+
+    const groupSum = (rows: typeof dataRows) => ({
+      otHours:  rows.reduce((a, r) => a + r.otHours, 0),
+      rateBasic: rows.reduce((a, r) => a + r.rateBasic, 0),
+      rateHra:   rows.reduce((a, r) => a + r.rateHra, 0),
+      rateConv:  rows.reduce((a, r) => a + r.rateConv, 0),
+      rateOth:   rows.reduce((a, r) => a + r.rateOth, 0),
+      earnBasic: rows.reduce((a, r) => a + r.earnBasic, 0),
+      earnHra:   rows.reduce((a, r) => a + r.earnHra, 0),
+      earnConv:  rows.reduce((a, r) => a + r.earnConv, 0),
+      earnOth:   rows.reduce((a, r) => a + r.earnOth, 0),
+      bonus:     rows.reduce((a, r) => a + r.bonus, 0),
+      otAmount:  rows.reduce((a, r) => a + r.otAmount, 0),
+      earnTotal: rows.reduce((a, r) => a + r.earnTotal, 0),
+      pf:  rows.reduce((a, r) => a + r.pf, 0),
+      esic: rows.reduce((a, r) => a + r.esic, 0),
+      lwf:  rows.reduce((a, r) => a + r.lwf, 0),
+      tds:  rows.reduce((a, r) => a + r.tds, 0),
+      pt:   rows.reduce((a, r) => a + r.pt, 0),
+      adv:  rows.reduce((a, r) => a + r.adv, 0),
+      dedTotal: rows.reduce((a, r) => a + r.dedTotal, 0),
+      netPay:   rows.reduce((a, r) => a + r.netPay, 0),
+      customEarnings:   Object.fromEntries(usedHeads.map(h    => [h.id, rows.reduce((a, r) => a + (r.customEarnings[h.id]    || 0), 0)])),
+      customDeductions: Object.fromEntries(usedDedHeads.map(h => [h.id, rows.reduce((a, r) => a + (r.customDeductions[h.id] || 0), 0)])),
+    });
+
+    // ── Excel export (with subtotals) ───────────────────────────────────────
     if (fileType === "excel") {
-      const rows = dataRows.map(r => {
+      const buildExcelRow = (r: typeof dataRows[0]): Record<string, string | number> => {
         const row: Record<string, string | number> = {
           "Code": r.code, "Name": r.name, "Department": r.dept, "Designation": r.desig,
           "Month Days": r.monthDays, "Pay Days": r.payDays,
@@ -758,25 +805,54 @@ export default function ReportsPage() {
           "Earn: Basic": r.earnBasic, "Earn: HRA": r.earnHra, "Earn: Conv": r.earnConv, "Earn: Other": r.earnOth,
         };
         usedHeads.forEach(h => { row[`Earn: ${h.name}`] = r.customEarnings[h.id] || 0; });
-        row["Earn: Bonus"] = r.bonus;
-        row["OT Hrs"] = r.otHours;
-        row["OT Amount"] = r.otAmount;
+        row["Earn: Bonus"] = r.bonus; row["OT Hrs"] = r.otHours; row["OT Amount"] = r.otAmount;
         row["Earn: Total"] = r.earnTotal;
         row["Ded: PF"] = r.pf; row["Ded: ESIC"] = r.esic; row["Ded: LWF"] = r.lwf;
         row["Ded: TDS"] = r.tds; row["Ded: PT"] = r.pt; row["Ded: Adv"] = r.adv;
         usedDedHeads.forEach(h => { row[`Ded: ${h.name}`] = r.customDeductions[h.id] || 0; });
-        row["Ded: Total"] = r.dedTotal;
-        row["Net Pay"] = r.netPay;
+        row["Ded: Total"] = r.dedTotal; row["Net Pay"] = r.netPay;
         return row;
-      });
-      const totalExcelRow: Record<string, string | number> = { "Code": "", "Name": "TOTAL", "Department": "", "Designation": "", "Month Days": "", "Pay Days": "" };
+      };
+
+      const buildSubExcelRow = (label: string, gs: ReturnType<typeof groupSum>, count: number): Record<string, string | number> => {
+        const row: Record<string, string | number> = {
+          "Code": "", "Name": `SUB-TOTAL: ${label} (${count} emp)`,
+          "Department": "", "Designation": "", "Month Days": "", "Pay Days": "",
+          "Rate: Basic": gs.rateBasic, "Rate: HRA": gs.rateHra, "Rate: Conv": gs.rateConv, "Rate: Other": gs.rateOth,
+          "Rate: Total": gs.rateBasic + gs.rateHra + gs.rateConv + gs.rateOth,
+          "Earn: Basic": gs.earnBasic, "Earn: HRA": gs.earnHra, "Earn: Conv": gs.earnConv, "Earn: Other": gs.earnOth,
+        };
+        usedHeads.forEach(h => { row[`Earn: ${h.name}`] = gs.customEarnings[h.id] || 0; });
+        row["Earn: Bonus"] = gs.bonus; row["OT Hrs"] = gs.otHours; row["OT Amount"] = gs.otAmount;
+        row["Earn: Total"] = gs.earnTotal;
+        row["Ded: PF"] = gs.pf; row["Ded: ESIC"] = gs.esic; row["Ded: LWF"] = gs.lwf;
+        row["Ded: TDS"] = gs.tds; row["Ded: PT"] = gs.pt; row["Ded: Adv"] = gs.adv;
+        usedDedHeads.forEach(h => { row[`Ded: ${h.name}`] = gs.customDeductions[h.id] || 0; });
+        row["Ded: Total"] = gs.dedTotal; row["Net Pay"] = gs.netPay;
+        return row;
+      };
+
+      const allExcelRows: Record<string, string | number>[] = [];
+      if (dwSubtotalBy !== "none") {
+        const groups = buildGroups();
+        for (const [groupName, gRows] of groups) {
+          gRows.forEach(r => allExcelRows.push(buildExcelRow(r)));
+          allExcelRows.push(buildSubExcelRow(groupName, groupSum(gRows), gRows.length));
+        }
+      } else {
+        dataRows.forEach(r => allExcelRows.push(buildExcelRow(r)));
+      }
+
+      const grandRow: Record<string, string | number> = { "Code": "", "Name": "GRAND TOTAL", "Department": "", "Designation": "", "Month Days": "", "Pay Days": "" };
       const fixedNumKeys = ["Rate: Basic","Rate: HRA","Rate: Conv","Rate: Other","Rate: Total","Earn: Basic","Earn: HRA","Earn: Conv","Earn: Other"];
       const customNumKeys = usedHeads.map(h => `Earn: ${h.name}`);
       const customDedNumKeys = usedDedHeads.map(h => `Ded: ${h.name}`);
       const trailNumKeys = ["Earn: Bonus","OT Hrs","OT Amount","Earn: Total","Ded: PF","Ded: ESIC","Ded: LWF","Ded: TDS","Ded: PT","Ded: Adv",...customDedNumKeys,"Ded: Total","Net Pay"];
       const numKeys = [...fixedNumKeys, ...customNumKeys, ...trailNumKeys];
-      for (const k of numKeys) totalExcelRow[k] = rows.reduce((s, r) => s + (Number(r[k]) || 0), 0);
-      downloadExcel([...rows, totalExcelRow], `Salary_Sheet_${selectedMonth}`, "Salary Sheet");
+      const allDataExcelRows = dataRows.map(buildExcelRow);
+      for (const k of numKeys) grandRow[k] = allDataExcelRows.reduce((s, r) => s + (Number(r[k]) || 0), 0);
+      allExcelRows.push(grandRow);
+      downloadExcel(allExcelRows, `Salary_Sheet_${selectedMonth}`, "Salary Sheet");
       return;
     }
 
@@ -909,6 +985,47 @@ export default function ReportsPage() {
       colStyles[C_ADV + 1 + i] = { cellWidth: 10 };
     }
 
+    // ── Build PDF body with inline subtotal rows (before autoTable) ──────────
+    const makeBodyRow = (r: typeof dataRows[0]) => [
+      r.code, r.name, r.dept, r.desig, r.monthDays, r.payDays,
+      r.otHours,
+      r.rateBasic, r.rateHra, r.rateConv, r.rateOth, r.rateBasic + r.rateHra + r.rateConv + r.rateOth,
+      r.earnBasic, r.earnHra, r.earnConv, r.earnOth,
+      ...usedHeads.map(h => r.customEarnings[h.id] || 0),
+      r.bonus, r.otAmount, r.earnTotal,
+      r.pf, r.esic, r.lwf, r.tds, r.pt, r.adv,
+      ...usedDedHeads.map(h => r.customDeductions[h.id] || 0),
+      r.dedTotal, r.netPay,
+    ];
+    const makeSubRow = (label: string, gs: ReturnType<typeof groupSum>, count: number) => [
+      { content: `Sub-Total: ${label}  (${count} emp)`, colSpan: 6, styles: { fontStyle: "bold" as const, halign: "left" as const } },
+      gs.otHours,
+      gs.rateBasic, gs.rateHra, gs.rateConv, gs.rateOth, gs.rateBasic + gs.rateHra + gs.rateConv + gs.rateOth,
+      gs.earnBasic, gs.earnHra, gs.earnConv, gs.earnOth,
+      ...usedHeads.map(h => gs.customEarnings[h.id] || 0),
+      gs.bonus, gs.otAmount, gs.earnTotal,
+      gs.pf, gs.esic, gs.lwf, gs.tds, gs.pt, gs.adv,
+      ...usedDedHeads.map(h => gs.customDeductions[h.id] || 0),
+      gs.dedTotal, gs.netPay,
+    ];
+
+    const pdfBody: (string | number | object)[][] = [];
+    const subIndices = new Set<number>();
+    const summaryRows: { label: string; count: number; gs: ReturnType<typeof groupSum> }[] = [];
+
+    if (dwSubtotalBy !== "none") {
+      const groups = buildGroups();
+      for (const [groupName, gRows] of groups) {
+        gRows.forEach(r => pdfBody.push(makeBodyRow(r)));
+        const gs = groupSum(gRows);
+        subIndices.add(pdfBody.length);
+        pdfBody.push(makeSubRow(groupName, gs, gRows.length));
+        summaryRows.push({ label: groupName, count: gRows.length, gs });
+      }
+    } else {
+      dataRows.forEach(r => pdfBody.push(makeBodyRow(r)));
+    }
+
     autoTable(doc, {
       startY: y,
       head: [
@@ -935,18 +1052,7 @@ export default function ReportsPage() {
           "Total",
         ],
       ],
-      body: dataRows.map(r => [
-        r.code, r.name, r.dept, r.desig, r.monthDays, r.payDays,
-        r.otHours,
-        r.rateBasic, r.rateHra, r.rateConv, r.rateOth, r.rateBasic + r.rateHra + r.rateConv + r.rateOth,
-        r.earnBasic, r.earnHra, r.earnConv, r.earnOth,
-        ...usedHeads.map(h => r.customEarnings[h.id] || 0),
-        r.bonus, r.otAmount, r.earnTotal,
-        r.pf, r.esic, r.lwf, r.tds, r.pt, r.adv,
-        ...usedDedHeads.map(h => r.customDeductions[h.id] || 0),
-        r.dedTotal,
-        r.netPay,
-      ]),
+      body: pdfBody,
       foot: [totalsRow],
       footStyles: {
         fillColor: [200, 200, 200],
@@ -979,7 +1085,59 @@ export default function ReportsPage() {
       columnStyles: colStyles,
       margin: { left: ml, right: ml },
       theme: "plain",
+      didParseCell(data) {
+        if (data.section === "body" && subIndices.has(data.row.index)) {
+          data.cell.styles.fillColor = [220, 235, 255];
+          data.cell.styles.fontStyle = "bold";
+          data.cell.styles.textColor = [30, 58, 138];
+          data.cell.styles.lineColor = [30, 58, 138];
+        }
+      },
     });
+
+    // ── Department/Group Summary table (only when subtotals are active) ──────
+    if (summaryRows.length > 0) {
+      const summaryStartY = (doc as any).lastAutoTable.finalY + 8;
+      const groupLabel = dwSubtotalBy.charAt(0).toUpperCase() + dwSubtotalBy.slice(1);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(8.5);
+      doc.setTextColor(30, 58, 138);
+      doc.text(`${groupLabel}-wise Summary`, ml, summaryStartY);
+      autoTable(doc, {
+        startY: summaryStartY + 4,
+        head: [[groupLabel, "Employees", "Rate Total", "Earn Total", "Ded Total", "Net Pay"]],
+        body: [
+          ...summaryRows.map(g => [
+            g.label,
+            g.count,
+            g.gs.rateBasic + g.gs.rateHra + g.gs.rateConv + g.gs.rateOth,
+            g.gs.earnTotal,
+            g.gs.dedTotal,
+            g.gs.netPay,
+          ]),
+          ["GRAND TOTAL", dataRows.length, sumRateTotal, sumEarnTotal, sumDedTotal, sum("netPay")],
+        ],
+        styles: { fontSize: 8, cellPadding: 2, halign: "right" as const },
+        headStyles: { fillColor: [59, 89, 152] as [number, number, number], textColor: [255, 255, 255] as [number, number, number], fontStyle: "bold", halign: "center" as const },
+        columnStyles: {
+          0: { halign: "left" as const, cellWidth: 50 },
+          1: { cellWidth: 20, halign: "center" as const },
+          2: { cellWidth: 28 },
+          3: { cellWidth: 28 },
+          4: { cellWidth: 28 },
+          5: { cellWidth: 28 },
+        },
+        didParseCell(data) {
+          if (data.section === "body" && data.row.index === summaryRows.length) {
+            data.cell.styles.fontStyle = "bold";
+            data.cell.styles.fillColor = [220, 235, 255];
+            data.cell.styles.textColor = [30, 58, 138];
+          }
+        },
+        margin: { left: ml },
+        theme: "grid",
+      });
+    }
 
     doc.save(`Salary_Sheet_${selectedMonth}.pdf`);
   };
