@@ -830,6 +830,70 @@ export default function ReportsPage() {
       sum("netPay"),
     ];
 
+    // ── Compute exact column indices (dynamic because usedHeads/usedDedHeads are variable) ──
+    // Fixed prefix: Code(0) Name(1) Dept(2) Desig(3) MonDays(4) PayDays(5) OTHrs(6)
+    // Rate block:   RBasic(7) RHRA(8) RConv(9) ROth(10) RTotal(11)
+    // Earn block:   EBasic(12) EHRA(13) EConv(14) EOth(15) [custom…] Bonus OTAmt ETotal
+    const C_RATE_BASIC  = 7;
+    const C_RATE_TOTAL  = 11;  // R.Total → highlighted
+    const C_EARN_BASIC  = 12;
+    const C_EARN_OTH    = 15;
+    const C_BONUS       = 16 + usedHeads.length;
+    const C_OT_AMT      = 17 + usedHeads.length;
+    const C_EARN_TOTAL  = 18 + usedHeads.length;  // E.Total → highlighted
+    const C_PF          = 19 + usedHeads.length;
+    const C_ESIC        = 20 + usedHeads.length;
+    const C_LWF         = 21 + usedHeads.length;
+    const C_TDS         = 22 + usedHeads.length;
+    const C_PT          = 23 + usedHeads.length;
+    const C_ADV         = 24 + usedHeads.length;
+    const C_DED_TOTAL   = 25 + usedHeads.length + usedDedHeads.length;  // D.Total → highlighted
+    const C_NET_PAY     = 26 + usedHeads.length + usedDedHeads.length;
+
+    // Build column styles keyed by exact index
+    const HL: [number, number, number] = [220, 235, 255];  // light-blue highlight for totals
+    const colStyles: Record<number, object> = {
+      0:  { cellWidth: 11, halign: "center", overflow: "hidden" },   // Code
+      1:  { cellWidth: 22, halign: "left",   overflow: "hidden" },   // Name
+      2:  { cellWidth: 15, halign: "left",   overflow: "hidden" },   // Dept
+      3:  { cellWidth: 15, halign: "left",   overflow: "hidden" },   // Desig
+      4:  { cellWidth: 8,  halign: "center" },                       // Mon.Days
+      5:  { cellWidth: 8,  halign: "center" },                       // Pay Days
+      6:  { cellWidth: 8 },                                          // OT Hrs
+      // Rate
+      [C_RATE_BASIC]:      { cellWidth: 11 },                        // R.Basic
+      [C_RATE_BASIC + 1]:  { cellWidth: 10 },                        // R.HRA
+      [C_RATE_BASIC + 2]:  { cellWidth: 9 },                         // R.Conv
+      [C_RATE_BASIC + 3]:  { cellWidth: 9 },                         // R.Other
+      [C_RATE_TOTAL]:      { cellWidth: 12, fillColor: HL },         // R.Total ★
+      // Earnings (fixed part)
+      [C_EARN_BASIC]:      { cellWidth: 11 },                        // E.Basic
+      [C_EARN_BASIC + 1]:  { cellWidth: 10 },                        // E.HRA
+      [C_EARN_BASIC + 2]:  { cellWidth: 9 },                         // E.Conv
+      [C_EARN_OTH]:        { cellWidth: 9 },                         // E.Other
+      // Bonus / OT Amt / E.Total
+      [C_BONUS]:           { cellWidth: 10 },                        // Bonus
+      [C_OT_AMT]:          { cellWidth: 9 },                         // OT Amt
+      [C_EARN_TOTAL]:      { cellWidth: 12, fillColor: HL },         // E.Total ★
+      // Deductions
+      [C_PF]:              { cellWidth: 9 },                         // PF
+      [C_ESIC]:            { cellWidth: 8 },                         // ESIC
+      [C_LWF]:             { cellWidth: 7 },                         // LWF
+      [C_TDS]:             { cellWidth: 8 },                         // TDS
+      [C_PT]:              { cellWidth: 7 },                         // PT
+      [C_ADV]:             { cellWidth: 10 },                        // Adv
+      [C_DED_TOTAL]:       { cellWidth: 12, fillColor: HL },         // D.Total ★
+      [C_NET_PAY]:         { cellWidth: 13 },                        // Net Pay
+    };
+    // Custom earn head columns — give each a sensible width
+    for (let i = 0; i < usedHeads.length; i++) {
+      colStyles[C_EARN_OTH + 1 + i] = { cellWidth: 10 };
+    }
+    // Custom ded head columns
+    for (let i = 0; i < usedDedHeads.length; i++) {
+      colStyles[C_ADV + 1 + i] = { cellWidth: 10 };
+    }
+
     autoTable(doc, {
       startY: y,
       head: [
@@ -838,21 +902,21 @@ export default function ReportsPage() {
           { content: "Name",        rowSpan: 2, styles: { halign: "center", valign: "middle" } },
           { content: "Department",  rowSpan: 2, styles: { halign: "center", valign: "middle" } },
           { content: "Designation", rowSpan: 2, styles: { halign: "center", valign: "middle" } },
-          { content: "Mon.Days",    rowSpan: 2, styles: { halign: "center", valign: "middle" } },
-          { content: "Pay Days",    rowSpan: 2, styles: { halign: "center", valign: "middle" } },
+          { content: "Mon.D",       rowSpan: 2, styles: { halign: "center", valign: "middle" } },
+          { content: "Pay D",       rowSpan: 2, styles: { halign: "center", valign: "middle" } },
           { content: "OT Hrs",      rowSpan: 2, styles: { halign: "center", valign: "middle" } },
-          { content: "Rate",        colSpan: 5,  styles: { halign: "center" } },
-          { content: "Earnings",    colSpan: 7 + usedHeads.length,  styles: { halign: "center" } },
-          { content: "Deductions",  colSpan: 7 + usedDedHeads.length,  styles: { halign: "center" } },
+          { content: "Rate",        colSpan: 5,                       styles: { halign: "center" } },
+          { content: "Earnings",    colSpan: 7 + usedHeads.length,    styles: { halign: "center" } },
+          { content: "Deductions",  colSpan: 7 + usedDedHeads.length, styles: { halign: "center" } },
           { content: "Net Pay",     rowSpan: 2, styles: { halign: "center", valign: "middle" } },
         ],
         [
-          "Basic", "HRA", "Conv", "Other", "Total",
-          "Basic", "HRA", "Conv", "Other",
-          ...usedHeads.map(h => h.name.length > 8 ? h.name.slice(0, 7) + "." : h.name),
+          "Basic", "HRA", "Conv", "Oth", "Total",
+          "Basic", "HRA", "Conv", "Oth",
+          ...usedHeads.map(h => h.name.length > 7 ? h.name.slice(0, 6) + "." : h.name),
           "Bonus", "OT Amt", "Total",
           "PF", "ESIC", "LWF", "TDS", "PT", "Adv",
-          ...usedDedHeads.map(h => h.name.length > 8 ? h.name.slice(0, 7) + "." : h.name),
+          ...usedDedHeads.map(h => h.name.length > 7 ? h.name.slice(0, 6) + "." : h.name),
           "Total",
         ],
       ],
@@ -870,63 +934,34 @@ export default function ReportsPage() {
       ]),
       foot: [totalsRow],
       footStyles: {
-        fillColor: [220, 220, 220],
+        fillColor: [200, 200, 200],
         textColor: [0, 0, 0],
         fontStyle: "bold",
-        fontSize: 7,
+        fontSize: 6,
         lineColor: [0, 0, 0],
         lineWidth: 0.2,
         halign: "right",
       },
       styles: {
-        fontSize: 6.5,
-        cellPadding: 1.2,
+        fontSize: 6,
+        cellPadding: { top: 0.8, bottom: 0.8, left: 1, right: 1 },
         lineColor: [0, 0, 0],
         lineWidth: 0.2,
         textColor: [0, 0, 0],
         halign: "right",
+        overflow: "hidden",
       },
       headStyles: {
         fillColor: [59, 89, 152],
         textColor: [255, 255, 255],
         fontStyle: "bold",
-        fontSize: 6.5,
+        fontSize: 6,
         halign: "center",
         lineColor: [0, 0, 0],
         lineWidth: 0.2,
+        cellPadding: { top: 1, bottom: 1, left: 1, right: 1 },
       },
-      columnStyles: {
-        // Info columns
-        0:  { cellWidth: 13, halign: "center" },  // Code
-        1:  { cellWidth: 26, halign: "left" },     // Name
-        2:  { cellWidth: 18, halign: "left" },     // Dept
-        3:  { cellWidth: 18, halign: "left" },     // Desig
-        4:  { cellWidth: 10, halign: "center" },   // Mon.Days
-        5:  { cellWidth: 10, halign: "center" },   // Pay Days
-        // Rate (5 cols)
-        6:  { cellWidth: 10 },  // R.Basic
-        7:  { cellWidth: 9 },   // R.HRA
-        8:  { cellWidth: 8 },   // R.Conv
-        9:  { cellWidth: 8 },   // R.Other
-        10: { cellWidth: 11, fillColor: [235, 240, 255] },  // R.Total (highlighted)
-        // Earnings (6 cols)
-        11: { cellWidth: 10 },  // E.Basic
-        12: { cellWidth: 9 },   // E.HRA
-        13: { cellWidth: 8 },   // E.Conv
-        14: { cellWidth: 8 },   // E.Other
-        15: { cellWidth: 8 },   // Bonus
-        16: { cellWidth: 11, fillColor: [235, 240, 255] },  // E.Total (highlighted)
-        // Deductions (7 cols)
-        17: { cellWidth: 8 },   // PF
-        18: { cellWidth: 8 },   // ESIC
-        19: { cellWidth: 7 },   // LWF
-        20: { cellWidth: 7 },   // TDS
-        21: { cellWidth: 7 },   // PT
-        22: { cellWidth: 9 },   // Adv
-        23: { cellWidth: 11, fillColor: [235, 240, 255] },  // D.Total (highlighted)
-        // Net Pay
-        24: { cellWidth: 12 },
-      },
+      columnStyles: colStyles,
       margin: { left: ml, right: ml },
       theme: "plain",
     });
