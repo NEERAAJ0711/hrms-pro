@@ -724,20 +724,28 @@ async function healNightShiftCrossDay(): Promise<void> {
     }
     const empMap = new Map(empRows.map((e: any) => [e.id, e]));
 
+    // Threshold for "late evening" clock-in that could be a cross-midnight shift
+    const LATE_IN_MIN  = 17 * 60; // 17:00 — heuristic for non-night-shift policies
+    const EARLY_OUT_MAX = 12 * 60; // 12:00 — latest we accept as "next morning" punch
+
     let healed = 0;
     for (const row of missPunchRows.rows) {
       const emp: any = empMap.get(row.employee_id);
       if (!emp) continue;
+      if (!row.clock_in) continue;
 
       const policy    = emp.timeOfficePolicyId ? policyMap.get(emp.timeOfficePolicyId) : null;
       const dutyStart = policy?.dutyStartTime ?? "09:00";
       const dutyEnd   = policy?.dutyEndTime   ?? "18:00";
 
-      // Only heal night-shift policies (dutyStart > dutyEnd)
-      if (toMinutes(dutyStart) <= toMinutes(dutyEnd)) continue;
+      const isNightShiftPolicy = toMinutes(dutyStart) > toMinutes(dutyEnd);
 
-      // Only consider clock-ins that are in the evening ( >= dutyStart )
-      if (!row.clock_in || toMinutes(row.clock_in) < toMinutes(dutyStart)) continue;
+      // For night-shift policies: clock-in must be >= dutyStart, next-day punch <= dutyEnd
+      // For all other policies: clock-in must be >= 17:00, next-day punch <= 12:00
+      const minClockInMin  = isNightShiftPolicy ? toMinutes(dutyStart) : LATE_IN_MIN;
+      const maxNextPunchStr = isNightShiftPolicy ? dutyEnd : "12:00";
+
+      if (toMinutes(row.clock_in) < minClockInMin) continue;
 
       const nextDay = nextDateStr(row.date);
 
@@ -748,7 +756,7 @@ async function healNightShiftCrossDay(): Promise<void> {
           AND  company_id  = ${row.company_id}
           AND  punch_date  = ${nextDay}
           AND  punch_time  IS NOT NULL
-          AND  punch_time  <= ${dutyEnd}
+          AND  punch_time  <= ${maxNextPunchStr}
         ORDER  BY punch_time ASC
         LIMIT  1
       `);
@@ -758,6 +766,7 @@ async function healNightShiftCrossDay(): Promise<void> {
       const clockOut       = nextDayPunches.rows[0].punch_time;
       const workMin        = calcWorkMinutes(row.clock_in, clockOut);
       const cappedMin      = Math.min(workMin, MAX_WORK_HOURS * 60);
+      // For cross-midnight work on a day-shift policy, normalDutyMins is a day span — use it as-is
       const normalDutyMins = calcNormalDutyMinutes(dutyStart, dutyEnd);
       const workHours      = fromMinutes(Math.max(0, cappedMin));
       const otHours        = (normalDutyMins > 0 && cappedMin > normalDutyMins)
