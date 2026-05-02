@@ -33,6 +33,7 @@ import {
   ChevronRight,
   Filter,
   Loader2,
+  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -409,9 +410,22 @@ export default function ReportsPage() {
   }
 
   const effectiveCompany = selectedCompany === "__all__" ? "" : selectedCompany;
-  const filteredEmployees = employees.filter(e =>
-    effectiveCompany ? e.companyId === effectiveCompany : true
-  );
+
+  // Base employees for a company (used to build dropdown options)
+  const baseEmployees = employees.filter(e => effectiveCompany ? e.companyId === effectiveCompany : true);
+  const uniqSorted = <T extends string>(arr: T[]) => [...new Set(arr)].filter(Boolean).sort();
+  const globalDepts  = uniqSorted(baseEmployees.map(e => e.department  || ""));
+  const globalDesigs = uniqSorted(baseEmployees.map(e => e.designation || ""));
+  const globalLocs   = uniqSorted(baseEmployees.map(e => e.location    || ""));
+
+  // Global filtered employees — used by every report generation function
+  const filteredEmployees = baseEmployees.filter(e => {
+    if (dwDept  && e.department  !== dwDept)  return false;
+    if (dwDesig && e.designation !== dwDesig) return false;
+    if (dwLoc   && e.location    !== dwLoc)   return false;
+    if (dwCont  && (e as any).contractorMasterId !== dwCont) return false;
+    return true;
+  });
 
   const getCompanyName = (companyId: string | null) => {
     if (!companyId) return "N/A";
@@ -5202,63 +5216,6 @@ export default function ReportsPage() {
     </Card>
   );
 
-  // Period picker shared by Annual, Employee Wise, HR Docs tabs
-  const PeriodPicker = () => (
-    <div className="flex flex-wrap items-center gap-3">
-      <div className="flex items-center gap-1 rounded-md border bg-background p-0.5">
-        {(["calendar", "financial", "custom"] as const).map(t => (
-          <button
-            key={t}
-            onClick={() => setYearType(t)}
-            className={`px-3 py-1 text-xs font-medium rounded transition-colors ${yearType === t ? "bg-primary text-primary-foreground shadow-sm" : "hover:bg-muted text-muted-foreground"}`}
-          >
-            {t === "calendar" ? "Calendar Year" : t === "financial" ? "Financial Year" : "Custom"}
-          </button>
-        ))}
-      </div>
-      {yearType === "calendar" && (
-        <div className="flex items-center gap-1.5">
-          <label className="text-xs font-medium text-muted-foreground">Year:</label>
-          <Input type="number" value={selectedYear} onChange={e => setSelectedYear(e.target.value)} className="w-24 h-8 text-sm" min={2020} max={2099} />
-        </div>
-      )}
-      {yearType === "financial" && (
-        <div className="flex items-center gap-1.5">
-          <label className="text-xs font-medium text-muted-foreground">FY starting:</label>
-          <Input type="number" value={selectedYear} onChange={e => setSelectedYear(e.target.value)} className="w-24 h-8 text-sm" min={2020} max={2099} />
-          <span className="text-xs text-muted-foreground font-medium">→ FY {selectedYear}-{String(yearNum2 + 1).slice(-2)}</span>
-        </div>
-      )}
-      {yearType === "custom" && (
-        <div className="flex items-center gap-1.5">
-          <label className="text-xs font-medium text-muted-foreground">From:</label>
-          <Input type="month" value={customFromMonth} onChange={e => setCustomFromMonth(e.target.value)} className="w-36 h-8 text-sm" />
-          <label className="text-xs font-medium text-muted-foreground">To:</label>
-          <Input type="month" value={customToMonth} onChange={e => setCustomToMonth(e.target.value)} className="w-36 h-8 text-sm" />
-        </div>
-      )}
-    </div>
-  );
-
-  // Common filter bar
-  const companyFilter = isSuperAdmin ? (
-    <div className="flex items-center gap-2">
-      <label className="text-sm font-medium">Company:</label>
-      <Select value={selectedCompany || "__all__"} onValueChange={setSelectedCompany}>
-        <SelectTrigger className="w-56"><SelectValue placeholder="All Companies" /></SelectTrigger>
-        <SelectContent>
-          <SelectItem value="__all__">All Companies</SelectItem>
-          {companies.map(c => <SelectItem key={c.id} value={c.id}>{c.companyName}</SelectItem>)}
-        </SelectContent>
-      </Select>
-    </div>
-  ) : null;
-
-  const contractorCompanies = companies;
-  const filteredContractorEmployees = employees.filter(e =>
-    (selectedCompany && selectedCompany !== "__all__" ? e.companyId === selectedCompany : true)
-  );
-
   // Annual report cards
   const annualCards = [
     { title: "Yearly PF Summary", description: "Month-wise PF employee and employer contributions for all PF-applicable employees for the selected year", icon: Shield, color: "text-purple-600", bgColor: "bg-purple-50 dark:bg-purple-950", generate: generateYearlyPFSummary, view: viewYearlyPFSummary },
@@ -5389,50 +5346,6 @@ export default function ReportsPage() {
     contractor: contractorCards as typeof attendanceReports,
   };
 
-  // ─── Contextual filter bar content ────────────────────────────────────────
-  const showMonthFilter   = ["all", "attendance", "payroll", "statutory"].includes(activeTab);
-  const showDateFilter    = ["all", "attendance"].includes(activeTab);
-  const showPeriodFilter  = ["all", "annual", "employee", "hr"].includes(activeTab);
-  const showEmpFilter     = ["all", "employee", "hr", "payroll"].includes(activeTab);
-  const showContractor    = activeTab === "contractor";
-
-  const EmployeePicker = () => {
-    const selectedEmp = filteredEmployees.find(e => e.id === docEmployee);
-    const empMatches  = filteredEmployees.filter(e => {
-      const q = empSearchQuery.toLowerCase();
-      return !q || `${e.firstName} ${e.lastName}`.toLowerCase().includes(q) || e.employeeCode.toLowerCase().includes(q);
-    });
-    return (
-      <div className="flex items-center gap-2">
-        <label className="text-sm font-medium whitespace-nowrap">Employee:</label>
-        <div className="relative">
-          <Input
-            data-testid="emp-search-input"
-            placeholder="Search employee…"
-            className="w-56 h-9"
-            value={empSearchOpen ? empSearchQuery : (selectedEmp ? `${selectedEmp.firstName} ${selectedEmp.lastName} (${selectedEmp.employeeCode})` : "")}
-            onFocus={() => { setEmpSearchOpen(true); setEmpSearchQuery(""); }}
-            onChange={e => setEmpSearchQuery(e.target.value)}
-            onBlur={() => setTimeout(() => setEmpSearchOpen(false), 150)}
-            autoComplete="off"
-          />
-          {empSearchOpen && (
-            <div className="absolute z-50 w-full mt-1 bg-popover border rounded-md shadow-lg max-h-56 overflow-y-auto">
-              <div className="cursor-pointer px-3 py-2 text-sm hover:bg-accent text-muted-foreground" onMouseDown={() => { setDocEmployee(""); setEmpSearchOpen(false); setEmpSearchQuery(""); }}>All Employees</div>
-              {empMatches.map(e => (
-                <div key={e.id} className={`cursor-pointer px-3 py-2 text-sm hover:bg-accent flex items-center justify-between ${docEmployee === e.id ? "bg-accent/60 font-medium" : ""}`} onMouseDown={() => { setDocEmployee(e.id); setEmpSearchOpen(false); setEmpSearchQuery(""); }}>
-                  <span>{e.firstName} {e.lastName}</span>
-                  <span className="text-xs text-muted-foreground ml-2">{e.employeeCode}</span>
-                </div>
-              ))}
-              {empMatches.length === 0 && <div className="px-3 py-2 text-sm text-muted-foreground">No employees found</div>}
-            </div>
-          )}
-        </div>
-      </div>
-    );
-  };
-
   // ─── Enhanced card renderer ───────────────────────────────────────────────
   const renderEnhancedCard = (report: { title: string; description: string; icon: React.ElementType; color: string; bgColor: string; generate: (f: "excel" | "pdf") => void; view: () => void; pdfOnly?: boolean; loading?: boolean }) => (
     <Card key={report.title} className="group hover:shadow-md transition-all duration-200 border hover:border-primary/20 flex flex-col">
@@ -5534,54 +5447,173 @@ export default function ReportsPage() {
           </div>
         </div>
 
-        {/* ── Contextual Filter Bar ── */}
-        {activeTab !== "contractor" && (
-          <div className="flex flex-wrap items-center gap-3 mb-5 p-3 bg-muted/30 rounded-xl border">
-            <Filter className="h-4 w-4 text-muted-foreground shrink-0" />
-
-            {/* Company — super admin only */}
-            {isSuperAdmin && (
-              <div className="flex items-center gap-2">
-                <label className="text-sm font-medium whitespace-nowrap">Company:</label>
-                <Select value={selectedCompany || "__all__"} onValueChange={setSelectedCompany}>
-                  <SelectTrigger className="w-52 h-9" data-testid="filter-company"><SelectValue placeholder="All Companies" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__all__">All Companies</SelectItem>
-                    {companies.map(c => <SelectItem key={c.id} value={c.id}>{c.companyName}</SelectItem>)}
-                  </SelectContent>
-                </Select>
+        {/* ── Global Filter Panel ── */}
+        {(() => {
+          const hasActiveFilter = (isSuperAdmin && selectedCompany && selectedCompany !== "__all__") || dwDept || dwDesig || dwLoc || dwCont || docEmployee;
+          const selectedEmpObj = filteredEmployees.find(e => e.id === docEmployee) ?? baseEmployees.find(e => e.id === docEmployee);
+          const empLabel = selectedEmpObj ? `${selectedEmpObj.firstName} ${selectedEmpObj.lastName} (${selectedEmpObj.employeeCode})` : "";
+          const empMatches = baseEmployees.filter(e => {
+            const q = empSearchQuery.toLowerCase();
+            return !q || `${e.firstName} ${e.lastName}`.toLowerCase().includes(q) || e.employeeCode.toLowerCase().includes(q);
+          });
+          return (
+            <div className="mb-5 rounded-xl border bg-background shadow-sm overflow-hidden">
+              {/* Panel header */}
+              <div className="flex items-center gap-2 px-4 py-2 border-b bg-muted/40">
+                <Filter className="h-3.5 w-3.5 text-primary shrink-0" />
+                <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Report Filters</span>
+                {hasActiveFilter && (
+                  <button
+                    onClick={() => { setSelectedCompany(isSuperAdmin ? "" : (user?.companyId || "")); setDwDept(""); setDwDesig(""); setDwLoc(""); setDwCont(""); setDocEmployee(""); }}
+                    className="ml-auto flex items-center gap-1 text-xs text-muted-foreground hover:text-destructive transition-colors"
+                    data-testid="clear-all-filters"
+                  >
+                    <X className="h-3 w-3" />Clear filters
+                  </button>
+                )}
               </div>
-            )}
 
-            {/* Month */}
-            {showMonthFilter && (
-              <div className="flex items-center gap-2">
-                <label className="text-sm font-medium whitespace-nowrap">Month:</label>
-                <Input type="month" value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)} className="w-40 h-9" data-testid="filter-month" />
-              </div>
-            )}
+              <div className="p-3 space-y-2.5">
+                {/* Row 1: Company | Month | Date */}
+                <div className="flex flex-wrap items-center gap-3">
+                  {isSuperAdmin && (
+                    <div className="flex items-center gap-1.5">
+                      <label className="text-xs font-medium text-muted-foreground whitespace-nowrap">Company:</label>
+                      <Select value={selectedCompany || "__all__"} onValueChange={setSelectedCompany}>
+                        <SelectTrigger className="h-8 w-48 text-xs" data-testid="filter-company"><SelectValue placeholder="All Companies" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__all__">All Companies</SelectItem>
+                          {companies.map(c => <SelectItem key={c.id} value={c.id}>{c.companyName}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+                  <div className="flex items-center gap-1.5">
+                    <label className="text-xs font-medium text-muted-foreground whitespace-nowrap">Month:</label>
+                    <Input type="month" value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)} className="h-8 w-36 text-xs" data-testid="filter-month" />
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <label className="text-xs font-medium text-muted-foreground whitespace-nowrap">Date:</label>
+                    <Input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)} className="h-8 w-36 text-xs" data-testid="filter-date" />
+                  </div>
+                </div>
 
-            {/* Date — for Date-wise Attendance */}
-            {showDateFilter && (
-              <div className="flex items-center gap-2">
-                <label className="text-sm font-medium whitespace-nowrap">Date:</label>
-                <Input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)} className="w-40 h-9" data-testid="filter-date" />
-              </div>
-            )}
+                {/* Row 2: Year type toggle | Year/Custom range | Employee search */}
+                <div className="flex flex-wrap items-center gap-3">
+                  <div className="flex items-center gap-1 rounded-md border bg-muted/40 p-0.5">
+                    {(["calendar", "financial", "custom"] as const).map(t => (
+                      <button key={t} onClick={() => setYearType(t)}
+                        className={`px-2.5 py-1 text-[11px] font-medium rounded transition-colors ${yearType === t ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}>
+                        {t === "calendar" ? "Calendar Year" : t === "financial" ? "Financial Year" : "Custom"}
+                      </button>
+                    ))}
+                  </div>
+                  {yearType === "calendar" && (
+                    <div className="flex items-center gap-1.5">
+                      <label className="text-xs font-medium text-muted-foreground">Year:</label>
+                      <Input type="number" value={selectedYear} onChange={e => setSelectedYear(e.target.value)} className="h-8 w-20 text-xs" min={2020} max={2099} data-testid="filter-year" />
+                    </div>
+                  )}
+                  {yearType === "financial" && (
+                    <div className="flex items-center gap-1.5">
+                      <label className="text-xs font-medium text-muted-foreground">FY:</label>
+                      <Input type="number" value={selectedYear} onChange={e => setSelectedYear(e.target.value)} className="h-8 w-20 text-xs" min={2020} max={2099} />
+                      <span className="text-xs text-muted-foreground">→ {selectedYear}-{String(parseInt(selectedYear) + 1).slice(-2)}</span>
+                    </div>
+                  )}
+                  {yearType === "custom" && (
+                    <div className="flex items-center gap-1.5">
+                      <label className="text-xs font-medium text-muted-foreground">From:</label>
+                      <Input type="month" value={customFromMonth} onChange={e => setCustomFromMonth(e.target.value)} className="h-8 w-32 text-xs" />
+                      <label className="text-xs font-medium text-muted-foreground">To:</label>
+                      <Input type="month" value={customToMonth} onChange={e => setCustomToMonth(e.target.value)} className="h-8 w-32 text-xs" />
+                    </div>
+                  )}
+                  {/* Employee search */}
+                  <div className="flex items-center gap-1.5">
+                    <label className="text-xs font-medium text-muted-foreground whitespace-nowrap">Employee:</label>
+                    <div className="relative">
+                      <Input
+                        data-testid="emp-search-input"
+                        placeholder="Search employee…"
+                        className="h-8 w-52 text-xs"
+                        value={empSearchOpen ? empSearchQuery : empLabel}
+                        onFocus={() => { setEmpSearchOpen(true); setEmpSearchQuery(""); }}
+                        onChange={e => setEmpSearchQuery(e.target.value)}
+                        onBlur={() => setTimeout(() => setEmpSearchOpen(false), 150)}
+                        autoComplete="off"
+                      />
+                      {empSearchOpen && (
+                        <div className="absolute z-50 w-64 mt-1 bg-popover border rounded-md shadow-lg max-h-52 overflow-y-auto">
+                          <div className="cursor-pointer px-3 py-1.5 text-xs hover:bg-accent text-muted-foreground" onMouseDown={() => { setDocEmployee(""); setEmpSearchOpen(false); setEmpSearchQuery(""); }}>All Employees</div>
+                          {empMatches.map(e => (
+                            <div key={e.id} className={`cursor-pointer px-3 py-1.5 text-xs hover:bg-accent flex items-center justify-between ${docEmployee === e.id ? "bg-accent/60 font-medium" : ""}`}
+                              onMouseDown={() => { setDocEmployee(e.id); setEmpSearchOpen(false); setEmpSearchQuery(""); }}>
+                              <span>{e.firstName} {e.lastName}</span>
+                              <span className="text-[10px] text-muted-foreground ml-2">{e.employeeCode}</span>
+                            </div>
+                          ))}
+                          {empMatches.length === 0 && <div className="px-3 py-1.5 text-xs text-muted-foreground">No employees found</div>}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
 
-            {/* Date-wise Attendance sub-filters: Subtotal By / Dept / Designation / Location / Contractor */}
-            {activeTab === "attendance" && (() => {
-              const uniq = <T extends string>(arr: T[]) => [...new Set(arr)].sort();
-              const depts  = uniq(filteredEmployees.map(e => e.department  || "—"));
-              const desigs = uniq(filteredEmployees.map(e => e.designation || "—"));
-              const locs   = uniq(filteredEmployees.map(e => e.location    || "—"));
-              return (
-                <>
-                  {/* Subtotal By */}
-                  <div className="flex items-center gap-2">
-                    <label className="text-sm font-medium whitespace-nowrap">Subtotal By:</label>
+                {/* Row 3: Department | Designation | Location | Contractor | Subtotal By */}
+                <div className="flex flex-wrap items-center gap-3">
+                  {globalDepts.length > 0 && (
+                    <div className="flex items-center gap-1.5">
+                      <label className="text-xs font-medium text-muted-foreground whitespace-nowrap">Dept:</label>
+                      <Select value={dwDept || "__all__"} onValueChange={v => setDwDept(v === "__all__" ? "" : v)}>
+                        <SelectTrigger className="h-8 w-36 text-xs" data-testid="filter-dw-dept"><SelectValue placeholder="All Depts" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__all__">All Departments</SelectItem>
+                          {globalDepts.map(d => <SelectItem key={d} value={d}>{d}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+                  {globalDesigs.length > 0 && (
+                    <div className="flex items-center gap-1.5">
+                      <label className="text-xs font-medium text-muted-foreground whitespace-nowrap">Designation:</label>
+                      <Select value={dwDesig || "__all__"} onValueChange={v => setDwDesig(v === "__all__" ? "" : v)}>
+                        <SelectTrigger className="h-8 w-36 text-xs" data-testid="filter-dw-desig"><SelectValue placeholder="All Desigs" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__all__">All Designations</SelectItem>
+                          {globalDesigs.map(d => <SelectItem key={d} value={d}>{d}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+                  {globalLocs.length > 0 && (
+                    <div className="flex items-center gap-1.5">
+                      <label className="text-xs font-medium text-muted-foreground whitespace-nowrap">Location:</label>
+                      <Select value={dwLoc || "__all__"} onValueChange={v => setDwLoc(v === "__all__" ? "" : v)}>
+                        <SelectTrigger className="h-8 w-36 text-xs" data-testid="filter-dw-loc"><SelectValue placeholder="All Locations" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__all__">All Locations</SelectItem>
+                          {globalLocs.map(l => <SelectItem key={l} value={l}>{l}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+                  {contractorMastersList.length > 0 && (
+                    <div className="flex items-center gap-1.5">
+                      <label className="text-xs font-medium text-muted-foreground whitespace-nowrap">Contractor:</label>
+                      <Select value={dwCont || "__all__"} onValueChange={v => setDwCont(v === "__all__" ? "" : v)}>
+                        <SelectTrigger className="h-8 w-40 text-xs" data-testid="filter-dw-cont"><SelectValue placeholder="All Contractors" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__all__">All Contractors</SelectItem>
+                          {contractorMastersList.map(c => <SelectItem key={c.id} value={c.id}>{c.contractorName}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+                  <div className="flex items-center gap-1.5">
+                    <label className="text-xs font-medium text-muted-foreground whitespace-nowrap">Subtotal By:</label>
                     <Select value={dwSubtotalBy} onValueChange={setDwSubtotalBy}>
-                      <SelectTrigger className="h-9 w-38" data-testid="filter-dw-subtotal-by"><SelectValue /></SelectTrigger>
+                      <SelectTrigger className="h-8 w-36 text-xs" data-testid="filter-dw-subtotal-by"><SelectValue /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="department">Department</SelectItem>
                         <SelectItem value="designation">Designation</SelectItem>
@@ -5591,106 +5623,42 @@ export default function ReportsPage() {
                       </SelectContent>
                     </Select>
                   </div>
+                </div>
 
-                  {depts.length > 0 && (
-                    <div className="flex items-center gap-2">
-                      <label className="text-sm font-medium whitespace-nowrap">Dept:</label>
-                      <Select value={dwDept || "__all__"} onValueChange={v => setDwDept(v === "__all__" ? "" : v)}>
-                        <SelectTrigger className="h-9 w-36" data-testid="filter-dw-dept"><SelectValue placeholder="All Depts" /></SelectTrigger>
+                {/* Row 4: Contractor tab — principal + contractor selection */}
+                {activeTab === "contractor" && (
+                  <div className="flex flex-wrap items-center gap-3 pt-2.5 border-t">
+                    <span className="text-xs font-semibold text-primary">Contractor Reports:</span>
+                    {isSuperAdmin && (
+                      <div className="flex items-center gap-1.5">
+                        <span className="flex items-center justify-center w-4 h-4 rounded-full bg-primary text-primary-foreground text-[9px] font-bold shrink-0">1</span>
+                        <label className="text-xs font-medium text-muted-foreground whitespace-nowrap">Principal Co.:</label>
+                        <Select value={contractorPrincipalId || "__none__"} onValueChange={v => { const val = v === "__none__" ? "" : v; setContractorPrincipalId(val); setSelectedContractorId(""); setSelectedCompany(""); }}>
+                          <SelectTrigger className="h-8 w-48 text-xs" data-testid="contractor-principal"><SelectValue placeholder="Select company…" /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="__none__">— Select Principal Company —</SelectItem>
+                            {companies.map(c => <SelectItem key={c.id} value={c.id}>{c.companyName}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
+                    <div className="flex items-center gap-1.5">
+                      {isSuperAdmin && <span className={`flex items-center justify-center w-4 h-4 rounded-full text-[9px] font-bold shrink-0 ${contractorPrincipalId ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>2</span>}
+                      <label className="text-xs font-medium text-muted-foreground whitespace-nowrap">Contractor:</label>
+                      <Select value={selectedContractorId || "__none__"} onValueChange={v => { const val = v === "__none__" ? "" : v; setSelectedContractorId(val); setSelectedCompany(val); }} disabled={!contractorPrincipalId}>
+                        <SelectTrigger className="h-8 w-48 text-xs" data-testid="contractor-select"><SelectValue placeholder={companyContractors.length === 0 ? "No contractors mapped" : "Select contractor…"} /></SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="__all__">All Depts</SelectItem>
-                          {depts.map(d => <SelectItem key={d} value={d}>{d}</SelectItem>)}
+                          <SelectItem value="__none__">— All Contractors —</SelectItem>
+                          {companyContractors.map(c => <SelectItem key={c.contractorId} value={c.contractorId}>{c.contractorName}</SelectItem>)}
                         </SelectContent>
                       </Select>
                     </div>
-                  )}
-                  {desigs.length > 0 && (
-                    <div className="flex items-center gap-2">
-                      <label className="text-sm font-medium whitespace-nowrap">Designation:</label>
-                      <Select value={dwDesig || "__all__"} onValueChange={v => setDwDesig(v === "__all__" ? "" : v)}>
-                        <SelectTrigger className="h-9 w-40" data-testid="filter-dw-desig"><SelectValue placeholder="All Desigs" /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="__all__">All Designations</SelectItem>
-                          {desigs.map(d => <SelectItem key={d} value={d}>{d}</SelectItem>)}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  )}
-                  {locs.length > 0 && (
-                    <div className="flex items-center gap-2">
-                      <label className="text-sm font-medium whitespace-nowrap">Location:</label>
-                      <Select value={dwLoc || "__all__"} onValueChange={v => setDwLoc(v === "__all__" ? "" : v)}>
-                        <SelectTrigger className="h-9 w-36" data-testid="filter-dw-loc"><SelectValue placeholder="All Locations" /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="__all__">All Locations</SelectItem>
-                          {locs.map(l => <SelectItem key={l} value={l}>{l}</SelectItem>)}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  )}
-                  {contractorMastersList.length > 0 && (
-                    <div className="flex items-center gap-2">
-                      <label className="text-sm font-medium whitespace-nowrap">Contractor:</label>
-                      <Select value={dwCont || "__all__"} onValueChange={v => setDwCont(v === "__all__" ? "" : v)}>
-                        <SelectTrigger className="h-9 w-44" data-testid="filter-dw-cont"><SelectValue placeholder="All Contractors" /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="__all__">All Contractors</SelectItem>
-                          {contractorMastersList.map(c => <SelectItem key={c.id} value={c.id}>{c.contractorName}</SelectItem>)}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  )}
-                </>
-              );
-            })()}
-
-            {/* Period */}
-            {showPeriodFilter && <PeriodPicker />}
-
-            {/* Employee */}
-            {showEmpFilter && <EmployeePicker />}
-          </div>
-        )}
-
-        {/* ── Contractor Filter Bar ── */}
-        {showContractor && (
-          <div className="flex flex-wrap items-center gap-3 mb-5 p-3 bg-muted/30 rounded-xl border">
-            <Filter className="h-4 w-4 text-muted-foreground shrink-0" />
-
-            {isSuperAdmin && (
-              <div className="flex items-center gap-2">
-                <div className="flex items-center justify-center w-5 h-5 rounded-full bg-primary text-primary-foreground text-[10px] font-bold shrink-0">1</div>
-                <label className="text-sm font-medium whitespace-nowrap">Principal Company:</label>
-                <Select value={contractorPrincipalId || "__none__"} onValueChange={v => { const val = v === "__none__" ? "" : v; setContractorPrincipalId(val); setSelectedContractorId(""); setSelectedCompany(""); }}>
-                  <SelectTrigger className="w-52 h-9" data-testid="contractor-principal"><SelectValue placeholder="Select company…" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__none__">— Select Principal Company —</SelectItem>
-                    {companies.map(c => <SelectItem key={c.id} value={c.id}>{c.companyName}</SelectItem>)}
-                  </SelectContent>
-                </Select>
+                  </div>
+                )}
               </div>
-            )}
-
-            <div className="flex items-center gap-2">
-              {isSuperAdmin && (
-                <div className={`flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-bold shrink-0 ${contractorPrincipalId ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>2</div>
-              )}
-              <label className="text-sm font-medium whitespace-nowrap">Contractor:</label>
-              <Select value={selectedContractorId || "__none__"} onValueChange={v => { const val = v === "__none__" ? "" : v; setSelectedContractorId(val); setSelectedCompany(val); }} disabled={!contractorPrincipalId}>
-                <SelectTrigger className="w-52 h-9" data-testid="contractor-select"><SelectValue placeholder={companyContractors.length === 0 ? "No contractors mapped" : "Select contractor…"} /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__none__">— All Contractors —</SelectItem>
-                  {companyContractors.map(c => <SelectItem key={c.contractorId} value={c.contractorId}>{c.contractorName}</SelectItem>)}
-                </SelectContent>
-              </Select>
             </div>
-
-            <div className="flex items-center gap-2">
-              <label className="text-sm font-medium whitespace-nowrap">Month:</label>
-              <Input type="month" value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)} className="w-40 h-9" data-testid="contractor-month" />
-            </div>
-          </div>
-        )}
+          );
+        })()}
 
         {/* ── Reports Content ── */}
 
