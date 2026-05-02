@@ -7,9 +7,13 @@
  * Rules:
  *  • First punch of the day  → clockIn  (regardless of punch type)
  *  • Last punch of the day   → clockOut (regardless of punch type, only if different from first)
- *  • Max work window = 12 hrs. If an employee has a clockIn but no clockOut
- *    and 12 hours have elapsed (or it is a past day), the attendance record
- *    is marked "miss_punch" by the periodic sweep.
+ *  • Max work window = 24 hrs (supports night-shift / round-the-clock workers).
+ *    If an employee has a clockIn but no clockOut and 24 hours have elapsed
+ *    (or it is a past day), the attendance record is marked "miss_punch".
+ *
+ *  • Night-shift cross-day fix: if an employee's policy has dutyStart > dutyEnd
+ *    (e.g. 22:00–06:00) the clock-out punch arrives on the next calendar day.
+ *    healNightShiftCrossDay() stitches these together into one complete record.
  *
  * Triggered:
  *  • Immediately after each ATTLOG batch is ingested (called from adms.ts)
@@ -30,7 +34,7 @@ import {
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const SWEEP_MS = 5 * 60 * 1000; // every 5 minutes
-const MAX_WORK_HOURS = 12;       // employee must punch out within 12 hours
+const MAX_WORK_HOURS = 24;       // supports round-the-clock / night-shift workers
 
 let _sweepTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -49,9 +53,34 @@ function fromMinutes(totalMin: number): string {
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
 }
 
+/**
+ * Cross-midnight-aware work minutes.
+ * If clockOut time-of-day < clockIn time-of-day the shift spans midnight → add 24 h.
+ */
+function calcWorkMinutes(inHHMM: string, outHHMM: string): number {
+  const diff = toMinutes(outHHMM) - toMinutes(inHHMM);
+  return diff < 0 ? diff + 1440 : diff;
+}
+
+/**
+ * Night-shift-aware normal duty minutes.
+ * If dutyEnd < dutyStart the shift crosses midnight → add 24 h.
+ */
+function calcNormalDutyMinutes(startHHMM: string, endHHMM: string): number {
+  const diff = toMinutes(endHHMM) - toMinutes(startHHMM);
+  return diff <= 0 ? diff + 1440 : diff;
+}
+
 /** Today's date as "YYYY-MM-DD" in local time. */
 function todayStr(): string {
   const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+/** Return the calendar date that is one day after dateStr ("YYYY-MM-DD"). */
+function nextDateStr(dateStr: string): string {
+  const d = new Date(dateStr + "T00:00:00");
+  d.setDate(d.getDate() + 1);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
@@ -159,11 +188,11 @@ async function backfillBiometricOtHours(recentOnly = false): Promise<void> {
 
       const dutyStart = policy?.dutyStartTime ?? "09:00";
       const dutyEnd   = policy?.dutyEndTime   ?? "18:00";
-      const normalDutyMins = toMinutes(dutyEnd) - toMinutes(dutyStart);
+      const normalDutyMins = calcNormalDutyMinutes(dutyStart, dutyEnd);
       if (normalDutyMins <= 0) continue;
 
-      const rawWorkMin = toMinutes(row.clock_out) - toMinutes(row.clock_in);
-      const workMin = Math.min(rawWorkMin, MAX_WORK_HOURS * 60); // cap at 12h
+      const rawWorkMin = calcWorkMinutes(row.clock_in, row.clock_out);
+      const workMin = Math.min(rawWorkMin, MAX_WORK_HOURS * 60);
       if (workMin <= normalDutyMins) continue; // genuinely no OT for this record
 
       const otHoursStr = fromMinutes(workMin - normalDutyMins);
@@ -288,7 +317,7 @@ async function correctMissPunchFromAllLogs(): Promise<void> {
         continue;
       }
 
-      const workMin   = toMinutes(mergedOut) - toMinutes(mergedIn);
+      const workMin   = calcWorkMinutes(mergedIn, mergedOut);
       const cappedMin = Math.min(workMin, MAX_WORK_HOURS * 60);
       const workHours = fromMinutes(Math.max(0, cappedMin));
       const newStatus = "present"; // has both in and out → present
@@ -500,15 +529,14 @@ export async function processBiometricAttendance(
       const otAllowed       = policy?.otAllowed       ?? false;
       const dutyEndTime     = policy?.dutyEndTime     ?? "18:00";
       const dutyStartTime   = policy?.dutyStartTime   ?? "09:00";
-      const normalDutyMins  = toMinutes(dutyEndTime) - toMinutes(dutyStartTime);
+      const normalDutyMins  = calcNormalDutyMinutes(dutyStartTime, dutyEndTime);
 
       let workHours: string | null = null;
       let otHours:   string | null = null;
       let status = "present";
 
       if (clockIn && clockOut) {
-        const workMin = toMinutes(clockOut) - toMinutes(clockIn);
-        // Cap at MAX_WORK_HOURS to ignore obviously bad data
+        const workMin = calcWorkMinutes(clockIn, clockOut);
         const cappedMin = Math.min(workMin, MAX_WORK_HOURS * 60);
         workHours = fromMinutes(Math.max(0, cappedMin));
 
@@ -565,7 +593,7 @@ export async function processBiometricAttendance(
           let mergedOT:     string | null = null;
           let mergedStatus               = "present";
           if (mergedIn && mergedOut) {
-            const workMin   = toMinutes(mergedOut) - toMinutes(mergedIn);
+            const workMin   = calcWorkMinutes(mergedIn, mergedOut);
             const cappedMin = Math.min(workMin, MAX_WORK_HOURS * 60);
             mergedWork = fromMinutes(Math.max(0, cappedMin));
             if (workMin >= fullDayMinHours * 60)      mergedStatus = "present";
@@ -641,6 +669,145 @@ export async function processBiometricAttendance(
   return result;
 }
 
+// ─── Night-shift cross-day healer ─────────────────────────────────────────────
+
+/**
+ * Fixes the scenario where a night-shift employee's clock-in punch (e.g. 22:00)
+ * lands on Day N and their clock-out punch (e.g. 06:00) lands on Day N+1,
+ * causing two separate miss_punch records instead of one complete present record.
+ *
+ * For each night-shift miss_punch on Day N (clock_in >= dutyStartTime):
+ *   • Search biometric_punch_logs for Day N+1 punches <= dutyEndTime
+ *   • Use the earliest such punch as Day N's clock_out
+ *   • Recalculate workHours / otHours with cross-midnight arithmetic
+ *   • Remove the orphaned miss_punch on Day N+1 if it was created from that punch
+ */
+async function healNightShiftCrossDay(): Promise<void> {
+  try {
+    const missPunchRows = await db.execute<{
+      id: string;
+      employee_id: string;
+      company_id: string;
+      date: string;
+      clock_in: string;
+    }>(sql`
+      SELECT id, employee_id, company_id, date, clock_in
+      FROM   attendance
+      WHERE  status           = 'miss_punch'
+        AND  clock_in_method  = 'biometric'
+        AND  clock_in         IS NOT NULL
+        AND  clock_out        IS NULL
+    `);
+
+    if (!missPunchRows.rows.length) return;
+
+    const empIds = [...new Set(missPunchRows.rows.map(r => r.employee_id))];
+    const empRows = await db
+      .select({
+        id:                 employees.id,
+        companyId:          employees.companyId,
+        timeOfficePolicyId: (employees as any).timeOfficePolicyId,
+      })
+      .from(employees)
+      .where(inArray(employees.id, empIds));
+
+    const policyIds = [
+      ...new Set(empRows.map((e: any) => e.timeOfficePolicyId).filter(Boolean)),
+    ] as string[];
+    const policyMap = new Map<string, any>();
+    if (policyIds.length) {
+      const pols = await db
+        .select()
+        .from(timeOfficePolicies)
+        .where(inArray(timeOfficePolicies.id, policyIds));
+      for (const p of pols) policyMap.set(p.id, p);
+    }
+    const empMap = new Map(empRows.map((e: any) => [e.id, e]));
+
+    let healed = 0;
+    for (const row of missPunchRows.rows) {
+      const emp: any = empMap.get(row.employee_id);
+      if (!emp) continue;
+
+      const policy    = emp.timeOfficePolicyId ? policyMap.get(emp.timeOfficePolicyId) : null;
+      const dutyStart = policy?.dutyStartTime ?? "09:00";
+      const dutyEnd   = policy?.dutyEndTime   ?? "18:00";
+
+      // Only heal night-shift policies (dutyStart > dutyEnd)
+      if (toMinutes(dutyStart) <= toMinutes(dutyEnd)) continue;
+
+      // Only consider clock-ins that are in the evening ( >= dutyStart )
+      if (!row.clock_in || toMinutes(row.clock_in) < toMinutes(dutyStart)) continue;
+
+      const nextDay = nextDateStr(row.date);
+
+      const nextDayPunches = await db.execute<{ punch_time: string }>(sql`
+        SELECT punch_time
+        FROM   biometric_punch_logs
+        WHERE  employee_id = ${row.employee_id}
+          AND  company_id  = ${row.company_id}
+          AND  punch_date  = ${nextDay}
+          AND  punch_time  IS NOT NULL
+          AND  punch_time  <= ${dutyEnd}
+        ORDER  BY punch_time ASC
+        LIMIT  1
+      `);
+
+      if (!nextDayPunches.rows.length) continue;
+
+      const clockOut       = nextDayPunches.rows[0].punch_time;
+      const workMin        = calcWorkMinutes(row.clock_in, clockOut);
+      const cappedMin      = Math.min(workMin, MAX_WORK_HOURS * 60);
+      const normalDutyMins = calcNormalDutyMinutes(dutyStart, dutyEnd);
+      const workHours      = fromMinutes(Math.max(0, cappedMin));
+      const otHours        = (normalDutyMins > 0 && cappedMin > normalDutyMins)
+        ? fromMinutes(cappedMin - normalDutyMins) : null;
+
+      const fullDayMinHours = policy?.fullDayMinHours ?? 8;
+      const halfDayMinHours = policy?.halfDayMinHours ?? 4;
+      const newStatus =
+        workMin >= fullDayMinHours * 60 ? "present"
+          : workMin >= halfDayMinHours * 60 ? "half_day"
+            : "present";
+
+      // Update Day N attendance with the resolved clock_out
+      await db.execute(sql`
+        UPDATE attendance
+        SET    clock_out         = ${clockOut},
+               work_hours        = ${workHours},
+               ot_hours          = ${otHours},
+               status            = ${newStatus},
+               clock_out_method  = 'biometric'
+        WHERE  id = ${row.id}
+      `);
+
+      // Remove orphan Day N+1 miss_punch if it was created solely from this punch
+      await db.execute(sql`
+        DELETE FROM attendance
+        WHERE  employee_id      = ${row.employee_id}
+          AND  company_id       = ${row.company_id}
+          AND  date             = ${nextDay}
+          AND  clock_in         = ${clockOut}
+          AND  clock_out        IS NULL
+          AND  status           = 'miss_punch'
+          AND  clock_in_method  = 'biometric'
+      `);
+
+      healed++;
+      console.log(
+        `[BioAttSync] Night-shift healed: emp ${row.employee_id} ${row.date} ` +
+        `in=${row.clock_in} → out=${clockOut} (next day)`
+      );
+    }
+
+    if (healed) {
+      console.log(`[BioAttSync] Night-shift cross-day heal: fixed ${healed} record(s)`);
+    }
+  } catch (err) {
+    console.error("[BioAttSync] healNightShiftCrossDay failed:", err);
+  }
+}
+
 // ─── Background sweep ─────────────────────────────────────────────────────────
 
 export function startBiometricAttendanceSync() {
@@ -652,12 +819,16 @@ export function startBiometricAttendanceSync() {
   // Full OT backfill at startup — fixes ALL historical records with missing OT
   setTimeout(() => backfillBiometricOtHours(false).catch(console.error), 8_000);
 
+  // Heal any existing night-shift cross-day miss_punch records at startup
+  setTimeout(() => healNightShiftCrossDay().catch(console.error), 12_000);
+
   // Run once immediately on startup (catches any backlog + applies miss-punch rule)
   setTimeout(() => processBiometricAttendance().catch(console.error), 5_000);
 
-  // Every regular sweep: process new punches, then heal any recent records with OT=0
+  // Every regular sweep: process new punches, heal night-shift, then fill OT
   const runSweep = async () => {
     await processBiometricAttendance().catch(console.error);
+    await healNightShiftCrossDay().catch(console.error);
     await backfillBiometricOtHours(true).catch(console.error); // last 7 days only
   };
 

@@ -3779,8 +3779,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const inMin  = toMin(finalClockIn);
       const outMin = toMin(finalClockOut);
-      const diffMin = outMin > inMin ? outMin - inMin : 0;
-      const workHours = fromMin(Math.min(diffMin, 12 * 60));
+      // Cross-midnight aware: if outMin < inMin the shift spans midnight
+      let diffMin = outMin - inMin;
+      if (diffMin < 0) diffMin += 24 * 60;
+      const workHours = fromMin(Math.min(diffMin, 24 * 60));
 
       const employee = await storage.getEmployee(existing.employeeId);
       let otHours = "0";
@@ -3792,9 +3794,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
           : null;
         if (!policy) policy = active.find(p => p.isDefault) || active[0];
 
-        const normalDutyMin =
+        // Night-shift aware: if dutyEnd < dutyStart the duty spans midnight
+        let normalDutyMin =
           toMin((policy?.dutyEndTime) || "18:00") - toMin((policy?.dutyStartTime) || "09:00");
-        const cappedDiff = Math.min(diffMin, 12 * 60);
+        if (normalDutyMin <= 0) normalDutyMin += 24 * 60;
+        const cappedDiff = Math.min(diffMin, 24 * 60);
         if (normalDutyMin > 0 && cappedDiff > normalDutyMin) {
           otHours = fromMin(cappedDiff - normalDutyMin);
         }
