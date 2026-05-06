@@ -96,6 +96,8 @@ export default function ReportsPage() {
   const [viewTitle, setViewTitle] = useState("");
   const [viewHeaders, setViewHeaders] = useState<string[]>([]);
   const [viewRows, setViewRows] = useState<(string | number)[][]>([]);
+  const [sortCol, setSortCol] = useState<number | null>(null);
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [ctrlReport, setCtrlReport] = useState<string>("");
   const [empSearchQuery, setEmpSearchQuery] = useState("");
   const [empSearchOpen, setEmpSearchOpen] = useState(false);
@@ -1065,7 +1067,7 @@ export default function ReportsPage() {
       },
       styles: {
         fontSize: 6,
-        cellPadding: { top: 0.8, bottom: 0.8, left: 1, right: 1 },
+        cellPadding: { top: 2, bottom: 2, left: 1, right: 1 },
         lineColor: [0, 0, 0],
         lineWidth: 0.2,
         textColor: [0, 0, 0],
@@ -1137,6 +1139,150 @@ export default function ReportsPage() {
         margin: { left: ml },
         theme: "grid",
       });
+    }
+
+    // ── PF & ESIC Summary ────────────────────────────────────────────────────
+    {
+      let totalPfEE = 0, totalPfER = 0, pfCount = 0;
+      let totalEsicEE = 0, totalEsicER = 0, esicCount = 0;
+      let totalPfWages = 0, totalEsicWages = 0;
+
+      for (const r of dataRows) {
+        const emp = employees.find(e => (e.employeeCode || "") === r.code);
+        if (!emp) continue;
+        const ss = salaryStructures.find(s => s.employeeId === emp.id);
+        const settings = getStatutorySettings(emp.companyId);
+        if (emp.pfApplicable && settings?.pfEnabled) {
+          const pfWageCeiling = Number(settings.pfWageCeiling) || 15000;
+          const pfPercent = Number(settings.pfEmployeePercent) || 12;
+          const pfBase = Math.min(r.earnBasic, pfWageCeiling);
+          totalPfEE += r.pf;
+          totalPfER += Math.round(pfBase * pfPercent / 100);
+          totalPfWages += pfBase;
+          pfCount++;
+        }
+        if (emp.esiApplicable && settings?.esicEnabled) {
+          const wageCeiling = Number(settings.esicWageCeiling) || 21000;
+          const erPercent = Number(settings.esicEmployerPercent) || 325;
+          const contractedGross = ss?.grossSalary || (r.earnBasic + r.earnHra + r.earnConv + r.earnOth);
+          if (contractedGross <= wageCeiling) {
+            const earnedGross = r.earnBasic + r.earnHra + r.earnConv + r.earnOth;
+            let esicER = 0;
+            if (settings.esicCalcOnGross) {
+              esicER = Math.round(Math.min(earnedGross, wageCeiling) * erPercent / 10000);
+            } else {
+              const esicBase = Math.min(Math.max(r.earnBasic, earnedGross * 0.5), wageCeiling);
+              esicER = Math.round(esicBase * erPercent / 10000);
+            }
+            totalEsicEE += r.esic;
+            totalEsicER += esicER;
+            totalEsicWages += earnedGross;
+            esicCount++;
+          }
+        }
+      }
+
+      const pfEsicStartY = (doc as any).lastAutoTable.finalY + 8;
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(8.5);
+      doc.setTextColor(30, 58, 138);
+      doc.text("PF & ESIC Summary", ml, pfEsicStartY);
+      autoTable(doc, {
+        startY: pfEsicStartY + 4,
+        head: [["Statutory", "Eligible Employees", "Wages / Gross", "Employee Contribution (EE)", "Employer Contribution (ER)", "Total Contribution"]],
+        body: [
+          ["Provident Fund (PF)", pfCount, totalPfWages, totalPfEE, totalPfER, totalPfEE + totalPfER],
+          ["ESIC", esicCount, totalEsicWages, totalEsicEE, totalEsicER, totalEsicEE + totalEsicER],
+          ["Grand Total", pfCount + esicCount, totalPfWages + totalEsicWages, totalPfEE + totalEsicEE, totalPfER + totalEsicER, totalPfEE + totalPfER + totalEsicEE + totalEsicER],
+        ],
+        styles: { fontSize: 8, cellPadding: 2, halign: "right" as const },
+        headStyles: { fillColor: [59, 89, 152] as [number, number, number], textColor: [255, 255, 255] as [number, number, number], fontStyle: "bold", halign: "center" as const },
+        columnStyles: {
+          0: { halign: "left" as const, cellWidth: 50 },
+          1: { cellWidth: 30, halign: "center" as const },
+          2: { cellWidth: 30 },
+          3: { cellWidth: 40 },
+          4: { cellWidth: 40 },
+          5: { cellWidth: 35 },
+        },
+        didParseCell(data) {
+          if (data.section === "body" && data.row.index === 2) {
+            data.cell.styles.fontStyle = "bold";
+            data.cell.styles.fillColor = [220, 235, 255];
+            data.cell.styles.textColor = [30, 58, 138];
+          }
+        },
+        margin: { left: ml },
+        theme: "grid",
+      });
+    }
+
+    // ── Joining & Leaving Summary ─────────────────────────────────────────────
+    {
+      const monthStart = `${yearStr}-${monthStr}-01`;
+      const monthEnd   = `${yearStr}-${monthStr}-${String(daysInMonth).padStart(2, "0")}`;
+      const companyEmps = employees.filter(e => effectiveCompany ? e.companyId === effectiveCompany : true);
+
+      const joiners = companyEmps.filter(e => e.dateOfJoining >= monthStart && e.dateOfJoining <= monthEnd);
+      const leavers = companyEmps.filter(e => (e as any).exitDate && (e as any).exitDate >= monthStart && (e as any).exitDate <= monthEnd);
+
+      if (joiners.length > 0 || leavers.length > 0) {
+        const jlStartY = (doc as any).lastAutoTable.finalY + 8;
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(8.5);
+        doc.setTextColor(30, 58, 138);
+        doc.text("Joining & Leaving Summary", ml, jlStartY);
+
+        const buildJLRow = (emp: Employee, dateLabel: string): (string | number)[] => {
+          const ss = salaryStructures.find(s => s.employeeId === emp.id);
+          const grossSalary = ss?.grossSalary || emp.grossSalary || 0;
+          const ctc = Math.round(grossSalary * 1.135); // approx CTC incl. employer PF + ESIC
+          return [
+            emp.employeeCode || "—",
+            `${emp.firstName} ${emp.lastName}`,
+            emp.department || "—",
+            emp.designation || "—",
+            dateLabel,
+            grossSalary,
+            ctc,
+          ];
+        };
+
+        const jlBody: (string | number | object)[][] = [];
+        if (joiners.length > 0) {
+          jlBody.push([{ content: `New Joiners (${joiners.length})`, colSpan: 7, styles: { fontStyle: "bold" as const, fillColor: [220, 242, 220] as [number,number,number], textColor: [0, 100, 0] as [number,number,number] } }]);
+          joiners.forEach(e => jlBody.push(buildJLRow(e, e.dateOfJoining)));
+        }
+        if (leavers.length > 0) {
+          jlBody.push([{ content: `Leavers / Exits (${leavers.length})`, colSpan: 7, styles: { fontStyle: "bold" as const, fillColor: [255, 220, 220] as [number,number,number], textColor: [150, 0, 0] as [number,number,number] } }]);
+          leavers.forEach(e => jlBody.push(buildJLRow(e, (e as any).exitDate)));
+        }
+        // Summary row
+        const totalJoinCost = joiners.reduce((s, e) => { const ss2 = salaryStructures.find(x => x.employeeId === e.id); return s + (ss2?.grossSalary || e.grossSalary || 0); }, 0);
+        const totalLeaveCost = leavers.reduce((s, e) => { const ss2 = salaryStructures.find(x => x.employeeId === e.id); return s + (ss2?.grossSalary || e.grossSalary || 0); }, 0);
+        jlBody.push([
+          { content: `Net headcount change: +${joiners.length} joined, -${leavers.length} left  |  Added cost: ₹${totalJoinCost.toLocaleString("en-IN")}  |  Released cost: ₹${totalLeaveCost.toLocaleString("en-IN")}`, colSpan: 7, styles: { fontStyle: "bold" as const, fillColor: [220, 235, 255] as [number,number,number], textColor: [30, 58, 138] as [number,number,number] } },
+        ]);
+
+        autoTable(doc, {
+          startY: jlStartY + 4,
+          head: [["Code", "Name", "Department", "Designation", "Date", "Gross Salary", "Approx. CTC"]],
+          body: jlBody,
+          styles: { fontSize: 7.5, cellPadding: 1.5, halign: "right" as const },
+          headStyles: { fillColor: [59, 89, 152] as [number, number, number], textColor: [255, 255, 255] as [number, number, number], fontStyle: "bold", halign: "center" as const },
+          columnStyles: {
+            0: { cellWidth: 18, halign: "center" as const },
+            1: { cellWidth: 40, halign: "left" as const },
+            2: { cellWidth: 35, halign: "left" as const },
+            3: { cellWidth: 35, halign: "left" as const },
+            4: { cellWidth: 25, halign: "center" as const },
+            5: { cellWidth: 25 },
+            6: { cellWidth: 25 },
+          },
+          margin: { left: ml },
+          theme: "grid",
+        });
+      }
     }
 
     doc.save(`Salary_Sheet_${selectedMonth}.pdf`);
@@ -2470,6 +2616,8 @@ export default function ReportsPage() {
     setViewTitle(title);
     setViewHeaders(headers);
     setViewRows(rows);
+    setSortCol(null);
+    setSortDir("asc");
     setViewDialogOpen(true);
   };
 
@@ -6041,20 +6189,62 @@ export default function ReportsPage() {
           <div className="flex-1 overflow-auto">
             {viewRows.length === 0 ? (
               <p className="text-center text-muted-foreground py-8">No data available for this report.</p>
-            ) : (
-              <table className="w-full text-sm border-collapse">
-                <thead className="sticky top-0 bg-background z-10">
-                  <tr>{viewHeaders.map((h, i) => <th key={i} className="border px-3 py-2 text-left font-semibold bg-primary/10 text-xs whitespace-nowrap">{h}</th>)}</tr>
-                </thead>
-                <tbody>
-                  {viewRows.map((row, ri) => (
-                    <tr key={ri} className={ri % 2 === 0 ? "bg-background" : "bg-muted/30"}>
-                      {row.map((cell, ci) => <td key={ci} className="border px-3 py-1.5 text-xs whitespace-nowrap">{cell}</td>)}
+            ) : (() => {
+              // Keep footer row (TOTAL/GRAND TOTAL) pinned at bottom when sorting
+              const lastRow = viewRows[viewRows.length - 1];
+              const isFooter = lastRow && (String(lastRow[0]).includes("TOTAL") || String(lastRow[1]).includes("TOTAL") || String(lastRow[0]).includes("GRAND"));
+              const bodyRows = isFooter ? viewRows.slice(0, -1) : viewRows;
+              const footerRows = isFooter ? [lastRow] : [];
+
+              const sorted = sortCol === null ? bodyRows : [...bodyRows].sort((a, b) => {
+                const av = a[sortCol], bv = b[sortCol];
+                if (typeof av === "number" && typeof bv === "number")
+                  return sortDir === "asc" ? av - bv : bv - av;
+                return sortDir === "asc"
+                  ? String(av).localeCompare(String(bv))
+                  : String(bv).localeCompare(String(av));
+              });
+
+              const handleSort = (i: number) => {
+                if (sortCol === i) setSortDir(d => d === "asc" ? "desc" : "asc");
+                else { setSortCol(i); setSortDir("asc"); }
+              };
+
+              return (
+                <table className="w-full text-sm border-collapse">
+                  <thead className="sticky top-0 bg-background z-10">
+                    <tr>
+                      {viewHeaders.map((h, i) => (
+                        <th
+                          key={i}
+                          onClick={() => handleSort(i)}
+                          className="border px-3 py-2 text-left font-semibold bg-primary/10 text-xs whitespace-nowrap cursor-pointer select-none hover:bg-primary/20 transition-colors"
+                        >
+                          <span className="flex items-center gap-1">
+                            {h}
+                            <span className="text-[10px] text-muted-foreground">
+                              {sortCol === i ? (sortDir === "asc" ? "↑" : "↓") : "↕"}
+                            </span>
+                          </span>
+                        </th>
+                      ))}
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
+                  </thead>
+                  <tbody>
+                    {sorted.map((row, ri) => (
+                      <tr key={ri} className={ri % 2 === 0 ? "bg-background" : "bg-muted/30"}>
+                        {row.map((cell, ci) => <td key={ci} className="border px-3 py-2 text-xs whitespace-nowrap">{cell}</td>)}
+                      </tr>
+                    ))}
+                    {footerRows.map((row, ri) => (
+                      <tr key={`foot-${ri}`} className="bg-primary/10 font-semibold">
+                        {row.map((cell, ci) => <td key={ci} className="border px-3 py-2 text-xs whitespace-nowrap font-bold">{cell}</td>)}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              );
+            })()}
           </div>
           <div className="flex justify-end gap-2 pt-2 border-t">
             <Button variant="outline" size="sm" onClick={() => setViewDialogOpen(false)}>Close</Button>

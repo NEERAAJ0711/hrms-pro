@@ -695,7 +695,7 @@ async function healNightShiftCrossDay(): Promise<void> {
       FROM   attendance
       WHERE  (
                status = 'miss_punch'
-               OR (status = 'present' AND date < CURRENT_DATE)
+               OR (status = 'present' AND date < to_char(CURRENT_DATE, 'YYYY-MM-DD'))
              )
         AND  clock_in_method  = 'biometric'
         AND  clock_in         IS NOT NULL
