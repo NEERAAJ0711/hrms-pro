@@ -4,7 +4,7 @@ import { useSort, sortData } from "@/lib/use-sort";
 import { SortableHead } from "@/components/sortable-head";
 import { useAuth } from "@/lib/auth";
 import { format } from "date-fns";
-import { DollarSign, Plus, FileText, Users, Calculator, Download, Building2, Edit, Trash2, CheckCircle, Upload, FileSpreadsheet, Loader2, Eye, AlertTriangle, ShieldCheck, Search } from "lucide-react";
+import { DollarSign, Plus, FileText, Users, Calculator, Download, Building2, Edit, Trash2, CheckCircle, Upload, FileSpreadsheet, Loader2, Eye, AlertTriangle, ShieldCheck, Search, Lock } from "lucide-react";
 import { SearchableEmployeeSelect } from "@/components/searchable-employee-select";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -1276,11 +1276,22 @@ export default function PayrollPage() {
                             field.onChange(value);
                             if (!editingStructureId) {
                               const emp = employees.find(e => e.id === value);
+                              // Auto-set effectiveFrom: DOJ for new employee, 1st of next payroll month for existing
+                              const empPayrollAll = payrollRecords.filter(p => p.employeeId === value);
+                              if (empPayrollAll.length === 0) {
+                                const doj = emp?.dateOfJoining?.trim();
+                                form.setValue("effectiveFrom", doj || format(new Date(), "yyyy-MM-dd"));
+                              } else {
+                                const latestPR = empPayrollAll.reduce((a, b) =>
+                                  (b.year * 100 + (SS_MONTH_NAMES.indexOf(b.month) + 1)) > (a.year * 100 + (SS_MONTH_NAMES.indexOf(a.month) + 1)) ? b : a
+                                );
+                                const next = new Date(latestPR.year, SS_MONTH_NAMES.indexOf(latestPR.month) + 1, 1);
+                                form.setValue("effectiveFrom", `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}-01`);
+                              }
                               const grade = emp?.wageGradeId
                                 ? wageGrades.find(g => g.id === emp.wageGradeId && g.status === "active")
                                 : undefined;
                               if (grade && grade.minimumWage > 0) {
-                                // Gross = minimum wage; breakdown with min wage floor
                                 applyGross(grade.minimumWage, grade.minimumWage);
                                 return;
                               }
@@ -2063,9 +2074,19 @@ export default function PayrollPage() {
                         </TableCell>
                         <TableCell>
                           <div className="flex items-center gap-1">
-                            <Button variant="ghost" size="icon" onClick={() => handleEditStructure(structure)}>
-                              <Edit className="h-4 w-4" />
-                            </Button>
+                            {payrollRecords.some(p => p.employeeId === structure.employeeId) ? (
+                              <span
+                                title="Payroll has been generated — create a new structure to make changes"
+                                className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs text-amber-700 bg-amber-50 border border-amber-200 cursor-default select-none"
+                              >
+                                <Lock className="h-3 w-3" />
+                                Locked
+                              </span>
+                            ) : (
+                              <Button variant="ghost" size="icon" onClick={() => handleEditStructure(structure)}>
+                                <Edit className="h-4 w-4" />
+                              </Button>
+                            )}
                             <AlertDialog>
                               <AlertDialogTrigger asChild>
                                 <Button variant="ghost" size="icon">

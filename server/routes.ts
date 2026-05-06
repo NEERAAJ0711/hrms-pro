@@ -4276,7 +4276,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const net = Math.max(0, gross - pfEmployee - esi - pt - lwfEmployee);
-      const today = new Date().toISOString().slice(0, 10);
+
+      // Effective date: DOJ for new employees (no payroll yet), 1st of next payroll month for existing
+      const GRADE_MONTH_NAMES = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+      const allPayrollForEmp = (await storage.getAllPayroll()).filter(p => p.employeeId === emp.id);
+      let effectiveFrom: string;
+      if (allPayrollForEmp.length === 0) {
+        effectiveFrom = (emp.dateOfJoining && emp.dateOfJoining.trim()) ? emp.dateOfJoining.trim() : new Date().toISOString().slice(0, 10);
+      } else {
+        const latestPR = allPayrollForEmp.reduce((a, b) => {
+          const aNum = a.year * 100 + (GRADE_MONTH_NAMES.indexOf(a.month) + 1);
+          const bNum = b.year * 100 + (GRADE_MONTH_NAMES.indexOf(b.month) + 1);
+          return bNum > aNum ? b : a;
+        });
+        const nextMonth = new Date(latestPR.year, GRADE_MONTH_NAMES.indexOf(latestPR.month) + 1, 1);
+        effectiveFrom = `${nextMonth.getFullYear()}-${String(nextMonth.getMonth() + 1).padStart(2, "0")}-01`;
+      }
 
       const payload = {
         employeeId: emp.id,
@@ -4296,7 +4311,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         tds: 0,
         otherDeductions: 0,
         netSalary: net,
-        effectiveFrom: today,
+        effectiveFrom,
         status: "active",
       };
 
@@ -4337,40 +4352,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ error: "Access denied" });
       }
 
-      // ── Effective-date validation ─────────────────────────────────────────────
-      if (req.body.effectiveFrom) {
-        const newEffective = String(req.body.effectiveFrom).trim();
-
-        // Must always be the 1st of a month (YYYY-MM-01)
-        if (!/^\d{4}-\d{2}-01$/.test(newEffective)) {
-          return res.status(400).json({
-            error: "Effective date must be the 1st of a month (e.g. 2026-06-01). Salary changes take effect from the start of a month.",
-          });
-        }
-
-        // Cannot backdate below the most-recent payroll that has already been generated
-        const MONTH_NAMES = ["January","February","March","April","May","June","July","August","September","October","November","December"];
-        const allPayroll = await storage.getAllPayroll();
-        const empPayroll = allPayroll.filter(p => p.employeeId === existing.employeeId);
-
-        if (empPayroll.length > 0) {
-          const latestPayroll = empPayroll.reduce((latest, p) => {
-            const pNum = p.year * 100 + (MONTH_NAMES.indexOf(p.month) + 1);
-            const lNum = latest.year * 100 + (MONTH_NAMES.indexOf(latest.month) + 1);
-            return pNum > lNum ? p : latest;
-          });
-
-          const latestMonthIdx = MONTH_NAMES.indexOf(latestPayroll.month);
-          const nextMonthDate = new Date(latestPayroll.year, latestMonthIdx + 1, 1);
-          const minAllowed = `${nextMonthDate.getFullYear()}-${String(nextMonthDate.getMonth() + 1).padStart(2, "0")}-01`;
-
-          if (newEffective < minAllowed) {
-            const nextMonthName = MONTH_NAMES[nextMonthDate.getMonth()];
-            return res.status(400).json({
-              error: `Cannot update retroactively. Payroll for ${latestPayroll.month} ${latestPayroll.year} has already been generated. Set effective date to ${nextMonthName} ${nextMonthDate.getFullYear()} or later.`,
-            });
-          }
-        }
+      // ── Lock: block editing once payroll has been generated for this employee ──
+      const allPayrollCheck = await storage.getAllPayroll();
+      const empPayrollCheck = allPayrollCheck.filter(p => p.employeeId === existing.employeeId);
+      if (empPayrollCheck.length > 0) {
+        return res.status(400).json({
+          error: "Cannot edit this salary structure — payroll has already been generated for this employee. Create a new salary structure to apply future changes.",
+        });
       }
       // ─────────────────────────────────────────────────────────────────────────
 
