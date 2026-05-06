@@ -4336,6 +4336,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (user.role !== "super_admin" && existing.companyId !== user.companyId) {
         return res.status(403).json({ error: "Access denied" });
       }
+
+      // ── Effective-date validation ─────────────────────────────────────────────
+      if (req.body.effectiveFrom) {
+        const newEffective = String(req.body.effectiveFrom).trim();
+
+        // Must always be the 1st of a month (YYYY-MM-01)
+        if (!/^\d{4}-\d{2}-01$/.test(newEffective)) {
+          return res.status(400).json({
+            error: "Effective date must be the 1st of a month (e.g. 2026-06-01). Salary changes take effect from the start of a month.",
+          });
+        }
+
+        // Cannot backdate below the most-recent payroll that has already been generated
+        const MONTH_NAMES = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+        const allPayroll = await storage.getAllPayroll();
+        const empPayroll = allPayroll.filter(p => p.employeeId === existing.employeeId);
+
+        if (empPayroll.length > 0) {
+          const latestPayroll = empPayroll.reduce((latest, p) => {
+            const pNum = p.year * 100 + (MONTH_NAMES.indexOf(p.month) + 1);
+            const lNum = latest.year * 100 + (MONTH_NAMES.indexOf(latest.month) + 1);
+            return pNum > lNum ? p : latest;
+          });
+
+          const latestMonthIdx = MONTH_NAMES.indexOf(latestPayroll.month);
+          const nextMonthDate = new Date(latestPayroll.year, latestMonthIdx + 1, 1);
+          const minAllowed = `${nextMonthDate.getFullYear()}-${String(nextMonthDate.getMonth() + 1).padStart(2, "0")}-01`;
+
+          if (newEffective < minAllowed) {
+            const nextMonthName = MONTH_NAMES[nextMonthDate.getMonth()];
+            return res.status(400).json({
+              error: `Cannot update retroactively. Payroll for ${latestPayroll.month} ${latestPayroll.year} has already been generated. Set effective date to ${nextMonthName} ${nextMonthDate.getFullYear()} or later.`,
+            });
+          }
+        }
+      }
+      // ─────────────────────────────────────────────────────────────────────────
+
       const updated = await storage.updateSalaryStructure(req.params.id, req.body);
       res.json(updated);
     } catch (error) {

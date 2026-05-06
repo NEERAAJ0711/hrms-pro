@@ -279,6 +279,24 @@ export default function PayrollPage() {
   const dialogWageGrade = watchEmployeeId ? getEmployeeWageGrade(watchEmployeeId) : undefined;
   const isGrossCompliantWithMinWage = !dialogWageGrade || watchGrossSalary >= (dialogWageGrade.minimumWage ?? 0);
 
+  // Compute the minimum allowed effectiveFrom date when editing (must be after last generated payroll)
+  const SS_MONTH_NAMES = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+  const empPayrollForValidation = editingStructureId
+    ? payrollRecords.filter(p => p.employeeId === watchEmployeeId)
+    : [];
+  const latestEmpPayroll = empPayrollForValidation.length > 0
+    ? empPayrollForValidation.reduce((l, p) => {
+        return (p.year * 100 + (SS_MONTH_NAMES.indexOf(p.month) + 1)) > (l.year * 100 + (SS_MONTH_NAMES.indexOf(l.month) + 1)) ? p : l;
+      })
+    : null;
+  const minEffectiveDateStr = latestEmpPayroll
+    ? (() => {
+        const idx = SS_MONTH_NAMES.indexOf(latestEmpPayroll.month);
+        const next = new Date(latestEmpPayroll.year, idx + 1, 1);
+        return `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}-01`;
+      })()
+    : "";
+
   const { data: earningHeads = [] } = useQuery<EarningHead[]>({
     queryKey: ["/api/earning-heads", watchCompanyId],
     queryFn: async () => {
@@ -1516,8 +1534,33 @@ export default function PayrollPage() {
                     <FormItem>
                       <FormLabel>Effective From</FormLabel>
                       <FormControl>
-                        <Input type="date" {...field} data-testid="input-effective-date" />
+                        <Input
+                          type="date"
+                          {...field}
+                          min={minEffectiveDateStr || undefined}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            if (val) {
+                              // Always snap to 1st of the chosen month
+                              const [y, m] = val.split("-");
+                              field.onChange(`${y}-${m}-01`);
+                            } else {
+                              field.onChange(val);
+                            }
+                          }}
+                          data-testid="input-effective-date"
+                        />
                       </FormControl>
+                      {editingStructureId && latestEmpPayroll && (
+                        <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                          Payroll already generated up to <strong>{latestEmpPayroll.month} {latestEmpPayroll.year}</strong>. Effective date must be <strong>{SS_MONTH_NAMES[(SS_MONTH_NAMES.indexOf(latestEmpPayroll.month) + 1) % 12]} {minEffectiveDateStr.slice(0, 4)}</strong> or later.
+                        </p>
+                      )}
+                      {!editingStructureId && (
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Date is auto-set to the 1st of the selected month. Salary structures take effect from the start of a month.
+                        </p>
+                      )}
                       <FormMessage />
                     </FormItem>
                   )}
