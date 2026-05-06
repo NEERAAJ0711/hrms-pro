@@ -1793,15 +1793,32 @@ export default function PayrollPage() {
                   {companies.length > 0 && selectedCompany !== "__all__" && (() => {
                     const allPaid = filteredPayroll.length > 0 && filteredPayroll.every(p => p.status === "paid");
                     const hasExisting = filteredPayroll.length > 0;
+                    const monthIndex = months.indexOf(selectedMonth);
+                    const lastDayOfPayMonth = new Date(parseInt(selectedYear), monthIndex + 1, 0);
+                    lastDayOfPayMonth.setHours(23, 59, 59, 999);
+                    const isMonthIncomplete = new Date() <= lastDayOfPayMonth;
+                    const disableReason = allPaid
+                      ? "All payroll records are finalized (Paid) for this month"
+                      : isMonthIncomplete
+                        ? `${selectedMonth} ${selectedYear} is not yet complete — payroll can only be generated after the month ends`
+                        : "";
                     return (
-                      <Button 
+                      <Button
                         onClick={() => generatePayrollMutation.mutate(selectedCompany)}
-                        disabled={generatePayrollMutation.isPending || allPaid}
+                        disabled={generatePayrollMutation.isPending || allPaid || isMonthIncomplete}
                         data-testid="button-generate-payroll"
-                        title={allPaid ? "All payroll records are finalized (Paid) for this month" : ""}
+                        title={disableReason}
                       >
                         <Calculator className="h-4 w-4 mr-2" />
-                        {generatePayrollMutation.isPending ? "Generating..." : allPaid ? "Payroll Finalized" : hasExisting ? "Regenerate Payroll" : "Generate Payroll"}
+                        {generatePayrollMutation.isPending
+                          ? "Generating..."
+                          : allPaid
+                            ? "Payroll Finalized"
+                            : isMonthIncomplete
+                              ? "Month Incomplete"
+                              : hasExisting
+                                ? "Regenerate Payroll"
+                                : "Generate Payroll"}
                       </Button>
                     );
                   })()}
@@ -2083,27 +2100,29 @@ export default function PayrollPage() {
                                 Locked
                               </span>
                             ) : (
-                              <Button variant="ghost" size="icon" onClick={() => handleEditStructure(structure)}>
-                                <Edit className="h-4 w-4" />
-                              </Button>
-                            )}
-                            <AlertDialog>
-                              <AlertDialogTrigger asChild>
-                                <Button variant="ghost" size="icon">
-                                  <Trash2 className="h-4 w-4 text-red-500" />
+                              <>
+                                <Button variant="ghost" size="icon" onClick={() => handleEditStructure(structure)}>
+                                  <Edit className="h-4 w-4" />
                                 </Button>
-                              </AlertDialogTrigger>
-                              <AlertDialogContent>
-                                <AlertDialogHeader>
-                                  <AlertDialogTitle>Delete Salary Structure</AlertDialogTitle>
-                                  <AlertDialogDescription>Are you sure you want to delete this salary structure? This action cannot be undone.</AlertDialogDescription>
-                                </AlertDialogHeader>
-                                <AlertDialogFooter>
-                                  <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                  <AlertDialogAction onClick={() => deleteStructureMutation.mutate(structure.id)}>Delete</AlertDialogAction>
-                                </AlertDialogFooter>
-                              </AlertDialogContent>
-                            </AlertDialog>
+                                <AlertDialog>
+                                  <AlertDialogTrigger asChild>
+                                    <Button variant="ghost" size="icon">
+                                      <Trash2 className="h-4 w-4 text-red-500" />
+                                    </Button>
+                                  </AlertDialogTrigger>
+                                  <AlertDialogContent>
+                                    <AlertDialogHeader>
+                                      <AlertDialogTitle>Delete Salary Structure</AlertDialogTitle>
+                                      <AlertDialogDescription>Are you sure you want to delete this salary structure? This action cannot be undone.</AlertDialogDescription>
+                                    </AlertDialogHeader>
+                                    <AlertDialogFooter>
+                                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                      <AlertDialogAction onClick={() => deleteStructureMutation.mutate(structure.id)}>Delete</AlertDialogAction>
+                                    </AlertDialogFooter>
+                                  </AlertDialogContent>
+                                </AlertDialog>
+                              </>
+                            )}
                           </div>
                         </TableCell>
                       </TableRow>

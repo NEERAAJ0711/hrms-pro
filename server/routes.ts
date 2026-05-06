@@ -4377,6 +4377,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (user.role !== "super_admin" && existing.companyId !== user.companyId) {
         return res.status(403).json({ error: "Access denied" });
       }
+      // Block deletion once payroll has been generated for this employee
+      const allPayrollDel = await storage.getAllPayroll();
+      const empPayrollDel = allPayrollDel.filter(p => p.employeeId === existing.employeeId);
+      if (empPayrollDel.length > 0) {
+        return res.status(400).json({
+          error: "Cannot delete this salary structure — payroll has already been generated for this employee.",
+        });
+      }
       console.log(`[AUDIT] SALARY_STRUCTURE_DELETE | user=${user.username || user.email} (id=${user.id}, role=${user.role}) | structureId=${existing.id} | employeeId=${existing.employeeId} | companyId=${existing.companyId} | basic=${existing.basicSalary} | gross=${existing.grossSalary} | at=${new Date().toISOString()} | ip=${req.ip}`);
       await storage.writeAuditLog({ action: "SALARY_STRUCTURE_DELETE", userId: user.id, userName: user.username || user.email || "", details: JSON.stringify({ structureId: existing.id, employeeId: existing.employeeId, companyId: existing.companyId, basicSalary: existing.basicSalary, grossSalary: existing.grossSalary }) });
       const success = await storage.deleteSalaryStructure(req.params.id);
@@ -4436,6 +4444,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/payroll", requireAuth, requireModuleAccess("payroll"), async (req, res) => {
     try {
       const data = insertPayrollSchema.parse(req.body);
+
+      // Block payroll generation if the payroll month hasn't ended yet
+      const PR_MONTH_MAP: Record<string, number> = {
+        January:1, February:2, March:3, April:4, May:5, June:6,
+        July:7, August:8, September:9, October:10, November:11, December:12,
+      };
+      const prMonthNum = PR_MONTH_MAP[String(data.month)];
+      const prYear = Number(data.year);
+      if (prMonthNum && prYear) {
+        const lastDayOfMonth = new Date(Date.UTC(prYear, prMonthNum, 0)); // last day of payroll month
+        const todayUTC = new Date();
+        todayUTC.setUTCHours(0, 0, 0, 0);
+        if (todayUTC <= lastDayOfMonth) {
+          return res.status(400).json({
+            error: `Cannot generate payroll for ${data.month} ${prYear} — the month is not yet complete. Payroll can only be generated after the month ends.`,
+          });
+        }
+      }
 
       const employee = await storage.getEmployee(data.employeeId);
       if (!employee) return res.status(404).json({ error: "Employee not found" });
