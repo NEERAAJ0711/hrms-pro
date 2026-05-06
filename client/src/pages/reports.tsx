@@ -733,6 +733,9 @@ export default function ReportsPage() {
           return buildRow(emp, getProRatedComponents(emp, ss, null), null);
         });
 
+    // Sort by employee code (alphabetically) for consistent ordering
+    dataRows.sort((a, b) => String(a.code || "").localeCompare(String(b.code || "")));
+
     if (dataRows.length === 0) {
       toast({ title: "No Data", description: "No salary data available.", variant: "destructive" });
       return;
@@ -3232,6 +3235,9 @@ export default function ReportsPage() {
         return buildViewRow(emp, getProRatedComponents(emp, ss, null), null);
       });
     }
+    // Sort by employee code (col 0) before pinning the TOTAL row
+    rows.sort((a, b) => String(a[0] || "").localeCompare(String(b[0] || "")));
+
     // TOTAL row — sum all numeric columns, label first 6 cols
     if (rows.length > 0) {
       const totalRow: (string | number)[] = ["", "TOTAL", "", "", "", ""];
@@ -3241,6 +3247,40 @@ export default function ReportsPage() {
       rows = [...rows, totalRow];
     }
     openViewDialog(`Salary Sheet - ${monthName} ${yearNum}`, headers, rows);
+  };
+
+  const viewJoiningLeaving = () => {
+    const monthStart = `${yearNum}-${String(monthNum).padStart(2, "0")}-01`;
+    const lastDay = new Date(yearNum, monthNum, 0).getDate();
+    const monthEnd = `${yearNum}-${String(monthNum).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
+    const companyEmps = filteredEmployees;
+
+    const joiners = companyEmps.filter(e => e.dateOfJoining >= monthStart && e.dateOfJoining <= monthEnd);
+    const leavers = companyEmps.filter(e => (e as any).exitDate && (e as any).exitDate >= monthStart && (e as any).exitDate <= monthEnd);
+
+    if (joiners.length === 0 && leavers.length === 0) {
+      toast({ title: "No Activity", description: `No joining or leaving activity found for ${monthName} ${yearNum}.`, variant: "destructive" });
+      return;
+    }
+
+    const headers = ["Type", "Code", "Name", "Dept", "Designation", "Date", "Gross Salary", "Approx. CTC"];
+    const rows: (string | number)[][] = [];
+
+    joiners.sort((a, b) => a.dateOfJoining.localeCompare(b.dateOfJoining)).forEach(e => {
+      const ss = salaryStructures.find(s => s.employeeId === e.id);
+      const gross = ss?.grossSalary || e.grossSalary || 0;
+      const ctc = Math.round(Number(gross) * 1.135);
+      rows.push(["Joiner", e.employeeCode || "", `${e.firstName} ${e.lastName}`, e.department || "-", e.designation || "-", e.dateOfJoining, Number(gross), ctc]);
+    });
+
+    leavers.sort((a, b) => ((a as any).exitDate || "").localeCompare((b as any).exitDate || "")).forEach(e => {
+      const ss = salaryStructures.find(s => s.employeeId === e.id);
+      const gross = ss?.grossSalary || e.grossSalary || 0;
+      const ctc = Math.round(Number(gross) * 1.135);
+      rows.push(["Leaver", e.employeeCode || "", `${e.firstName} ${e.lastName}`, e.department || "-", e.designation || "-", (e as any).exitDate || "", Number(gross), ctc]);
+    });
+
+    openViewDialog(`Joining & Leaving — ${monthName} ${yearNum}`, headers, rows);
   };
 
   const viewPFStatement = (empOverride?: Employee[]) => {
@@ -5704,6 +5744,7 @@ export default function ReportsPage() {
     { key: "mth_reg",  category: "Monthly",       title: "Monthly Attendance Register",  icon: CalendarRange, color: "text-violet-600", bgColor: "bg-violet-50 dark:bg-violet-950",filters: ["company","month"],             generate: generateMonthlyAttendanceRegister,    view: viewMonthlyAttendanceRegister, pdfOnly: true },
     { key: "punch",    category: "Monthly",       title: "Attendance Punch",             icon: Clock,         color: "text-sky-600",    bgColor: "bg-sky-50 dark:bg-sky-950",      filters: ["company","month"],             generate: generateAttendancePunchReport,        view: viewAttendancePunchReport },
     { key: "sal",      category: "Monthly",       title: "Salary Sheet",                 icon: CreditCard,    color: "text-green-600",  bgColor: "bg-green-50 dark:bg-green-950",  filters: ["company","month"],             generate: generateSalarySheet,           view: viewSalarySheet },
+    { key: "jl",       category: "Monthly",       title: "Joining & Leaving Summary",    icon: Users,         color: "text-indigo-600", bgColor: "bg-indigo-50 dark:bg-indigo-950",filters: ["company","month"],             generate: (_ft) => generateSalarySheet("pdf"), view: viewJoiningLeaving },
     { key: "pf",       category: "Monthly",       title: "PF Statement",                 icon: Shield,        color: "text-purple-600", bgColor: "bg-purple-50 dark:bg-purple-950",filters: ["company","month"],             generate: generatePFStatement,           view: viewPFStatement },
     { key: "esic",     category: "Monthly",       title: "ESIC Statement",               icon: Receipt,       color: "text-orange-600", bgColor: "bg-orange-50 dark:bg-orange-950",filters: ["company","month"],             generate: generateESICStatement,         view: viewESICStatement },
     { key: "payslip",  category: "Monthly",       title: "Pay Slip",                     icon: FileText,      color: "text-red-600",    bgColor: "bg-red-50 dark:bg-red-950",      filters: ["company","month","employee"],  generate: generatePaySlip,               view: viewPaySlip },
@@ -5743,6 +5784,7 @@ export default function ReportsPage() {
 
   const payrollReports = [
     { title: "Salary Sheet", description: "Monthly salary register with earnings breakdown, deductions, and net salary for payroll processing", icon: CreditCard, color: "text-green-600", bgColor: "bg-green-50 dark:bg-green-950", generate: generateSalarySheet, view: viewSalarySheet },
+    { title: "Joining & Leaving Summary", description: "New joiners and exits this month with gross salary and approximate CTC cost impact", icon: Users, color: "text-indigo-600", bgColor: "bg-indigo-50 dark:bg-indigo-950", generate: (_ft: "excel"|"pdf") => generateSalarySheet("pdf"), view: viewJoiningLeaving },
     { title: "Pay Slip", description: "Individual employee pay slips with complete earnings, deductions, and net salary details", icon: FileText, color: "text-red-600", bgColor: "bg-red-50 dark:bg-red-950", generate: generatePaySlip, view: viewPaySlip },
     { title: "CTC Register", description: "Cost-to-company register showing all employees with full CTC components and employer contribution summary", icon: Building2, color: "text-teal-600", bgColor: "bg-teal-50 dark:bg-teal-950", generate: generateCTCRegister, view: viewCTCRegister },
     { title: "Full & Final Settlement", description: "Settlement report for exited employees with earnings, deductions, and net payable amounts", icon: HandCoins, color: "text-rose-600", bgColor: "bg-rose-50 dark:bg-rose-950", generate: generateFnFReport, view: viewFnFReport },
