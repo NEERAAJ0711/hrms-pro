@@ -1431,8 +1431,9 @@ export default function ReportsPage() {
       }
     }
 
-    const buildPaySlipPDF = (emp: Employee, c: ReturnType<typeof getProRatedComponents>, workingDays?: number, presentDays?: number, leaveDays?: number, payDays?: number, otHoursArg?: number, otAmountArg?: number, pr?: Payroll | null) => {
-      const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+    const buildPaySlipPDF = (sharedDoc: jsPDF, isFirstPage: boolean, emp: Employee, c: ReturnType<typeof getProRatedComponents>, workingDays?: number, presentDays?: number, leaveDays?: number, payDays?: number, otHoursArg?: number, otAmountArg?: number, pr?: Payroll | null) => {
+      if (!isFirstPage) sharedDoc.addPage();
+      const doc = sharedDoc;
       const company = companies.find(co => co.id === emp.companyId);
       const companyName = company?.companyName || getCompanyName(emp.companyId);
       const pageW = 210;
@@ -1704,8 +1705,6 @@ export default function ReportsPage() {
         doc.text("This is a system generated document does not require Signature", pageW / 2, ty, { align: "center" });
       }
       doc.setTextColor(0, 0, 0);
-
-      doc.save(`PaySlip_${emp.employeeCode}_${selectedMonth}.pdf`);
     };
 
     if (fileType === "excel") {
@@ -1790,25 +1789,33 @@ export default function ReportsPage() {
       }
     } else {
       if (monthPayroll.length > 0) {
+        const sharedDoc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+        let count = 0;
         monthPayroll.forEach(p => {
           const emp = employees.find(e => e.id === p.employeeId);
           if (!emp) return;
           const ss = salaryStructures.find(s => s.employeeId === p.employeeId);
           const c = getProRatedComponents(emp, ss, p);
-          buildPaySlipPDF(emp, c, p.workingDays, Number(p.presentDays), p.leaveDays || 0, Number(p.payDays) || undefined, Number((p as any).otHours || 0), Number((p as any).otAmount || 0), p);
+          buildPaySlipPDF(sharedDoc, count === 0, emp, c, p.workingDays, Number(p.presentDays), p.leaveDays || 0, Number(p.payDays) || undefined, Number((p as any).otHours || 0), Number((p as any).otAmount || 0), p);
+          count++;
         });
-        toast({ title: "Downloaded", description: `${monthPayroll.length} pay slip(s) downloaded.` });
+        if (count > 0) {
+          sharedDoc.save(`PaySlips_${selectedMonth}.pdf`);
+          toast({ title: "Downloaded", description: `${count} pay slip(s) saved in one PDF.` });
+        }
       } else if (emps.length > 0) {
+        const sharedDoc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
         let generated = 0;
         emps.forEach(emp => {
           const ss = salaryStructures.find(s => s.employeeId === emp.id);
           if (!ss) return;
           const c = getProRatedComponents(emp, ss, null);
-          buildPaySlipPDF(emp, c);
+          buildPaySlipPDF(sharedDoc, generated === 0, emp, c);
           generated++;
         });
         if (generated > 0) {
-          toast({ title: "Downloaded", description: `${generated} pay slip(s) downloaded.` });
+          sharedDoc.save(`PaySlips_${selectedMonth}.pdf`);
+          toast({ title: "Downloaded", description: `${generated} pay slip(s) saved in one PDF.` });
         } else {
           toast({ title: "No Data", description: "No salary structures found to generate pay slips.", variant: "destructive" });
         }
