@@ -129,6 +129,7 @@ export default function PayrollPage() {
   const [contractorFilter, setContractorFilter] = useState("own");
   const [selectedMonth, setSelectedMonth] = useState(months[new Date().getMonth()]);
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear().toString());
+  const [payrollSearch, setPayrollSearch] = useState("");
   const [bulkUploadOpen, setBulkUploadOpen] = useState(false);
   const [bulkUploading, setBulkUploading] = useState(false);
   const [bulkResult, setBulkResult] = useState<{ created: number; skipped: number; errors: string[] } | null>(null);
@@ -364,7 +365,15 @@ export default function PayrollPage() {
       || (prFilterType === "c" && p.companyId === prContractorCompanyId);
     if (!companyMatch) return false;
     if (prIsContractorView && !prTaggedIds.has(p.employeeId)) return false;
-    return p.month === selectedMonth && p.year === parseInt(selectedYear);
+    if (p.month !== selectedMonth || p.year !== parseInt(selectedYear)) return false;
+    if (payrollSearch.trim()) {
+      const q = payrollSearch.trim().toLowerCase();
+      const emp = employees.find(e => e.id === p.employeeId);
+      const name = emp ? `${emp.firstName} ${emp.lastName}`.toLowerCase() : "";
+      const code = (emp?.employeeCode || "").toLowerCase();
+      if (!name.includes(q) && !code.includes(q)) return false;
+    }
+    return true;
   });
 
   const calculateStatutoryDeductions = (companyId: string, employeeId: string, basicSalary: number, grossSalary: number) => {
@@ -1748,6 +1757,17 @@ export default function PayrollPage() {
               </div>
             </CardHeader>
             <CardContent>
+              <div className="mb-4 relative max-w-xs">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+                <input
+                  type="text"
+                  placeholder="Search employee name or code…"
+                  value={payrollSearch}
+                  onChange={e => setPayrollSearch(e.target.value)}
+                  data-testid="input-payroll-search"
+                  className="w-full pl-9 pr-3 py-2 text-sm rounded-md border border-input bg-background shadow-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                />
+              </div>
               {isLoadingPayroll ? (
                 <div className="space-y-4">
                   {[...Array(5)].map((_, i) => (
