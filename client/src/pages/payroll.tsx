@@ -130,6 +130,8 @@ export default function PayrollPage() {
   const [selectedMonth, setSelectedMonth] = useState(months[new Date().getMonth()]);
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear().toString());
   const [payrollSearch, setPayrollSearch] = useState("");
+  const [selectedPayrollIds, setSelectedPayrollIds] = useState<Set<string>>(new Set());
+  const [bulkDeleteConfirmOpen, setBulkDeleteConfirmOpen] = useState(false);
   const [bulkUploadOpen, setBulkUploadOpen] = useState(false);
   const [bulkUploading, setBulkUploading] = useState(false);
   const [bulkResult, setBulkResult] = useState<{ created: number; skipped: number; errors: string[] } | null>(null);
@@ -646,6 +648,45 @@ export default function PayrollPage() {
       toast({ title: "Error", description: error.message, variant: "destructive" });
     },
   });
+
+  const bulkFinalizePayrollMutation = useMutation({
+    mutationFn: async (ids: string[]) => {
+      const draftIds = ids.filter(id => {
+        const rec = payrollRecords.find(p => p.id === id);
+        return rec?.status === "draft";
+      });
+      await Promise.all(draftIds.map(id => apiRequest("PATCH", `/api/payroll/${id}`, { status: "processed" })));
+      return draftIds.length;
+    },
+    onSuccess: (count) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/payroll"] });
+      setSelectedPayrollIds(new Set());
+      toast({ title: "Payroll Finalized", description: `${count} record(s) marked as processed.` });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const bulkDeletePayrollMutation = useMutation({
+    mutationFn: async (ids: string[]) => {
+      await Promise.all(ids.map(id => apiRequest("DELETE", `/api/payroll/${id}`)));
+      return ids.length;
+    },
+    onSuccess: (count) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/payroll"] });
+      setSelectedPayrollIds(new Set());
+      setBulkDeleteConfirmOpen(false);
+      toast({ title: "Payroll Deleted", description: `${count} record(s) deleted.` });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
+  useEffect(() => {
+    setSelectedPayrollIds(new Set());
+  }, [selectedMonth, selectedYear, selectedCompany, contractorFilter]);
 
   const handleEditStructure = (structure: SalaryStructure) => {
     setEditingStructureId(structure.id);
@@ -1757,17 +1798,76 @@ export default function PayrollPage() {
               </div>
             </CardHeader>
             <CardContent>
-              <div className="mb-4 relative max-w-xs">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-                <input
-                  type="text"
-                  placeholder="Search employee name or code…"
-                  value={payrollSearch}
-                  onChange={e => setPayrollSearch(e.target.value)}
-                  data-testid="input-payroll-search"
-                  className="w-full pl-9 pr-3 py-2 text-sm rounded-md border border-input bg-background shadow-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                />
+              <div className="flex items-center gap-3 mb-4 flex-wrap">
+                <div className="relative max-w-xs flex-1 min-w-[200px]">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+                  <input
+                    type="text"
+                    placeholder="Search employee name or code…"
+                    value={payrollSearch}
+                    onChange={e => setPayrollSearch(e.target.value)}
+                    data-testid="input-payroll-search"
+                    className="w-full pl-9 pr-3 py-2 text-sm rounded-md border border-input bg-background shadow-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  />
+                </div>
+                {selectedPayrollIds.size > 0 && (
+                  <div className="flex items-center gap-2 bg-muted px-3 py-1.5 rounded-md">
+                    <span className="text-sm font-medium">{selectedPayrollIds.size} selected</span>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 text-green-700 border-green-300 hover:bg-green-50"
+                      disabled={bulkFinalizePayrollMutation.isPending}
+                      onClick={() => bulkFinalizePayrollMutation.mutate(Array.from(selectedPayrollIds))}
+                      data-testid="button-bulk-finalize"
+                    >
+                      <CheckCircle className="h-3.5 w-3.5 mr-1" />
+                      Finalize
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 text-red-700 border-red-300 hover:bg-red-50"
+                      onClick={() => setBulkDeleteConfirmOpen(true)}
+                      data-testid="button-bulk-delete"
+                    >
+                      <Trash2 className="h-3.5 w-3.5 mr-1" />
+                      Delete
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 text-muted-foreground"
+                      onClick={() => setSelectedPayrollIds(new Set())}
+                    >
+                      Clear
+                    </Button>
+                  </div>
+                )}
               </div>
+
+              {/* Bulk delete confirmation */}
+              <AlertDialog open={bulkDeleteConfirmOpen} onOpenChange={setBulkDeleteConfirmOpen}>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Delete {selectedPayrollIds.size} Payroll Record(s)?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This will permanently delete {selectedPayrollIds.size} selected payroll record(s). This action cannot be undone.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction
+                      className="bg-red-600 hover:bg-red-700"
+                      onClick={() => bulkDeletePayrollMutation.mutate(Array.from(selectedPayrollIds))}
+                      disabled={bulkDeletePayrollMutation.isPending}
+                    >
+                      {bulkDeletePayrollMutation.isPending ? "Deleting…" : "Delete"}
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+
               {isLoadingPayroll ? (
                 <div className="space-y-4">
                   {[...Array(5)].map((_, i) => (
@@ -1784,6 +1884,22 @@ export default function PayrollPage() {
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      <TableHead className="w-8">
+                        <input
+                          type="checkbox"
+                          data-testid="checkbox-select-all"
+                          className="h-4 w-4 rounded border-gray-300 cursor-pointer"
+                          checked={filteredPayroll.length > 0 && filteredPayroll.every(p => selectedPayrollIds.has(p.id))}
+                          ref={el => { if (el) el.indeterminate = selectedPayrollIds.size > 0 && !filteredPayroll.every(p => selectedPayrollIds.has(p.id)); }}
+                          onChange={e => {
+                            if (e.target.checked) {
+                              setSelectedPayrollIds(new Set(filteredPayroll.map(p => p.id)));
+                            } else {
+                              setSelectedPayrollIds(new Set());
+                            }
+                          }}
+                        />
+                      </TableHead>
                       <TableHead className="w-10 text-center">Sr.</TableHead>
                       <TableHead>Employee</TableHead>
                       <TableHead className="text-right">Earnings</TableHead>
@@ -1797,7 +1913,20 @@ export default function PayrollPage() {
                   </TableHeader>
                   <TableBody>
                     {filteredPayroll.map((record, idx) => (
-                      <TableRow key={record.id} data-testid={`row-payroll-${record.id}`}>
+                      <TableRow key={record.id} data-testid={`row-payroll-${record.id}`} className={selectedPayrollIds.has(record.id) ? "bg-muted/50" : ""}>
+                        <TableCell>
+                          <input
+                            type="checkbox"
+                            data-testid={`checkbox-payroll-${record.id}`}
+                            className="h-4 w-4 rounded border-gray-300 cursor-pointer"
+                            checked={selectedPayrollIds.has(record.id)}
+                            onChange={e => {
+                              const next = new Set(selectedPayrollIds);
+                              if (e.target.checked) next.add(record.id); else next.delete(record.id);
+                              setSelectedPayrollIds(next);
+                            }}
+                          />
+                        </TableCell>
                         <TableCell className="text-center text-muted-foreground font-medium text-sm">{idx + 1}</TableCell>
                         <TableCell className="font-medium">{getEmployeeName(record.employeeId)}</TableCell>
                         <TableCell className="text-right text-green-600">{formatCurrency(record.totalEarnings)}</TableCell>
