@@ -213,6 +213,20 @@ app.use((req, res, next) => {
         ) THEN
           ALTER TABLE users ADD COLUMN access_contractors text[];
         END IF;
+        -- Add vpf_amount column to salary_structures if missing
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_name = 'salary_structures' AND column_name = 'vpf_amount'
+        ) THEN
+          ALTER TABLE salary_structures ADD COLUMN vpf_amount integer DEFAULT 0;
+        END IF;
+        -- Add vpf_amount column to payroll if missing
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_name = 'payroll' AND column_name = 'vpf_amount'
+        ) THEN
+          ALTER TABLE payroll ADD COLUMN vpf_amount integer DEFAULT 0;
+        END IF;
       END;
       $$
     `);

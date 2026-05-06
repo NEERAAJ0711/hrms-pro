@@ -36,6 +36,7 @@ const salaryStructureSchema = z.object({
   grossSalary: z.coerce.number(),
   pfEmployee: z.coerce.number().default(0),
   pfEmployer: z.coerce.number().default(0),
+  vpfAmount: z.coerce.number().min(0).default(0),
   esi: z.coerce.number().default(0),
   professionalTax: z.coerce.number().default(0),
   lwfEmployee: z.coerce.number().default(0),
@@ -256,6 +257,7 @@ export default function PayrollPage() {
       grossSalary: 0,
       pfEmployee: 0,
       pfEmployer: 0,
+      vpfAmount: 0,
       esi: 0,
       professionalTax: 0,
       lwfEmployee: 0,
@@ -476,6 +478,7 @@ export default function PayrollPage() {
     }
     
     const pfEmp = Number(form.getValues("pfEmployee")) || 0;
+    const vpfAmt = Number(form.getValues("vpfAmount")) || 0;
     const esiVal = Number(form.getValues("esi")) || 0;
     const ptVal = Number(form.getValues("professionalTax")) || 0;
     const lwfEmp = Number(form.getValues("lwfEmployee")) || 0;
@@ -483,7 +486,7 @@ export default function PayrollPage() {
     const otherDed = Number(form.getValues("otherDeductions")) || 0;
     const customDedSum = Object.values(customDeductionAmounts).reduce((acc, v) => acc + (v || 0), 0);
 
-    const totalDeductions = pfEmp + esiVal + ptVal + lwfEmp + tds + otherDed + customDedSum;
+    const totalDeductions = pfEmp + vpfAmt + esiVal + ptVal + lwfEmp + tds + otherDed + customDedSum;
     const net = gross - totalDeductions;
     
     form.setValue("netSalary", net);
@@ -652,6 +655,7 @@ export default function PayrollPage() {
       grossSalary: structure.grossSalary,
       pfEmployee: structure.pfEmployee || 0,
       pfEmployer: structure.pfEmployer || 0,
+      vpfAmount: (structure as any).vpfAmount || 0,
       esi: structure.esi || 0,
       professionalTax: structure.professionalTax || 0,
       lwfEmployee: structure.lwfEmployee || 0,
@@ -683,6 +687,7 @@ export default function PayrollPage() {
         grossSalary: 0,
         pfEmployee: 0,
         pfEmployer: 0,
+        vpfAmount: 0,
         esi: 0,
         professionalTax: 0,
         lwfEmployee: 0,
@@ -987,7 +992,10 @@ export default function PayrollPage() {
         );
         const scheduledLoanDeduction = empLoans.reduce((sum: number, l: any) => sum + Number(l.installmentAmount), 0);
         // Cap loan deduction so net salary never goes negative
-        const deductionsBeforeLoan = pfEmployee + esi + pt + lwfEmployee + (structure.tds || 0) + (structure.otherDeductions || 0) + customDedTotal;
+        // VPF: prorate in same proportion as payroll (if full month, full VPF; if partial, prorate)
+        const vpfDeduction = Math.round(((structure as any).vpfAmount || 0) * prorationFactor);
+
+        const deductionsBeforeLoan = pfEmployee + vpfDeduction + esi + pt + lwfEmployee + (structure.tds || 0) + (structure.otherDeductions || 0) + customDedTotal;
         const netBeforeLoan = Math.max(0, totalEarnings - deductionsBeforeLoan);
         const loanDeduction = Math.min(scheduledLoanDeduction, netBeforeLoan);
 
@@ -1012,6 +1020,7 @@ export default function PayrollPage() {
           customDeductions: proratedCustomDeductions,
           totalEarnings: totalEarnings,
           pfEmployee: pfEmployee,
+          vpfAmount: vpfDeduction,
           esi: esi,
           professionalTax: pt,
           lwfEmployee: lwfEmployee,
@@ -1434,6 +1443,35 @@ export default function PayrollPage() {
                         </FormItem>
                       )}
                     />
+                    {/* VPF — only show when employee is PF-applicable */}
+                    {(() => {
+                      const selEmpId = form.watch("employeeId");
+                      const selEmp = employees.find(e => e.id === selEmpId);
+                      const pfEnabled = !!settings?.pfEnabled;
+                      if (!pfEnabled || !selEmp?.pfApplicable) return null;
+                      return (
+                        <FormField
+                          control={form.control}
+                          name="vpfAmount"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>VPF (Voluntary PF)</FormLabel>
+                              <FormControl>
+                                <Input
+                                  type="number"
+                                  min={0}
+                                  placeholder="0"
+                                  {...field}
+                                  onChange={(e) => { field.onChange(e); calculateSalary(false); }}
+                                  data-testid="input-vpf"
+                                />
+                              </FormControl>
+                              <p className="text-xs text-muted-foreground">Extra PF contributed voluntarily by employee. Employer contribution does not change.</p>
+                            </FormItem>
+                          )}
+                        />
+                      );
+                    })()}
                     <FormField
                       control={form.control}
                       name="esi"
@@ -2170,6 +2208,9 @@ export default function PayrollPage() {
                   </div>
                   <div className="p-3 space-y-2 text-sm">
                     <div className="flex justify-between"><span>PF (Employee)</span><span className="font-medium">{formatCurrency(record.pfEmployee || 0)}</span></div>
+                    {((record as any).vpfAmount || 0) > 0 && (
+                      <div className="flex justify-between"><span>VPF (Voluntary PF)</span><span className="font-medium">{formatCurrency((record as any).vpfAmount)}</span></div>
+                    )}
                     <div className="flex justify-between"><span>ESI</span><span className="font-medium">{formatCurrency(record.esi || 0)}</span></div>
                     <div className="flex justify-between"><span>Professional Tax</span><span className="font-medium">{formatCurrency(record.professionalTax || 0)}</span></div>
                     <div className="flex justify-between"><span>LWF (Employee)</span><span className="font-medium">{formatCurrency(record.lwfEmployee || 0)}</span></div>

@@ -287,7 +287,7 @@ export default function ReportsPage() {
     const zero = {
       basicSalary: 0, hra: 0, conveyance: 0, medicalAllowance: 0 as number,
       specialAllowance: 0, otherAllowances: 0, grossSalary: 0,
-      pfEmployee: 0, esi: 0, professionalTax: 0, lwfEmployee: 0,
+      pfEmployee: 0, vpfAmount: 0, esi: 0, professionalTax: 0, lwfEmployee: 0,
       tds: 0, otherDeductions: 0, loanDeduction: 0, bonus: 0,
       totalEarnings: 0, totalDeductions: 0, netSalary: 0,
     };
@@ -306,6 +306,7 @@ export default function ReportsPage() {
         const bonus = pr.bonus ?? 0;
         const gross = basic + hra + conv + spl + oth;
         const pf = pr.pfEmployee ?? 0;
+        const vpf = (pr as any).vpfAmount ?? 0;
         const esi = pr.esi ?? 0;
         const pt = pr.professionalTax ?? 0;
         const lwf = pr.lwfEmployee ?? 0;
@@ -315,7 +316,7 @@ export default function ReportsPage() {
         return {
           basicSalary: basic, hra, conveyance: conv, medicalAllowance: 0,
           specialAllowance: spl, otherAllowances: oth, grossSalary: gross,
-          pfEmployee: pf, esi, professionalTax: pt, lwfEmployee: lwf,
+          pfEmployee: pf, vpfAmount: vpf, esi, professionalTax: pt, lwfEmployee: lwf,
           tds, otherDeductions: otherDed, loanDeduction: loanDed, bonus,
           totalEarnings: pr.totalEarnings, totalDeductions: pr.totalDeductions, netSalary: pr.netSalary,
         };
@@ -368,7 +369,7 @@ export default function ReportsPage() {
         return {
           basicSalary: basic, hra, conveyance: conv, medicalAllowance: 0,
           specialAllowance: spl, otherAllowances: oth, grossSalary: gross,
-          pfEmployee: pf, esi, professionalTax: pt, lwfEmployee: lwf,
+          pfEmployee: pf, vpfAmount: 0, esi, professionalTax: pt, lwfEmployee: lwf,
           tds, otherDeductions: otherDed, loanDeduction: (pr as any).loanDeduction ?? 0, bonus: Math.max(bonus, 0),
           totalEarnings: pr.totalEarnings, totalDeductions: pr.totalDeductions, netSalary: pr.netSalary,
         };
@@ -378,6 +379,7 @@ export default function ReportsPage() {
         ...zero,
         basicSalary: pr.basicSalary,
         grossSalary: pr.basicSalary,
+        vpfAmount: (pr as any).vpfAmount ?? 0,
         loanDeduction: (pr as any).loanDeduction ?? 0,
         totalEarnings: pr.totalEarnings, totalDeductions: pr.totalDeductions, netSalary: pr.netSalary,
       };
@@ -387,12 +389,13 @@ export default function ReportsPage() {
 
     const bonus = calculateMonthlyBonus(emp, ss.basicSalary, ss.grossSalary);
     const totalEarn = ss.grossSalary + bonus;
-    const totalDed = (ss.pfEmployee || 0) + (ss.esi || 0) + (ss.professionalTax || 0) + (ss.lwfEmployee || 0) + (ss.tds || 0) + (ss.otherDeductions || 0);
+    const ssVpf = (ss as any).vpfAmount || 0;
+    const totalDed = (ss.pfEmployee || 0) + ssVpf + (ss.esi || 0) + (ss.professionalTax || 0) + (ss.lwfEmployee || 0) + (ss.tds || 0) + (ss.otherDeductions || 0);
     return {
       basicSalary: ss.basicSalary, hra: ss.hra || 0, conveyance: ss.conveyance || 0,
       medicalAllowance: 0, specialAllowance: ss.specialAllowance || 0,
       otherAllowances: (ss.otherAllowances || 0) + (ss.medicalAllowance || 0), grossSalary: ss.grossSalary,
-      pfEmployee: ss.pfEmployee || 0, esi: ss.esi || 0, professionalTax: ss.professionalTax || 0,
+      pfEmployee: ss.pfEmployee || 0, vpfAmount: ssVpf, esi: ss.esi || 0, professionalTax: ss.professionalTax || 0,
       lwfEmployee: ss.lwfEmployee || 0, tds: ss.tds || 0, otherDeductions: ss.otherDeductions || 0,
       bonus, totalEarnings: totalEarn, totalDeductions: totalDed, netSalary: totalEarn - totalDed,
     };
@@ -704,6 +707,7 @@ export default function ReportsPage() {
         otHours: Number((pr as any)?.otHours || 0),
         otAmount: Number((pr as any)?.otAmount || 0),
         pf: c?.pfEmployee || 0,
+        vpf: (c as any)?.vpfAmount || 0,
         esic: c?.esi || 0,
         lwf: c?.lwfEmployee || 0,
         tds: c?.tds || 0,
@@ -716,7 +720,7 @@ export default function ReportsPage() {
         cont: contractorMastersList.find(cm => cm.id === (emp as any).contractorMasterId)?.contractorName || "—",
         get rateTotal() { return this.rateBasic + this.rateHra + this.rateConv + this.rateOth; },
         get earnTotal() { return this.earnBasic + this.earnHra + this.earnConv + this.earnOth + this.customEarn + this.bonus + this.otAmount; },
-        get dedTotal() { return this.pf + this.esic + this.lwf + this.tds + this.pt + this.adv + this.customDed; },
+        get dedTotal() { return this.pf + this.vpf + this.esic + this.lwf + this.tds + this.pt + this.adv + this.customDed; },
       };
     };
 
@@ -788,6 +792,7 @@ export default function ReportsPage() {
       otAmount:  rows.reduce((a, r) => a + r.otAmount, 0),
       earnTotal: rows.reduce((a, r) => a + r.earnTotal, 0),
       pf:  rows.reduce((a, r) => a + r.pf, 0),
+      vpf: rows.reduce((a, r) => a + r.vpf, 0),
       esic: rows.reduce((a, r) => a + r.esic, 0),
       lwf:  rows.reduce((a, r) => a + r.lwf, 0),
       tds:  rows.reduce((a, r) => a + r.tds, 0),
@@ -812,7 +817,7 @@ export default function ReportsPage() {
         usedHeads.forEach(h => { row[`Earn: ${h.name}`] = r.customEarnings[h.id] || 0; });
         row["Earn: Bonus"] = r.bonus; row["OT Hrs"] = r.otHours; row["OT Amount"] = r.otAmount;
         row["Earn: Total"] = r.earnTotal;
-        row["Ded: PF"] = r.pf; row["Ded: ESIC"] = r.esic; row["Ded: LWF"] = r.lwf;
+        row["Ded: PF (EPF)"] = r.pf; row["Ded: VPF"] = r.vpf; row["Ded: ESIC"] = r.esic; row["Ded: LWF"] = r.lwf;
         row["Ded: TDS"] = r.tds; row["Ded: PT"] = r.pt; row["Ded: Adv"] = r.adv;
         usedDedHeads.forEach(h => { row[`Ded: ${h.name}`] = r.customDeductions[h.id] || 0; });
         row["Ded: Total"] = r.dedTotal; row["Net Pay"] = r.netPay;
@@ -920,7 +925,7 @@ export default function ReportsPage() {
       sum("earnBasic"), sum("earnHra"), sum("earnConv"), sum("earnOth"),
       ...usedHeads.map(h => dataRows.reduce((s, r) => s + (r.customEarnings[h.id] || 0), 0)),
       sum("bonus"), sum("otAmount"), sumEarnTotal,
-      sum("pf"), sum("esic"), sum("lwf"), sum("tds"), sum("pt"), sum("adv"),
+      sum("pf"), sum("vpf"), sum("esic"), sum("lwf"), sum("tds"), sum("pt"), sum("adv"),
       ...usedDedHeads.map(h => dataRows.reduce((s, r) => s + (r.customDeductions[h.id] || 0), 0)),
       sumDedTotal,
       sum("netPay"),
@@ -938,13 +943,14 @@ export default function ReportsPage() {
     const C_OT_AMT      = 17 + usedHeads.length;
     const C_EARN_TOTAL  = 18 + usedHeads.length;  // E.Total → highlighted
     const C_PF          = 19 + usedHeads.length;
-    const C_ESIC        = 20 + usedHeads.length;
-    const C_LWF         = 21 + usedHeads.length;
-    const C_TDS         = 22 + usedHeads.length;
-    const C_PT          = 23 + usedHeads.length;
-    const C_ADV         = 24 + usedHeads.length;
-    const C_DED_TOTAL   = 25 + usedHeads.length + usedDedHeads.length;  // D.Total → highlighted
-    const C_NET_PAY     = 26 + usedHeads.length + usedDedHeads.length;
+    const C_VPF         = 20 + usedHeads.length;
+    const C_ESIC        = 21 + usedHeads.length;
+    const C_LWF         = 22 + usedHeads.length;
+    const C_TDS         = 23 + usedHeads.length;
+    const C_PT          = 24 + usedHeads.length;
+    const C_ADV         = 25 + usedHeads.length;
+    const C_DED_TOTAL   = 26 + usedHeads.length + usedDedHeads.length;  // D.Total → highlighted
+    const C_NET_PAY     = 27 + usedHeads.length + usedDedHeads.length;
 
     // Build column styles keyed by exact index
     const HL: [number, number, number] = [220, 235, 255];  // light-blue highlight for totals
@@ -972,7 +978,8 @@ export default function ReportsPage() {
       [C_OT_AMT]:          { cellWidth: 9 },                         // OT Amt
       [C_EARN_TOTAL]:      { cellWidth: 12, fillColor: HL },         // E.Total ★
       // Deductions
-      [C_PF]:              { cellWidth: 9 },                         // PF
+      [C_PF]:              { cellWidth: 9 },                         // PF (EPF)
+      [C_VPF]:             { cellWidth: 8 },                         // VPF
       [C_ESIC]:            { cellWidth: 8 },                         // ESIC
       [C_LWF]:             { cellWidth: 7 },                         // LWF
       [C_TDS]:             { cellWidth: 8 },                         // TDS
@@ -998,7 +1005,7 @@ export default function ReportsPage() {
       r.earnBasic, r.earnHra, r.earnConv, r.earnOth,
       ...usedHeads.map(h => r.customEarnings[h.id] || 0),
       r.bonus, r.otAmount, r.earnTotal,
-      r.pf, r.esic, r.lwf, r.tds, r.pt, r.adv,
+      r.pf, r.vpf, r.esic, r.lwf, r.tds, r.pt, r.adv,
       ...usedDedHeads.map(h => r.customDeductions[h.id] || 0),
       r.dedTotal, r.netPay,
     ];
@@ -1009,7 +1016,7 @@ export default function ReportsPage() {
       gs.earnBasic, gs.earnHra, gs.earnConv, gs.earnOth,
       ...usedHeads.map(h => gs.customEarnings[h.id] || 0),
       gs.bonus, gs.otAmount, gs.earnTotal,
-      gs.pf, gs.esic, gs.lwf, gs.tds, gs.pt, gs.adv,
+      gs.pf, gs.vpf, gs.esic, gs.lwf, gs.tds, gs.pt, gs.adv,
       ...usedDedHeads.map(h => gs.customDeductions[h.id] || 0),
       gs.dedTotal, gs.netPay,
     ];
@@ -1044,7 +1051,7 @@ export default function ReportsPage() {
           { content: "OT Hrs",      rowSpan: 2, styles: { halign: "center", valign: "middle" } },
           { content: "Rate",        colSpan: 5,                       styles: { halign: "center" } },
           { content: "Earnings",    colSpan: 7 + usedHeads.length,    styles: { halign: "center" } },
-          { content: "Deductions",  colSpan: 7 + usedDedHeads.length, styles: { halign: "center" } },
+          { content: "Deductions",  colSpan: 8 + usedDedHeads.length, styles: { halign: "center" } },
           { content: "Net Pay",     rowSpan: 2, styles: { halign: "center", valign: "middle" } },
         ],
         [
@@ -1052,7 +1059,7 @@ export default function ReportsPage() {
           "Basic", "HRA", "Conv", "Oth",
           ...usedHeads.map(h => h.name.length > 7 ? h.name.slice(0, 6) + "." : h.name),
           "Bonus", "OT Amt", "Total",
-          "PF", "ESIC", "LWF", "TDS", "PT", "Adv",
+          "PF", "VPF", "ESIC", "LWF", "TDS", "PT", "Adv",
           ...usedDedHeads.map(h => h.name.length > 7 ? h.name.slice(0, 6) + "." : h.name),
           "Total",
         ],
@@ -1147,6 +1154,7 @@ export default function ReportsPage() {
     // ── PF & ESIC Summary ────────────────────────────────────────────────────
     {
       let totalPfEE = 0, totalPfER = 0, pfCount = 0;
+      let totalVpfEE = 0, vpfCount = 0;
       let totalEsicEE = 0, totalEsicER = 0, esicCount = 0;
       let totalPfWages = 0, totalEsicWages = 0;
 
@@ -1163,6 +1171,7 @@ export default function ReportsPage() {
           totalPfER += Math.round(pfBase * pfPercent / 100);
           totalPfWages += pfBase;
           pfCount++;
+          if (r.vpf > 0) { totalVpfEE += r.vpf; vpfCount++; }
         }
         if (emp.esiApplicable && settings?.esicEnabled) {
           const wageCeiling = Number(settings.esicWageCeiling) || 21000;
@@ -1194,9 +1203,10 @@ export default function ReportsPage() {
         startY: pfEsicStartY + 4,
         head: [["Statutory", "Eligible Employees", "Wages / Gross", "Employee Contribution (EE)", "Employer Contribution (ER)", "Total Contribution"]],
         body: [
-          ["Provident Fund (PF)", pfCount, totalPfWages, totalPfEE, totalPfER, totalPfEE + totalPfER],
+          ["EPF (Employee PF)", pfCount, totalPfWages, totalPfEE, totalPfER, totalPfEE + totalPfER],
+          ...(totalVpfEE > 0 ? [["VPF (Voluntary PF)", vpfCount, "-", totalVpfEE, 0, totalVpfEE]] : []),
           ["ESIC", esicCount, totalEsicWages, totalEsicEE, totalEsicER, totalEsicEE + totalEsicER],
-          ["Grand Total", pfCount + esicCount, totalPfWages + totalEsicWages, totalPfEE + totalEsicEE, totalPfER + totalEsicER, totalPfEE + totalPfER + totalEsicEE + totalEsicER],
+          ["Grand Total", pfCount + esicCount, totalPfWages + totalEsicWages, totalPfEE + totalVpfEE + totalEsicEE, totalPfER + totalEsicER, totalPfEE + totalVpfEE + totalPfER + totalEsicEE + totalEsicER],
         ],
         styles: { fontSize: 8, cellPadding: 2, halign: "right" as const },
         headStyles: { fillColor: [59, 89, 152] as [number, number, number], textColor: [255, 255, 255] as [number, number, number], fontStyle: "bold", halign: "center" as const },
@@ -1597,7 +1607,8 @@ export default function ReportsPage() {
       if (otAmtVal > 0) earnRows.push([`OT Amount (${otHrsVal.toFixed(2)} hrs)`, fmt(otAmtVal)]);
 
       const dedRows: [string, string][] = [];
-      if (c.pfEmployee > 0) dedRows.push(["Employee PF Deduction", fmt(c.pfEmployee)]);
+      if (c.pfEmployee > 0) dedRows.push(["Employee PF (EPF)", fmt(c.pfEmployee)]);
+      if ((c as any).vpfAmount > 0) dedRows.push(["VPF (Voluntary PF)", fmt((c as any).vpfAmount)]);
       if (c.esi > 0) dedRows.push(["ESI Deduction", fmt(c.esi)]);
       if (c.professionalTax > 0) dedRows.push(["Professional Tax", fmt(c.professionalTax)]);
       if (c.lwfEmployee > 0) dedRows.push(["LWF", fmt(c.lwfEmployee)]);
@@ -3185,7 +3196,7 @@ export default function ReportsPage() {
       "E.Basic", "E.HRA", "E.Conv", "E.Oth",
       ...viewUsedHeads.map(h => h.name),
       "Bonus", "E.OT Amt", "E.Total",
-      "PF", "ESIC", "LWF", "TDS", "PT", "Other Ded", "Loan/Adv",
+      "PF", "VPF", "ESIC", "LWF", "TDS", "PT", "Other Ded", "Loan/Adv",
       ...viewUsedDedHeads.map(h => h.name),
       "D.Total", "Net Pay",
     ];
@@ -3203,11 +3214,11 @@ export default function ReportsPage() {
       const bonus = c?.bonus || 0;
       const otHoursVal = Number((pr as any)?.otHours || 0);
       const otAmtVal = Number((pr as any)?.otAmount || 0);
-      const pf = c?.pfEmployee || 0, esic = c?.esi || 0, lwf = c?.lwfEmployee || 0;
+      const pf = c?.pfEmployee || 0, vpf = (c as any)?.vpfAmount || 0, esic = c?.esi || 0, lwf = c?.lwfEmployee || 0;
       const tds = c?.tds || 0, pt = c?.professionalTax || 0;
       const othDed = c?.otherDeductions || 0, loanAdv = (c as any)?.loanDeduction || 0;
       const earnTotal = eBasic + eHra + eConv + eOth + customEarn + bonus + otAmtVal;
-      const dedTotal = pf + esic + lwf + tds + pt + othDed + loanAdv + customDedAmt;
+      const dedTotal = pf + vpf + esic + lwf + tds + pt + othDed + loanAdv + customDedAmt;
       return [
         emp.employeeCode || "", `${emp.firstName} ${emp.lastName}`, emp.department || "-", emp.designation || "-",
         pr ? pr.workingDays : "-", pr ? (pr.payDays ?? pr.presentDays) : "-",
@@ -3216,7 +3227,7 @@ export default function ReportsPage() {
         eBasic, eHra, eConv, eOth,
         ...viewUsedHeads.map(h => prCustom[h.id] || 0),
         bonus, otAmtVal, earnTotal,
-        pf, esic, lwf, tds, pt, othDed, loanAdv,
+        pf, vpf, esic, lwf, tds, pt, othDed, loanAdv,
         ...viewUsedDedHeads.map(h => prCustomDed[h.id] || 0),
         dedTotal,
         c?.netSalary || 0,
@@ -3355,7 +3366,7 @@ export default function ReportsPage() {
       "Code", "Name", "Dept", "Basic", "HRA", "Conv.", "Spl.",
       ...vpEarnHeads.map(h => h.name),
       "Other", "Bonus", "OT Hrs", "OT Amt", "Tot.Earn",
-      "PF", "ESI", "PT", "LWF", "TDS", "Other Ded", "Loan/Adv",
+      "PF", "VPF", "ESI", "PT", "LWF", "TDS", "Other Ded", "Loan/Adv",
       ...vpDedHeads.map(h => h.name),
       "Tot.Ded", "Net Salary",
     ];
@@ -3377,7 +3388,7 @@ export default function ReportsPage() {
           residualOther, c?.bonus || 0,
           Number((p as any).otHours || 0), Number((p as any).otAmount || 0),
           c?.totalEarnings || 0,
-          c?.pfEmployee || 0, c?.esi || 0, c?.professionalTax || 0, c?.lwfEmployee || 0,
+          c?.pfEmployee || 0, (c as any)?.vpfAmount || 0, c?.esi || 0, c?.professionalTax || 0, c?.lwfEmployee || 0,
           c?.tds || 0, c?.otherDeductions || 0, (c as any)?.loanDeduction || 0,
           ...vpDedHeads.map(h => prCustomDed[h.id] || 0),
           c?.totalDeductions || 0, c?.netSalary || 0,
@@ -3393,7 +3404,7 @@ export default function ReportsPage() {
           ...vpEarnHeads.map(() => 0),
           c.otherAllowances, c.bonus, 0, 0,
           c.totalEarnings,
-          c.pfEmployee, c.esi, c.professionalTax, c.lwfEmployee,
+          c.pfEmployee, (c as any).vpfAmount || 0, c.esi, c.professionalTax, c.lwfEmployee,
           c.tds, c.otherDeductions, (c as any).loanDeduction || 0,
           ...vpDedHeads.map(() => 0),
           c.totalDeductions, c.netSalary,
