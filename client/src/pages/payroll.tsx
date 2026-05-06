@@ -1456,7 +1456,7 @@ export default function PayrollPage() {
                     {(() => {
                       const selEmpId = form.watch("employeeId");
                       const selEmp = employees.find(e => e.id === selEmpId);
-                      const pfEnabled = !!settings?.pfEnabled;
+                      const pfEnabled = !!statutorySettingsList.find(s => s.companyId === watchCompanyId)?.pfEnabled;
                       if (!pfEnabled || !selEmp?.pfApplicable) return null;
                       return (
                         <FormField
