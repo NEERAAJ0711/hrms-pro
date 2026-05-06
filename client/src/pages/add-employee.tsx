@@ -489,8 +489,8 @@ export default function AddEmployee() {
     onSuccess: async (updatedEmployee: any) => {
       const prevGradeId = existingEmployee?.wageGradeId;
       const newGradeId = updatedEmployee?.wageGradeId;
-      // Always auto-create/update salary structure whenever a grade is present
-      if (updatedEmployee?.id && newGradeId) {
+      // Only auto-update salary structure when the wage grade has actually changed
+      if (updatedEmployee?.id && newGradeId && newGradeId !== prevGradeId) {
         await autoCreateSalaryStructure(updatedEmployee);
       }
       queryClient.invalidateQueries({ queryKey: ["/api/employees"] });
