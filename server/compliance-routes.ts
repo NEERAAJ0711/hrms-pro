@@ -32,7 +32,7 @@ const attachUser = async (req: Request, res: Response, next: NextFunction) => {
 
 export function registerComplianceRoutes(app: Express) {
 
-  // ── Ensure carry-forward table exists ─────────────────────────────────────
+  // ── Ensure all compliance tables exist on startup ─────────────────────────
   db.execute(sql`
     CREATE TABLE IF NOT EXISTS compliance_carry_forward (
       id            VARCHAR(36) PRIMARY KEY DEFAULT gen_random_uuid()::text,
@@ -40,12 +40,101 @@ export function registerComplianceRoutes(app: Express) {
       employee_id   VARCHAR(36) NOT NULL,
       month         TEXT        NOT NULL,
       year          INTEGER     NOT NULL,
-      carry_fwd_amount INTEGER  NOT NULL DEFAULT 0,
+      carry_fwd_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
       created_at    TEXT        NOT NULL,
       updated_at    TEXT        NOT NULL,
       UNIQUE (company_id, employee_id, month, year)
     )
-  `).catch(() => {}); // ignore if already exists
+  `).catch(() => {});
+
+  db.execute(sql`
+    CREATE TABLE IF NOT EXISTS compliance_employee_setup (
+      id              VARCHAR PRIMARY KEY,
+      company_id      VARCHAR NOT NULL,
+      employee_id     VARCHAR NOT NULL,
+      department      VARCHAR,
+      designation     VARCHAR,
+      weekly_off      VARCHAR DEFAULT 'sunday',
+      ot_type         VARCHAR DEFAULT 'na',
+      payment_mode    VARCHAR DEFAULT 'actual',
+      diff_adjustments TEXT DEFAULT '',
+      pf_type         VARCHAR DEFAULT 'na',
+      esic_type       VARCHAR DEFAULT 'na',
+      lwf_type        VARCHAR DEFAULT 'na',
+      bonus_type      VARCHAR DEFAULT 'na',
+      basic_salary    NUMERIC(12,2) DEFAULT 0,
+      gross_salary    NUMERIC(12,2) DEFAULT 0,
+      same_as_actual  BOOLEAN DEFAULT true,
+      created_by      VARCHAR,
+      created_at      TIMESTAMP DEFAULT NOW(),
+      updated_at      TIMESTAMP DEFAULT NOW(),
+      UNIQUE (company_id, employee_id)
+    )
+  `).catch(() => {});
+
+  db.execute(sql`
+    CREATE TABLE IF NOT EXISTS compliance_adjustments (
+      id                    VARCHAR PRIMARY KEY,
+      company_id            VARCHAR NOT NULL,
+      employee_id           VARCHAR NOT NULL,
+      employee_name         VARCHAR,
+      employee_code         VARCHAR,
+      month                 VARCHAR NOT NULL,
+      year                  INTEGER NOT NULL,
+      compliance_type       VARCHAR DEFAULT 'PF',
+      party_name            VARCHAR,
+      original_attendance   NUMERIC(6,1),
+      original_ot_hours     NUMERIC(8,2),
+      original_basic_salary NUMERIC(12,2),
+      original_gross_salary NUMERIC(12,2),
+      original_net_salary   NUMERIC(12,2),
+      adjusted_attendance   NUMERIC(6,1),
+      adjusted_ot_hours     NUMERIC(8,2),
+      adjusted_basic_salary NUMERIC(12,2),
+      adjusted_gross_salary NUMERIC(12,2),
+      adjusted_net_salary   NUMERIC(12,2),
+      remarks               TEXT,
+      status                VARCHAR DEFAULT 'draft',
+      created_by            VARCHAR,
+      created_at            TIMESTAMP DEFAULT NOW(),
+      updated_at            TIMESTAMP DEFAULT NOW()
+    )
+  `).catch(() => {});
+
+  db.execute(sql`
+    CREATE TABLE IF NOT EXISTS compliance_clients (
+      id                          VARCHAR PRIMARY KEY,
+      company_id                  VARCHAR NOT NULL,
+      project_name                VARCHAR NOT NULL,
+      client_name                 VARCHAR,
+      client_address              TEXT,
+      principal_employer_name     VARCHAR,
+      principal_employer_address  TEXT,
+      nature_of_work              VARCHAR,
+      location_of_work            VARCHAR,
+      project_start_date          DATE,
+      project_end_date            DATE,
+      status                      VARCHAR DEFAULT 'active',
+      created_by                  VARCHAR,
+      created_at                  TIMESTAMP DEFAULT NOW(),
+      updated_at                  TIMESTAMP DEFAULT NOW()
+    )
+  `).catch(() => {});
+
+  db.execute(sql`
+    CREATE TABLE IF NOT EXISTS compliance_client_employees (
+      id                VARCHAR PRIMARY KEY,
+      client_id         VARCHAR NOT NULL,
+      employee_id       VARCHAR NOT NULL,
+      company_id        VARCHAR NOT NULL,
+      assigned_date     DATE NOT NULL,
+      deassigned_date   DATE,
+      status            VARCHAR DEFAULT 'active',
+      created_by        VARCHAR,
+      created_at        TIMESTAMP DEFAULT NOW(),
+      updated_at        TIMESTAMP DEFAULT NOW()
+    )
+  `).catch(() => {});
 
   // ── POST /api/compliance/carry-fwd/save — bulk-upsert carry-forward amounts
   app.post("/api/compliance/carry-fwd/save", requireAuth, attachUser, requireAdminRole, async (req: Request, res: Response) => {
@@ -85,7 +174,6 @@ export function registerComplianceRoutes(app: Express) {
       const yearNum = parseInt(year);
 
       // All employees with compliance setup (dept/designation/basic/gross) + salary structure conveyance
-      console.log(`[compliance/employees] Q1 empRows start month=${month} year=${yearNum} company=${targetCompanyId}`);
       const empRows = await db.execute(sql`
         SELECT
           e.id, e.employee_code, e.first_name, e.last_name,
@@ -145,10 +233,8 @@ export function registerComplianceRoutes(app: Express) {
       `);
       const payrollMap: Record<string, any> = {};
       for (const p of payrollRows.rows) payrollMap[p.employee_id as string] = p;
-      console.log(`[compliance/employees] Q2 payrollRows OK rows=${payrollRows.rows.length}`);
 
       // Attendance OT summary
-      console.log(`[compliance/employees] Q3 attRows start`);
       const attRows = await db.execute(sql`
         SELECT employee_id,
           COUNT(*) FILTER (WHERE status IN ('present','half_day')) AS present_days,
@@ -161,10 +247,8 @@ export function registerComplianceRoutes(app: Express) {
       `);
       const attMap: Record<string, any> = {};
       for (const a of attRows.rows) attMap[a.employee_id as string] = a;
-      console.log(`[compliance/employees] Q3 attRows OK rows=${attRows.rows.length}`);
 
       // Existing compliance adjustments
-      console.log(`[compliance/employees] Q4 adjRows start`);
       const adjRows = await db.execute(sql`
         SELECT * FROM compliance_adjustments
         WHERE company_id = ${targetCompanyId}
@@ -173,10 +257,8 @@ export function registerComplianceRoutes(app: Express) {
       `);
       const adjMap: Record<string, any> = {};
       for (const a of adjRows.rows) adjMap[a.employee_id as string] = a;
-      console.log(`[compliance/employees] Q4 adjRows OK rows=${adjRows.rows.length}`);
 
       // Previous month carry-forward lookup
-      console.log(`[compliance/employees] Q5 prevCf start`);
       const prevMonthIndex = monthIndex === 1 ? 12 : monthIndex - 1;
       const prevYear       = monthIndex === 1 ? yearNum - 1 : yearNum;
       const prevMonth      = ["January","February","March","April","May","June","July","August","September","October","November","December"][prevMonthIndex - 1];
