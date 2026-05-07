@@ -91,8 +91,8 @@ export function registerComplianceRoutes(app: Express) {
           e.date_of_joining,
           COALESCE(cs.department,  e.department,  '') AS department,
           COALESCE(cs.designation, e.designation, '') AS designation,
-          cs.basic_salary      AS setup_basic,
-          cs.gross_salary      AS setup_gross,
+          COALESCE(cs.basic_salary, ss.basic_salary) AS setup_basic,
+          COALESCE(cs.gross_salary, ss.gross_salary) AS setup_gross,
           cs.pf_type           AS setup_pf_type,
           cs.esic_type         AS setup_esic_type,
           cs.lwf_type          AS setup_lwf_type,
@@ -101,6 +101,7 @@ export function registerComplianceRoutes(app: Express) {
           cs.ot_type           AS setup_ot_type,
           cs.payment_mode      AS setup_payment_mode,
           ss.conveyance        AS ss_conv,
+          ss.hra               AS ss_hra,
           COALESCE(e.pf_applicable,  false) AS pf_applicable,
           COALESCE(e.esi_applicable, false) AS esi_applicable,
           COALESCE(e.lwf_applicable, false) AS lwf_applicable
@@ -201,11 +202,14 @@ export function registerComplianceRoutes(app: Express) {
         // Mon.Days = total calendar days in the month
         const monDays = new Date(yearNum, monthIndex, 0).getDate();
 
-        // Rate from compliance setup
+        // Rate: compliance setup values, falling back to salary structure when no setup exists
         const rBasic = Number(emp.setup_basic  || 0);
         const rTotal = Number(emp.setup_gross  || 0);
         const rConv  = Number(emp.ss_conv      || 0);
-        const rHra   = Math.max(0, rTotal - rBasic); // HRA = Gross - Basic
+        // HRA: use salary-structure HRA directly when available, else derive from gross − basic
+        const rHra   = emp.ss_hra != null
+          ? Math.max(0, Number(emp.ss_hra))
+          : Math.max(0, rTotal - rBasic);
 
         return {
           employeeId:    emp.id,
