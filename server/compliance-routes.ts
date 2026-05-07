@@ -149,7 +149,7 @@ export function registerComplianceRoutes(app: Express) {
       const attRows = await db.execute(sql`
         SELECT employee_id,
           COUNT(*) FILTER (WHERE status IN ('present','half_day')) AS present_days,
-          SUM(COALESCE(ot_hours::numeric, 0)) AS total_ot_hours
+          COALESCE(SUM(CASE WHEN ot_hours ~ '^[0-9]+(\.[0-9]+)?$' THEN ot_hours::numeric ELSE 0 END), 0) AS total_ot_hours
         FROM attendance
         WHERE company_id = ${targetCompanyId}
           AND EXTRACT(MONTH FROM date::date) = ${monthIndex}
