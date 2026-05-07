@@ -85,6 +85,7 @@ export function registerComplianceRoutes(app: Express) {
       const yearNum = parseInt(year);
 
       // All employees with compliance setup (dept/designation/basic/gross) + salary structure conveyance
+      console.log(`[compliance/employees] Q1 empRows start month=${month} year=${yearNum} company=${targetCompanyId}`);
       const empRows = await db.execute(sql`
         SELECT
           e.id, e.employee_code, e.first_name, e.last_name,
@@ -144,8 +145,10 @@ export function registerComplianceRoutes(app: Express) {
       `);
       const payrollMap: Record<string, any> = {};
       for (const p of payrollRows.rows) payrollMap[p.employee_id as string] = p;
+      console.log(`[compliance/employees] Q2 payrollRows OK rows=${payrollRows.rows.length}`);
 
       // Attendance OT summary
+      console.log(`[compliance/employees] Q3 attRows start`);
       const attRows = await db.execute(sql`
         SELECT employee_id,
           COUNT(*) FILTER (WHERE status IN ('present','half_day')) AS present_days,
@@ -158,8 +161,10 @@ export function registerComplianceRoutes(app: Express) {
       `);
       const attMap: Record<string, any> = {};
       for (const a of attRows.rows) attMap[a.employee_id as string] = a;
+      console.log(`[compliance/employees] Q3 attRows OK rows=${attRows.rows.length}`);
 
       // Existing compliance adjustments
+      console.log(`[compliance/employees] Q4 adjRows start`);
       const adjRows = await db.execute(sql`
         SELECT * FROM compliance_adjustments
         WHERE company_id = ${targetCompanyId}
@@ -168,8 +173,10 @@ export function registerComplianceRoutes(app: Express) {
       `);
       const adjMap: Record<string, any> = {};
       for (const a of adjRows.rows) adjMap[a.employee_id as string] = a;
+      console.log(`[compliance/employees] Q4 adjRows OK rows=${adjRows.rows.length}`);
 
       // Previous month carry-forward lookup
+      console.log(`[compliance/employees] Q5 prevCf start`);
       const prevMonthIndex = monthIndex === 1 ? 12 : monthIndex - 1;
       const prevYear       = monthIndex === 1 ? yearNum - 1 : yearNum;
       const prevMonth      = ["January","February","March","April","May","June","July","August","September","October","November","December"][prevMonthIndex - 1];
