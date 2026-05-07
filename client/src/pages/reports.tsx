@@ -1107,19 +1107,55 @@ export default function ReportsPage() {
       },
     });
 
-    // ── Department/Group Summary table (only when subtotals are active) ──────
-    if (summaryRows.length > 0) {
-      const summaryStartY = (doc as any).lastAutoTable.finalY + 8;
-      const groupLabel = dwSubtotalBy.charAt(0).toUpperCase() + dwSubtotalBy.slice(1);
+    // ── Summary Page ─────────────────────────────────────────────────────────
+    // All summaries go on a dedicated new page, always, regardless of grouping
+    doc.addPage();
+    let sy = 12;
+
+    // Page title
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(11);
+    doc.setTextColor(30, 58, 138);
+    doc.text(`Summary — ${title}`, pageW / 2, sy, { align: "center" });
+    sy += 8;
+
+    // Helper: build groups by any dimension key
+    const buildGroupsBy = (key: "dept" | "desig" | "loc" | "cont") => {
+      const map = new Map<string, typeof dataRows>();
+      for (const r of dataRows) {
+        const k = (r[key] as string) || "—";
+        if (!map.has(k)) map.set(k, []);
+        map.get(k)!.push(r);
+      }
+      return [...map.entries()].map(([label, rows]) => ({
+        label,
+        count: rows.length,
+        gs: groupSum(rows),
+      }));
+    };
+
+    // Shared column styles for all group summary tables
+    const sumColStyles = {
+      0: { halign: "left" as const, cellWidth: 60 },
+      1: { cellWidth: 22, halign: "center" as const },
+      2: { cellWidth: 30 },
+      3: { cellWidth: 30 },
+      4: { cellWidth: 30 },
+      5: { cellWidth: 30 },
+    };
+
+    // Render one group-summary table, returns updated y
+    const renderSummaryTable = (label: string, groups: { label: string; count: number; gs: ReturnType<typeof groupSum> }[]) => {
       doc.setFont("helvetica", "bold");
       doc.setFontSize(8.5);
       doc.setTextColor(30, 58, 138);
-      doc.text(`${groupLabel}-wise Summary`, ml, summaryStartY);
+      doc.text(`${label}-wise Summary`, ml, sy);
+      const grandRowIdx = groups.length;
       autoTable(doc, {
-        startY: summaryStartY + 4,
-        head: [[groupLabel, "Employees", "Rate Total", "Earn Total", "Ded Total", "Net Pay"]],
+        startY: sy + 4,
+        head: [[label, "Employees", "Rate Total", "Earn Total", "Ded Total", "Net Pay"]],
         body: [
-          ...summaryRows.map(g => [
+          ...groups.map(g => [
             g.label,
             g.count,
             g.gs.rateBasic + g.gs.rateHra + g.gs.rateConv + g.gs.rateOth,
@@ -1131,16 +1167,9 @@ export default function ReportsPage() {
         ],
         styles: { fontSize: 8, cellPadding: 2, halign: "right" as const },
         headStyles: { fillColor: [59, 89, 152] as [number, number, number], textColor: [255, 255, 255] as [number, number, number], fontStyle: "bold", halign: "center" as const },
-        columnStyles: {
-          0: { halign: "left" as const, cellWidth: 50 },
-          1: { cellWidth: 20, halign: "center" as const },
-          2: { cellWidth: 28 },
-          3: { cellWidth: 28 },
-          4: { cellWidth: 28 },
-          5: { cellWidth: 28 },
-        },
+        columnStyles: sumColStyles,
         didParseCell(data) {
-          if (data.section === "body" && data.row.index === summaryRows.length) {
+          if (data.section === "body" && data.row.index === grandRowIdx) {
             data.cell.styles.fontStyle = "bold";
             data.cell.styles.fillColor = [220, 235, 255];
             data.cell.styles.textColor = [30, 58, 138];
@@ -1149,7 +1178,14 @@ export default function ReportsPage() {
         margin: { left: ml },
         theme: "grid",
       });
-    }
+      sy = (doc as any).lastAutoTable.finalY + 8;
+    };
+
+    // Render ALL four group summaries unconditionally
+    renderSummaryTable("Department",  buildGroupsBy("dept"));
+    renderSummaryTable("Designation", buildGroupsBy("desig"));
+    renderSummaryTable("Location",    buildGroupsBy("loc"));
+    renderSummaryTable("Contractor",  buildGroupsBy("cont"));
 
     // ── PF & ESIC Summary ────────────────────────────────────────────────────
     {
@@ -1194,13 +1230,13 @@ export default function ReportsPage() {
         }
       }
 
-      const pfEsicStartY = (doc as any).lastAutoTable.finalY + 8;
       doc.setFont("helvetica", "bold");
       doc.setFontSize(8.5);
       doc.setTextColor(30, 58, 138);
-      doc.text("PF & ESIC Summary", ml, pfEsicStartY);
+      doc.text("PF & ESIC Summary", ml, sy);
+      const pfGrandRowIdx = totalVpfEE > 0 ? 3 : 2;
       autoTable(doc, {
-        startY: pfEsicStartY + 4,
+        startY: sy + 4,
         head: [["Statutory", "Eligible Employees", "Wages / Gross", "Employee Contribution (EE)", "Employer Contribution (ER)", "Total Contribution"]],
         body: [
           ["EPF (Employee PF)", pfCount, totalPfWages, totalPfEE, totalPfER, totalPfEE + totalPfER],
@@ -1219,7 +1255,7 @@ export default function ReportsPage() {
           5: { cellWidth: 35 },
         },
         didParseCell(data) {
-          if (data.section === "body" && data.row.index === 2) {
+          if (data.section === "body" && data.row.index === pfGrandRowIdx) {
             data.cell.styles.fontStyle = "bold";
             data.cell.styles.fillColor = [220, 235, 255];
             data.cell.styles.textColor = [30, 58, 138];
@@ -1228,6 +1264,7 @@ export default function ReportsPage() {
         margin: { left: ml },
         theme: "grid",
       });
+      sy = (doc as any).lastAutoTable.finalY + 8;
     }
 
     // ── Joining & Leaving Summary ─────────────────────────────────────────────
@@ -1240,16 +1277,15 @@ export default function ReportsPage() {
       const leavers = companyEmps.filter(e => (e as any).exitDate && (e as any).exitDate >= monthStart && (e as any).exitDate <= monthEnd);
 
       if (joiners.length > 0 || leavers.length > 0) {
-        const jlStartY = (doc as any).lastAutoTable.finalY + 8;
         doc.setFont("helvetica", "bold");
         doc.setFontSize(8.5);
         doc.setTextColor(30, 58, 138);
-        doc.text("Joining & Leaving Summary", ml, jlStartY);
+        doc.text("Joining & Leaving Summary", ml, sy);
 
         const buildJLRow = (emp: Employee, dateLabel: string): (string | number)[] => {
           const ss = salaryStructures.find(s => s.employeeId === emp.id);
           const grossSalary = ss?.grossSalary || emp.grossSalary || 0;
-          const ctc = Math.round(grossSalary * 1.135); // approx CTC incl. employer PF + ESIC
+          const ctc = Math.round(grossSalary * 1.135);
           return [
             emp.employeeCode || "—",
             `${emp.firstName} ${emp.lastName}`,
@@ -1270,7 +1306,6 @@ export default function ReportsPage() {
           jlBody.push([{ content: `Leavers / Exits (${leavers.length})`, colSpan: 7, styles: { fontStyle: "bold" as const, fillColor: [255, 220, 220] as [number,number,number], textColor: [150, 0, 0] as [number,number,number] } }]);
           leavers.forEach(e => jlBody.push(buildJLRow(e, (e as any).exitDate)));
         }
-        // Summary row
         const totalJoinCost = joiners.reduce((s, e) => { const ss2 = salaryStructures.find(x => x.employeeId === e.id); return s + (ss2?.grossSalary || e.grossSalary || 0); }, 0);
         const totalLeaveCost = leavers.reduce((s, e) => { const ss2 = salaryStructures.find(x => x.employeeId === e.id); return s + (ss2?.grossSalary || e.grossSalary || 0); }, 0);
         jlBody.push([
@@ -1278,7 +1313,7 @@ export default function ReportsPage() {
         ]);
 
         autoTable(doc, {
-          startY: jlStartY + 4,
+          startY: sy + 4,
           head: [["Code", "Name", "Department", "Designation", "Date", "Gross Salary", "Approx. CTC"]],
           body: jlBody,
           styles: { fontSize: 7.5, cellPadding: 1.5, halign: "right" as const },
