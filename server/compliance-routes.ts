@@ -174,6 +174,7 @@ export function registerComplianceRoutes(app: Express) {
       const yearNum = parseInt(year);
 
       // All employees with compliance setup (dept/designation/basic/gross) + salary structure conveyance
+      console.log(`[CE] Q1 company=${targetCompanyId} month=${month} year=${yearNum}`);
       const empRows = await db.execute(sql`
         SELECT
           e.id, e.employee_code, e.first_name, e.last_name,
@@ -209,6 +210,7 @@ export function registerComplianceRoutes(app: Express) {
       const monthLastDay  = new Date(yearNum, monthIndex, 0);
 
       // Full payroll breakdown for month/year
+      console.log(`[CE] Q2 payroll`);
       const payrollRows = await db.execute(sql`
         SELECT employee_id,
           basic_salary, hra, conveyance,
@@ -235,10 +237,19 @@ export function registerComplianceRoutes(app: Express) {
       for (const p of payrollRows.rows) payrollMap[p.employee_id as string] = p;
 
       // Attendance OT summary
+      console.log(`[CE] Q3 attendance monthIdx=${monthIndex}`);
       const attRows = await db.execute(sql`
         SELECT employee_id,
           COUNT(*) FILTER (WHERE status IN ('present','half_day')) AS present_days,
-          COALESCE(SUM(CASE WHEN ot_hours ~ '^[0-9]+(\.[0-9]+)?$' THEN ot_hours::numeric ELSE 0 END), 0) AS total_ot_hours
+          COALESCE(SUM(
+            CASE
+              WHEN ot_hours IS NULL OR ot_hours = '' OR ot_hours = '0' THEN 0
+              WHEN POSITION(':' IN ot_hours) > 0 THEN
+                SPLIT_PART(ot_hours, ':', 1)::integer * 60 + SPLIT_PART(ot_hours, ':', 2)::integer
+              WHEN ot_hours ~ '^[0-9]+(\.[0-9]+)?$' THEN (ot_hours::numeric * 60)::integer
+              ELSE 0
+            END
+          ) / 60.0, 0) AS total_ot_hours
         FROM attendance
         WHERE company_id = ${targetCompanyId}
           AND EXTRACT(MONTH FROM date::date) = ${monthIndex}
@@ -249,6 +260,7 @@ export function registerComplianceRoutes(app: Express) {
       for (const a of attRows.rows) attMap[a.employee_id as string] = a;
 
       // Existing compliance adjustments
+      console.log(`[CE] Q4 adjustments`);
       const adjRows = await db.execute(sql`
         SELECT * FROM compliance_adjustments
         WHERE company_id = ${targetCompanyId}
@@ -259,6 +271,7 @@ export function registerComplianceRoutes(app: Express) {
       for (const a of adjRows.rows) adjMap[a.employee_id as string] = a;
 
       // Previous month carry-forward lookup
+      console.log(`[CE] Q5 carry-fwd`);
       const prevMonthIndex = monthIndex === 1 ? 12 : monthIndex - 1;
       const prevYear       = monthIndex === 1 ? yearNum - 1 : yearNum;
       const prevMonth      = ["January","February","March","April","May","June","July","August","September","October","November","December"][prevMonthIndex - 1];
@@ -1422,7 +1435,15 @@ export function registerComplianceRoutes(app: Express) {
         const otRows = await db.execute(sql`
           SELECT employee_id,
                  COUNT(CASE WHEN ot_hours IS NOT NULL AND ot_hours != '' AND ot_hours != '0' THEN 1 END) AS ot_days,
-                 COALESCE(SUM(CASE WHEN ot_hours ~ '^[0-9]+(\.[0-9]+)?$' THEN ot_hours::numeric ELSE 0 END), 0) AS ot_hours_total
+                 COALESCE(SUM(
+                   CASE
+                     WHEN ot_hours IS NULL OR ot_hours = '' OR ot_hours = '0' THEN 0
+                     WHEN POSITION(':' IN ot_hours) > 0 THEN
+                       SPLIT_PART(ot_hours, ':', 1)::integer * 60 + SPLIT_PART(ot_hours, ':', 2)::integer
+                     WHEN ot_hours ~ '^[0-9]+(\.[0-9]+)?$' THEN (ot_hours::numeric * 60)::integer
+                     ELSE 0
+                   END
+                 ) / 60.0, 0) AS ot_hours_total
           FROM attendance
           WHERE company_id = ${targetCompanyId} AND date >= ${startDate} AND date <= ${endDate}
             AND employee_id IN (${empInList})
