@@ -1088,11 +1088,13 @@ function AdjustmentsTab({ companyId, isSuperAdmin, user, toast }: {
         Math.min(r.rBasic, PF_CEILING), Math.min(r.rTotal, ESIC_CEILING),
         r.monDays, r.netPay, totalDeds, r.payDays
       );
-      const ebC = r.monDays > 0 ? Math.round(r.rBasic * adjPayDays / r.monDays) : 0;
-      const ehC = r.monDays > 0 ? Math.round(r.rHra   * adjPayDays / r.monDays) : 0;
+      const isActualC = (r.paymentMode || "actual") !== "compliance";
+      const eDaysC = isActualC ? r.monDays : adjPayDays;
+      const ebC = r.monDays > 0 ? Math.round(r.rBasic * eDaysC / r.monDays) : 0;
+      const ehC = r.monDays > 0 ? Math.round(r.rHra   * eDaysC / r.monDays) : 0;
       const btC = r.bonusType || "actual";
       const mbC = Math.round(r.rBasic * 8.33 / 100);
-      const bcC = btC === "na" ? 0 : btC === "actual" ? r.bonus : btC === "annual" ? mbC : (r.monDays > 0 ? Math.round(mbC * adjPayDays / r.monDays) : 0);
+      const bcC = btC === "na" ? 0 : btC === "actual" ? r.bonus : btC === "annual" ? mbC : (r.monDays > 0 ? Math.round(mbC * eDaysC / r.monDays) : 0);
       const etC = ebC + ehC + bcC;
       const compPayable = etC - totalDeds;
       const actualPaid    = r.netPay;
@@ -1228,11 +1230,13 @@ function AdjustmentsTab({ companyId, isSuperAdmin, user, toast }: {
         r.rBasic, r.rTotal,
         r.monDays, actualPaid, totalDeds, r.payDays
       );
-      const ebD = r.monDays > 0 ? Math.round(r.rBasic * adjPayDays / r.monDays) : 0;
-      const ehD = r.monDays > 0 ? Math.round(r.rHra   * adjPayDays / r.monDays) : 0;
+      const isActualD = (r.paymentMode || "actual") !== "compliance";
+      const eDaysD = isActualD ? r.monDays : adjPayDays;
+      const ebD = r.monDays > 0 ? Math.round(r.rBasic * eDaysD / r.monDays) : 0;
+      const ehD = r.monDays > 0 ? Math.round(r.rHra   * eDaysD / r.monDays) : 0;
       const btD = r.bonusType || "actual";
       const mbD = Math.round(r.rBasic * 8.33 / 100);
-      const bcD = btD === "na" ? 0 : btD === "actual" ? r.bonus : btD === "annual" ? mbD : (r.monDays > 0 ? Math.round(mbD * adjPayDays / r.monDays) : 0);
+      const bcD = btD === "na" ? 0 : btD === "actual" ? r.bonus : btD === "annual" ? mbD : (r.monDays > 0 ? Math.round(mbD * eDaysD / r.monDays) : 0);
       const etD = ebD + ehD + bcD;
       const compPayable = etD - totalDeds;
       const prevBal = r.prevBal || 0;
@@ -1492,9 +1496,13 @@ function AdjustmentsTab({ companyId, isSuperAdmin, user, toast }: {
                     row.rBasic, row.rTotal,
                     row.monDays, actualPaid, totalDeds, row.payDays
                   );
-                  // E columns prorated from compliance rates × adjusted pay days
-                  const eBasicCalc = row.monDays > 0 ? Math.round(row.rBasic * adjPayDays / row.monDays) : 0;
-                  const eHraCalc   = row.monDays > 0 ? Math.round(row.rHra   * adjPayDays / row.monDays) : 0;
+                  // For "actual" payment mode use full month (no attendance proration)
+                  // so compPayable == netPay and Other Adj == 0
+                  const isActualMode = (row.paymentMode || "actual") !== "compliance";
+                  const eDays = isActualMode ? row.monDays : adjPayDays;
+                  // E columns prorated from compliance rates × eDays
+                  const eBasicCalc = row.monDays > 0 ? Math.round(row.rBasic * eDays / row.monDays) : 0;
+                  const eHraCalc   = row.monDays > 0 ? Math.round(row.rHra   * eDays / row.monDays) : 0;
                   // Bonus based on bonusType setup
                   const bonusCalc = (() => {
                     const bt = row.bonusType || "actual";
@@ -1502,8 +1510,8 @@ function AdjustmentsTab({ companyId, isSuperAdmin, user, toast }: {
                     if (bt === "actual") return row.bonus;
                     const monthlyBonus = Math.round(row.rBasic * 8.33 / 100);
                     if (bt === "annual") return monthlyBonus;
-                    // monthly → prorated by adj pay days
-                    return row.monDays > 0 ? Math.round(monthlyBonus * adjPayDays / row.monDays) : 0;
+                    // monthly → prorated by eDays
+                    return row.monDays > 0 ? Math.round(monthlyBonus * eDays / row.monDays) : 0;
                   })();
                   const eTotalCalc = eBasicCalc + eHraCalc + bonusCalc;
                   const adjDTotal   = adjPf + adjEsic + adjLwf + row.pt + otherDedVal;
@@ -1598,14 +1606,16 @@ function AdjustmentsTab({ companyId, isSuperAdmin, user, toast }: {
                       r.rBasic, r.rTotal,
                       r.monDays, r.netPay, deds, r.payDays
                     );
-                    const eb   = r.monDays > 0 ? Math.round(r.rBasic * pd / r.monDays) : 0;
-                    const eh   = r.monDays > 0 ? Math.round(r.rHra   * pd / r.monDays) : 0;
+                    const isActual2 = (r.paymentMode || "actual") !== "compliance";
+                    const eDays2 = isActual2 ? r.monDays : pd;
+                    const eb   = r.monDays > 0 ? Math.round(r.rBasic * eDays2 / r.monDays) : 0;
+                    const eh   = r.monDays > 0 ? Math.round(r.rHra   * eDays2 / r.monDays) : 0;
                     const bt   = r.bonusType || "actual";
                     const mbonus = Math.round(r.rBasic * 8.33 / 100);
                     const bc   = bt === "na" ? 0
                                  : bt === "actual" ? r.bonus
                                  : bt === "annual" ? mbonus
-                                 : (r.monDays > 0 ? Math.round(mbonus * pd / r.monDays) : 0);
+                                 : (r.monDays > 0 ? Math.round(mbonus * eDays2 / r.monDays) : 0);
                     const et   = eb + eh + bc;
                     const cp   = et - deds;
                     // Mirror paymentMode-aware Other Adj logic
