@@ -1088,9 +1088,13 @@ function AdjustmentsTab({ companyId, isSuperAdmin, user, toast }: {
         Math.min(r.rBasic, PF_CEILING), Math.min(r.rTotal, ESIC_CEILING),
         r.monDays, r.netPay, totalDeds, r.payDays
       );
-      const compPayable = r.monDays > 0
-        ? Math.round(r.rTotal * adjPayDays / r.monDays) - totalDeds
-        : 0;
+      const ebC = r.monDays > 0 ? Math.round(r.rBasic * adjPayDays / r.monDays) : 0;
+      const ehC = r.monDays > 0 ? Math.round(r.rHra   * adjPayDays / r.monDays) : 0;
+      const btC = r.bonusType || "actual";
+      const mbC = Math.round(r.rBasic * 8.33 / 100);
+      const bcC = btC === "na" ? 0 : btC === "actual" ? r.bonus : btC === "annual" ? mbC : (r.monDays > 0 ? Math.round(mbC * adjPayDays / r.monDays) : 0);
+      const etC = ebC + ehC + bcC;
+      const compPayable = etC - totalDeds;
       const actualPaid    = r.netPay;
       const pb            = r.prevBal || 0;
       const isCompliance  = (r.paymentMode || "actual") === "compliance";
@@ -1224,9 +1228,13 @@ function AdjustmentsTab({ companyId, isSuperAdmin, user, toast }: {
         r.rBasic, r.rTotal,
         r.monDays, actualPaid, totalDeds, r.payDays
       );
-      const compPayable = r.monDays > 0
-        ? Math.round(r.rTotal * adjPayDays / r.monDays) - totalDeds
-        : 0;
+      const ebD = r.monDays > 0 ? Math.round(r.rBasic * adjPayDays / r.monDays) : 0;
+      const ehD = r.monDays > 0 ? Math.round(r.rHra   * adjPayDays / r.monDays) : 0;
+      const btD = r.bonusType || "actual";
+      const mbD = Math.round(r.rBasic * 8.33 / 100);
+      const bcD = btD === "na" ? 0 : btD === "actual" ? r.bonus : btD === "annual" ? mbD : (r.monDays > 0 ? Math.round(mbD * adjPayDays / r.monDays) : 0);
+      const etD = ebD + ehD + bcD;
+      const compPayable = etD - totalDeds;
       const prevBal = r.prevBal || 0;
       const isCompliance = (r.paymentMode || "actual") === "compliance";
       let otherAdj = 0;
@@ -1499,9 +1507,7 @@ function AdjustmentsTab({ companyId, isSuperAdmin, user, toast }: {
                   })();
                   const eTotalCalc = eBasicCalc + eHraCalc + bonusCalc;
                   const adjDTotal   = adjPf + adjEsic + adjLwf + row.pt + otherDedVal;
-                  const compPayable = row.monDays > 0
-                    ? Math.round(row.rTotal * adjPayDays / row.monDays) - totalDeds
-                    : 0;
+                  const compPayable = eTotalCalc - totalDeds;
                   // ── Carry Fwd logic split by paymentMode ───────────────────────────────
                   // compliance → Other Adj = 0; Carry Fwd = CompPayable − PrevBal − ActualPayable
                   // actual / both → Carry Fwd = 0; Other Adj absorbs the full gap
@@ -1601,7 +1607,7 @@ function AdjustmentsTab({ companyId, isSuperAdmin, user, toast }: {
                                  : bt === "annual" ? mbonus
                                  : (r.monDays > 0 ? Math.round(mbonus * pd / r.monDays) : 0);
                     const et   = eb + eh + bc;
-                    const cp   = r.monDays > 0 ? Math.round(r.rTotal * pd / r.monDays) - deds : 0;
+                    const cp   = et - deds;
                     // Mirror paymentMode-aware Other Adj logic
                     const pb2  = r.prevBal || 0;
                     const isC2 = (r.paymentMode || "actual") === "compliance";
