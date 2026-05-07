@@ -667,7 +667,7 @@ export function registerComplianceRoutes(app: Express) {
         bonusType:            r.bonus_type     || "actual",
         basicSalary:          r.basic_salary   != null ? String(r.basic_salary) : "",
         grossSalary:          r.gross_salary   != null ? String(r.gross_salary) : "",
-        sameAsActual:         r.same_as_actual || false,
+        sameAsActual:         r.same_as_actual ?? true,
         originalBasicSalary:  Number(r.struct_basic || 0),
         originalGrossSalary:  Number(r.struct_gross || 0),
       })));
