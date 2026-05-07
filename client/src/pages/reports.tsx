@@ -868,7 +868,7 @@ export default function ReportsPage() {
 
     const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
     const pageW = 297;
-    const ml = 8;
+    const ml = 5;
     const company = companies.find(co => co.id === effectiveCompany);
     const companyName = company?.companyName || (effectiveCompany ? getCompanyName(effectiveCompany) : "All Companies");
     const companyAddr = (company as any)?.registeredAddress || (company as any)?.address || "";
@@ -956,12 +956,12 @@ export default function ReportsPage() {
     const HL: [number, number, number] = [220, 235, 255];  // light-blue highlight for totals
     const colStyles: Record<number, object> = {
       0:  { cellWidth: 11, halign: "center", overflow: "hidden" },   // Code
-      1:  { cellWidth: 22, halign: "left",   overflow: "hidden" },   // Name
-      2:  { cellWidth: 15, halign: "left",   overflow: "hidden" },   // Dept
-      3:  { cellWidth: 15, halign: "left",   overflow: "hidden" },   // Desig
-      4:  { cellWidth: 8,  halign: "center" },                       // Mon.Days
-      5:  { cellWidth: 8,  halign: "center" },                       // Pay Days
-      6:  { cellWidth: 8 },                                          // OT Hrs
+      1:  { cellWidth: 20, halign: "left",   overflow: "hidden" },   // Name  (↓ 22→20)
+      2:  { cellWidth: 13, halign: "left",   overflow: "hidden" },   // Dept  (↓ 15→13)
+      3:  { cellWidth: 13, halign: "left",   overflow: "hidden" },   // Desig (↓ 15→13)
+      4:  { cellWidth: 7,  halign: "center" },                       // Mon.Days (↓ 8→7)
+      5:  { cellWidth: 7,  halign: "center" },                       // Pay Days (↓ 8→7)
+      6:  { cellWidth: 7 },                                          // OT Hrs   (↓ 8→7)
       // Rate
       [C_RATE_BASIC]:      { cellWidth: 11 },                        // R.Basic
       [C_RATE_BASIC + 1]:  { cellWidth: 10 },                        // R.HRA
@@ -1077,7 +1077,7 @@ export default function ReportsPage() {
       },
       styles: {
         fontSize: 6,
-        cellPadding: { top: 2, bottom: 2, left: 1, right: 1 },
+        cellPadding: { top: 1.5, bottom: 1.5, left: 0.5, right: 0.5 },
         lineColor: [0, 0, 0],
         lineWidth: 0.2,
         textColor: [0, 0, 0],
@@ -1092,7 +1092,7 @@ export default function ReportsPage() {
         halign: "center",
         lineColor: [0, 0, 0],
         lineWidth: 0.2,
-        cellPadding: { top: 1, bottom: 1, left: 1, right: 1 },
+        cellPadding: { top: 1, bottom: 1, left: 0.5, right: 0.5 },
       },
       columnStyles: colStyles,
       margin: { left: ml, right: ml },
