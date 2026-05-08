@@ -1442,11 +1442,11 @@ function AdjustmentsTab({ companyId, isSuperAdmin, user, toast }: {
                   <SortableHead col="payDays"      sort={adjSort} onToggle={adjToggle} className="font-semibold text-xs text-center">Pay Days</SortableHead>
                   {/* Rate columns */}
                   <SortableHead col="rBasic"  sort={adjSort} onToggle={adjToggle} className="font-semibold text-xs text-center bg-blue-50">R.Basic</SortableHead>
-                  <SortableHead col="rHra"    sort={adjSort} onToggle={adjToggle} className="font-semibold text-xs text-center bg-blue-50">R.HRA</SortableHead>
+                  <SortableHead col="rHra"    sort={adjSort} onToggle={adjToggle} className="font-semibold text-xs text-center bg-blue-50">Allowances</SortableHead>
                   <SortableHead col="rTotal"  sort={adjSort} onToggle={adjToggle} className="font-semibold text-xs text-center bg-blue-50">R.Total</SortableHead>
                   {/* Earned columns */}
                   <SortableHead col="eBasic"  sort={adjSort} onToggle={adjToggle} className="font-semibold text-xs text-center bg-green-50">E.Basic</SortableHead>
-                  <SortableHead col="eHra"    sort={adjSort} onToggle={adjToggle} className="font-semibold text-xs text-center bg-green-50">E.HRA</SortableHead>
+                  <SortableHead col="eHra"    sort={adjSort} onToggle={adjToggle} className="font-semibold text-xs text-center bg-green-50">E.All.</SortableHead>
                   <SortableHead col="bonus"   sort={adjSort} onToggle={adjToggle} className="font-semibold text-xs text-center bg-green-50">Bonus</SortableHead>
                   <SortableHead col="eTotal"  sort={adjSort} onToggle={adjToggle} className="font-semibold text-xs text-center bg-green-50">E.Total</SortableHead>
                   {/* Deduction columns */}

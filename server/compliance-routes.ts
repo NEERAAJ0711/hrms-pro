@@ -202,6 +202,7 @@ export function registerComplianceRoutes(app: Express) {
           cs.payment_mode      AS setup_payment_mode,
           ss.conveyance        AS ss_conv,
           ss.hra               AS ss_hra,
+          wg.minimum_wage      AS grade_min_wage,
           COALESCE(e.pf_applicable,  false) AS pf_applicable,
           COALESCE(e.esi_applicable, false) AS esi_applicable,
           COALESCE(e.lwf_applicable, false) AS lwf_applicable
@@ -210,6 +211,8 @@ export function registerComplianceRoutes(app: Express) {
           ON cs.employee_id = e.id AND cs.company_id = ${targetCompanyId}
         LEFT JOIN salary_structures ss
           ON ss.employee_id = e.id AND ss.company_id = ${targetCompanyId} AND ss.status = 'active'
+        LEFT JOIN wage_grades wg
+          ON wg.id = COALESCE(cs.wage_grade_id, e.wage_grade_id) AND wg.company_id = ${targetCompanyId}
         WHERE e.company_id = ${targetCompanyId} AND e.status = 'active'
         ORDER BY e.employee_code
       `);
@@ -314,14 +317,14 @@ export function registerComplianceRoutes(app: Express) {
         // Mon.Days = total calendar days in the month
         const monDays = new Date(yearNum, monthIndex, 0).getDate();
 
-        // Rate: compliance setup values, falling back to salary structure when no setup exists
-        const rBasic = Number(emp.setup_basic  || 0);
+        // Rate: grade minimum wage takes priority, then compliance setup, then salary structure
+        const rBasic = emp.grade_min_wage != null
+          ? Number(emp.grade_min_wage)
+          : Number(emp.setup_basic || 0);
         const rTotal = Number(emp.setup_gross  || 0);
         const rConv  = Number(emp.ss_conv      || 0);
-        // HRA: use salary-structure HRA directly when available, else derive from gross − basic
-        const rHra   = emp.ss_hra != null
-          ? Math.max(0, Number(emp.ss_hra))
-          : Math.max(0, rTotal - rBasic);
+        // Allowances (renamed from HRA): Gross − Basic
+        const rHra   = Math.max(0, rTotal - rBasic);
 
         return {
           employeeId:    emp.id,
