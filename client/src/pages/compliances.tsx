@@ -131,7 +131,7 @@ interface EmployeeRow {
   eBasic:  number; eHra: number; eConv: number; eOth: number; bonus: number; eTotal: number;
   pfType: string; esicType: string; lwfType: string; bonusType: string; diffAdj: string;
   otType: string;
-  pf: number; esic: number; lwf: number; tds: number; pt: number; otherDed: number; loanAdv: number; dTotal: number; netPay: number;
+  pf: number; vpf: number; esic: number; lwf: number; tds: number; pt: number; otherDed: number; loanAdv: number; dTotal: number; netPay: number;
   prevBal: number;
   paymentMode: string;
   originalAttendance:   number;
@@ -1078,7 +1078,7 @@ function AdjustmentsTab({ companyId, isSuperAdmin, user, toast }: {
       const ap = adjDedLocal(r.pf,   r.pfType   || "actual");
       const ae = adjDedLocal(r.esic, r.esicType || "actual");
       const al = adjDedLocal(r.lwf,  r.lwfType  || "actual");
-      const totalDeds = ap + ae + al + r.pt + r.loanAdv;
+      const totalDeds = ap + ae + al + r.pt + r.tds + (r.vpf || 0) + r.loanAdv;
       const adjPayDays = computeAdjPayDays(
         r.pfType || "actual", r.esicType || "actual",
         ap, ae,
@@ -1219,7 +1219,7 @@ function AdjustmentsTab({ companyId, isSuperAdmin, user, toast }: {
       const adjPf    = adjDedFn(r.pf,   r.pfType   || "actual");
       const adjEsic  = adjDedFn(r.esic, r.esicType || "actual");
       const adjLwf   = adjDedFn(r.lwf,  r.lwfType  || "actual");
-      const totalDeds = adjPf + adjEsic + adjLwf + r.pt;
+      const totalDeds = adjPf + adjEsic + adjLwf + r.pt + r.tds + (r.vpf || 0);
       const actualPaid = r.netPay;
       const adjPayDays = computeAdjPayDays(
         r.pfType || "actual", r.esicType || "actual",
@@ -1514,7 +1514,7 @@ function AdjustmentsTab({ companyId, isSuperAdmin, user, toast }: {
                   // Auto-adjust Pay Days based on actual PF/ESIC amounts so columns stay consistent.
                   // See computeAdjPayDays() for full priority rules.
                   const actualPaid = row.netPay;
-                  const totalDeds  = adjPf + adjEsic + adjLwf + row.pt;
+                  const totalDeds  = adjPf + adjEsic + adjLwf + row.pt + row.tds + (row.vpf || 0);
                   const adjPayDays = computeAdjPayDays(
                     row.pfType || "actual", row.esicType || "actual",
                     adjPf, adjEsic,

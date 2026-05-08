@@ -232,6 +232,7 @@ export function registerComplianceRoutes(app: Express) {
           COALESCE(bonus,0) AS bonus,
           total_earnings,
           COALESCE(pf_employee,0)       AS pf,
+          COALESCE(vpf_amount,0)        AS vpf,
           COALESCE(esi,0)               AS esic,
           COALESCE(lwf_employee,0)      AS lwf,
           COALESCE(tds,0)               AS tds,
@@ -363,6 +364,7 @@ export function registerComplianceRoutes(app: Express) {
           paymentMode:   emp.setup_payment_mode || "actual",
           // Deductions (raw payroll values)
           pf:            Number(pay.pf      || 0),
+          vpf:           Number(pay.vpf     || 0),
           esic:          Number(pay.esic    || 0),
           lwf:           Number(pay.lwf     || 0),
           tds:           Number(pay.tds     || 0),
