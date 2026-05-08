@@ -1227,8 +1227,7 @@ function AdjustmentsTab({ companyId, isSuperAdmin, user, toast }: {
         r.rBasic, r.rTotal,
         r.monDays, actualPaid, totalDeds, r.payDays
       );
-      const isActualD = (r.paymentMode || "actual") !== "compliance";
-      const eDaysD = isActualD ? (r.eTotal > 0 ? r.monDays : 0) : adjPayDays;
+      const eDaysD = r.eTotal > 0 ? adjPayDays : 0;
       const ebD = r.monDays > 0 ? Math.round(r.rBasic * eDaysD / r.monDays) : 0;
       const ehD = r.monDays > 0 ? Math.round(r.rHra   * eDaysD / r.monDays) : 0;
       const btD = r.bonusType || "actual";
@@ -1626,7 +1625,7 @@ function AdjustmentsTab({ companyId, isSuperAdmin, user, toast }: {
                     const ap   = adjDed(r.pf,   r.pfType   || "actual");
                     const ae   = adjDed(r.esic, r.esicType || "actual");
                     const al   = adjDed(r.lwf,  r.lwfType  || "actual");
-                    const deds = ap + ae + al + r.pt;
+                    const deds = ap + ae + al + r.pt + r.tds + (r.vpf || 0);
                     const oth  = r.loanAdv;
                     const pd   = computeAdjPayDays(
                       r.pfType || "actual", r.esicType || "actual",
@@ -1634,8 +1633,7 @@ function AdjustmentsTab({ companyId, isSuperAdmin, user, toast }: {
                       r.rBasic, r.rTotal,
                       r.monDays, r.netPay, deds, r.payDays
                     );
-                    const isActual2 = (r.paymentMode || "actual") !== "compliance";
-                    const eDays2 = isActual2 ? (r.eTotal > 0 ? r.monDays : 0) : pd;
+                    const eDays2 = r.eTotal > 0 ? pd : 0;
                     const eb   = r.monDays > 0 ? Math.round(r.rBasic * eDays2 / r.monDays) : 0;
                     const eh   = r.monDays > 0 ? Math.round(r.rHra   * eDays2 / r.monDays) : 0;
                     const bt   = r.bonusType || "actual";
