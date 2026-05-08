@@ -113,6 +113,7 @@ interface EmployeeSetup {
   originalGrossSalary: number;
   wageGradeId:     string;
   wageGradeName:   string;
+  allowances:      string;
 }
 
 interface EmployeeRow {
@@ -666,33 +667,7 @@ function SetupForm({ setup, companyId, onBack, onSaved, toast }: {
   // ── Derived limits for Basic (PF) and Gross (ESIC) ────────────────────────
   const actualBasic = setup.originalBasicSalary || 0;
   const actualGross = setup.originalGrossSalary || 0;
-  // PF Actual:
-  //   If actualBasic <= ceiling → min=actualBasic, max=ceiling
-  //   If actualBasic >  ceiling → only ceiling is valid (min=max=ceiling)
-  // PF Exempted: min = ceiling
-  // ESIC Actual: same logic with ESIC_CEILING
-  // ESIC Exempted: min = ESIC_CEILING
-
-  const basicMin = form.pfType === "actual"   ? Math.min(actualBasic, PF_CEILING)    : form.pfType === "exempted" ? PF_CEILING   : 0;
-  const basicMax = form.pfType === "actual"   ? PF_CEILING  : undefined;
-  const grossMin = form.esicType === "actual" ? Math.min(actualGross, ESIC_CEILING)  : form.esicType === "exempted" ? ESIC_CEILING : 0;
-  const grossMax = form.esicType === "actual" ? ESIC_CEILING : undefined;
-
-  // Helper: validate and clamp a salary value
-  const clampBasic = (raw: string) => {
-    const v = parseFloat(raw);
-    if (isNaN(v)) return raw;
-    if (basicMax !== undefined && v > basicMax) return String(basicMax);
-    if (v < basicMin) return String(basicMin);
-    return String(v);
-  };
-  const clampGross = (raw: string) => {
-    const v = parseFloat(raw);
-    if (isNaN(v)) return raw;
-    if (grossMax !== undefined && v > grossMax) return String(grossMax);
-    if (v < grossMin) return String(grossMin);
-    return String(v);
-  };
+  const autoAllowances = actualGross - actualBasic;
 
   // ── PF type change: if switching to "actual", check payroll applicability ──
   const onPfTypeChange = (v: string) => {
@@ -717,29 +692,9 @@ function SetupForm({ setup, companyId, onBack, onSaved, toast }: {
     set("lwfType", v);
   };
 
-  // ── Same As Actual: clear manual basic/gross ──────────────────────────────
+  // ── Same As Actual: clear manual allowances ───────────────────────────────
   const onSameAsActualChange = (checked: boolean) => {
-    setForm(prev => ({ ...prev, sameAsActual: checked, basicSalary: checked ? "" : prev.basicSalary, grossSalary: checked ? "" : prev.grossSalary }));
-  };
-
-  // ── Hint text builders ────────────────────────────────────────────────────
-  const basicHint = () => {
-    if (form.sameAsActual) return "Using payroll values";
-    if (form.pfType === "actual") {
-      if (actualBasic >= PF_CEILING) return `Actual basic ₹${actualBasic.toLocaleString()} exceeds ceiling — enter ₹${PF_CEILING.toLocaleString()}`;
-      return `Min ₹${actualBasic.toLocaleString()} · Max ₹${PF_CEILING.toLocaleString()}`;
-    }
-    if (form.pfType === "exempted") return `Min ₹${PF_CEILING.toLocaleString()} (PF ceiling)`;
-    return null;
-  };
-  const grossHint = () => {
-    if (form.sameAsActual) return "Using payroll values";
-    if (form.esicType === "actual") {
-      if (actualGross >= ESIC_CEILING) return `Actual gross ₹${actualGross.toLocaleString()} exceeds ceiling — enter ₹${ESIC_CEILING.toLocaleString()}`;
-      return `Min ₹${actualGross.toLocaleString()} · Max ₹${ESIC_CEILING.toLocaleString()}`;
-    }
-    if (form.esicType === "exempted") return `Min ₹${ESIC_CEILING.toLocaleString()} (ESIC ceiling)`;
-    return null;
+    setForm(prev => ({ ...prev, sameAsActual: checked, allowances: checked ? "" : prev.allowances }));
   };
 
   // ── OT hint ───────────────────────────────────────────────────────────────
@@ -751,40 +706,6 @@ function SetupForm({ setup, companyId, onBack, onSaved, toast }: {
   };
 
   const save = async () => {
-    // Validate basic/gross before save
-    const basicVal = form.basicSalary !== "" ? parseFloat(form.basicSalary) : null;
-    const grossVal = form.grossSalary !== "" ? parseFloat(form.grossSalary) : null;
-
-    if (!form.sameAsActual) {
-      if (form.pfType === "actual" && basicVal !== null) {
-        const basicMinLabel = actualBasic >= PF_CEILING
-          ? `₹${PF_CEILING.toLocaleString()} (PF ceiling — actual basic ₹${actualBasic.toLocaleString()} exceeds ceiling)`
-          : `₹${basicMin.toLocaleString()} (actual basic)`;
-        if (basicVal < basicMin) {
-          toast({ title: "Invalid Basic", description: `Basic must be at least ${basicMinLabel}.`, variant: "destructive" }); return;
-        }
-        if (basicMax !== undefined && basicVal > basicMax) {
-          toast({ title: "Invalid Basic", description: `Basic is capped at ₹${basicMax.toLocaleString()} (PF ceiling).`, variant: "destructive" }); return;
-        }
-      }
-      if (form.pfType === "exempted" && basicVal !== null && basicVal < PF_CEILING) {
-        toast({ title: "Invalid Basic", description: `Exempted: basic must be ≥ ₹${PF_CEILING.toLocaleString()} (PF ceiling).`, variant: "destructive" }); return;
-      }
-      if (form.esicType === "actual" && grossVal !== null) {
-        const grossMinLabel = actualGross >= ESIC_CEILING
-          ? `₹${ESIC_CEILING.toLocaleString()} (ESIC ceiling — actual gross ₹${actualGross.toLocaleString()} exceeds ceiling)`
-          : `₹${grossMin.toLocaleString()} (actual gross)`;
-        if (grossVal < grossMin) {
-          toast({ title: "Invalid Gross", description: `Gross must be at least ${grossMinLabel}.`, variant: "destructive" }); return;
-        }
-        if (grossMax !== undefined && grossVal > grossMax) {
-          toast({ title: "Invalid Gross", description: `Gross is capped at ₹${grossMax.toLocaleString()} (ESIC ceiling).`, variant: "destructive" }); return;
-        }
-      }
-      if (form.esicType === "exempted" && grossVal !== null && grossVal < ESIC_CEILING) {
-        toast({ title: "Invalid Gross", description: `Exempted: gross must be ≥ ₹${ESIC_CEILING.toLocaleString()} (ESIC ceiling).`, variant: "destructive" }); return;
-      }
-    }
 
     setSaving(true);
     try {
@@ -804,10 +725,9 @@ function SetupForm({ setup, companyId, onBack, onSaved, toast }: {
           esicType:        form.esicType,
           lwfType:         form.lwfType,
           bonusType:       form.bonusType,
-          basicSalary:     form.basicSalary,
-          grossSalary:     form.grossSalary,
           sameAsActual:    form.sameAsActual,
           wageGradeId:     form.wageGradeId,
+          allowances:      form.sameAsActual ? "" : form.allowances,
         }),
       });
       if (!res.ok) { let _e = `Server error (${res.status})`; try { const _j = await res.json(); _e = _j.error || _e; } catch {} throw new Error(_e); }
@@ -818,10 +738,6 @@ function SetupForm({ setup, companyId, onBack, onSaved, toast }: {
     }
     setSaving(false);
   };
-
-  const bh = basicHint();
-  const gh = grossHint();
-  const disableBasicGross = form.sameAsActual;
 
   return (
     <Card>
@@ -989,37 +905,27 @@ function SetupForm({ setup, companyId, onBack, onSaved, toast }: {
           </div>
         </div>
 
-        {/* Row 5: BASIC | GROSS | Same As Actual */}
+        {/* Row 5: Allowances | Same As Actual */}
         <div className="grid grid-cols-3 gap-4 items-end">
           <div className="space-y-1.5">
             <Label className="text-sm text-gray-600">
-              BASIC
-              {actualBasic > 0 && <span className="ml-1 text-gray-400 font-normal">(Payroll: ₹{actualBasic.toLocaleString()})</span>}
+              Allowances
+              {autoAllowances > 0 && (
+                <span className="ml-1 text-gray-400 font-normal">
+                  (Payroll: ₹{autoAllowances.toLocaleString()})
+                </span>
+              )}
             </Label>
             <Input
-              value={disableBasicGross ? "" : form.basicSalary}
-              disabled={disableBasicGross}
-              onChange={e => set("basicSalary", e.target.value)}
-              onBlur={e => { if (!disableBasicGross && basicMin > 0) set("basicSalary", clampBasic(e.target.value)); }}
-              placeholder={disableBasicGross ? "Auto (Same As Actual)" : basicMax !== undefined ? `${basicMin}–${basicMax}` : "Enter basic salary"}
+              value={form.sameAsActual ? "" : form.allowances}
+              disabled={form.sameAsActual}
+              onChange={e => set("allowances", e.target.value)}
+              placeholder={form.sameAsActual ? "Auto (Same As Actual)" : "e.g. 5000"}
               className="h-10 bg-white border-gray-300 disabled:bg-gray-50 disabled:text-gray-400"
             />
-            {!disableBasicGross && bh && <p className="text-xs text-blue-600 mt-0.5">{bh}</p>}
-          </div>
-          <div className="space-y-1.5">
-            <Label className="text-sm text-gray-600">
-              GROSS
-              {actualGross > 0 && <span className="ml-1 text-gray-400 font-normal">(Payroll: ₹{actualGross.toLocaleString()})</span>}
-            </Label>
-            <Input
-              value={disableBasicGross ? "" : form.grossSalary}
-              disabled={disableBasicGross}
-              onChange={e => set("grossSalary", e.target.value)}
-              onBlur={e => { if (!disableBasicGross && grossMin > 0) set("grossSalary", clampGross(e.target.value)); }}
-              placeholder={disableBasicGross ? "Auto (Same As Actual)" : grossMax !== undefined ? `${grossMin}–${grossMax}` : "Enter gross salary"}
-              className="h-10 bg-white border-gray-300 disabled:bg-gray-50 disabled:text-gray-400"
-            />
-            {!disableBasicGross && gh && <p className="text-xs text-blue-600 mt-0.5">{gh}</p>}
+            {!form.sameAsActual && (
+              <p className="text-xs text-gray-400 mt-0.5">Gross − Basic = Allowances</p>
+            )}
           </div>
           <div className="space-y-1.5">
             <Label className="text-sm text-gray-600">Same As Actual</Label>

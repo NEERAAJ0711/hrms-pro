@@ -78,6 +78,11 @@ export function registerComplianceRoutes(app: Express) {
   `).catch(() => {});
 
   db.execute(sql`
+    ALTER TABLE compliance_employee_setup
+    ADD COLUMN IF NOT EXISTS allowances NUMERIC(12,2)
+  `).catch(() => {});
+
+  db.execute(sql`
     CREATE TABLE IF NOT EXISTS compliance_adjustments (
       id                    VARCHAR PRIMARY KEY,
       company_id            VARCHAR NOT NULL,
@@ -683,6 +688,7 @@ export function registerComplianceRoutes(app: Express) {
         originalGrossSalary:  Number(r.struct_gross || 0),
         wageGradeId:          r.eff_wage_grade_id || "",
         wageGradeName:        r.wg_name ? `${r.wg_name}${r.wg_state ? ` - ${r.wg_state}` : ""}` : "",
+        allowances:           r.allowances != null ? String(r.allowances) : "",
       })));
     } catch (err: any) {
       return res.status(500).json({ error: err.message });
@@ -732,6 +738,7 @@ export function registerComplianceRoutes(app: Express) {
               gross_salary     = ${grossSal},
               same_as_actual   = ${sameAsAct},
               wage_grade_id    = ${s.wageGradeId||null},
+              allowances       = ${s.allowances !== "" && s.allowances != null ? parseFloat(s.allowances) : null},
               updated_at       = ${now}
             WHERE company_id = ${targetCompanyId} AND employee_id = ${s.employeeId}
           `);
@@ -741,12 +748,14 @@ export function registerComplianceRoutes(app: Express) {
             INSERT INTO compliance_employee_setup
               (id, company_id, employee_id, department, designation, weekly_off, ot_type,
                payment_mode, diff_adjustments, pf_type, esic_type, lwf_type, bonus_type,
-               basic_salary, gross_salary, same_as_actual, wage_grade_id, created_by, created_at, updated_at)
+               basic_salary, gross_salary, same_as_actual, wage_grade_id, allowances, created_by, created_at, updated_at)
             VALUES
               (${id}, ${targetCompanyId}, ${s.employeeId}, ${s.department||null}, ${s.designation||null},
                ${s.weeklyOff||"sunday"}, ${s.otType||"na"}, ${s.paymentMode||"actual"},
                ${diffStr}, ${s.pfType||"actual"}, ${s.esicType||"actual"}, ${s.lwfType||"na"},
-               ${s.bonusType||"actual"}, ${basicSal}, ${grossSal}, ${sameAsAct}, ${s.wageGradeId||null}, ${user.id}, ${now}, ${now})
+               ${s.bonusType||"actual"}, ${basicSal}, ${grossSal}, ${sameAsAct}, ${s.wageGradeId||null},
+               ${s.allowances !== "" && s.allowances != null ? parseFloat(s.allowances) : null},
+               ${user.id}, ${now}, ${now})
           `);
         }
         saved++;
@@ -791,6 +800,7 @@ export function registerComplianceRoutes(app: Express) {
             lwf_type = ${lwfType||"na"}, bonus_type = ${bonusType||"actual"},
             basic_salary = ${basicSal}, gross_salary = ${grossSal}, same_as_actual = ${sameAsAct},
             wage_grade_id = ${wageGradeId||null},
+            allowances = ${req.body.allowances !== "" && req.body.allowances != null ? parseFloat(req.body.allowances) : null},
             updated_at = ${now}
           WHERE company_id = ${targetCompanyId} AND employee_id = ${employeeId}
         `);
@@ -800,12 +810,14 @@ export function registerComplianceRoutes(app: Express) {
           INSERT INTO compliance_employee_setup
             (id, company_id, employee_id, department, designation, weekly_off, ot_type,
              payment_mode, diff_adjustments, pf_type, esic_type, lwf_type, bonus_type,
-             basic_salary, gross_salary, same_as_actual, wage_grade_id, created_by, created_at, updated_at)
+             basic_salary, gross_salary, same_as_actual, wage_grade_id, allowances, created_by, created_at, updated_at)
           VALUES
             (${id}, ${targetCompanyId}, ${employeeId}, ${department||null}, ${designation||null},
              ${weeklyOff||"sunday"}, ${otType||"na"}, ${paymentMode||"actual"},
              ${diffStr}, ${pfType||"actual"}, ${esicType||"actual"}, ${lwfType||"na"},
-             ${bonusType||"actual"}, ${basicSal}, ${grossSal}, ${sameAsAct}, ${wageGradeId||null}, ${user.id}, ${now}, ${now})
+             ${bonusType||"actual"}, ${basicSal}, ${grossSal}, ${sameAsAct}, ${wageGradeId||null},
+             ${req.body.allowances !== "" && req.body.allowances != null ? parseFloat(req.body.allowances) : null},
+             ${user.id}, ${now}, ${now})
         `);
       }
 
