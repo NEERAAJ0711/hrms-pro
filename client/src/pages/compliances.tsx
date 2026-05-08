@@ -998,6 +998,7 @@ function AdjustmentsTab({ companyId, isSuperAdmin, user, toast }: {
   const [loaded, setLoaded] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [deleteEmpName, setDeleteEmpName] = useState("");
+  const { sort: adjSort, toggle: adjToggle } = useSort("employeeName", "asc");
 
   const loadEmployees = useCallback(async () => {
     if (!companyId) { toast({ title: "Select a company", variant: "destructive" }); return; }
@@ -1322,10 +1323,35 @@ function AdjustmentsTab({ companyId, isSuperAdmin, user, toast }: {
     a.click(); URL.revokeObjectURL(url);
   };
 
-  const filtered = rows.filter(r =>
-    !search ||
-    r.employeeName.toLowerCase().includes(search.toLowerCase()) ||
-    r.employeeCode.toLowerCase().includes(search.toLowerCase())
+  const filtered = sortData(
+    rows.filter(r =>
+      !search ||
+      r.employeeName.toLowerCase().includes(search.toLowerCase()) ||
+      r.employeeCode.toLowerCase().includes(search.toLowerCase())
+    ),
+    adjSort,
+    (row, col) => {
+      if (col === "employeeCode")  return row.employeeCode;
+      if (col === "employeeName")  return row.employeeName;
+      if (col === "grossSalary")   return row.originalGrossSalary;
+      if (col === "monDays")       return row.monDays;
+      if (col === "payDays")       return row.payDays;
+      if (col === "rBasic")        return row.rBasic;
+      if (col === "rHra")          return row.rHra;
+      if (col === "rTotal")        return row.rTotal;
+      if (col === "eBasic")        return row.eBasic;
+      if (col === "eHra")          return row.eHra;
+      if (col === "bonus")         return row.bonus;
+      if (col === "eTotal")        return row.eTotal;
+      if (col === "pf")            return row.pf;
+      if (col === "esic")          return row.esic;
+      if (col === "lwf")           return row.lwf;
+      if (col === "pt")            return row.pt;
+      if (col === "loanAdv")       return row.loanAdv;
+      if (col === "dTotal")        return row.dTotal;
+      if (col === "prevBal")       return row.prevBal;
+      return null;
+    }
   );
 
   const hasDraft = rows.some(r => r.adjustment?.status === "draft");
@@ -1409,29 +1435,29 @@ function AdjustmentsTab({ companyId, isSuperAdmin, user, toast }: {
               <TableHeader>
                 <TableRow className="bg-gray-50 text-xs">
                   {/* Identity */}
-                  <TableHead className="font-semibold text-xs sticky left-0 bg-gray-50 z-10 min-w-[70px]">Code</TableHead>
-                  <TableHead className="font-semibold text-xs min-w-[140px]">Name</TableHead>
-                  <TableHead className="font-semibold text-xs text-center min-w-[100px]">Gross Salary</TableHead>
-                  <TableHead className="font-semibold text-xs text-center">Mon.Days</TableHead>
-                  <TableHead className="font-semibold text-xs text-center">Pay Days</TableHead>
+                  <SortableHead col="employeeCode" sort={adjSort} onToggle={adjToggle} className="font-semibold text-xs sticky left-0 bg-gray-50 z-10 min-w-[70px]">Code</SortableHead>
+                  <SortableHead col="employeeName" sort={adjSort} onToggle={adjToggle} className="font-semibold text-xs min-w-[140px]">Name</SortableHead>
+                  <SortableHead col="grossSalary"  sort={adjSort} onToggle={adjToggle} className="font-semibold text-xs text-center min-w-[100px]">Gross Salary</SortableHead>
+                  <SortableHead col="monDays"      sort={adjSort} onToggle={adjToggle} className="font-semibold text-xs text-center">Mon.Days</SortableHead>
+                  <SortableHead col="payDays"      sort={adjSort} onToggle={adjToggle} className="font-semibold text-xs text-center">Pay Days</SortableHead>
                   {/* Rate columns */}
-                  <TableHead className="font-semibold text-xs text-center bg-blue-50">R.Basic</TableHead>
-                  <TableHead className="font-semibold text-xs text-center bg-blue-50">R.HRA</TableHead>
-                  <TableHead className="font-semibold text-xs text-center bg-blue-50">R.Total</TableHead>
+                  <SortableHead col="rBasic"  sort={adjSort} onToggle={adjToggle} className="font-semibold text-xs text-center bg-blue-50">R.Basic</SortableHead>
+                  <SortableHead col="rHra"    sort={adjSort} onToggle={adjToggle} className="font-semibold text-xs text-center bg-blue-50">R.HRA</SortableHead>
+                  <SortableHead col="rTotal"  sort={adjSort} onToggle={adjToggle} className="font-semibold text-xs text-center bg-blue-50">R.Total</SortableHead>
                   {/* Earned columns */}
-                  <TableHead className="font-semibold text-xs text-center bg-green-50">E.Basic</TableHead>
-                  <TableHead className="font-semibold text-xs text-center bg-green-50">E.HRA</TableHead>
-                  <TableHead className="font-semibold text-xs text-center bg-green-50">Bonus</TableHead>
-                  <TableHead className="font-semibold text-xs text-center bg-green-50">E.Total</TableHead>
+                  <SortableHead col="eBasic"  sort={adjSort} onToggle={adjToggle} className="font-semibold text-xs text-center bg-green-50">E.Basic</SortableHead>
+                  <SortableHead col="eHra"    sort={adjSort} onToggle={adjToggle} className="font-semibold text-xs text-center bg-green-50">E.HRA</SortableHead>
+                  <SortableHead col="bonus"   sort={adjSort} onToggle={adjToggle} className="font-semibold text-xs text-center bg-green-50">Bonus</SortableHead>
+                  <SortableHead col="eTotal"  sort={adjSort} onToggle={adjToggle} className="font-semibold text-xs text-center bg-green-50">E.Total</SortableHead>
                   {/* Deduction columns */}
-                  <TableHead className="font-semibold text-xs text-center bg-red-50">PF</TableHead>
-                  <TableHead className="font-semibold text-xs text-center bg-red-50">ESIC</TableHead>
-                  <TableHead className="font-semibold text-xs text-center bg-red-50">LWF</TableHead>
-                  <TableHead className="font-semibold text-xs text-center bg-red-50">PT</TableHead>
-                  <TableHead className="font-semibold text-xs text-center bg-red-50">Other Ded</TableHead>
-                  <TableHead className="font-semibold text-xs text-center bg-red-50">D.Total</TableHead>
+                  <SortableHead col="pf"       sort={adjSort} onToggle={adjToggle} className="font-semibold text-xs text-center bg-red-50">PF</SortableHead>
+                  <SortableHead col="esic"     sort={adjSort} onToggle={adjToggle} className="font-semibold text-xs text-center bg-red-50">ESIC</SortableHead>
+                  <SortableHead col="lwf"      sort={adjSort} onToggle={adjToggle} className="font-semibold text-xs text-center bg-red-50">LWF</SortableHead>
+                  <SortableHead col="pt"       sort={adjSort} onToggle={adjToggle} className="font-semibold text-xs text-center bg-red-50">PT</SortableHead>
+                  <SortableHead col="loanAdv"  sort={adjSort} onToggle={adjToggle} className="font-semibold text-xs text-center bg-red-50">Other Ded</SortableHead>
+                  <SortableHead col="dTotal"   sort={adjSort} onToggle={adjToggle} className="font-semibold text-xs text-center bg-red-50">D.Total</SortableHead>
                   <TableHead className="font-semibold text-xs text-center bg-violet-50">Compliance Payable</TableHead>
-                  <TableHead className="font-semibold text-xs text-center bg-amber-50">Prev Bal</TableHead>
+                  <SortableHead col="prevBal"  sort={adjSort} onToggle={adjToggle} className="font-semibold text-xs text-center bg-amber-50">Prev Bal</SortableHead>
                   <TableHead className="font-semibold text-xs text-center bg-violet-50">Other Adj</TableHead>
                   <TableHead className="font-semibold text-xs text-center bg-violet-50">Actual Payable</TableHead>
                   <TableHead className="font-semibold text-xs text-center">Carry Fwd</TableHead>
