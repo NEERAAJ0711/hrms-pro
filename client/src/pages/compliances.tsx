@@ -582,22 +582,17 @@ function computeAdjPayDays(
     ? Math.min(monDays, Math.max(0, Math.round((netPay + totalDeds) * monDays / rTotal)))
     : payDays;
 
-  // PF-based: pf = 0.12 × rBasic × days/monDays  →  days = pf × monDays / (0.12 × rBasic)
+  // PF-based: only when PF was actually deducted (pf > 0); skip if exempt/not applicable
   let pfDays: number | null = null;
   if (pfType === "actual" && pf > 0 && rBasic > 0) {
     pfDays = Math.min(monDays, Math.max(0, Math.round(pf * monDays / (0.12 * rBasic))));
-  } else if (pfType === "actual" && pf === 0) {
-    // No PF deducted → 0 days (employee absent / no payroll)
-    pfDays = 0;
   }
 
-  // ESIC-based: esic = 0.0075 × min(rTotal,21000) × days/monDays
+  // ESIC-based: only when ESIC was actually deducted (esic > 0); skip if exempt/not applicable
   let esicDays: number | null = null;
   const esicBase = Math.min(rTotal, ESIC_CEILING);
   if (esicType === "actual" && esic > 0 && esicBase > 0) {
     esicDays = Math.min(monDays, Math.max(0, Math.round(esic * monDays / (0.0075 * esicBase))));
-  } else if (esicType === "actual" && esic === 0) {
-    esicDays = 0;
   }
 
   if (pfDays !== null && esicDays !== null) {
