@@ -768,7 +768,7 @@ function SetupForm({ setup, companyId, onBack, onSaved, toast }: {
   );
 
   return (
-    <div className="max-w-4xl mx-auto space-y-5">
+    <div className="space-y-5">
       {/* ── Header card ── */}
       <Card className="border-0 shadow-sm bg-gradient-to-r from-blue-600 to-blue-700 text-white">
         <CardContent className="py-4 px-6">
