@@ -1380,6 +1380,7 @@ function AdjustmentsTab({ companyId, isSuperAdmin, user, toast }: {
       if (col === "dTotal")        return row.dTotal;
       if (col === "prevBal")       return row.prevBal;
       if (col === "compPayable")   return row.netPay;
+      if (col === "otherAdj")      return row.netPay;
       if (col === "actualPayable") return row.netPay;
       return null;
     }
@@ -1490,7 +1491,7 @@ function AdjustmentsTab({ companyId, isSuperAdmin, user, toast }: {
                   <SortableHead col="dTotal"   sort={adjSort} onToggle={adjToggle} className="font-semibold text-xs text-center bg-red-50">D.Total</SortableHead>
                   <SortableHead col="compPayable"   sort={adjSort} onToggle={adjToggle} className="font-semibold text-xs text-center bg-violet-50">Compliance Payable</SortableHead>
                   <SortableHead col="prevBal"  sort={adjSort} onToggle={adjToggle} className="font-semibold text-xs text-center bg-amber-50">Prev Bal</SortableHead>
-                  <TableHead className="font-semibold text-xs text-center bg-violet-50">Other Adj</TableHead>
+                  <SortableHead col="otherAdj" sort={adjSort} onToggle={adjToggle} className="font-semibold text-xs text-center bg-violet-50">Other Adj</SortableHead>
                   <SortableHead col="actualPayable" sort={adjSort} onToggle={adjToggle} className="font-semibold text-xs text-center bg-violet-50">Actual Payable</SortableHead>
                   <TableHead className="font-semibold text-xs text-center">Carry Fwd</TableHead>
                 </TableRow>
