@@ -1443,8 +1443,7 @@ function AdjustmentsTab({ companyId, isSuperAdmin, user, toast }: {
                   {/* Identity */}
                   <TableHead className="font-semibold text-xs sticky left-0 bg-gray-50 z-10 min-w-[70px]">Code</TableHead>
                   <TableHead className="font-semibold text-xs min-w-[140px]">Name</TableHead>
-                  <TableHead className="font-semibold text-xs min-w-[80px]">Dept</TableHead>
-                  <TableHead className="font-semibold text-xs min-w-[90px]">Designation</TableHead>
+                  <TableHead className="font-semibold text-xs text-center min-w-[100px]">Gross Salary</TableHead>
                   <TableHead className="font-semibold text-xs text-center">Mon.Days</TableHead>
                   <TableHead className="font-semibold text-xs text-center">Pay Days</TableHead>
                   {/* Rate columns */}
@@ -1472,7 +1471,7 @@ function AdjustmentsTab({ companyId, isSuperAdmin, user, toast }: {
               </TableHeader>
               <TableBody>
                 {filtered.length === 0 && (
-                  <TableRow><TableCell colSpan={24} className="text-center py-10 text-gray-400">No employees match your search</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={23} className="text-center py-10 text-gray-400">No employees match your search</TableCell></TableRow>
                 )}
                 {filtered.map(row => {
                   const n = (v: number) => v > 0 ? v.toLocaleString("en-IN") : "0";
@@ -1556,8 +1555,7 @@ function AdjustmentsTab({ companyId, isSuperAdmin, user, toast }: {
                     <TableRow key={row.employeeId} className="text-xs hover:bg-gray-50">
                       <TableCell className="font-mono text-gray-500 sticky left-0 bg-white">{row.employeeCode}</TableCell>
                       <TableCell className="font-medium text-gray-800 whitespace-nowrap">{row.employeeName}</TableCell>
-                      <TableCell className="text-gray-500">{row.department || "-"}</TableCell>
-                      <TableCell className="text-gray-500">{row.designation || "-"}</TableCell>
+                      <TableCell className="text-center font-medium text-gray-800">{n(row.eTotal)}</TableCell>
                       <TableCell className="text-center text-gray-700">{row.monDays}</TableCell>
                       <TableCell className="text-center text-gray-700 font-medium">{displayPayDays}</TableCell>
                       {/* Rate */}
