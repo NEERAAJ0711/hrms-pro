@@ -1089,7 +1089,7 @@ function AdjustmentsTab({ companyId, isSuperAdmin, user, toast }: {
         r.monDays, r.netPay, totalDeds, r.payDays
       );
       const isActualC = (r.paymentMode || "actual") !== "compliance";
-      const eDaysC = isActualC ? r.monDays : adjPayDays;
+      const eDaysC = isActualC ? (r.eTotal > 0 ? r.monDays : 0) : adjPayDays;
       const ebC = r.monDays > 0 ? Math.round(r.rBasic * eDaysC / r.monDays) : 0;
       const ehC = r.monDays > 0 ? Math.round(r.rHra   * eDaysC / r.monDays) : 0;
       const btC = r.bonusType || "actual";
@@ -1231,7 +1231,7 @@ function AdjustmentsTab({ companyId, isSuperAdmin, user, toast }: {
         r.monDays, actualPaid, totalDeds, r.payDays
       );
       const isActualD = (r.paymentMode || "actual") !== "compliance";
-      const eDaysD = isActualD ? r.monDays : adjPayDays;
+      const eDaysD = isActualD ? (r.eTotal > 0 ? r.monDays : 0) : adjPayDays;
       const ebD = r.monDays > 0 ? Math.round(r.rBasic * eDaysD / r.monDays) : 0;
       const ehD = r.monDays > 0 ? Math.round(r.rHra   * eDaysD / r.monDays) : 0;
       const btD = r.bonusType || "actual";
@@ -1497,9 +1497,15 @@ function AdjustmentsTab({ companyId, isSuperAdmin, user, toast }: {
                     row.monDays, actualPaid, totalDeds, row.payDays
                   );
                   // For "actual" payment mode use full month (no attendance proration)
-                  // so compPayable == netPay and Other Adj == 0
+                  // so compPayable == netPay and Other Adj == 0.
+                  // Gate on eTotal > 0 so employees with no payroll show zero earnings.
                   const isActualMode = (row.paymentMode || "actual") !== "compliance";
-                  const eDays = isActualMode ? row.monDays : adjPayDays;
+                  const hasPayroll   = row.eTotal > 0;
+                  const eDays = isActualMode
+                    ? (hasPayroll ? row.monDays : 0)
+                    : adjPayDays;
+                  // Pay Days column: show effective days used for E calculation
+                  const displayPayDays = eDays;
                   // E columns prorated from compliance rates × eDays
                   const eBasicCalc = row.monDays > 0 ? Math.round(row.rBasic * eDays / row.monDays) : 0;
                   const eHraCalc   = row.monDays > 0 ? Math.round(row.rHra   * eDays / row.monDays) : 0;
@@ -1553,7 +1559,7 @@ function AdjustmentsTab({ companyId, isSuperAdmin, user, toast }: {
                       <TableCell className="text-gray-500">{row.department || "-"}</TableCell>
                       <TableCell className="text-gray-500">{row.designation || "-"}</TableCell>
                       <TableCell className="text-center text-gray-700">{row.monDays}</TableCell>
-                      <TableCell className="text-center text-gray-700 font-medium">{adjPayDays}</TableCell>
+                      <TableCell className="text-center text-gray-700 font-medium">{displayPayDays}</TableCell>
                       {/* Rate */}
                       <TableCell className="text-center bg-blue-50/40">{n(row.rBasic)}</TableCell>
                       <TableCell className="text-center bg-blue-50/40">{n(row.rHra)}</TableCell>
@@ -1607,7 +1613,7 @@ function AdjustmentsTab({ companyId, isSuperAdmin, user, toast }: {
                       r.monDays, r.netPay, deds, r.payDays
                     );
                     const isActual2 = (r.paymentMode || "actual") !== "compliance";
-                    const eDays2 = isActual2 ? r.monDays : pd;
+                    const eDays2 = isActual2 ? (r.eTotal > 0 ? r.monDays : 0) : pd;
                     const eb   = r.monDays > 0 ? Math.round(r.rBasic * eDays2 / r.monDays) : 0;
                     const eh   = r.monDays > 0 ? Math.round(r.rHra   * eDays2 / r.monDays) : 0;
                     const bt   = r.bonusType || "actual";
