@@ -73,6 +73,11 @@ export function registerComplianceRoutes(app: Express) {
   `).catch(() => {});
 
   db.execute(sql`
+    ALTER TABLE compliance_employee_setup
+    ADD COLUMN IF NOT EXISTS wage_grade_id VARCHAR
+  `).catch(() => {});
+
+  db.execute(sql`
     CREATE TABLE IF NOT EXISTS compliance_adjustments (
       id                    VARCHAR PRIMARY KEY,
       company_id            VARCHAR NOT NULL,
@@ -634,6 +639,10 @@ export function registerComplianceRoutes(app: Express) {
           cs.basic_salary,
           cs.gross_salary,
           cs.same_as_actual,
+          COALESCE(cs.wage_grade_id, e.wage_grade_id) AS eff_wage_grade_id,
+          cs.wage_grade_id AS cs_wage_grade_id,
+          wg.name          AS wg_name,
+          wg.state         AS wg_state,
           ss.basic_salary AS struct_basic,
           ss.gross_salary AS struct_gross
         FROM employees e
@@ -641,6 +650,8 @@ export function registerComplianceRoutes(app: Express) {
           ON cs.employee_id = e.id AND cs.company_id = ${targetCompanyId}
         LEFT JOIN salary_structures ss
           ON ss.employee_id = e.id AND ss.company_id = ${targetCompanyId} AND ss.status = 'active'
+        LEFT JOIN wage_grades wg
+          ON wg.id = COALESCE(cs.wage_grade_id, e.wage_grade_id) AND wg.company_id = ${targetCompanyId}
         WHERE e.company_id = ${targetCompanyId} AND e.status = 'active'
         ORDER BY e.employee_code
       `);
@@ -670,6 +681,8 @@ export function registerComplianceRoutes(app: Express) {
         sameAsActual:         r.same_as_actual ?? true,
         originalBasicSalary:  Number(r.struct_basic || 0),
         originalGrossSalary:  Number(r.struct_gross || 0),
+        wageGradeId:          r.eff_wage_grade_id || "",
+        wageGradeName:        r.wg_name ? `${r.wg_name}${r.wg_state ? ` - ${r.wg_state}` : ""}` : "",
       })));
     } catch (err: any) {
       return res.status(500).json({ error: err.message });
@@ -718,6 +731,7 @@ export function registerComplianceRoutes(app: Express) {
               basic_salary     = ${basicSal},
               gross_salary     = ${grossSal},
               same_as_actual   = ${sameAsAct},
+              wage_grade_id    = ${s.wageGradeId||null},
               updated_at       = ${now}
             WHERE company_id = ${targetCompanyId} AND employee_id = ${s.employeeId}
           `);
@@ -727,12 +741,12 @@ export function registerComplianceRoutes(app: Express) {
             INSERT INTO compliance_employee_setup
               (id, company_id, employee_id, department, designation, weekly_off, ot_type,
                payment_mode, diff_adjustments, pf_type, esic_type, lwf_type, bonus_type,
-               basic_salary, gross_salary, same_as_actual, created_by, created_at, updated_at)
+               basic_salary, gross_salary, same_as_actual, wage_grade_id, created_by, created_at, updated_at)
             VALUES
               (${id}, ${targetCompanyId}, ${s.employeeId}, ${s.department||null}, ${s.designation||null},
                ${s.weeklyOff||"sunday"}, ${s.otType||"na"}, ${s.paymentMode||"actual"},
                ${diffStr}, ${s.pfType||"actual"}, ${s.esicType||"actual"}, ${s.lwfType||"na"},
-               ${s.bonusType||"actual"}, ${basicSal}, ${grossSal}, ${sameAsAct}, ${user.id}, ${now}, ${now})
+               ${s.bonusType||"actual"}, ${basicSal}, ${grossSal}, ${sameAsAct}, ${s.wageGradeId||null}, ${user.id}, ${now}, ${now})
           `);
         }
         saved++;
@@ -750,7 +764,8 @@ export function registerComplianceRoutes(app: Express) {
       const user = (req as any).user;
       const { employeeId } = req.params;
       const { companyId, department, designation, weeklyOff, otType, paymentMode, diffAdjustments,
-              pfType, esicType, lwfType, bonusType, basicSalary, grossSalary, sameAsActual } = req.body;
+              pfType, esicType, lwfType, bonusType, basicSalary, grossSalary, sameAsActual,
+              wageGradeId } = req.body;
       const targetCompanyId = user.role === "super_admin" ? companyId : user.company_id;
       if (!targetCompanyId) return res.status(400).json({ error: "Company ID required" });
 
@@ -775,6 +790,7 @@ export function registerComplianceRoutes(app: Express) {
             pf_type = ${pfType||"actual"}, esic_type = ${esicType||"actual"},
             lwf_type = ${lwfType||"na"}, bonus_type = ${bonusType||"actual"},
             basic_salary = ${basicSal}, gross_salary = ${grossSal}, same_as_actual = ${sameAsAct},
+            wage_grade_id = ${wageGradeId||null},
             updated_at = ${now}
           WHERE company_id = ${targetCompanyId} AND employee_id = ${employeeId}
         `);
@@ -784,12 +800,12 @@ export function registerComplianceRoutes(app: Express) {
           INSERT INTO compliance_employee_setup
             (id, company_id, employee_id, department, designation, weekly_off, ot_type,
              payment_mode, diff_adjustments, pf_type, esic_type, lwf_type, bonus_type,
-             basic_salary, gross_salary, same_as_actual, created_by, created_at, updated_at)
+             basic_salary, gross_salary, same_as_actual, wage_grade_id, created_by, created_at, updated_at)
           VALUES
             (${id}, ${targetCompanyId}, ${employeeId}, ${department||null}, ${designation||null},
              ${weeklyOff||"sunday"}, ${otType||"na"}, ${paymentMode||"actual"},
              ${diffStr}, ${pfType||"actual"}, ${esicType||"actual"}, ${lwfType||"na"},
-             ${bonusType||"actual"}, ${basicSal}, ${grossSal}, ${sameAsAct}, ${user.id}, ${now}, ${now})
+             ${bonusType||"actual"}, ${basicSal}, ${grossSal}, ${sameAsAct}, ${wageGradeId||null}, ${user.id}, ${now}, ${now})
         `);
       }
 

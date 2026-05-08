@@ -110,6 +110,8 @@ interface EmployeeSetup {
   sameAsActual:    boolean;
   originalBasicSalary: number;
   originalGrossSalary: number;
+  wageGradeId:     string;
+  wageGradeName:   string;
 }
 
 interface EmployeeRow {
@@ -463,6 +465,7 @@ function EmployeeSetupTab({ companyId, isSuperAdmin, toast }: {
                   <TableHead className="font-semibold w-28">Code</TableHead>
                   <TableHead className="font-semibold">Employee Name</TableHead>
                   <TableHead className="font-semibold text-right">Gross Salary</TableHead>
+                  <TableHead className="font-semibold">Grade</TableHead>
                   <TableHead className="font-semibold">PF</TableHead>
                   <TableHead className="font-semibold">ESIC</TableHead>
                   <TableHead className="font-semibold">LWF</TableHead>
@@ -478,6 +481,9 @@ function EmployeeSetupTab({ companyId, isSuperAdmin, toast }: {
                     <TableCell className="font-medium text-gray-800">{row.employeeName}</TableCell>
                     <TableCell className="text-right font-medium text-gray-800">
                       {(Number(row.grossSalary) > 0 ? Number(row.grossSalary) : row.originalGrossSalary).toLocaleString("en-IN")}
+                    </TableCell>
+                    <TableCell className="text-sm text-gray-600 whitespace-nowrap">
+                      {row.wageGradeName || <span className="text-gray-300">—</span>}
                     </TableCell>
                     <TableCell>
                       <Badge variant="outline" className="text-xs capitalize">{row.pfType}</Badge>
@@ -643,6 +649,16 @@ function SetupForm({ setup, companyId, onBack, onSaved, toast }: {
   const [form, setForm] = useState<EmployeeSetup>({ ...setup });
   const [saving, setSaving] = useState(false);
 
+  // Fetch wage grades for this company
+  const { data: wageGrades = [] } = useQuery<any[]>({
+    queryKey: ["/api/wage-grades", companyId],
+    queryFn: async () => {
+      const r = await fetch(`/api/wage-grades?companyId=${companyId}`, { credentials: "include" });
+      if (!r.ok) return [];
+      return r.json();
+    },
+  });
+
   const set = (field: keyof EmployeeSetup, value: any) =>
     setForm(prev => ({ ...prev, [field]: value }));
 
@@ -790,6 +806,7 @@ function SetupForm({ setup, companyId, onBack, onSaved, toast }: {
           basicSalary:     form.basicSalary,
           grossSalary:     form.grossSalary,
           sameAsActual:    form.sameAsActual,
+          wageGradeId:     form.wageGradeId,
         }),
       });
       if (!res.ok) { let _e = `Server error (${res.status})`; try { const _j = await res.json(); _e = _j.error || _e; } catch {} throw new Error(_e); }
@@ -829,8 +846,8 @@ function SetupForm({ setup, companyId, onBack, onSaved, toast }: {
       </CardHeader>
       <CardContent className="space-y-6">
 
-        {/* Row 1: Department | Designation | Weekly Off */}
-        <div className="grid grid-cols-3 gap-4">
+        {/* Row 1: Department | Designation | Grade | Weekly Off */}
+        <div className="grid grid-cols-4 gap-4">
           <div className="space-y-1.5">
             <Label className="text-sm text-gray-600">Department</Label>
             <Input value={form.department} onChange={e => set("department", e.target.value)}
@@ -840,6 +857,28 @@ function SetupForm({ setup, companyId, onBack, onSaved, toast }: {
             <Label className="text-sm text-gray-600">Designation</Label>
             <Input value={form.designation} onChange={e => set("designation", e.target.value)}
               placeholder="e.g. LABOUR" className="h-10 bg-white border-gray-300" />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-sm text-gray-600">Grade</Label>
+            <Select
+              value={form.wageGradeId || "none"}
+              onValueChange={v => {
+                const gradeId = v === "none" ? "" : v;
+                const grade = wageGrades.find((g: any) => g.id === gradeId);
+                set("wageGradeId", gradeId);
+                set("wageGradeName", grade ? `${grade.name}${grade.state ? ` - ${grade.state}` : ""}` : "");
+              }}
+            >
+              <SelectTrigger className="h-10 bg-white border-gray-300"><SelectValue placeholder="Select grade..." /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">— None —</SelectItem>
+                {wageGrades.map((g: any) => (
+                  <SelectItem key={g.id} value={g.id}>
+                    {g.name}{g.state ? ` - ${g.state}` : ""}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
           <div className="space-y-1.5">
             <Label className="text-sm text-gray-600">Weekly Off</Label>
