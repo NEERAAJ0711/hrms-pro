@@ -4,6 +4,8 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
+import { useSort, sortData } from "@/lib/use-sort";
+import { SortableHead } from "@/components/sortable-head";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -363,6 +365,7 @@ function EmployeeSetupTab({ companyId, isSuperAdmin, toast }: {
   const [search, setSearch] = useState("");
   const [loaded, setLoaded] = useState(false);
   const [selected, setSelected] = useState<EmployeeSetup | null>(null);
+  const { sort, toggle } = useSort("employeeName", "asc");
 
   const load = useCallback(async (attempt = 0) => {
     if (!companyId) return;
@@ -406,10 +409,25 @@ function EmployeeSetupTab({ companyId, isSuperAdmin, toast }: {
 
   // ── List view
   if (!selected) {
-    const filtered = rows.filter(r =>
-      !search ||
-      r.employeeName.toLowerCase().includes(search.toLowerCase()) ||
-      r.employeeCode.toLowerCase().includes(search.toLowerCase())
+    const filtered = sortData(
+      rows.filter(r =>
+        !search ||
+        r.employeeName.toLowerCase().includes(search.toLowerCase()) ||
+        r.employeeCode.toLowerCase().includes(search.toLowerCase())
+      ),
+      sort,
+      (row, col) => {
+        if (col === "employeeCode")  return row.employeeCode;
+        if (col === "employeeName")  return row.employeeName;
+        if (col === "grossSalary")   return Number(row.grossSalary) > 0 ? Number(row.grossSalary) : row.originalGrossSalary;
+        if (col === "wageGradeName") return row.wageGradeName;
+        if (col === "pfType")        return row.pfType;
+        if (col === "esicType")      return row.esicType;
+        if (col === "lwfType")       return row.lwfType;
+        if (col === "bonusType")     return row.bonusType;
+        if (col === "status")        return row.setupId ? "configured" : "not set";
+        return null;
+      }
     );
 
     return (
@@ -464,15 +482,15 @@ function EmployeeSetupTab({ companyId, isSuperAdmin, toast }: {
             <Table>
               <TableHeader>
                 <TableRow className="bg-gray-50 text-xs">
-                  <TableHead className="font-semibold w-28">Code</TableHead>
-                  <TableHead className="font-semibold">Employee Name</TableHead>
-                  <TableHead className="font-semibold text-right">Gross Salary</TableHead>
-                  <TableHead className="font-semibold">Grade</TableHead>
-                  <TableHead className="font-semibold">PF</TableHead>
-                  <TableHead className="font-semibold">ESIC</TableHead>
-                  <TableHead className="font-semibold">LWF</TableHead>
-                  <TableHead className="font-semibold">Bonus</TableHead>
-                  <TableHead className="font-semibold">Status</TableHead>
+                  <SortableHead col="employeeCode" sort={sort} onToggle={toggle} className="font-semibold w-28">Code</SortableHead>
+                  <SortableHead col="employeeName" sort={sort} onToggle={toggle} className="font-semibold">Employee Name</SortableHead>
+                  <SortableHead col="grossSalary"  sort={sort} onToggle={toggle} className="font-semibold text-right">Gross Salary</SortableHead>
+                  <SortableHead col="wageGradeName" sort={sort} onToggle={toggle} className="font-semibold">Grade</SortableHead>
+                  <SortableHead col="pfType"       sort={sort} onToggle={toggle} className="font-semibold">PF</SortableHead>
+                  <SortableHead col="esicType"     sort={sort} onToggle={toggle} className="font-semibold">ESIC</SortableHead>
+                  <SortableHead col="lwfType"      sort={sort} onToggle={toggle} className="font-semibold">LWF</SortableHead>
+                  <SortableHead col="bonusType"    sort={sort} onToggle={toggle} className="font-semibold">Bonus</SortableHead>
+                  <SortableHead col="status"       sort={sort} onToggle={toggle} className="font-semibold">Status</SortableHead>
                   <TableHead className="w-28"></TableHead>
                 </TableRow>
               </TableHeader>
