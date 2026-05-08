@@ -1348,9 +1348,12 @@ function AdjustmentsTab({ companyId, isSuperAdmin, user, toast }: {
       if (col === "esic")          return row.esic;
       if (col === "lwf")           return row.lwf;
       if (col === "pt")            return row.pt;
+      if (col === "tds")           return row.tds;
       if (col === "loanAdv")       return row.loanAdv;
       if (col === "dTotal")        return row.dTotal;
       if (col === "prevBal")       return row.prevBal;
+      if (col === "compPayable")   return row.netPay;
+      if (col === "actualPayable") return row.netPay;
       return null;
     }
   );
@@ -1455,18 +1458,19 @@ function AdjustmentsTab({ companyId, isSuperAdmin, user, toast }: {
                   <SortableHead col="esic"     sort={adjSort} onToggle={adjToggle} className="font-semibold text-xs text-center bg-red-50">ESIC</SortableHead>
                   <SortableHead col="lwf"      sort={adjSort} onToggle={adjToggle} className="font-semibold text-xs text-center bg-red-50">LWF</SortableHead>
                   <SortableHead col="pt"       sort={adjSort} onToggle={adjToggle} className="font-semibold text-xs text-center bg-red-50">PT</SortableHead>
+                  <SortableHead col="tds"      sort={adjSort} onToggle={adjToggle} className="font-semibold text-xs text-center bg-red-50">TDS</SortableHead>
                   <SortableHead col="loanAdv"  sort={adjSort} onToggle={adjToggle} className="font-semibold text-xs text-center bg-red-50">Other Ded</SortableHead>
                   <SortableHead col="dTotal"   sort={adjSort} onToggle={adjToggle} className="font-semibold text-xs text-center bg-red-50">D.Total</SortableHead>
-                  <TableHead className="font-semibold text-xs text-center bg-violet-50">Compliance Payable</TableHead>
+                  <SortableHead col="compPayable"   sort={adjSort} onToggle={adjToggle} className="font-semibold text-xs text-center bg-violet-50">Compliance Payable</SortableHead>
                   <SortableHead col="prevBal"  sort={adjSort} onToggle={adjToggle} className="font-semibold text-xs text-center bg-amber-50">Prev Bal</SortableHead>
                   <TableHead className="font-semibold text-xs text-center bg-violet-50">Other Adj</TableHead>
-                  <TableHead className="font-semibold text-xs text-center bg-violet-50">Actual Payable</TableHead>
+                  <SortableHead col="actualPayable" sort={adjSort} onToggle={adjToggle} className="font-semibold text-xs text-center bg-violet-50">Actual Payable</SortableHead>
                   <TableHead className="font-semibold text-xs text-center">Carry Fwd</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filtered.length === 0 && (
-                  <TableRow><TableCell colSpan={23} className="text-center py-10 text-gray-400">No employees match your search</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={25} className="text-center py-10 text-gray-400">No employees match your search</TableCell></TableRow>
                 )}
                 {filtered.map(row => {
                   const n = (v: number) => v > 0 ? v.toLocaleString("en-IN") : "0";
@@ -1490,14 +1494,10 @@ function AdjustmentsTab({ companyId, isSuperAdmin, user, toast }: {
                     row.rBasic, row.rTotal,
                     row.monDays, actualPaid, totalDeds, row.payDays
                   );
-                  // For "actual" payment mode use full month (no attendance proration)
-                  // so compPayable == netPay and Other Adj == 0.
-                  // Gate on eTotal > 0 so employees with no payroll show zero earnings.
-                  const isActualMode = (row.paymentMode || "actual") !== "compliance";
-                  const hasPayroll   = row.eTotal > 0;
-                  const eDays = isActualMode
-                    ? (hasPayroll ? row.monDays : 0)
-                    : adjPayDays;
+                  // Auto-adjust: always back-calculate pay days from actual payroll so
+                  // Compliance Payable tracks Actual Payable automatically.
+                  const hasPayroll = row.eTotal > 0;
+                  const eDays      = hasPayroll ? adjPayDays : 0;
                   // Pay Days column: show effective days used for E calculation
                   const displayPayDays = eDays;
                   // E columns prorated from compliance rates × eDays
@@ -1514,7 +1514,7 @@ function AdjustmentsTab({ companyId, isSuperAdmin, user, toast }: {
                     return row.monDays > 0 ? Math.round(monthlyBonus * eDays / row.monDays) : 0;
                   })();
                   const eTotalCalc = eBasicCalc + eHraCalc + bonusCalc;
-                  const adjDTotal   = adjPf + adjEsic + adjLwf + row.pt + otherDedVal;
+                  const adjDTotal   = adjPf + adjEsic + adjLwf + row.pt + row.tds + otherDedVal;
                   const compPayable = eTotalCalc - totalDeds;
                   // ── Carry Fwd logic split by paymentMode ───────────────────────────────
                   // compliance → Other Adj = 0; Carry Fwd = CompPayable − PrevBal − ActualPayable
@@ -1567,6 +1567,7 @@ function AdjustmentsTab({ companyId, isSuperAdmin, user, toast }: {
                       <TableCell className="text-center bg-red-50/40" title={`Type: ${row.esicType}`}>{n(adjEsic)}</TableCell>
                       <TableCell className="text-center bg-red-50/40" title={`Type: ${row.lwfType}`}>{n(adjLwf)}</TableCell>
                       <TableCell className="text-center bg-red-50/40">{n(row.pt)}</TableCell>
+                      <TableCell className="text-center bg-red-50/40">{n(row.tds)}</TableCell>
                       <TableCell className="text-center bg-red-50/40" title="Loan / Advance">{n(otherDedVal)}</TableCell>
                       <TableCell className="text-center bg-red-50/40 font-medium">{n(adjDTotal)}</TableCell>
                       {/* Compliance Payable / Prev Bal / Other Adj / Actual Payable / Carry Fwd */}
@@ -1652,7 +1653,7 @@ function AdjustmentsTab({ companyId, isSuperAdmin, user, toast }: {
                   const totEBasic   = rowCalcs.reduce((a, c) => a + c.eb, 0);
                   const totEHra     = rowCalcs.reduce((a, c) => a + c.eh, 0);
                   const totETotal   = rowCalcs.reduce((a, c) => a + c.et, 0);
-                  const totAdjDTotal = totAdjPf + totAdjEsic + totAdjLwf + sum("pt") + totOtherDed;
+                  const totAdjDTotal = totAdjPf + totAdjEsic + totAdjLwf + sum("pt") + sum("tds") + totOtherDed;
                   const totComp     = rowCalcs.reduce((a, c) => a + c.cp, 0);
                   const totActual   = sum("netPay");
                   const totPrevBal  = sum("prevBal");
@@ -1673,6 +1674,7 @@ function AdjustmentsTab({ companyId, isSuperAdmin, user, toast }: {
                       <TableCell className="text-center bg-red-50">{n(totAdjEsic)}</TableCell>
                       <TableCell className="text-center bg-red-50">{n(totAdjLwf)}</TableCell>
                       <TableCell className="text-center bg-red-50">{n(sum("pt"))}</TableCell>
+                      <TableCell className="text-center bg-red-50">{n(sum("tds"))}</TableCell>
                       <TableCell className="text-center bg-red-50">{n(totOtherDed)}</TableCell>
                       <TableCell className="text-center bg-red-50">{n(totAdjDTotal)}</TableCell>
                       <TableCell className="text-center bg-violet-50">{n(totComp)}</TableCell>
