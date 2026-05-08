@@ -462,11 +462,10 @@ function EmployeeSetupTab({ companyId, isSuperAdmin, toast }: {
                 <TableRow className="bg-gray-50 text-xs">
                   <TableHead className="font-semibold w-28">Code</TableHead>
                   <TableHead className="font-semibold">Employee Name</TableHead>
-                  <TableHead className="font-semibold">Department</TableHead>
-                  <TableHead className="font-semibold">Designation</TableHead>
                   <TableHead className="font-semibold">PF</TableHead>
                   <TableHead className="font-semibold">ESIC</TableHead>
                   <TableHead className="font-semibold">LWF</TableHead>
+                  <TableHead className="font-semibold">Bonus</TableHead>
                   <TableHead className="font-semibold">Status</TableHead>
                   <TableHead className="w-28"></TableHead>
                 </TableRow>
@@ -476,8 +475,6 @@ function EmployeeSetupTab({ companyId, isSuperAdmin, toast }: {
                   <TableRow key={row.employeeId} className="hover:bg-gray-50">
                     <TableCell className="text-xs font-mono text-gray-500">{row.employeeCode}</TableCell>
                     <TableCell className="font-medium text-gray-800">{row.employeeName}</TableCell>
-                    <TableCell className="text-sm text-gray-600">{row.department || row.empDepartment || <span className="text-gray-300">—</span>}</TableCell>
-                    <TableCell className="text-sm text-gray-600">{row.designation || row.empDesignation || <span className="text-gray-300">—</span>}</TableCell>
                     <TableCell>
                       <Badge variant="outline" className="text-xs capitalize">{row.pfType}</Badge>
                     </TableCell>
@@ -486,6 +483,9 @@ function EmployeeSetupTab({ companyId, isSuperAdmin, toast }: {
                     </TableCell>
                     <TableCell>
                       <Badge variant="outline" className="text-xs capitalize">{row.lwfType}</Badge>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant="outline" className="text-xs capitalize">{row.bonusType}</Badge>
                     </TableCell>
                     <TableCell>
                       {row.setupId ? (
