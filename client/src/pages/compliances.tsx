@@ -126,6 +126,7 @@ interface EmployeeRow {
   designation:  string;
   monDays:      number;
   payDays:      number;
+  structureGross: number;
   rBasic:  number; rHra: number; rConv: number; rTotal: number;
   eBasic:  number; eHra: number; eConv: number; eOth: number; bonus: number; eTotal: number;
   pfType: string; esicType: string; lwfType: string; bonusType: string; diffAdj: string;
@@ -1333,7 +1334,7 @@ function AdjustmentsTab({ companyId, isSuperAdmin, user, toast }: {
     (row, col) => {
       if (col === "employeeCode")  return row.employeeCode;
       if (col === "employeeName")  return row.employeeName;
-      if (col === "grossSalary")   return row.originalGrossSalary;
+      if (col === "grossSalary")   return row.structureGross;
       if (col === "monDays")       return row.monDays;
       if (col === "payDays")       return row.payDays;
       if (col === "rBasic")        return row.rBasic;
@@ -1549,7 +1550,7 @@ function AdjustmentsTab({ companyId, isSuperAdmin, user, toast }: {
                     <TableRow key={row.employeeId} className="text-xs hover:bg-gray-50">
                       <TableCell className="font-mono text-gray-500 sticky left-0 bg-white">{row.employeeCode}</TableCell>
                       <TableCell className="font-medium text-gray-800 whitespace-nowrap">{row.employeeName}</TableCell>
-                      <TableCell className="text-center font-medium text-gray-800">{n(row.eTotal)}</TableCell>
+                      <TableCell className="text-center font-medium text-gray-800">{n(row.structureGross)}</TableCell>
                       <TableCell className="text-center text-gray-700">{row.monDays}</TableCell>
                       <TableCell className="text-center text-gray-700 font-medium">{displayPayDays}</TableCell>
                       {/* Rate */}

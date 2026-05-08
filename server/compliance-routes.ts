@@ -202,6 +202,7 @@ export function registerComplianceRoutes(app: Express) {
           cs.payment_mode      AS setup_payment_mode,
           ss.conveyance        AS ss_conv,
           ss.hra               AS ss_hra,
+          ss.gross_salary      AS ss_gross,
           wg.minimum_wage      AS grade_min_wage,
           COALESCE(e.pf_applicable,  false) AS pf_applicable,
           COALESCE(e.esi_applicable, false) AS esi_applicable,
@@ -317,14 +318,17 @@ export function registerComplianceRoutes(app: Express) {
         // Mon.Days = total calendar days in the month
         const monDays = new Date(yearNum, monthIndex, 0).getDate();
 
-        // Rate: grade minimum wage takes priority, then compliance setup, then salary structure
+        // Rate: grade minimum wage takes priority, then compliance setup basic
         const rBasic = emp.grade_min_wage != null
           ? Number(emp.grade_min_wage)
           : Number(emp.setup_basic || 0);
-        const rTotal = Number(emp.setup_gross  || 0);
-        const rConv  = Number(emp.ss_conv      || 0);
-        // Allowances (renamed from HRA): Gross − Basic
-        const rHra   = Math.max(0, rTotal - rBasic);
+        // Always use salary structure gross as the reference (ignores stale cs.gross_salary)
+        const ssGross = Number(emp.ss_gross || emp.setup_gross || 0);
+        const rConv   = Number(emp.ss_conv || 0);
+        // Allowances = Gross − Basic (always computed, never 0 due to stale setup data)
+        const rHra    = Math.max(0, ssGross - rBasic);
+        // R.Total = Basic + Allowances (explicit, matches what user sees)
+        const rTotal  = rBasic + rHra;
 
         return {
           employeeId:    emp.id,
@@ -335,7 +339,9 @@ export function registerComplianceRoutes(app: Express) {
           // Days
           monDays:       Number(monDays),
           payDays:       Number(att.present_days || pay.pay_days || 0),
-          // Rate (from compliance setup — as instructed)
+          // Salary structure gross (for Gross Salary column)
+          structureGross: ssGross,
+          // Rate (statutory — grade min wage + allowances)
           rBasic,
           rHra,
           rConv,
