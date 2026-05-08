@@ -462,6 +462,7 @@ function EmployeeSetupTab({ companyId, isSuperAdmin, toast }: {
                 <TableRow className="bg-gray-50 text-xs">
                   <TableHead className="font-semibold w-28">Code</TableHead>
                   <TableHead className="font-semibold">Employee Name</TableHead>
+                  <TableHead className="font-semibold text-right">Gross Salary</TableHead>
                   <TableHead className="font-semibold">PF</TableHead>
                   <TableHead className="font-semibold">ESIC</TableHead>
                   <TableHead className="font-semibold">LWF</TableHead>
@@ -475,6 +476,9 @@ function EmployeeSetupTab({ companyId, isSuperAdmin, toast }: {
                   <TableRow key={row.employeeId} className="hover:bg-gray-50">
                     <TableCell className="text-xs font-mono text-gray-500">{row.employeeCode}</TableCell>
                     <TableCell className="font-medium text-gray-800">{row.employeeName}</TableCell>
+                    <TableCell className="text-right font-medium text-gray-800">
+                      {(Number(row.grossSalary) > 0 ? Number(row.grossSalary) : row.originalGrossSalary).toLocaleString("en-IN")}
+                    </TableCell>
                     <TableCell>
                       <Badge variant="outline" className="text-xs capitalize">{row.pfType}</Badge>
                     </TableCell>
