@@ -753,224 +753,256 @@ function SetupForm({ setup, companyId, onBack, onSaved, toast }: {
     setSaving(false);
   };
 
+  // Grade's minimum wage → auto-compute allowances
+  const selectedGrade = wageGrades.find((g: any) => g.id === form.wageGradeId);
+  const gradeMinWage  = selectedGrade ? Number(selectedGrade.minimum_wage || 0) : 0;
+  const gradeAllowances = gradeMinWage > 0 ? Math.max(0, actualGross - gradeMinWage) : autoAllowances;
+
+  const Badge = ({ ok, label }: { ok: boolean; label: string }) => (
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${
+      ok ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200" : "bg-red-50 text-red-500 ring-1 ring-red-200"
+    }`}>
+      <span className={`w-1.5 h-1.5 rounded-full ${ok ? "bg-emerald-500" : "bg-red-400"}`} />
+      {label}
+    </span>
+  );
+
   return (
-    <Card>
-      <CardHeader className="pb-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <CardTitle className="text-lg">Compliances Setup</CardTitle>
-            <p className="text-sm text-gray-500 mt-0.5">
-              {form.employeeCode} — <strong>{form.employeeName}</strong>
-            </p>
-            <div className="flex gap-2 mt-1 text-xs text-gray-400">
-              <span>PF {setup.pfApplicable ? <span className="text-green-600">✓ Enabled</span> : <span className="text-red-400">✗ Disabled</span>}</span>
-              <span>·</span>
-              <span>ESIC {setup.esicApplicable ? <span className="text-green-600">✓ Enabled</span> : <span className="text-red-400">✗ Disabled</span>}</span>
-              <span>·</span>
-              <span>LWF {setup.lwfApplicable ? <span className="text-green-600">✓ Enabled</span> : <span className="text-red-400">✗ Disabled</span>}</span>
+    <div className="max-w-4xl mx-auto space-y-5">
+      {/* ── Header card ── */}
+      <Card className="border-0 shadow-sm bg-gradient-to-r from-blue-600 to-blue-700 text-white">
+        <CardContent className="py-4 px-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs text-blue-200 font-medium uppercase tracking-wide mb-0.5">Compliance Setup</p>
+              <h2 className="text-xl font-bold leading-tight">{form.employeeName}</h2>
+              <p className="text-sm text-blue-200 mt-0.5">{form.employeeCode}</p>
+            </div>
+            <div className="flex flex-col items-end gap-2">
+              <div className="flex gap-2">
+                <Badge ok={setup.pfApplicable}   label="PF" />
+                <Badge ok={setup.esicApplicable} label="ESIC" />
+                <Badge ok={setup.lwfApplicable}  label="LWF" />
+              </div>
+              <Button variant="outline" size="sm" onClick={onBack}
+                className="border-white/40 text-white hover:bg-white/10 bg-transparent h-8 text-xs">
+                <ArrowLeft className="h-3.5 w-3.5 mr-1" /> Back
+              </Button>
             </div>
           </div>
-          <Button variant="outline" size="sm" onClick={onBack}>
-            <ArrowLeft className="h-4 w-4 mr-1" /> Back
-          </Button>
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-6">
+        </CardContent>
+      </Card>
 
-        {/* Row 1: Department | Designation | Grade | Weekly Off */}
-        <div className="grid grid-cols-4 gap-4">
-          <div className="space-y-1.5">
-            <Label className="text-sm text-gray-600">Department</Label>
-            <Input value={form.department} onChange={e => set("department", e.target.value)}
-              placeholder="e.g. CONSTRUCTION" className="h-10 bg-white border-gray-300" />
-          </div>
-          <div className="space-y-1.5">
-            <Label className="text-sm text-gray-600">Designation</Label>
-            <Input value={form.designation} onChange={e => set("designation", e.target.value)}
-              placeholder="e.g. LABOUR" className="h-10 bg-white border-gray-300" />
-          </div>
-          <div className="space-y-1.5">
-            <Label className="text-sm text-gray-600">Grade</Label>
-            <Select
-              value={form.wageGradeId || "none"}
-              onValueChange={v => {
-                const gradeId = v === "none" ? "" : v;
-                const grade = wageGrades.find((g: any) => g.id === gradeId);
-                set("wageGradeId", gradeId);
-                set("wageGradeName", grade ? `${grade.name}${grade.state ? ` - ${grade.state}` : ""}` : "");
-              }}
-            >
-              <SelectTrigger className="h-10 bg-white border-gray-300"><SelectValue placeholder="Select grade..." /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none">— None —</SelectItem>
-                {wageGrades.map((g: any) => (
-                  <SelectItem key={g.id} value={g.id}>
-                    {g.name}{g.state ? ` - ${g.state}` : ""}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1.5">
-            <Label className="text-sm text-gray-600">Weekly Off</Label>
-            <Select value={form.weeklyOff} onValueChange={v => set("weeklyOff", v)}>
-              <SelectTrigger className="h-10 bg-white border-gray-300"><SelectValue /></SelectTrigger>
-              <SelectContent>{WEEKLY_OFF_OPTIONS.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}</SelectContent>
-            </Select>
-          </div>
-        </div>
-
-        {/* Row 2: OT | Payment | Diff Adjustment */}
-        <div className="grid grid-cols-3 gap-4">
-          <div className="space-y-1.5">
-            <Label className="text-sm text-gray-600">OT</Label>
-            <Select value={form.otType} onValueChange={v => set("otType", v)}>
-              <SelectTrigger className="h-10 bg-white border-gray-300"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="na">NA — No OT</SelectItem>
-                <SelectItem value="actual">Actual — Same hours & amount</SelectItem>
-                <SelectItem value="double">Double — Hours ÷ 2, same amount</SelectItem>
-                <SelectItem value="adjust">Adjust — OT = 0, added to net pay</SelectItem>
-              </SelectContent>
-            </Select>
-            {form.otType && otHints[form.otType] && (
-              <p className="text-xs text-blue-600 mt-0.5">{otHints[form.otType]}</p>
-            )}
-          </div>
-          <div className="space-y-1.5">
-            <Label className="text-sm text-gray-600">Payment<span className="text-red-500 ml-0.5">*</span></Label>
-            <Select value={form.paymentMode} onValueChange={v => {
-              set("paymentMode", v);
-              if (v === "compliance") set("diffAdjustments", ["carry_fwd"]);
-            }}>
-              <SelectTrigger className="h-10 bg-white border-gray-300"><SelectValue /></SelectTrigger>
-              <SelectContent>{PAYMENT_MODE_OPTIONS.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}</SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1.5">
-            <Label className="text-sm text-gray-600">Diff Adjustment<span className="text-red-500 ml-0.5">*</span></Label>
-            <MultiSelect
-              options={DIFF_ADJ_OPTIONS}
-              selected={form.paymentMode === "compliance" ? ["carry_fwd"] : form.diffAdjustments}
-              onChange={vals => { if (form.paymentMode !== "compliance") set("diffAdjustments", vals); }}
-              placeholder="Select adjustments..."
-              disabled={form.paymentMode === "compliance"}
-            />
-            {form.paymentMode === "compliance" && (
-              <p className="text-xs text-amber-600 mt-0.5">Locked to Carry Fwd — Payment is set to Compliances</p>
-            )}
-          </div>
-        </div>
-
-        {/* Row 3: PF | ESIC | LWF */}
-        <div className="grid grid-cols-3 gap-4">
-          <div className="space-y-1.5">
-            <Label className="text-sm text-gray-600">PF<span className="text-red-500 ml-0.5">*</span></Label>
-            <Select value={form.pfType} onValueChange={onPfTypeChange}>
-              <SelectTrigger className="h-10 bg-white border-gray-300"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="actual" disabled={!setup.pfApplicable}>
-                  Actual {!setup.pfApplicable && "(PF not enabled in payroll)"}
-                </SelectItem>
-                <SelectItem value="exempted">Exempted — basic ≥ ₹{PF_CEILING.toLocaleString()}</SelectItem>
-                <SelectItem value="ctc">CTC — show only, no deduction</SelectItem>
-                <SelectItem value="na">N/A</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1.5">
-            <Label className="text-sm text-gray-600">ESIC</Label>
-            <Select value={form.esicType} onValueChange={onEsicTypeChange}>
-              <SelectTrigger className="h-10 bg-white border-gray-300"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="actual" disabled={!setup.esicApplicable}>
-                  Actual {!setup.esicApplicable && "(ESIC not enabled in payroll)"}
-                </SelectItem>
-                <SelectItem value="exempted">Exempted — gross ≥ ₹{ESIC_CEILING.toLocaleString()}</SelectItem>
-                <SelectItem value="ctc">CTC — show only, no deduction</SelectItem>
-                <SelectItem value="na">N/A</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1.5">
-            <Label className="text-sm text-gray-600">LWF</Label>
-            <Select value={form.lwfType} onValueChange={onLwfTypeChange}>
-              <SelectTrigger className="h-10 bg-white border-gray-300"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="na">N/A</SelectItem>
-                <SelectItem value="actual" disabled={!setup.lwfApplicable}>
-                  Actual {!setup.lwfApplicable && "(LWF not enabled in payroll)"}
-                </SelectItem>
-                <SelectItem value="exempted">Exempted</SelectItem>
-                <SelectItem value="ctc">CTC — show only, no deduction</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-
-        {/* Row 4: Bonus */}
-        <div className="grid grid-cols-3 gap-4">
-          <div className="space-y-1.5">
-            <Label className="text-sm text-gray-600">Bonus</Label>
-            <Select value={form.bonusType || "actual"} onValueChange={v => set("bonusType", v)}>
-              <SelectTrigger className="h-10 bg-white border-gray-300"><SelectValue /></SelectTrigger>
-              <SelectContent>{BONUS_OPTIONS.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}</SelectContent>
-            </Select>
-          </div>
-        </div>
-
-        {/* Row 5: Allowances | Same As Actual */}
-        <div className="grid grid-cols-3 gap-4 items-end">
-          <div className="space-y-1.5">
-            <Label className="text-sm text-gray-600">
-              Allowances
-              {autoAllowances > 0 && (
-                <span className="ml-1 text-gray-400 font-normal">
-                  (Payroll: ₹{autoAllowances.toLocaleString()})
-                </span>
+      {/* ── Section 1: Grade & Attendance ── */}
+      <Card className="shadow-sm">
+        <CardHeader className="pb-3 pt-4 px-6">
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest">Grade & Attendance</p>
+        </CardHeader>
+        <CardContent className="px-6 pb-5 space-y-4">
+          <div className="grid grid-cols-3 gap-5">
+            {/* Grade */}
+            <div className="space-y-1.5">
+              <Label className="text-sm font-medium text-gray-700">Wage Grade</Label>
+              <Select
+                value={form.wageGradeId || "none"}
+                onValueChange={v => {
+                  const gradeId = v === "none" ? "" : v;
+                  const grade = wageGrades.find((g: any) => g.id === gradeId);
+                  const minWage = grade ? Number(grade.minimum_wage || 0) : 0;
+                  set("wageGradeId", gradeId);
+                  set("wageGradeName", grade ? `${grade.name}${grade.state ? ` - ${grade.state}` : ""}` : "");
+                  if (!form.sameAsActual && minWage > 0) {
+                    set("allowances", String(Math.max(0, actualGross - minWage)));
+                  }
+                }}
+              >
+                <SelectTrigger className="h-10 bg-gray-50 border-gray-200 focus:bg-white">
+                  <SelectValue placeholder="Select grade..." />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">— No Grade —</SelectItem>
+                  {wageGrades.map((g: any) => (
+                    <SelectItem key={g.id} value={g.id}>
+                      {g.name}{g.state ? ` - ${g.state}` : ""}
+                      {g.minimum_wage ? ` (₹${Number(g.minimum_wage).toLocaleString()})` : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {gradeMinWage > 0 && (
+                <p className="text-xs text-blue-600">Min. Wage: ₹{gradeMinWage.toLocaleString()}</p>
               )}
-            </Label>
-            <Input
-              value={form.sameAsActual ? "" : form.allowances}
-              disabled={form.sameAsActual}
-              onChange={e => set("allowances", e.target.value)}
-              placeholder={form.sameAsActual ? "Auto (Same As Actual)" : "e.g. 5000"}
-              className="h-10 bg-white border-gray-300 disabled:bg-gray-50 disabled:text-gray-400"
-            />
-            {!form.sameAsActual && (
-              <p className="text-xs text-gray-400 mt-0.5">Gross − Basic = Allowances</p>
-            )}
-          </div>
-          <div className="space-y-1.5">
-            <Label className="text-sm text-gray-600">Same As Actual</Label>
-            <div className="flex items-center h-10 gap-2">
-              <Checkbox
-                checked={form.sameAsActual}
-                onCheckedChange={onSameAsActualChange}
-                className="h-5 w-5"
+            </div>
+
+            {/* Allowances — right after Grade */}
+            <div className="space-y-1.5">
+              <Label className="text-sm font-medium text-gray-700">
+                Allowances
+                {gradeAllowances > 0 && !form.sameAsActual && (
+                  <span className="ml-1.5 text-xs text-gray-400 font-normal">
+                    (auto: ₹{gradeAllowances.toLocaleString()})
+                  </span>
+                )}
+              </Label>
+              <Input
+                value={form.sameAsActual ? "" : form.allowances}
+                disabled={form.sameAsActual}
+                onChange={e => set("allowances", e.target.value)}
+                placeholder={form.sameAsActual ? "Auto — uses payroll values" : gradeAllowances > 0 ? `₹${gradeAllowances.toLocaleString()}` : "e.g. 5000"}
+                className="h-10 bg-gray-50 border-gray-200 focus:bg-white disabled:bg-gray-100 disabled:text-gray-400"
               />
-              <span className="text-xs text-gray-500">Use payroll values</span>
+              <div className="flex items-center gap-1.5">
+                <Checkbox
+                  id="sameAsActual"
+                  checked={form.sameAsActual}
+                  onCheckedChange={onSameAsActualChange}
+                  className="h-3.5 w-3.5"
+                />
+                <label htmlFor="sameAsActual" className="text-xs text-gray-500 cursor-pointer select-none">
+                  Same as actual payroll
+                </label>
+              </div>
+            </div>
+
+            {/* Weekly Off */}
+            <div className="space-y-1.5">
+              <Label className="text-sm font-medium text-gray-700">Weekly Off</Label>
+              <Select value={form.weeklyOff} onValueChange={v => set("weeklyOff", v)}>
+                <SelectTrigger className="h-10 bg-gray-50 border-gray-200 focus:bg-white"><SelectValue /></SelectTrigger>
+                <SelectContent>{WEEKLY_OFF_OPTIONS.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}</SelectContent>
+              </Select>
             </div>
           </div>
-        </div>
+        </CardContent>
+      </Card>
 
-        {/* CTC note */}
-        {(form.pfType === "ctc" || form.esicType === "ctc" || form.lwfType === "ctc") && (
-          <div className="rounded-md bg-amber-50 border border-amber-200 px-4 py-2 text-sm text-amber-700">
-            <strong>CTC mode:</strong> Deduction is calculated and shown in the compliance sheet but <em>not</em> deducted from net pay.
+      {/* ── Section 2: Payment Settings ── */}
+      <Card className="shadow-sm">
+        <CardHeader className="pb-3 pt-4 px-6">
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest">Payment Settings</p>
+        </CardHeader>
+        <CardContent className="px-6 pb-5">
+          <div className="grid grid-cols-3 gap-5">
+            <div className="space-y-1.5">
+              <Label className="text-sm font-medium text-gray-700">OT Treatment</Label>
+              <Select value={form.otType} onValueChange={v => set("otType", v)}>
+                <SelectTrigger className="h-10 bg-gray-50 border-gray-200 focus:bg-white"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="na">NA — No OT</SelectItem>
+                  <SelectItem value="actual">Actual — Same hours & amount</SelectItem>
+                  <SelectItem value="double">Double — Hours ÷ 2, same amount</SelectItem>
+                  <SelectItem value="adjust">Adjust — OT = 0, added to net pay</SelectItem>
+                </SelectContent>
+              </Select>
+              {form.otType && otHints[form.otType] && (
+                <p className="text-xs text-blue-600">{otHints[form.otType]}</p>
+              )}
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-sm font-medium text-gray-700">Payment Mode <span className="text-red-500">*</span></Label>
+              <Select value={form.paymentMode} onValueChange={v => {
+                set("paymentMode", v);
+                if (v === "compliance") set("diffAdjustments", ["carry_fwd"]);
+              }}>
+                <SelectTrigger className="h-10 bg-gray-50 border-gray-200 focus:bg-white"><SelectValue /></SelectTrigger>
+                <SelectContent>{PAYMENT_MODE_OPTIONS.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-sm font-medium text-gray-700">Diff Adjustment <span className="text-red-500">*</span></Label>
+              <MultiSelect
+                options={DIFF_ADJ_OPTIONS}
+                selected={form.paymentMode === "compliance" ? ["carry_fwd"] : form.diffAdjustments}
+                onChange={vals => { if (form.paymentMode !== "compliance") set("diffAdjustments", vals); }}
+                placeholder="Select adjustments..."
+                disabled={form.paymentMode === "compliance"}
+              />
+              {form.paymentMode === "compliance" && (
+                <p className="text-xs text-amber-600">Locked to Carry Fwd</p>
+              )}
+            </div>
           </div>
-        )}
+        </CardContent>
+      </Card>
 
-        {/* Actions */}
-        <div className="flex items-center gap-3 pt-2 border-t">
-          <Button onClick={save} disabled={saving} className="bg-blue-600 hover:bg-blue-700 text-white">
-            <Save className="h-4 w-4 mr-2" />
-            {saving ? "Saving..." : "Save Setup"}
-          </Button>
-          <Button variant="outline" onClick={onBack}>Cancel</Button>
-        </div>
-      </CardContent>
-    </Card>
+      {/* ── Section 3: Statutory Deductions ── */}
+      <Card className="shadow-sm">
+        <CardHeader className="pb-3 pt-4 px-6">
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest">Statutory Deductions</p>
+        </CardHeader>
+        <CardContent className="px-6 pb-5 space-y-4">
+          <div className="grid grid-cols-4 gap-5">
+            <div className="space-y-1.5">
+              <Label className="text-sm font-medium text-gray-700">PF <span className="text-red-500">*</span></Label>
+              <Select value={form.pfType} onValueChange={onPfTypeChange}>
+                <SelectTrigger className="h-10 bg-gray-50 border-gray-200 focus:bg-white"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="actual" disabled={!setup.pfApplicable}>
+                    Actual {!setup.pfApplicable && "(not enabled)"}
+                  </SelectItem>
+                  <SelectItem value="exempted">Exempted</SelectItem>
+                  <SelectItem value="ctc">CTC Mode</SelectItem>
+                  <SelectItem value="na">N/A</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-sm font-medium text-gray-700">ESIC</Label>
+              <Select value={form.esicType} onValueChange={onEsicTypeChange}>
+                <SelectTrigger className="h-10 bg-gray-50 border-gray-200 focus:bg-white"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="actual" disabled={!setup.esicApplicable}>
+                    Actual {!setup.esicApplicable && "(not enabled)"}
+                  </SelectItem>
+                  <SelectItem value="exempted">Exempted</SelectItem>
+                  <SelectItem value="ctc">CTC Mode</SelectItem>
+                  <SelectItem value="na">N/A</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-sm font-medium text-gray-700">LWF</Label>
+              <Select value={form.lwfType} onValueChange={onLwfTypeChange}>
+                <SelectTrigger className="h-10 bg-gray-50 border-gray-200 focus:bg-white"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="na">N/A</SelectItem>
+                  <SelectItem value="actual" disabled={!setup.lwfApplicable}>
+                    Actual {!setup.lwfApplicable && "(not enabled)"}
+                  </SelectItem>
+                  <SelectItem value="exempted">Exempted</SelectItem>
+                  <SelectItem value="ctc">CTC Mode</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-sm font-medium text-gray-700">Bonus</Label>
+              <Select value={form.bonusType || "actual"} onValueChange={v => set("bonusType", v)}>
+                <SelectTrigger className="h-10 bg-gray-50 border-gray-200 focus:bg-white"><SelectValue /></SelectTrigger>
+                <SelectContent>{BONUS_OPTIONS.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          {/* CTC note */}
+          {(form.pfType === "ctc" || form.esicType === "ctc" || form.lwfType === "ctc") && (
+            <div className="rounded-lg bg-amber-50 border border-amber-200 px-4 py-2.5 text-sm text-amber-700 flex items-start gap-2">
+              <span className="mt-0.5 text-amber-500">ℹ</span>
+              <span><strong>CTC mode:</strong> Deduction is shown in compliance sheet but not deducted from net pay.</span>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* ── Actions ── */}
+      <div className="flex items-center gap-3 pb-4">
+        <Button onClick={save} disabled={saving}
+          className="bg-blue-600 hover:bg-blue-700 text-white px-6 h-10 shadow-sm">
+          <Save className="h-4 w-4 mr-2" />
+          {saving ? "Saving..." : "Save Setup"}
+        </Button>
+        <Button variant="outline" onClick={onBack} className="px-6 h-10">Cancel</Button>
+      </div>
+    </div>
   );
 }
 
