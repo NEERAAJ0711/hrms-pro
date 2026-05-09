@@ -1414,7 +1414,7 @@ function AdjustmentsTab({ companyId, isSuperAdmin, user, toast }: {
             </div>
             <Button onClick={loadEmployees} disabled={loading} className="h-9 bg-blue-600 hover:bg-blue-700 text-white">
               <RefreshCw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
-              {loading ? "Loading..." : "Load Employees"}
+              {loading ? "Generating..." : "Generate Compliances"}
             </Button>
           </div>
         </CardContent>
@@ -1727,7 +1727,7 @@ function AdjustmentsTab({ companyId, isSuperAdmin, user, toast }: {
         <Card>
           <CardContent className="py-16 text-center">
             <ShieldCheck className="h-12 w-12 text-gray-200 mx-auto mb-3" />
-            <p className="text-gray-400">Select filters and click <strong>Load Employees</strong> to begin</p>
+            <p className="text-gray-400">Select filters and click <strong>Generate Compliances</strong> to begin</p>
           </CardContent>
         </Card>
       )}
