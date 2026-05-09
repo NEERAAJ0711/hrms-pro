@@ -1085,8 +1085,7 @@ function AdjustmentsTab({ companyId, isSuperAdmin, user, toast }: {
         Math.min(r.rBasic, PF_CEILING), Math.min(r.rTotal, ESIC_CEILING),
         r.monDays, r.netPay, totalDeds, r.payDays
       );
-      const isActualC = (r.paymentMode || "actual") !== "compliance";
-      const eDaysC = isActualC ? (r.eTotal > 0 ? r.monDays : 0) : adjPayDays;
+      const eDaysC = r.eTotal > 0 ? adjPayDays : 0;
       const ebC = r.monDays > 0 ? Math.round(r.rBasic * eDaysC / r.monDays) : 0;
       const ehC = r.monDays > 0 ? Math.round(r.rHra   * eDaysC / r.monDays) : 0;
       const btC = r.bonusType || "actual";

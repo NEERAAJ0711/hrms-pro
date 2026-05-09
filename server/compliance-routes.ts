@@ -200,6 +200,8 @@ export function registerComplianceRoutes(app: Express) {
           cs.diff_adjustments  AS setup_diff_adj,
           cs.ot_type           AS setup_ot_type,
           cs.payment_mode      AS setup_payment_mode,
+          cs.allowances        AS setup_allowances,
+          cs.same_as_actual    AS setup_same_as_actual,
           ss.conveyance        AS ss_conv,
           ss.hra               AS ss_hra,
           ss.gross_salary      AS ss_gross,
@@ -326,8 +328,12 @@ export function registerComplianceRoutes(app: Express) {
         // Always use salary structure gross as the reference (ignores stale cs.gross_salary)
         const ssGross = Number(emp.ss_gross || emp.setup_gross || 0);
         const rConv   = Number(emp.ss_conv || 0);
-        // Allowances = Gross − Basic (always computed, never 0 due to stale setup data)
-        const rHra    = Math.max(0, ssGross - rBasic);
+        // Allowances: use admin-configured value when set and sameAsActual is false;
+        // otherwise auto-compute as Gross − Basic
+        const hasCustomAllowances = emp.setup_allowances != null && !emp.setup_same_as_actual;
+        const rHra = hasCustomAllowances
+          ? Number(emp.setup_allowances)
+          : Math.max(0, ssGross - rBasic);
         // R.Total = Basic + Allowances (explicit, matches what user sees)
         const rTotal  = rBasic + rHra;
 
