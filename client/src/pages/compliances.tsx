@@ -583,9 +583,13 @@ function computeAdjPayDays(
     : payDays;
 
   // PF-based: only when PF was actually deducted (pf > 0); skip if exempt/not applicable
+  // IMPORTANT: PF wage is always capped at 15,000 — use min(rBasic, PF_CEILING) so that
+  // an employee earning >15,000 who pays full-month ceiling PF (1,800) correctly gets 30 days,
+  // not a fractional undercount caused by dividing by a higher uncapped basic.
   let pfDays: number | null = null;
-  if (pfType === "actual" && pf > 0 && rBasic > 0) {
-    pfDays = Math.min(monDays, Math.max(0, Math.round(pf * monDays / (0.12 * rBasic))));
+  const pfWageBase = Math.min(rBasic, PF_CEILING);
+  if (pfType === "actual" && pf > 0 && pfWageBase > 0) {
+    pfDays = Math.min(monDays, Math.max(0, Math.round(pf * monDays / (0.12 * pfWageBase))));
   }
 
   // ESIC-based: only when ESIC was actually deducted (esic > 0); skip if exempt/not applicable
