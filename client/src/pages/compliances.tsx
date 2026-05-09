@@ -1308,7 +1308,7 @@ function AdjustmentsTab({ companyId, isSuperAdmin, user, toast }: {
             <td>${r.empName}</td>
             <td class="num">${r.actualPaid.toLocaleString("en-IN")}</td>
             <td class="num">${r.compPayable.toLocaleString("en-IN")}</td>
-            <td class="${r.otherAdj < 0 ? "neg" : r.otherAdj > 0 ? "pos" : "num"}">${r.otherAdj !== 0 ? r.otherAdj.toLocaleString("en-IN") : "—"}</td>
+            <td class="num">${r.otherAdj !== 0 ? Math.abs(r.otherAdj).toLocaleString("en-IN") : "—"}</td>
             <td class="${r.prevBal < 0 ? "neg" : r.prevBal > 0 ? "pos" : "num"}">${r.prevBal !== 0 ? (r.prevBal > 0 ? "+" : "") + r.prevBal.toLocaleString("en-IN") : "—"}</td>
             <td class="${r.carryFwd < 0 ? "neg" : r.carryFwd > 0 ? "pos" : "num"}">${r.carryFwd !== 0 ? (r.carryFwd > 0 ? "+" : "") + r.carryFwd.toLocaleString("en-IN") : "0"}</td>
             <td>${r.remarks}</td>
@@ -1317,7 +1317,7 @@ function AdjustmentsTab({ companyId, isSuperAdmin, user, toast }: {
             <td colspan="2"><strong>TOTAL</strong></td>
             <td class="num tot"><strong>${trRows.reduce((a, r) => a + r.actualPaid, 0).toLocaleString("en-IN")}</strong></td>
             <td class="num tot"><strong>${trRows.reduce((a, r) => a + r.compPayable, 0).toLocaleString("en-IN")}</strong></td>
-            <td class="num tot"><strong>${trRows.reduce((a, r) => a + r.otherAdj, 0).toLocaleString("en-IN")}</strong></td>
+            <td class="num tot"><strong>${Math.abs(trRows.reduce((a, r) => a + r.otherAdj, 0)).toLocaleString("en-IN")}</strong></td>
             <td class="num tot"><strong>${trRows.reduce((a, r) => a + r.prevBal, 0).toLocaleString("en-IN")}</strong></td>
             <td class="num tot"><strong>${trRows.reduce((a, r) => a + r.carryFwd, 0).toLocaleString("en-IN")}</strong></td>
             <td class="tot"></td>
@@ -1603,9 +1603,9 @@ function AdjustmentsTab({ companyId, isSuperAdmin, user, toast }: {
                       {/* Actual Payable / Compliance Payable / 2nd Payable / Prev Bal / Carry Fwd */}
                       <TableCell className="text-center bg-violet-50/40">{n(actualPaid)}</TableCell>
                       <TableCell className="text-center bg-violet-50/40 font-semibold">{n(compPayable)}</TableCell>
-                      <TableCell className={`text-center bg-violet-50/40 font-medium ${otherAdjVal < 0 ? "text-red-600" : otherAdjVal > 0 ? "text-green-700" : "text-gray-400"}`}
+                      <TableCell className={`text-center bg-violet-50/40 font-medium ${otherAdjVal !== 0 ? "text-gray-800" : "text-gray-400"}`}
                         title={`Sel: ${(row.diffAdj || "none")} | Gap: ${compPayable - prevBal - actualPaid}`}>
-                        {otherAdjVal !== 0 ? otherAdjVal.toLocaleString("en-IN") : "—"}
+                        {otherAdjVal !== 0 ? Math.abs(otherAdjVal).toLocaleString("en-IN") : "—"}
                       </TableCell>
                       <TableCell className={`text-center bg-amber-50/60 font-medium ${(row.prevBal||0) < 0 ? "text-red-600" : (row.prevBal||0) > 0 ? "text-green-700" : "text-gray-400"}`}
                         title="Carry forward from previous month">
@@ -1708,8 +1708,8 @@ function AdjustmentsTab({ companyId, isSuperAdmin, user, toast }: {
                       <TableCell className="text-center bg-red-50">{n(totAdjDTotal)}</TableCell>
                       <TableCell className="text-center bg-violet-50">{n(totActual)}</TableCell>
                       <TableCell className="text-center bg-violet-50">{n(totComp)}</TableCell>
-                      <TableCell className={`text-center bg-violet-50 font-bold ${totOtherAdj < 0 ? "text-red-600" : totOtherAdj > 0 ? "text-green-700" : "text-gray-400"}`}>
-                        {totOtherAdj !== 0 ? totOtherAdj.toLocaleString("en-IN") : "—"}
+                      <TableCell className={`text-center bg-violet-50 font-bold ${totOtherAdj !== 0 ? "text-gray-800" : "text-gray-400"}`}>
+                        {totOtherAdj !== 0 ? Math.abs(totOtherAdj).toLocaleString("en-IN") : "—"}
                       </TableCell>
                       <TableCell className={`text-center bg-amber-50 font-bold ${totPrevBal < 0 ? "text-red-600" : totPrevBal > 0 ? "text-green-700" : "text-gray-400"}`}>
                         {totPrevBal !== 0 ? (totPrevBal > 0 ? "+" : "") + totPrevBal.toLocaleString("en-IN") : "—"}
