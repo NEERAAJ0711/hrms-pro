@@ -1,7 +1,8 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
+import * as XLSX from "xlsx";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import { useSort, sortData } from "@/lib/use-sort";
@@ -27,8 +28,8 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   ShieldCheck, Search, Save, RefreshCw, CheckCircle2,
-  Download, AlertTriangle, Building2, Trash2, Settings2, Users, ArrowLeft, CheckCircle,
-  Briefcase, Plus, UserPlus, UserMinus, CalendarDays, XCircle, FileBarChart2, ChevronDown,
+  Download, Upload, AlertTriangle, Building2, Trash2, Settings2, Users, ArrowLeft, CheckCircle,
+  Briefcase, Plus, UserPlus, UserMinus, CalendarDays, XCircle, FileBarChart2, ChevronDown, FileSpreadsheet,
 } from "lucide-react";
 
 const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
@@ -366,7 +367,126 @@ function EmployeeSetupTab({ companyId, isSuperAdmin, toast }: {
   const [search, setSearch] = useState("");
   const [loaded, setLoaded] = useState(false);
   const [selected, setSelected] = useState<EmployeeSetup | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const uploadRef = useRef<HTMLInputElement>(null);
   const { sort, toggle } = useSort("employeeName", "asc");
+
+  // ── Download Excel template (blank, just headers + employee list) ──────────
+  const downloadTemplate = () => {
+    const headers = ["Employee Code","Employee Name","PF Type","ESIC Type","LWF Type","Bonus Type","OT Type","Payment Mode","Allowances","Same As Actual (TRUE/FALSE)","Diff Adjustments (comma-sep)"];
+    const data = rows.map(r => [
+      r.employeeCode, r.employeeName,
+      r.pfType, r.esicType, r.lwfType, r.bonusType,
+      r.otType, r.paymentMode,
+      r.allowances || "",
+      String(r.sameAsActual),
+      r.diffAdjustments?.join(",") || "",
+    ]);
+    const ws = XLSX.utils.aoa_to_sheet([headers, ...data]);
+    ws["!cols"] = headers.map(h => ({ wch: Math.max(h.length + 4, 18) }));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Compliance Config");
+    XLSX.writeFile(wb, `compliance_config_template.xlsx`);
+    toast({ title: "Template downloaded", description: "Fill in and re-upload to apply bulk settings." });
+  };
+
+  // ── Download current config as Excel ──────────────────────────────────────
+  const downloadConfig = () => {
+    const headers = ["Employee Code","Employee Name","PF Type","ESIC Type","LWF Type","Bonus Type","OT Type","Payment Mode","Allowances","Same As Actual","Diff Adjustments","Status"];
+    const data = rows.map(r => [
+      r.employeeCode, r.employeeName,
+      r.pfType, r.esicType, r.lwfType, r.bonusType,
+      r.otType, r.paymentMode,
+      r.allowances || "",
+      String(r.sameAsActual),
+      r.diffAdjustments?.join(",") || "",
+      r.setupId ? "Configured" : "Not Set",
+    ]);
+    const ws = XLSX.utils.aoa_to_sheet([headers, ...data]);
+    ws["!cols"] = headers.map(h => ({ wch: Math.max(h.length + 4, 18) }));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Compliance Config");
+    XLSX.writeFile(wb, `compliance_config_export.xlsx`);
+    toast({ title: "Downloaded", description: `${rows.length} employee(s) config exported.` });
+  };
+
+  // ── Bulk upload handler ────────────────────────────────────────────────────
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (uploadRef.current) uploadRef.current.value = "";
+    setUploading(true);
+    try {
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type: "array" });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const raw: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
+      if (raw.length < 2) throw new Error("No data rows found in file.");
+      const hdrs: string[] = (raw[0] as string[]).map(h => String(h).trim().toLowerCase());
+
+      const col = (name: string) => hdrs.findIndex(h => h.includes(name));
+      const iCode = col("code"); const iName = col("name");
+      const iPf = col("pf type"); const iEsic = col("esic type"); const iLwf = col("lwf type");
+      const iBonus = col("bonus type"); const iOt = col("ot type"); const iPay = col("payment mode");
+      const iAllow = col("allowances"); const iSame = col("same as actual"); const iDiff = col("diff adj");
+
+      if (iCode < 0) throw new Error("Column 'Employee Code' not found in file.");
+
+      // Build lookup map: empCode → setup row
+      const codeMap: Record<string, EmployeeSetup> = {};
+      for (const r of rows) codeMap[r.employeeCode.trim().toLowerCase()] = r;
+
+      const setups: any[] = [];
+      for (let i = 1; i < raw.length; i++) {
+        const row = raw[i] as any[];
+        const code = String(row[iCode] || "").trim().toLowerCase();
+        if (!code) continue;
+        const match = codeMap[code];
+        if (!match) continue; // skip unknown codes silently
+
+        const sameRaw = String(row[iSame] ?? "").trim().toLowerCase();
+        const sameAs = sameRaw === "true" || sameRaw === "1" || sameRaw === "yes";
+        const diffRaw = String(row[iDiff] ?? "").trim();
+
+        setups.push({
+          employeeId:      match.employeeId,
+          department:      match.department,
+          designation:     match.designation,
+          weeklyOff:       match.weeklyOff || "sunday",
+          pfType:          iPf >= 0   ? String(row[iPf]   || "actual").trim() : match.pfType,
+          esicType:        iEsic >= 0 ? String(row[iEsic] || "actual").trim() : match.esicType,
+          lwfType:         iLwf >= 0  ? String(row[iLwf]  || "na").trim()     : match.lwfType,
+          bonusType:       iBonus >= 0? String(row[iBonus]|| "actual").trim() : match.bonusType,
+          otType:          iOt >= 0   ? String(row[iOt]   || "na").trim()     : match.otType,
+          paymentMode:     iPay >= 0  ? String(row[iPay]  || "actual").trim() : match.paymentMode,
+          allowances:      iAllow >= 0? String(row[iAllow]|| "").trim()       : match.allowances,
+          sameAsActual:    iSame >= 0 ? sameAs : match.sameAsActual,
+          diffAdjustments: diffRaw ? diffRaw.split(",").map((s: string) => s.trim()).filter(Boolean) : match.diffAdjustments,
+          basicSalary:     match.basicSalary,
+          grossSalary:     match.grossSalary,
+          wageGradeId:     match.wageGradeId,
+        });
+      }
+
+      if (setups.length === 0) throw new Error("No matching employees found. Check Employee Code column.");
+
+      const res = await fetch("/api/compliance/setup/bulk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ companyId, setups }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j.error || `Server error (${res.status})`);
+      }
+      toast({ title: "Upload successful", description: `${setups.length} employee(s) updated.` });
+      load(); // refresh list
+    } catch (err: any) {
+      toast({ title: "Upload failed", description: err.message, variant: "destructive" });
+    }
+    setUploading(false);
+  };
 
   const load = useCallback(async (attempt = 0) => {
     if (!companyId) return;
@@ -434,14 +554,33 @@ function EmployeeSetupTab({ companyId, isSuperAdmin, toast }: {
     return (
       <Card>
         <CardHeader className="pb-3">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between flex-wrap gap-2">
             <div>
               <CardTitle className="text-lg">Employee-wise Compliance Setup</CardTitle>
               <CardDescription>Click Configure to set statutory & payroll rules per employee.</CardDescription>
             </div>
-            <Button variant="outline" size="sm" onClick={load} disabled={loading || !companyId}>
-              <RefreshCw className={`h-4 w-4 mr-1 ${loading ? "animate-spin" : ""}`} /> Refresh
-            </Button>
+            <div className="flex items-center gap-2 flex-wrap">
+              <Button variant="outline" size="sm" onClick={downloadTemplate} disabled={!loaded || rows.length === 0}
+                title="Download blank Excel template pre-filled with employee list">
+                <FileSpreadsheet className="h-4 w-4 mr-1 text-green-600" /> Download Template
+              </Button>
+              <Button variant="outline" size="sm" onClick={downloadConfig} disabled={!loaded || rows.length === 0}
+                title="Download current compliance configuration as Excel">
+                <Download className="h-4 w-4 mr-1 text-blue-600" /> Download Config
+              </Button>
+              <Button variant="outline" size="sm"
+                disabled={!loaded || uploading}
+                onClick={() => uploadRef.current?.click()}
+                title="Upload filled Excel to apply bulk compliance configuration">
+                {uploading
+                  ? <><RefreshCw className="h-4 w-4 mr-1 animate-spin" /> Uploading...</>
+                  : <><Upload className="h-4 w-4 mr-1 text-violet-600" /> Bulk Upload</>}
+              </Button>
+              <input ref={uploadRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={handleUpload} />
+              <Button variant="outline" size="sm" onClick={load} disabled={loading || !companyId}>
+                <RefreshCw className={`h-4 w-4 mr-1 ${loading ? "animate-spin" : ""}`} /> Refresh
+              </Button>
+            </div>
           </div>
           <div className="flex items-center gap-2 mt-2">
             <Search className="h-4 w-4 text-gray-400" />

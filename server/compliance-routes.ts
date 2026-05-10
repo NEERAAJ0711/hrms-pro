@@ -661,6 +661,7 @@ export function registerComplianceRoutes(app: Express) {
           cs.basic_salary,
           cs.gross_salary,
           cs.same_as_actual,
+          cs.allowances,
           COALESCE(cs.wage_grade_id, e.wage_grade_id) AS eff_wage_grade_id,
           cs.wage_grade_id AS cs_wage_grade_id,
           wg.name          AS wg_name,
