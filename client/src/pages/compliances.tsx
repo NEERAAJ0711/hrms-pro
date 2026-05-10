@@ -778,8 +778,11 @@ function computeAdjPayDays(
     result = safePayDays;
   }
 
-  // Step 4 — Hard cap
-  return Math.min(result, safePayDays);
+  // Step 4 — Cap at calendar days only (not at payroll payDays).
+  // Deductions (ESIC, PF) are sometimes computed on full-month basis even when
+  // payroll pay-days is less (e.g. LOP handled separately). The back-calculated
+  // adjPayDays must be allowed to reach monDays in that case.
+  return Math.min(result, monDays);
 }
 
 // ─── Multi-select dropdown ────────────────────────────────────────────────────
