@@ -754,10 +754,18 @@ function computeAdjPayDays(
   const PF_CEIL_AMT   = 0.12   * PF_CEILING;   // ₹1,800
   const ESIC_CEIL_AMT = 0.0075 * ESIC_CEILING; // ₹157.5
 
-  // Step 1 — PF: usable only when deducted amount is BELOW ceiling (scales linearly)
+  // Step 1 — PF
+  // • Below ceiling (< ₹1,800): back-calculate exact days from the proportional amount
+  // • At/above ceiling (≥ ₹1,800): PF was computed on full-month CTC (Indian payroll
+  //   standard — ceiling is applied to monthly basic, not to prorated daily basic).
+  //   Treat as full month → pfDays = monDays.
   let pfDays: number | null = null;
-  if (pfType === "actual" && pf > 0 && pf < PF_CEIL_AMT && rBasic > 0) {
-    pfDays = Math.min(monDays, Math.max(0, Math.round(pf * monDays / (0.12 * rBasic))));
+  if (pfType === "actual" && pf > 0 && rBasic > 0) {
+    if (pf < PF_CEIL_AMT) {
+      pfDays = Math.min(monDays, Math.max(0, Math.round(pf * monDays / (0.12 * rBasic))));
+    } else {
+      pfDays = monDays; // ceiling hit → full month
+    }
   }
 
   // Step 2 — ESIC: usable only when deducted amount is BELOW ceiling
