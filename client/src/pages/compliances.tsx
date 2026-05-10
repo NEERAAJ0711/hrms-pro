@@ -1722,29 +1722,28 @@ function AdjustmentsTab({ companyId, isSuperAdmin, user, toast }: {
                   const isAllActual = (row.pfType  || "actual") === "actual"
                     && (row.esicType  || "actual") === "actual"
                     && (row.bonusType || "actual") === "actual";
-                  let adjPayDays: number, displayPayDays: number;
+                  // adjPayDays is always back-calculated from actual PF/ESIC deductions
+                  // (regardless of isAllActual). Fallback when both are zero = monDays.
+                  const adjPayDays = row.eTotal > 0 ? computeAdjPayDays(
+                    row.pfType || "actual", row.esicType || "actual",
+                    adjPf, adjEsic, row.rBasic, row.rTotal, row.monDays, row.payDays
+                  ) : 0;
+                  const displayPayDays = adjPayDays;
                   let eBasicCalc: number, eHraCalc: number, bonusCalc: number, eTotalCalc: number;
                   if (isAllActual) {
-                    adjPayDays     = row.monDays;
-                    displayPayDays = row.eTotal > 0 ? row.monDays : 0;
-                    eBasicCalc     = row.eBasic;
-                    eHraCalc       = row.eHra + row.eConv + row.eOth;
-                    bonusCalc      = row.bonus;
-                    eTotalCalc     = row.eTotal;
+                    // Use actual payroll earned values — only eTotalCalc differs from non-actual
+                    eBasicCalc = row.eBasic;
+                    eHraCalc   = row.eHra + row.eConv + row.eOth;
+                    bonusCalc  = row.bonus;
+                    eTotalCalc = row.eTotal;
                   } else {
-                    adjPayDays = row.eTotal > 0 ? computeAdjPayDays(
-                      row.pfType || "actual", row.esicType || "actual",
-                      adjPf, adjEsic, row.rBasic, row.rTotal, row.monDays, row.payDays
-                    ) : 0;
-                    const eDays = adjPayDays;
-                    displayPayDays = eDays;
-                    eBasicCalc = row.monDays > 0 ? Math.round(row.rBasic * eDays / row.monDays) : 0;
-                    eHraCalc   = row.monDays > 0 ? Math.round(row.rHra   * eDays / row.monDays) : 0;
+                    eBasicCalc = row.monDays > 0 ? Math.round(row.rBasic * adjPayDays / row.monDays) : 0;
+                    eHraCalc   = row.monDays > 0 ? Math.round(row.rHra   * adjPayDays / row.monDays) : 0;
                     const bt = row.bonusType || "actual";
                     const monthlyBonus = Math.round(row.rBasic * 8.33 / 100);
                     bonusCalc = bt === "na" ? 0 : bt === "actual" ? row.bonus
                       : bt === "annual" ? monthlyBonus
-                      : (row.monDays > 0 ? Math.round(monthlyBonus * eDays / row.monDays) : 0);
+                      : (row.monDays > 0 ? Math.round(monthlyBonus * adjPayDays / row.monDays) : 0);
                     eTotalCalc = eBasicCalc + eHraCalc + bonusCalc;
                   }
                   const compPayable = eTotalCalc - totalDeds;
@@ -1835,17 +1834,16 @@ function AdjustmentsTab({ companyId, isSuperAdmin, user, toast }: {
                     const isAllAct = (r.pfType  || "actual") === "actual"
                       && (r.esicType  || "actual") === "actual"
                       && (r.bonusType || "actual") === "actual";
-                    let pd: number, eb: number, eh: number, et: number;
+                    const pd = r.eTotal > 0 ? computeAdjPayDays(
+                      r.pfType || "actual", r.esicType || "actual",
+                      ap, ae, r.rBasic, r.rTotal, r.monDays, r.payDays
+                    ) : 0;
+                    let eb: number, eh: number, et: number;
                     if (isAllAct) {
-                      pd = r.monDays;
                       eb = r.eBasic;
                       eh = r.eHra + r.eConv + r.eOth;
                       et = r.eTotal;
                     } else {
-                      pd = r.eTotal > 0 ? computeAdjPayDays(
-                        r.pfType || "actual", r.esicType || "actual",
-                        ap, ae, r.rBasic, r.rTotal, r.monDays, r.payDays
-                      ) : 0;
                       eb = r.monDays > 0 ? Math.round(r.rBasic * pd / r.monDays) : 0;
                       eh = r.monDays > 0 ? Math.round(r.rHra   * pd / r.monDays) : 0;
                       const bt = r.bonusType || "actual";
