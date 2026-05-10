@@ -116,6 +116,7 @@ interface EmployeeSetup {
   originalGrossSalary: number;
   wageGradeId:     string;
   wageGradeName:   string;
+  gradeMinWage:    number;
   allowances:      string;
 }
 
@@ -371,39 +372,57 @@ function EmployeeSetupTab({ companyId, isSuperAdmin, toast }: {
   const uploadRef = useRef<HTMLInputElement>(null);
   const { sort, toggle } = useSort("employeeName", "asc");
 
-  // ── Download Excel template (blank, just headers + employee list) ──────────
+  // ── Shared 13-column header + row builder ─────────────────────────────────
+  // Columns 1-5 are reference-only (key + info). Columns 6-13 are editable config.
+  const CONFIG_HEADERS = [
+    "Emp Code",          // 1  — upload key (read-only)
+    "Employee Name",     // 2  — ref only
+    "Gross Wages",       // 3  — ref only (actual salary structure gross)
+    "Grade",             // 4  — ref only
+    "Grade Rate",        // 5  — ref only (grade minimum wage)
+    "Allowances",        // 6  — editable
+    "Same As Actual",    // 7  — editable (TRUE/FALSE)
+    "Payment Mode",      // 8  — editable
+    "PF Type",           // 9  — editable
+    "ESIC Type",         // 10 — editable
+    "LWF Type",          // 11 — editable
+    "Bonus Type",        // 12 — editable
+    "OT Type",           // 13 — editable
+  ];
+  const buildRow = (r: EmployeeSetup) => [
+    r.employeeCode,
+    r.employeeName,
+    r.originalGrossSalary || 0,
+    r.wageGradeName || "",
+    r.gradeMinWage || 0,
+    r.allowances || "",
+    String(r.sameAsActual),
+    r.paymentMode || "actual",
+    r.pfType    || "actual",
+    r.esicType  || "actual",
+    r.lwfType   || "na",
+    r.bonusType || "actual",
+    r.otType    || "na",
+  ];
+
+  // ── Download Excel template (pre-filled with current values, ready to edit) ─
   const downloadTemplate = () => {
-    const headers = ["Employee Code","Employee Name","PF Type","ESIC Type","LWF Type","Bonus Type","OT Type","Payment Mode","Allowances","Same As Actual (TRUE/FALSE)","Diff Adjustments (comma-sep)"];
-    const data = rows.map(r => [
-      r.employeeCode, r.employeeName,
-      r.pfType, r.esicType, r.lwfType, r.bonusType,
-      r.otType, r.paymentMode,
-      r.allowances || "",
-      String(r.sameAsActual),
-      r.diffAdjustments?.join(",") || "",
-    ]);
-    const ws = XLSX.utils.aoa_to_sheet([headers, ...data]);
-    ws["!cols"] = headers.map(h => ({ wch: Math.max(h.length + 4, 18) }));
+    const ws = XLSX.utils.aoa_to_sheet([CONFIG_HEADERS, ...rows.map(buildRow)]);
+    ws["!cols"] = CONFIG_HEADERS.map((h, i) =>
+      ({ wch: i < 2 ? 22 : i < 5 ? 16 : Math.max(h.length + 4, 16) })
+    );
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Compliance Config");
     XLSX.writeFile(wb, `compliance_config_template.xlsx`);
-    toast({ title: "Template downloaded", description: "Fill in and re-upload to apply bulk settings." });
+    toast({ title: "Template downloaded", description: "Edit columns 6-13 and re-upload." });
   };
 
   // ── Download current config as Excel ──────────────────────────────────────
   const downloadConfig = () => {
-    const headers = ["Employee Code","Employee Name","PF Type","ESIC Type","LWF Type","Bonus Type","OT Type","Payment Mode","Allowances","Same As Actual","Diff Adjustments","Status"];
-    const data = rows.map(r => [
-      r.employeeCode, r.employeeName,
-      r.pfType, r.esicType, r.lwfType, r.bonusType,
-      r.otType, r.paymentMode,
-      r.allowances || "",
-      String(r.sameAsActual),
-      r.diffAdjustments?.join(",") || "",
-      r.setupId ? "Configured" : "Not Set",
-    ]);
-    const ws = XLSX.utils.aoa_to_sheet([headers, ...data]);
-    ws["!cols"] = headers.map(h => ({ wch: Math.max(h.length + 4, 18) }));
+    const ws = XLSX.utils.aoa_to_sheet([CONFIG_HEADERS, ...rows.map(buildRow)]);
+    ws["!cols"] = CONFIG_HEADERS.map((h, i) =>
+      ({ wch: i < 2 ? 22 : i < 5 ? 16 : Math.max(h.length + 4, 16) })
+    );
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Compliance Config");
     XLSX.writeFile(wb, `compliance_config_export.xlsx`);
@@ -424,15 +443,20 @@ function EmployeeSetupTab({ companyId, isSuperAdmin, toast }: {
       if (raw.length < 2) throw new Error("No data rows found in file.");
       const hdrs: string[] = (raw[0] as string[]).map(h => String(h).trim().toLowerCase());
 
-      const col = (name: string) => hdrs.findIndex(h => h.includes(name));
-      const iCode = col("code"); const iName = col("name");
-      const iPf = col("pf type"); const iEsic = col("esic type"); const iLwf = col("lwf type");
-      const iBonus = col("bonus type"); const iOt = col("ot type"); const iPay = col("payment mode");
-      const iAllow = col("allowances"); const iSame = col("same as actual"); const iDiff = col("diff adj");
+      const col = (name: string) => hdrs.findIndex(h => h.toLowerCase().includes(name.toLowerCase()));
+      const iCode  = col("emp code");
+      const iAllow = col("allowances");
+      const iSame  = col("same as actual");
+      const iPay   = col("payment mode");
+      const iPf    = col("pf type");
+      const iEsic  = col("esic type");
+      const iLwf   = col("lwf type");
+      const iBonus = col("bonus type");
+      const iOt    = col("ot type");
 
-      if (iCode < 0) throw new Error("Column 'Employee Code' not found in file.");
+      if (iCode < 0) throw new Error("Column 'Emp Code' not found. Use the downloaded template.");
 
-      // Build lookup map: empCode → setup row
+      // Build lookup map: empCode → existing setup row
       const codeMap: Record<string, EmployeeSetup> = {};
       for (const r of rows) codeMap[r.employeeCode.trim().toLowerCase()] = r;
 
@@ -442,33 +466,32 @@ function EmployeeSetupTab({ companyId, isSuperAdmin, toast }: {
         const code = String(row[iCode] || "").trim().toLowerCase();
         if (!code) continue;
         const match = codeMap[code];
-        if (!match) continue; // skip unknown codes silently
+        if (!match) continue; // skip unknown codes
 
         const sameRaw = String(row[iSame] ?? "").trim().toLowerCase();
-        const sameAs = sameRaw === "true" || sameRaw === "1" || sameRaw === "yes";
-        const diffRaw = String(row[iDiff] ?? "").trim();
+        const sameAs  = sameRaw === "true" || sameRaw === "1" || sameRaw === "yes";
 
         setups.push({
           employeeId:      match.employeeId,
           department:      match.department,
           designation:     match.designation,
           weeklyOff:       match.weeklyOff || "sunday",
-          pfType:          iPf >= 0   ? String(row[iPf]   || "actual").trim() : match.pfType,
-          esicType:        iEsic >= 0 ? String(row[iEsic] || "actual").trim() : match.esicType,
-          lwfType:         iLwf >= 0  ? String(row[iLwf]  || "na").trim()     : match.lwfType,
-          bonusType:       iBonus >= 0? String(row[iBonus]|| "actual").trim() : match.bonusType,
-          otType:          iOt >= 0   ? String(row[iOt]   || "na").trim()     : match.otType,
-          paymentMode:     iPay >= 0  ? String(row[iPay]  || "actual").trim() : match.paymentMode,
-          allowances:      iAllow >= 0? String(row[iAllow]|| "").trim()       : match.allowances,
-          sameAsActual:    iSame >= 0 ? sameAs : match.sameAsActual,
-          diffAdjustments: diffRaw ? diffRaw.split(",").map((s: string) => s.trim()).filter(Boolean) : match.diffAdjustments,
+          allowances:      iAllow >= 0 ? String(row[iAllow] ?? "").trim() : match.allowances,
+          sameAsActual:    iSame  >= 0 ? sameAs : match.sameAsActual,
+          paymentMode:     iPay   >= 0 ? String(row[iPay]   || "actual").trim() : match.paymentMode,
+          pfType:          iPf    >= 0 ? String(row[iPf]    || "actual").trim() : match.pfType,
+          esicType:        iEsic  >= 0 ? String(row[iEsic]  || "actual").trim() : match.esicType,
+          lwfType:         iLwf   >= 0 ? String(row[iLwf]   || "na").trim()     : match.lwfType,
+          bonusType:       iBonus >= 0 ? String(row[iBonus] || "actual").trim() : match.bonusType,
+          otType:          iOt    >= 0 ? String(row[iOt]    || "na").trim()     : match.otType,
+          diffAdjustments: match.diffAdjustments,
           basicSalary:     match.basicSalary,
           grossSalary:     match.grossSalary,
           wageGradeId:     match.wageGradeId,
         });
       }
 
-      if (setups.length === 0) throw new Error("No matching employees found. Check Employee Code column.");
+      if (setups.length === 0) throw new Error("No matching employees found — check Emp Code column.");
 
       const res = await fetch("/api/compliance/setup/bulk", {
         method: "POST",
@@ -481,7 +504,7 @@ function EmployeeSetupTab({ companyId, isSuperAdmin, toast }: {
         throw new Error(j.error || `Server error (${res.status})`);
       }
       toast({ title: "Upload successful", description: `${setups.length} employee(s) updated.` });
-      load(); // refresh list
+      load();
     } catch (err: any) {
       toast({ title: "Upload failed", description: err.message, variant: "destructive" });
     }

@@ -666,6 +666,7 @@ export function registerComplianceRoutes(app: Express) {
           cs.wage_grade_id AS cs_wage_grade_id,
           wg.name          AS wg_name,
           wg.state         AS wg_state,
+          wg.minimum_wage  AS wg_min_wage,
           ss.basic_salary AS struct_basic,
           ss.gross_salary AS struct_gross
         FROM employees e
@@ -706,6 +707,7 @@ export function registerComplianceRoutes(app: Express) {
         originalGrossSalary:  Number(r.struct_gross || 0),
         wageGradeId:          r.eff_wage_grade_id || "",
         wageGradeName:        r.wg_name ? `${r.wg_name}${r.wg_state ? ` - ${r.wg_state}` : ""}` : "",
+        gradeMinWage:         Number(r.wg_min_wage || 0),
         allowances:           r.allowances != null ? String(r.allowances) : "",
       })));
     } catch (err: any) {
