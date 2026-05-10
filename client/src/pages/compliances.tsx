@@ -726,48 +726,76 @@ const PF_CEILING   = 15000;
 const ESIC_CEILING = 21000;
 
 // ─── Shared helper: compute adjusted pay-days for compliance display ───────────
-// Rules:
-//  • PF back-calc  ONLY when rBasic  < 15,000 (PF scales with days below ceiling).
-//    When rBasic ≥ 15,000 the deduction is always ₹1,800 regardless of days — cannot infer days.
-//  • ESIC back-calc ONLY when rTotal < 21,000 (same reason).
-//  • When neither deduction can determine days → use actual payroll payDays directly.
-//  • Hard cap: result is always ≤ payDays (compliance payable can never exceed what was earned).
+//
+// The user configures rBasic (grade minimum wage) and rHra (allowances).
+// rTotal = rBasic + rHra  →  the full compliance wage rate.
+//
+// For a given candidate day count D (1 … monDays):
+//   earnedBasic = rBasic × D / monDays
+//   earnedTotal = rTotal × D / monDays
+//   PF(D)   = 12%   × min(earnedBasic, 15,000)   — linear below ceiling, flat above
+//   ESIC(D) = 0.75% × min(earnedTotal, 21,000)   — linear below ceiling, flat above
+//
+// Strategy:
+//   1. When actual PF  < ₹1,800 (below ceiling)  → solve D algebraically from PF  (exact)
+//   2. When actual ESIC < ₹157.5 (below ceiling) → solve D algebraically from ESIC (exact)
+//   3. When both at ceiling / not applicable       → solve from net pay (gross earning back-calc)
+//   4. Hard cap: result ≤ actual payDays always
+//      (compliance payable can never exceed actual payable)
 function computeAdjPayDays(
   pfType: string, esicType: string,
   pf: number, esic: number,
   rBasic: number, rTotal: number,
-  monDays: number, _netPay: number, _totalDeds: number, payDays: number
+  monDays: number, netPay: number, totalDeds: number, payDays: number
 ): number {
   if (monDays <= 0) return payDays;
   const safePayDays = payDays > 0 ? payDays : monDays;
 
-  // PF-based: only usable when rBasic < PF_CEILING (PF amount varies with days)
+  // Ceiling deduction amounts (not rates)
+  const PF_CEIL_AMT   = 0.12   * PF_CEILING;   // ₹1,800
+  const ESIC_CEIL_AMT = 0.0075 * ESIC_CEILING; // ₹157.5
+
+  const usePf   = pfType   === "actual" && pf   > 0 && rBasic > 0;
+  const useEsic = esicType === "actual" && esic > 0 && rTotal > 0;
+
+  // ── Step 1: PF-based (only when PF < ceiling — then it scales linearly with days) ─
+  // Formula: pf = 0.12 × rBasic × D/monDays  →  D = pf × monDays / (0.12 × rBasic)
   let pfDays: number | null = null;
-  if (pfType === "actual" && pf > 0 && rBasic > 0 && rBasic < PF_CEILING) {
+  if (usePf && pf < PF_CEIL_AMT) {
     pfDays = Math.min(monDays, Math.max(0, Math.round(pf * monDays / (0.12 * rBasic))));
   }
 
-  // ESIC-based: only usable when rTotal < ESIC_CEILING (ESIC amount varies with days)
+  // ── Step 2: ESIC-based (only when ESIC < ceiling — scales linearly with days) ──────
+  // Formula: esic = 0.0075 × rTotal × D/monDays  →  D = esic × monDays / (0.0075 × rTotal)
   let esicDays: number | null = null;
-  const esicBase = Math.min(rTotal, ESIC_CEILING);
-  if (esicType === "actual" && esic > 0 && esicBase > 0 && rTotal < ESIC_CEILING) {
-    esicDays = Math.min(monDays, Math.max(0, Math.round(esic * monDays / (0.0075 * esicBase))));
+  if (useEsic && esic < ESIC_CEIL_AMT) {
+    esicDays = Math.min(monDays, Math.max(0, Math.round(esic * monDays / (0.0075 * rTotal))));
   }
 
   let result: number;
+
   if (pfDays !== null && esicDays !== null) {
-    // Both available: pick the one closest to actual payDays
-    result = Math.abs(pfDays - safePayDays) <= Math.abs(esicDays - safePayDays) ? pfDays : esicDays;
+    // Both deterministic (both below ceiling) — average them (they should agree closely)
+    result = Math.round((pfDays + esicDays) / 2);
   } else if (pfDays !== null) {
     result = pfDays;
   } else if (esicDays !== null) {
     result = esicDays;
   } else {
-    // Both deductions at ceiling (or not applicable) — use actual payroll pay days
-    result = safePayDays;
+    // ── Step 3: Both at ceiling / not applicable → match from net pay ───────────────
+    // earnedTotal(D) = rTotal × D / monDays
+    // net(D) ≈ earnedTotal(D) − totalDeds  (totalDeds constant when deds are at ceiling)
+    // → D ≈ (netPay + totalDeds) × monDays / rTotal
+    if (rTotal > 0) {
+      result = Math.min(monDays, Math.max(0,
+        Math.round((netPay + totalDeds) * monDays / rTotal)
+      ));
+    } else {
+      result = safePayDays;
+    }
   }
 
-  // Hard cap: never exceed actual days worked — compliance payable must not exceed actual payable
+  // ── Step 4: Hard cap — compliance payable must never exceed what was actually paid ─
   return Math.min(result, safePayDays);
 }
 
