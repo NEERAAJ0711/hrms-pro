@@ -1268,11 +1268,12 @@ function AdjustmentsTab({ companyId, isSuperAdmin, user, toast }: {
       const ae = adjDedLocal(r.esic, r.esicType || "actual");
       const al = adjDedLocal(r.lwf,  r.lwfType  || "actual");
       const totalDeds = ap + ae + al + r.pt + r.tds + (r.vpf || 0);
-      // All-actual mode: every type is "actual" → mirror payroll exactly
+      // All-actual mode: PF, ESIC, Bonus all "actual" → use actual payroll earnings.
+      // LWF type is intentionally excluded: LWF N/A only zeroes the LWF deduction,
+      // it does NOT change whether we use actual payroll earnings vs compliance rates.
       const isAllActual = (r.pfType  || "actual") === "actual"
         && (r.esicType  || "actual") === "actual"
-        && (r.bonusType || "actual") === "actual"
-        && (r.lwfType   || "actual") === "actual";
+        && (r.bonusType || "actual") === "actual";
       let etC: number;
       if (isAllActual) {
         etC = r.eTotal;
@@ -1288,7 +1289,7 @@ function AdjustmentsTab({ companyId, isSuperAdmin, user, toast }: {
         const bcC = btC === "na" ? 0 : btC === "actual" ? r.bonus : btC === "annual" ? mbC : (r.monDays > 0 ? Math.round(mbC * eDaysC / r.monDays) : 0);
         etC = ebC + ehC + bcC;
       }
-      const compPayable = isAllActual ? r.netPay : (etC - totalDeds);
+      const compPayable = etC - totalDeds;
       const actualPaid    = r.netPay;
       const pb            = r.prevBal || 0;
       const isCompliance  = (r.paymentMode || "actual") === "compliance";
@@ -1418,8 +1419,7 @@ function AdjustmentsTab({ companyId, isSuperAdmin, user, toast }: {
       const actualPaid = r.netPay;
       const isAllActual = (r.pfType  || "actual") === "actual"
         && (r.esicType  || "actual") === "actual"
-        && (r.bonusType || "actual") === "actual"
-        && (r.lwfType   || "actual") === "actual";
+        && (r.bonusType || "actual") === "actual";
       let etD: number;
       if (isAllActual) {
         etD = r.eTotal;
@@ -1435,7 +1435,7 @@ function AdjustmentsTab({ companyId, isSuperAdmin, user, toast }: {
         const bcD = btD === "na" ? 0 : btD === "actual" ? r.bonus : btD === "annual" ? mbD : (r.monDays > 0 ? Math.round(mbD * eDaysD / r.monDays) : 0);
         etD = ebD + ehD + bcD;
       }
-      const compPayable = isAllActual ? r.netPay : (etD - totalDeds);
+      const compPayable = etD - totalDeds;
       const prevBal = r.prevBal || 0;
       const isCompliance = (r.paymentMode || "actual") === "compliance";
       let otherAdj = 0;
@@ -1718,22 +1718,22 @@ function AdjustmentsTab({ companyId, isSuperAdmin, user, toast }: {
                   //   mirror payroll exactly so Compliance Payable = Actual Payable.
                   // Non-all-actual: at least one type adjusted (na/exempted/ctc) →
                   //   compute earned from admin-configured compliance rates × adjPayDays.
+                  // All-actual: PF, ESIC, Bonus all "actual" → use actual payroll earnings.
+                  // LWF intentionally excluded: LWF N/A only zeroes the LWF deduction;
+                  // it does NOT force earnings onto compliance rates instead of actual payroll.
                   const isAllActual = (row.pfType  || "actual") === "actual"
                     && (row.esicType  || "actual") === "actual"
-                    && (row.bonusType || "actual") === "actual"
-                    && (row.lwfType   || "actual") === "actual";
+                    && (row.bonusType || "actual") === "actual";
                   let adjPayDays: number, displayPayDays: number;
                   let eBasicCalc: number, eHraCalc: number, bonusCalc: number, eTotalCalc: number;
                   if (isAllActual) {
-                    // Use actual payroll earned values directly
-                    adjPayDays    = row.payDays;
+                    adjPayDays     = row.payDays;
                     displayPayDays = row.eTotal > 0 ? row.payDays : 0;
-                    eBasicCalc    = row.eBasic;
-                    eHraCalc      = row.eHra + row.eConv + row.eOth;
-                    bonusCalc     = row.bonus;
-                    eTotalCalc    = row.eTotal;
+                    eBasicCalc     = row.eBasic;
+                    eHraCalc       = row.eHra + row.eConv + row.eOth;
+                    bonusCalc      = row.bonus;
+                    eTotalCalc     = row.eTotal;
                   } else {
-                    // Back-calc adjPayDays from actual PF/ESIC deductions
                     adjPayDays = row.eTotal > 0 ? computeAdjPayDays(
                       row.pfType || "actual", row.esicType || "actual",
                       adjPf, adjEsic, row.rBasic, row.rTotal, row.monDays, row.payDays
@@ -1749,10 +1749,7 @@ function AdjustmentsTab({ companyId, isSuperAdmin, user, toast }: {
                       : (row.monDays > 0 ? Math.round(monthlyBonus * eDays / row.monDays) : 0);
                     eTotalCalc = eBasicCalc + eHraCalc + bonusCalc;
                   }
-                  // Compliance Payable:
-                  //   all-actual  → exact match with netPay (Compliance = Actual)
-                  //   non-actual  → compliance earned at admin rates minus adjusted deductions
-                  const compPayable = isAllActual ? row.netPay : (eTotalCalc - totalDeds);
+                  const compPayable = eTotalCalc - totalDeds;
                   // ── Carry Fwd logic split by paymentMode ───────────────────────────────
                   // compliance → Other Adj = 0; Carry Fwd = CompPayable − PrevBal − ActualPayable
                   // actual / both → Carry Fwd = 0; Other Adj absorbs the full gap
@@ -1839,8 +1836,7 @@ function AdjustmentsTab({ companyId, isSuperAdmin, user, toast }: {
                     const oth  = r.loanAdv;
                     const isAllAct = (r.pfType  || "actual") === "actual"
                       && (r.esicType  || "actual") === "actual"
-                      && (r.bonusType || "actual") === "actual"
-                      && (r.lwfType   || "actual") === "actual";
+                      && (r.bonusType || "actual") === "actual";
                     let pd: number, eb: number, eh: number, et: number;
                     if (isAllAct) {
                       pd = r.payDays;
@@ -1860,7 +1856,7 @@ function AdjustmentsTab({ companyId, isSuperAdmin, user, toast }: {
                         : (r.monDays > 0 ? Math.round(mb * pd / r.monDays) : 0);
                       et = eb + eh + bc;
                     }
-                    const cp = isAllAct ? r.netPay : (et - deds);
+                    const cp = et - deds;
                     // Mirror paymentMode-aware Other Adj logic
                     const pb2  = r.prevBal || 0;
                     const isC2 = (r.paymentMode || "actual") === "compliance";
