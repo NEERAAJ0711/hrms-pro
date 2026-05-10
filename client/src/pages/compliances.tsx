@@ -782,14 +782,12 @@ function computeAdjPayDays(
   } else if (esicDays !== null) {
     result = esicDays;
   } else {
-    // Step 3 — Both at ceiling or not applicable → fall back to actual payroll days
-    result = safePayDays;
+    // Step 3 — No PF/ESIC signal available (both zero or both at ceiling).
+    // Compliance is always verified on the full calendar month — payDays is
+    // an attendance count and must NOT cap compliance earned here.
+    result = monDays;
   }
 
-  // Step 4 — Cap at calendar days only (not at payroll payDays).
-  // Deductions (ESIC, PF) are sometimes computed on full-month basis even when
-  // payroll pay-days is less (e.g. LOP handled separately). The back-calculated
-  // adjPayDays must be allowed to reach monDays in that case.
   return Math.min(result, monDays);
 }
 
@@ -1727,8 +1725,8 @@ function AdjustmentsTab({ companyId, isSuperAdmin, user, toast }: {
                   let adjPayDays: number, displayPayDays: number;
                   let eBasicCalc: number, eHraCalc: number, bonusCalc: number, eTotalCalc: number;
                   if (isAllActual) {
-                    adjPayDays     = row.payDays;
-                    displayPayDays = row.eTotal > 0 ? row.payDays : 0;
+                    adjPayDays     = row.monDays;
+                    displayPayDays = row.eTotal > 0 ? row.monDays : 0;
                     eBasicCalc     = row.eBasic;
                     eHraCalc       = row.eHra + row.eConv + row.eOth;
                     bonusCalc      = row.bonus;
@@ -1839,7 +1837,7 @@ function AdjustmentsTab({ companyId, isSuperAdmin, user, toast }: {
                       && (r.bonusType || "actual") === "actual";
                     let pd: number, eb: number, eh: number, et: number;
                     if (isAllAct) {
-                      pd = r.payDays;
+                      pd = r.monDays;
                       eb = r.eBasic;
                       eh = r.eHra + r.eConv + r.eOth;
                       et = r.eTotal;
