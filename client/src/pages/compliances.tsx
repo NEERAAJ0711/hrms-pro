@@ -738,27 +738,25 @@ const ESIC_CEILING = 21000;
 // ESIC = 0.75% × min(rTotal × D/monDays, 21,000) → linear below ₹157.5 ceiling
 //
 // Priority:
-//   1. actual PF  < ₹1,800 → D = pf  × monDays / (0.12   × rBasic)  (exact)
-//   2. actual ESIC < ₹157.5 → D = esic × monDays / (0.0075 × rTotal) (exact)
-//   3. Both at ceiling / not applicable → use actual payroll payDays directly
-//   4. Hard cap: result ≤ payDays always
+//   1. PF  < ₹1,800  → D = pf   × monDays / (0.12   × rBasic)  (exact)
+//      PF  ≥ ₹1,800  → ceiling hit → full month (Indian payroll standard)
+//   2. ESIC < ₹157.5 → D = esic × monDays / (0.0075 × rTotal)  (exact)
+//   3. eBasic back-calc → D = eBasic × monDays / rBasic (no bonus/deduction distortion)
+//   4. Hard cap: result ≤ monDays
 function computeAdjPayDays(
   pfType: string, esicType: string,
   pf: number, esic: number,
   rBasic: number, rTotal: number,
-  monDays: number, payDays: number
+  monDays: number, payDays: number,
+  eBasic: number = 0
 ): number {
   if (monDays <= 0) return payDays;
-  const safePayDays = payDays > 0 ? payDays : monDays;
 
   const PF_CEIL_AMT   = 0.12   * PF_CEILING;   // ₹1,800
   const ESIC_CEIL_AMT = 0.0075 * ESIC_CEILING; // ₹157.5
 
   // Step 1 — PF
-  // • Below ceiling (< ₹1,800): back-calculate exact days from the proportional amount
-  // • At/above ceiling (≥ ₹1,800): PF was computed on full-month CTC (Indian payroll
-  //   standard — ceiling is applied to monthly basic, not to prorated daily basic).
-  //   Treat as full month → pfDays = monDays.
+  // Below ceiling: back-calc exact days. At ceiling: full-month CTC basis (EPFO standard).
   let pfDays: number | null = null;
   if (pfType === "actual" && pf > 0 && rBasic > 0) {
     if (pf < PF_CEIL_AMT) {
@@ -768,7 +766,7 @@ function computeAdjPayDays(
     }
   }
 
-  // Step 2 — ESIC: usable only when deducted amount is BELOW ceiling
+  // Step 2 — ESIC: usable only when deducted amount is below ceiling
   let esicDays: number | null = null;
   if (esicType === "actual" && esic > 0 && esic < ESIC_CEIL_AMT && rTotal > 0) {
     esicDays = Math.min(monDays, Math.max(0, Math.round(esic * monDays / (0.0075 * rTotal))));
@@ -781,10 +779,13 @@ function computeAdjPayDays(
     result = pfDays;
   } else if (esicDays !== null) {
     result = esicDays;
+  } else if (rBasic > 0 && eBasic > 0) {
+    // Step 3 — No PF/ESIC signal (both zero or not enrolled).
+    // Back-calc from actual basic earnings: D = eBasic × monDays / rBasic.
+    // Basic is always proportional to days worked — no bonus or deduction distortion.
+    result = Math.min(monDays, Math.max(0, Math.round(eBasic * monDays / rBasic)));
   } else {
-    // Step 3 — No PF/ESIC signal available (both zero or both at ceiling).
-    // Compliance is always verified on the full calendar month — payDays is
-    // an attendance count and must NOT cap compliance earned here.
+    // Step 4 — Absolute fallback: assume full calendar month
     result = monDays;
   }
 
@@ -1278,7 +1279,7 @@ function AdjustmentsTab({ companyId, isSuperAdmin, user, toast }: {
       } else {
         const eDaysC = r.eTotal > 0 ? computeAdjPayDays(
           r.pfType || "actual", r.esicType || "actual",
-          ap, ae, r.rBasic, r.rTotal, r.monDays, r.payDays
+          ap, ae, r.rBasic, r.rTotal, r.monDays, r.payDays, r.eBasic
         ) : 0;
         const ebC = r.monDays > 0 ? Math.round(r.rBasic * eDaysC / r.monDays) : 0;
         const ehC = r.monDays > 0 ? Math.round(r.rHra   * eDaysC / r.monDays) : 0;
@@ -1424,7 +1425,7 @@ function AdjustmentsTab({ companyId, isSuperAdmin, user, toast }: {
       } else {
         const eDaysD = r.eTotal > 0 ? computeAdjPayDays(
           r.pfType || "actual", r.esicType || "actual",
-          adjPf, adjEsic, r.rBasic, r.rTotal, r.monDays, r.payDays
+          adjPf, adjEsic, r.rBasic, r.rTotal, r.monDays, r.payDays, r.eBasic
         ) : 0;
         const ebD = r.monDays > 0 ? Math.round(r.rBasic * eDaysD / r.monDays) : 0;
         const ehD = r.monDays > 0 ? Math.round(r.rHra   * eDaysD / r.monDays) : 0;
@@ -1726,7 +1727,7 @@ function AdjustmentsTab({ companyId, isSuperAdmin, user, toast }: {
                   // (regardless of isAllActual). Fallback when both are zero = monDays.
                   const adjPayDays = row.eTotal > 0 ? computeAdjPayDays(
                     row.pfType || "actual", row.esicType || "actual",
-                    adjPf, adjEsic, row.rBasic, row.rTotal, row.monDays, row.payDays
+                    adjPf, adjEsic, row.rBasic, row.rTotal, row.monDays, row.payDays, row.eBasic
                   ) : 0;
                   const displayPayDays = adjPayDays;
                   let eBasicCalc: number, eHraCalc: number, bonusCalc: number, eTotalCalc: number;
@@ -1836,7 +1837,7 @@ function AdjustmentsTab({ companyId, isSuperAdmin, user, toast }: {
                       && (r.bonusType || "actual") === "actual";
                     const pd = r.eTotal > 0 ? computeAdjPayDays(
                       r.pfType || "actual", r.esicType || "actual",
-                      ap, ae, r.rBasic, r.rTotal, r.monDays, r.payDays
+                      ap, ae, r.rBasic, r.rTotal, r.monDays, r.payDays, r.eBasic
                     ) : 0;
                     let eb: number, eh: number, et: number;
                     if (isAllAct) {
