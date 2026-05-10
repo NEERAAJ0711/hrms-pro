@@ -726,48 +726,49 @@ const PF_CEILING   = 15000;
 const ESIC_CEILING = 21000;
 
 // ─── Shared helper: compute adjusted pay-days for compliance display ───────────
-// Priority:
-//  1. If pfType="actual"  → back-calc from actual PF amount  → ensures PF is consistent
-//  2. If esicType="actual"→ back-calc from actual ESIC amount→ ensures ESIC is consistent
-//  3. Both "actual"       → pick whichever is closer to the net-pay back-calc
-//  4. Neither             → back-calc from net pay (compPayable ≈ netPay)
+// Rules:
+//  • PF back-calc  ONLY when rBasic  < 15,000 (PF scales with days below ceiling).
+//    When rBasic ≥ 15,000 the deduction is always ₹1,800 regardless of days — cannot infer days.
+//  • ESIC back-calc ONLY when rTotal < 21,000 (same reason).
+//  • When neither deduction can determine days → use actual payroll payDays directly.
+//  • Hard cap: result is always ≤ payDays (compliance payable can never exceed what was earned).
 function computeAdjPayDays(
   pfType: string, esicType: string,
   pf: number, esic: number,
   rBasic: number, rTotal: number,
-  monDays: number, netPay: number, totalDeds: number, payDays: number
+  monDays: number, _netPay: number, _totalDeds: number, payDays: number
 ): number {
   if (monDays <= 0) return payDays;
+  const safePayDays = payDays > 0 ? payDays : monDays;
 
-  // Base: back-calculate from net pay
-  const netDays = rTotal > 0
-    ? Math.min(monDays, Math.max(0, Math.round((netPay + totalDeds) * monDays / rTotal)))
-    : payDays;
-
-  // PF-based: only when PF was actually deducted (pf > 0); skip if exempt/not applicable
-  // IMPORTANT: PF wage is always capped at 15,000 — use min(rBasic, PF_CEILING) so that
-  // an employee earning >15,000 who pays full-month ceiling PF (1,800) correctly gets 30 days,
-  // not a fractional undercount caused by dividing by a higher uncapped basic.
+  // PF-based: only usable when rBasic < PF_CEILING (PF amount varies with days)
   let pfDays: number | null = null;
-  const pfWageBase = Math.min(rBasic, PF_CEILING);
-  if (pfType === "actual" && pf > 0 && pfWageBase > 0) {
-    pfDays = Math.min(monDays, Math.max(0, Math.round(pf * monDays / (0.12 * pfWageBase))));
+  if (pfType === "actual" && pf > 0 && rBasic > 0 && rBasic < PF_CEILING) {
+    pfDays = Math.min(monDays, Math.max(0, Math.round(pf * monDays / (0.12 * rBasic))));
   }
 
-  // ESIC-based: only when ESIC was actually deducted (esic > 0); skip if exempt/not applicable
+  // ESIC-based: only usable when rTotal < ESIC_CEILING (ESIC amount varies with days)
   let esicDays: number | null = null;
   const esicBase = Math.min(rTotal, ESIC_CEILING);
-  if (esicType === "actual" && esic > 0 && esicBase > 0) {
+  if (esicType === "actual" && esic > 0 && esicBase > 0 && rTotal < ESIC_CEILING) {
     esicDays = Math.min(monDays, Math.max(0, Math.round(esic * monDays / (0.0075 * esicBase))));
   }
 
+  let result: number;
   if (pfDays !== null && esicDays !== null) {
-    // Both actual: pick whichever best matches net pay
-    return Math.abs(pfDays - netDays) <= Math.abs(esicDays - netDays) ? pfDays : esicDays;
+    // Both available: pick the one closest to actual payDays
+    result = Math.abs(pfDays - safePayDays) <= Math.abs(esicDays - safePayDays) ? pfDays : esicDays;
+  } else if (pfDays !== null) {
+    result = pfDays;
+  } else if (esicDays !== null) {
+    result = esicDays;
+  } else {
+    // Both deductions at ceiling (or not applicable) — use actual payroll pay days
+    result = safePayDays;
   }
-  if (pfDays !== null)   return pfDays;
-  if (esicDays !== null) return esicDays;
-  return netDays;
+
+  // Hard cap: never exceed actual days worked — compliance payable must not exceed actual payable
+  return Math.min(result, safePayDays);
 }
 
 // ─── Multi-select dropdown ────────────────────────────────────────────────────
@@ -1248,7 +1249,7 @@ function AdjustmentsTab({ companyId, isSuperAdmin, user, toast }: {
       const adjPayDays = computeAdjPayDays(
         r.pfType || "actual", r.esicType || "actual",
         ap, ae,
-        Math.min(r.rBasic, PF_CEILING), Math.min(r.rTotal, ESIC_CEILING),
+        r.rBasic, r.rTotal,
         r.monDays, r.netPay, totalDeds, r.payDays
       );
       const eDaysC = r.eTotal > 0 ? adjPayDays : 0;
