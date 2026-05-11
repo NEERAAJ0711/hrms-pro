@@ -146,6 +146,9 @@ export function registerComplianceRoutes(app: Express) {
     )
   `).catch(() => {});
 
+  db.execute(sql`ALTER TABLE compliance_client_employees ADD COLUMN IF NOT EXISTS designation VARCHAR`).catch(() => {});
+  db.execute(sql`ALTER TABLE compliance_client_employees ADD COLUMN IF NOT EXISTS present_address TEXT`).catch(() => {});
+
   // ── POST /api/compliance/carry-fwd/save — bulk-upsert carry-forward amounts
   app.post("/api/compliance/carry-fwd/save", requireAuth, attachUser, requireAdminRole, async (req: Request, res: Response) => {
     try {
@@ -941,14 +944,14 @@ export function registerComplianceRoutes(app: Express) {
     try {
       const user = (req as any).user;
       const { id } = req.params;
-      const { employeeId, assignedDate } = req.body;
+      const { employeeId, assignedDate, designation, presentAddress } = req.body;
       if (!employeeId || !assignedDate) return res.status(400).json({ error: "Employee and date required" });
       const aeId = randomUUID();
       const now = new Date().toISOString();
       await db.execute(sql`
         INSERT INTO compliance_client_employees
-          (id, client_id, employee_id, company_id, assigned_date, status, created_by, created_at, updated_at)
-        SELECT ${aeId}, ${id}, ${employeeId}, company_id, ${assignedDate}, 'active', ${user.id}, ${now}, ${now}
+          (id, client_id, employee_id, company_id, assigned_date, designation, present_address, status, created_by, created_at, updated_at)
+        SELECT ${aeId}, ${id}, ${employeeId}, company_id, ${assignedDate}, ${designation || null}, ${presentAddress || null}, 'active', ${user.id}, ${now}, ${now}
         FROM compliance_clients WHERE id = ${id}
       `);
       return res.json({ success: true });
@@ -1011,13 +1014,14 @@ export function registerComplianceRoutes(app: Express) {
             e.first_name || ' ' || e.last_name AS full_name,
             e.date_of_birth, e.gender,
             e.father_husband_name,
-            COALESCE(cs.designation, e.designation, '') AS designation,
+            COALESCE(cce.designation, cs.designation, e.designation, '') AS designation,
             COALESCE(cs.payment_mode, e.payment_mode, 'Monthly') AS wages_period,
             COALESCE(
               NULLIF(CONCAT_WS(', ', NULLIF(e.permanent_address,''), NULLIF(e.permanent_district,''), NULLIF(e.permanent_state,''), NULLIF(e.permanent_pincode,'')), ''),
               ''
             ) AS permanent_address,
             COALESCE(
+              cce.present_address,
               NULLIF(CONCAT_WS(', ', NULLIF(e.present_address,''), NULLIF(e.present_district,''), NULLIF(e.present_state,''), NULLIF(e.present_pincode,'')), ''),
               ''
             ) AS present_address,

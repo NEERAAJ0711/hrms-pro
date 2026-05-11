@@ -2059,6 +2059,8 @@ function ClientSetupTab({ companyId, isSuperAdmin, toast }: {
   // Assign new employee within the assignments dialog
   const [assignEmpId, setAssignEmpId] = useState("");
   const [assignDate, setAssignDate] = useState("");
+  const [assignDesignation, setAssignDesignation] = useState("");
+  const [assignPresentAddress, setAssignPresentAddress] = useState("");
   const [assignSaving, setAssignSaving] = useState(false);
 
   // De-assign
@@ -2067,7 +2069,7 @@ function ClientSetupTab({ companyId, isSuperAdmin, toast }: {
   const [deassignSaving, setDeassignSaving] = useState(false);
 
   // All employees for assignment dropdown
-  const [allEmployees, setAllEmployees] = useState<{ id: string; name: string; code: string }[]>([]);
+  const [allEmployees, setAllEmployees] = useState<{ id: string; name: string; code: string; designation: string; presentAddress: string }[]>([]);
 
   const loadClients = useCallback(async () => {
     if (!companyId) return;
@@ -2098,6 +2100,8 @@ function ClientSetupTab({ companyId, isSuperAdmin, toast }: {
         id: e.id,
         code: e.employeeCode || e.employee_code || "",
         name: `${e.firstName || e.first_name || ""} ${e.lastName || e.last_name || ""}`.trim(),
+        designation: e.designation || "",
+        presentAddress: [e.presentAddress || e.present_address || "", e.presentDistrict || e.present_district || "", e.presentState || e.present_state || ""].filter(Boolean).join(", "),
       })));
     } catch (_) {}
   }, [companyId]);
@@ -2169,11 +2173,11 @@ function ClientSetupTab({ companyId, isSuperAdmin, toast }: {
       const res = await fetch(`/api/compliance/clients/${assignClientId}/assign`, {
         method: "POST", credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ employeeId: assignEmpId, assignedDate: assignDate }),
+        body: JSON.stringify({ employeeId: assignEmpId, assignedDate: assignDate, designation: assignDesignation || undefined, presentAddress: assignPresentAddress || undefined }),
       });
       if (!res.ok) throw new Error("Failed to assign");
       toast({ title: "Assigned", description: "Employee assigned to project" });
-      setAssignEmpId(""); setAssignDate("");
+      setAssignEmpId(""); setAssignDate(""); setAssignDesignation(""); setAssignPresentAddress("");
       const res2 = await fetch(`/api/compliance/clients/${assignClientId}/employees`, { credentials: "include" });
       setAssignments(await res2.json());
       loadClients();
@@ -2394,28 +2398,59 @@ function ClientSetupTab({ companyId, isSuperAdmin, toast }: {
           </DialogHeader>
           <div className="space-y-4 py-1">
             {/* Assign new employee */}
-            <div className="flex items-end gap-3 p-3 bg-blue-50 rounded-lg">
-              <div className="flex-1 space-y-1">
-                <Label className="text-xs text-gray-600">Assign Employee</Label>
-                <Select value={assignEmpId} onValueChange={setAssignEmpId}>
-                  <SelectTrigger className="h-9 bg-white"><SelectValue placeholder="Select employee..." /></SelectTrigger>
-                  <SelectContent>
-                    {allEmployees
-                      .filter(e => !assignments.some(a => a.employee_id === e.id && a.status === "active"))
-                      .map(e => (
-                        <SelectItem key={e.id} value={e.id}>{e.code} — {e.name}</SelectItem>
+            <div className="p-3 bg-blue-50 rounded-lg space-y-2">
+              <div className="flex items-end gap-3">
+                <div className="flex-1 space-y-1">
+                  <Label className="text-xs text-gray-600">Assign Employee</Label>
+                  <Select value={assignEmpId} onValueChange={v => {
+                    setAssignEmpId(v);
+                    const emp = allEmployees.find(e => e.id === v);
+                    if (emp) {
+                      if (!assignDesignation) setAssignDesignation(emp.designation);
+                      if (!assignPresentAddress) setAssignPresentAddress(emp.presentAddress);
+                    }
+                  }}>
+                    <SelectTrigger className="h-9 bg-white"><SelectValue placeholder="Select employee..." /></SelectTrigger>
+                    <SelectContent>
+                      {allEmployees
+                        .filter(e => !assignments.some(a => a.employee_id === e.id && a.status === "active"))
+                        .map(e => (
+                          <SelectItem key={e.id} value={e.id}>{e.code} — {e.name}</SelectItem>
+                        ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs text-gray-600">Assign Date</Label>
+                  <Input type="date" value={assignDate} onChange={e => setAssignDate(e.target.value)} className="h-9 w-40 bg-white" />
+                </div>
+                <Button size="sm" onClick={submitAssign} disabled={assignSaving}
+                  className="h-9 bg-blue-600 hover:bg-blue-700 text-white">
+                  <UserPlus className="h-4 w-4 mr-1" /> {assignSaving ? "..." : "Assign"}
+                </Button>
+              </div>
+              <div className="flex gap-3">
+                <div className="flex-1 space-y-1">
+                  <Label className="text-xs text-gray-600">Designation</Label>
+                  <Select value={assignDesignation} onValueChange={setAssignDesignation}>
+                    <SelectTrigger className="h-9 bg-white"><SelectValue placeholder="Select designation..." /></SelectTrigger>
+                    <SelectContent>
+                      {["LABOUR","HELPER","SUPERVISOR","MANAGER","EXECUTIVE","OFFICER","ENGINEER","TECHNICIAN","DRIVER","SECURITY GUARD","HOUSE KEEPING","ACCOUNTANT","CLERK","PEON","SWEEPER","ELECTRICIAN","PLUMBER","MECHANIC","OPERATOR"].map(d => (
+                        <SelectItem key={d} value={d}>{d}</SelectItem>
                       ))}
-                  </SelectContent>
-                </Select>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex-1 space-y-1">
+                  <Label className="text-xs text-gray-600">Present Address</Label>
+                  <Input
+                    className="h-9 bg-white"
+                    placeholder="Enter present address..."
+                    value={assignPresentAddress}
+                    onChange={e => setAssignPresentAddress(e.target.value)}
+                  />
+                </div>
               </div>
-              <div className="space-y-1">
-                <Label className="text-xs text-gray-600">Assign Date</Label>
-                <Input type="date" value={assignDate} onChange={e => setAssignDate(e.target.value)} className="h-9 w-40 bg-white" />
-              </div>
-              <Button size="sm" onClick={submitAssign} disabled={assignSaving}
-                className="h-9 bg-blue-600 hover:bg-blue-700 text-white">
-                <UserPlus className="h-4 w-4 mr-1" /> {assignSaving ? "..." : "Assign"}
-              </Button>
             </div>
 
             {/* Assignment list */}
