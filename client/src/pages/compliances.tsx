@@ -779,13 +779,10 @@ function computeAdjPayDays(
     result = pfDays;
   } else if (esicDays !== null) {
     result = esicDays;
-  } else if (rBasic > 0 && eBasic > 0) {
-    // Step 3 — No PF/ESIC signal (both zero or not enrolled).
-    // Back-calc from actual basic earnings: D = eBasic × monDays / rBasic.
-    // Basic is always proportional to days worked — no bonus or deduction distortion.
-    result = Math.min(monDays, Math.max(0, Math.round(eBasic * monDays / rBasic)));
   } else {
-    // Step 4 — Absolute fallback: assume full calendar month
+    // Step 3 — Absolute fallback: assume full calendar month.
+    // When no PF/ESIC signal, netPay is the reliable source of truth.
+    // computeNetPayMaxDays (called at every site) will cap adjPayDays appropriately.
     result = monDays;
   }
 
