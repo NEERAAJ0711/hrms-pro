@@ -5714,9 +5714,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const record = await storage.getLoanAdvance(req.params.id);
       if (!record) return res.status(404).json({ error: "Not found" });
-      if (!["pending", "rejected", "cancelled", "closed"].includes(record.status)) {
-        return res.status(400).json({ error: "Active loans cannot be deleted" });
-      }
       await storage.deleteLoanAdvance(req.params.id);
       res.json({ success: true });
     } catch (error) {
