@@ -3593,54 +3593,106 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
       });
       addFooter(lastY() + 8);
 
-      // ── Form X — Employment Card (one row per employee) ────────────────────
-      doc.addPage(); addTitle("FORM X", "[See rule 75]", "Employment Card");
-      y = addHdr();
-      autoTbl(doc, {
-        startY: y,
-        head: [["Name of\nthe workman", "Serial no. in\nregister of\nworkman employed", "Nature of\nemployment/\ndesignation", "Wages rate\n(with particular unit,\nin case of piece work)", "Wages\nPeriod", "Date of\nJoining", "Remarks"]],
-        body: clraData.ix.employees.map(e => [e.name, e.serialNo, e.designation||"LABOUR", "", e.wagesPeriod||"Monthly", fmtDate(e.dateOfJoining)||"—", ""]),
-        styles: TS, headStyles: TH,
-        columnStyles: { 0:{ cellWidth:38 }, 1:{ cellWidth:24, halign:"center" }, 2:{ cellWidth:28 }, 3:{ cellWidth:30 }, 4:{ cellWidth:18, halign:"center" }, 5:{ cellWidth:22, halign:"center" }, 6:{ cellWidth:32 } },
-        margin:{ left:M, right:M },
-      });
-      addFooter(lastY() + 8);
-
-      // ── Form XI — Service Certificate (one section per employee) ──────────
+      // ── Form X — Employment Card (newly joined employees only, one card per page)
       {
-        const wMap = new Map(clraData.xiii.employees.map((e: any) => [e.name, e]));
+        const selMonthNum = monthIdx + 1;
+        const selYearNum  = parseInt(toYear);
+        const newJoiners  = clraData.ix.employees.filter((e: any) => {
+          if (!e.dateOfJoining) return false;
+          const d = new Date(e.dateOfJoining);
+          return !isNaN(d.getTime()) && d.getFullYear() === selYearNum && (d.getMonth() + 1) === selMonthNum;
+        });
+        const wageMap = new Map(clraData.xiii.employees.map((e: any) => [e.name, e]));
+
+        if (newJoiners.length === 0) {
+          doc.addPage(); addTitle("FORM X", "[See rule 75]", "Employment Card");
+          y = addHdr();
+          doc.setFont("times", "italic"); doc.setFontSize(10);
+          doc.text(`No new employees joined during ${monthFull} ${toYear}.`, pw / 2, y + 12, { align: "center" });
+          addFooter(y + 30);
+        } else {
+          newJoiners.forEach((e: any) => {
+            const w = wageMap.get(e.name) as any;
+            doc.addPage(); addTitle("FORM X", "[See rule 75]", "Employment Card");
+            y = addHdr();
+            // Employee identity block
+            const lblW = 60;
+            const drawRow = (lbl: string, val: string) => {
+              doc.setFont("times", "bold"); doc.setFontSize(9.5);
+              doc.text(lbl + " :", M, y);
+              doc.setFont("times", "normal"); doc.setFontSize(9.5);
+              const lines: string[] = doc.splitTextToSize(val, pw - M * 2 - lblW);
+              lines.forEach((l: string, i: number) => doc.text(l, M + lblW, y + i * LH));
+              y += Math.max(1, lines.length) * LH + 1;
+            };
+            drawRow("Name of the Workman",             e.name || "—");
+            drawRow("Father's / Husband's Name",       e.fatherHusbandName || "—");
+            drawRow("Address",                         v(e.permanentAddress) || "—");
+            drawRow("Designation / Nature of Work",   e.designation || "LABOUR");
+            drawRow("Date of Joining",                 fmtDate(e.dateOfJoining) || "—");
+            drawRow("Rate of Wages",                   w?.monthlyRate ? `₹ ${w.monthlyRate.toLocaleString("en-IN")} (Monthly)` : (e.wagesPeriod || "Monthly"));
+            doc.setDrawColor(80, 80, 80); doc.line(M, y, pw - M, y); y += 4;
+            autoTbl(doc, {
+              startY: y,
+              head: [["Serial No.\nin Register", "Nature of Employment /\nDesignation", "Rate of Wages\n(with unit / piece rate)", "Wages\nPeriod", "Date of\nJoining", "Remarks"]],
+              body: [[e.serialNo, e.designation||"LABOUR", w?.monthlyRate ? `₹ ${w.monthlyRate.toLocaleString("en-IN")} Monthly` : "—", e.wagesPeriod||"Monthly", fmtDate(e.dateOfJoining)||"—", ""]],
+              styles: TS, headStyles: TH,
+              columnStyles: { 0:{ cellWidth:26, halign:"center" }, 1:{ cellWidth:45 }, 2:{ cellWidth:45 }, 3:{ cellWidth:26, halign:"center" }, 4:{ cellWidth:32, halign:"center" }, 5:{ cellWidth:"auto" as any } },
+              margin:{ left:M, right:M },
+            });
+            addFooter(lastY() + 10);
+          });
+        }
+      }
+
+      // ── Form XI — Service Certificate (one full page per employee) ──────────
+      {
+        const wMap  = new Map(clraData.xiii.employees.map((e: any) => [e.name, e]));
         const mNum  = monthIdx + 1;
         const dInM  = new Date(parseInt(toYear), mNum, 0).getDate();
         const fromD = `01-${String(mNum).padStart(2,"0")}-${toYear}`;
         const toD   = `${String(dInM).padStart(2,"0")}-${String(mNum).padStart(2,"0")}-${toYear}`;
-        doc.addPage(); addTitle("FORM XI", "[See rule 76]", "Service Certificate");
-        y = addHdr();
-        // Generate one block per employee
-        clraData.ix.employees.forEach((e: any, idx: number) => {
+
+        clraData.ix.employees.forEach((e: any) => {
           const w = wMap.get(e.name) as any;
-          if (idx > 0) y += 4;
-          const blkH = 48;
-          if (y + blkH > doc.internal.pageSize.getHeight() - 20) { doc.addPage(); addTitle("FORM XI", "[See rule 76]", "Service Certificate"); y = addHdr(); }
-          doc.setFont("times", "bold"); doc.setFontSize(8.5);
-          doc.text(`Name and address of the workman : `, M, y);
-          doc.setFont("times", "normal"); doc.text(e.name, M + doc.getTextWidth("Name and address of the workman : "), y); y += 5;
-          doc.setFont("times", "bold"); doc.text(`Age and date of birth : `, M, y);
-          doc.setFont("times", "normal"); doc.text(e.age ? `${e.age} yr` : "—", M + doc.getTextWidth("Age and date of birth : "), y); y += 5;
-          doc.setFont("times", "bold"); doc.text(`Father's/husband's Name : `, M, y);
-          doc.setFont("times", "normal"); doc.text(e.fatherHusbandName||"—", M + doc.getTextWidth("Father's/husband's Name : "), y); y += 5;
+          doc.addPage();
+          addTitle("FORM XI", "[See rule 76]", "Service Certificate");
+          // Use addHdr with employee-specific extra rows
+          y = addHdr([
+            ["Name and address of the workman",  e.name || "—"],
+            ["Age and date of birth",             e.age ? `${e.age} yr` : "—"],
+            ["Father's / Husband's Name",         e.fatherHusbandName || "—"],
+          ]);
           autoTbl(doc, {
             startY: y,
-            head: [["Serial\nNo.", "From", "To", "Actual No.\nof days\nworked", "Nature of\nwork done", "Rate of\nwage", "Total wages\nearned by\nworkman", "Total\ndeduction\nmade, if any", "Total wages\nactually\npaid", "Remarks"]],
-            body: [[e.serialNo, fromD, toD, w?.payDays??"-", e.designation||"LABOUR", "Monthly", w ? w.totalEarnings.toLocaleString("en-IN") : "—", w ? `PF:${w.pf} ESI:${w.esi} LWF:${w.lwf}` : "—", w ? w.netSalary.toLocaleString("en-IN") : "—", ""]],
-            styles: { ...TS, fontSize: 7 }, headStyles: { ...TH, fontSize: 7 },
-            columnStyles: { 0:{ cellWidth:12, halign:"center" }, 1:{ cellWidth:20, halign:"center" }, 2:{ cellWidth:20, halign:"center" }, 3:{ cellWidth:16, halign:"center" }, 4:{ cellWidth:22 }, 5:{ cellWidth:16 }, 6:{ cellWidth:24, halign:"right" }, 7:{ cellWidth:28 }, 8:{ cellWidth:24, halign:"right" }, 9:{ cellWidth:14 } },
+            head: [["Serial\nNo.", "From", "To", "Actual days\nworked", "Nature of\nwork done", "Rate of\nwage", "Total wages\nearned (₹)", "Total\ndeductions", "Net wages\npaid (₹)", "Remarks"]],
+            body: [[
+              e.serialNo,
+              fromD, toD,
+              w?.payDays ?? "—",
+              e.designation || "LABOUR",
+              "Monthly",
+              w ? w.totalEarnings.toLocaleString("en-IN") : "—",
+              w ? `PF: ${w.pf||0}  ESIC: ${w.esi||0}  LWF: ${w.lwf||0}` : "—",
+              w ? w.netSalary.toLocaleString("en-IN") : "—",
+              "",
+            ]],
+            styles: { ...TS, minCellHeight: 16 }, headStyles: TH,
+            columnStyles: {
+              0:{ cellWidth:12, halign:"center" },
+              1:{ cellWidth:22, halign:"center" },
+              2:{ cellWidth:22, halign:"center" },
+              3:{ cellWidth:16, halign:"center" },
+              4:{ cellWidth:24 },
+              5:{ cellWidth:16, halign:"center" },
+              6:{ cellWidth:26, halign:"right" },
+              7:{ cellWidth:32 },
+              8:{ cellWidth:26, halign:"right" },
+              9:{ cellWidth:"auto" as any },
+            },
             margin:{ left:M, right:M },
           });
-          y = lastY() + 6;
-          doc.setFont("times", "normal"); doc.setFontSize(8);
-          doc.text(`Place : ${v(cl?.location_of_work)}`, M, y);
-          doc.setFont("times", "bold"); doc.text("Signature of the Contractor:", pw - M, y, { align: "right" });
-          y += 8; doc.line(M, y, pw - M, y); y += 4;
+          addFooter(lastY() + 10);
         });
       }
 
@@ -3694,28 +3746,59 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
       });
       addFooter(lastY() + 8);
 
-      // ── Form XV — Wage Slip (one row per employee, Form XV format) ────────
-      doc.addPage(); addTitle("FORM XV", "[See Rule 77 (1) (b)]", "Wage Slip");
-      y = addHdr([["For the month of", `${monthFull} ${toYear}`]]);
-      autoTbl(doc, {
-        startY: y,
-        head: [["Name of Workman\n& Father's Name", "No. of\ndays\nworked", "Rate of daily\nwages /\npiece rate", "No. of units\nworked in case\nof piece rate\nwork", "Dates on which\novertime hours\nworked & amount\nof overtime wages", "Gross wages\npayable\n(₹)", "Deductions\nif any", "Net amount\npaid\n(₹)", "Signature of\ncontractor or\nhis rep."]],
-        body: clraData.xiii.employees.map(e => [
-          `${e.name}${e.fatherHusbandName ? ` S/O ${e.fatherHusbandName}` : ""}`,
-          e.payDays,
-          `${e.monthlyRate ? e.monthlyRate.toLocaleString("en-IN") : "—"}\n(Monthly)`,
-          "N.A",
-          "NIL",
-          e.totalEarnings ? e.totalEarnings.toLocaleString("en-IN") : "—",
-          `PF:${e.pf||0}\nESIC:${e.esi||0}\nLWF:${e.lwf||0}\nADJS:0`,
-          e.netSalary ? e.netSalary.toLocaleString("en-IN") : "—",
-          "",
-        ]),
-        styles: { ...TS, minCellHeight: 14 }, headStyles: TH,
-        columnStyles: { 0:{ cellWidth:38 }, 1:{ cellWidth:12, halign:"center" }, 2:{ cellWidth:22, halign:"center" }, 3:{ cellWidth:22, halign:"center" }, 4:{ cellWidth:22, halign:"center" }, 5:{ cellWidth:20, halign:"right" }, 6:{ cellWidth:22 }, 7:{ cellWidth:20, halign:"right" }, 8:{ cellWidth:24 } },
-        margin:{ left:M, right:M },
+      // ── Form XV — Wage Slip (one individual slip per employee, per page) ────
+      clraData.xiii.employees.forEach((e: any) => {
+        doc.addPage();
+        addTitle("FORM XV", "[See Rule 77 (1) (b)]", "Wage Slip");
+        y = addHdr([["For the month of", `${monthFull} ${toYear}`]]);
+
+        // Employee name line
+        const nameLabel = "Name & Father's Name S/O : ";
+        doc.setFont("times", "bold"); doc.setFontSize(10);
+        doc.text(nameLabel, M, y);
+        doc.setFont("times", "normal"); doc.setFontSize(10);
+        const nameVal = `${e.name}${e.fatherHusbandName ? `  S/O  ${e.fatherHusbandName}` : ""}`;
+        doc.text(nameVal, M + doc.getTextWidth(nameLabel), y);
+        y += 7;
+
+        // Slip table — one row per employee on a full page
+        autoTbl(doc, {
+          startY: y,
+          head: [[
+            "No. of days\nworked",
+            "Rate of wages\n(Monthly)",
+            "No. of units\n(piece rate)",
+            "OT hours worked\n& OT wages",
+            "Gross wages\npayable (₹)",
+            "Deductions if any",
+            "Net amount\npaid (₹)",
+            "Signature of\nworkman",
+          ]],
+          body: [[
+            String(e.payDays ?? "—"),
+            e.monthlyRate ? `₹ ${e.monthlyRate.toLocaleString("en-IN")}` : "—",
+            "N.A.",
+            "NIL",
+            e.totalEarnings ? `₹ ${e.totalEarnings.toLocaleString("en-IN")}` : "—",
+            `PF   : ₹ ${e.pf||0}\nESIC : ₹ ${e.esi||0}\nLWF  : ₹ ${e.lwf||0}\nAdjs : ₹ 0`,
+            e.netSalary ? `₹ ${e.netSalary.toLocaleString("en-IN")}` : "—",
+            "",
+          ]],
+          styles: { ...TS, minCellHeight: 24 }, headStyles: TH,
+          columnStyles: {
+            0:{ cellWidth:22, halign:"center" },
+            1:{ cellWidth:30, halign:"center" },
+            2:{ cellWidth:24, halign:"center" },
+            3:{ cellWidth:28, halign:"center" },
+            4:{ cellWidth:28, halign:"right" },
+            5:{ cellWidth:38 },
+            6:{ cellWidth:28, halign:"right" },
+            7:{ cellWidth:"auto" as any },
+          },
+          margin:{ left:M, right:M },
+        });
+        addFooter(lastY() + 10);
       });
-      addFooter(lastY() + 8);
 
       // ── Form XVI — Damage Register ────────────────────────────────────────
       doc.addPage(); addTitle("FORM XVI", "[See Rule 77 (2) (a)]", "Register of Deductions for Damage or Loss");
