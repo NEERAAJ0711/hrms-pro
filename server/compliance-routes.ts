@@ -1325,18 +1325,34 @@ export function registerComplianceRoutes(app: Express) {
       const empIds = empRows.rows.map((r: any) => r.id);
       let payrollMap: Record<string, any> = {};
       let adjMap: Record<string, any> = {};
+      let attMap: Record<string, any> = {};
+      // Calendar days in the given month (used as denominator for proration, matching compliance adjustments screen)
+      const monDays = new Date(parseInt(year), monthNum, 0).getDate();
+
       if (empIds.length > 0) {
         const empInList = sql.join(empIds.map((id: string) => sql`${id}`), sql`, `);
-        // Payroll: reference for pay_days/working_days + actual values for "actual" compliance types
+
+        // Attendance: primary source for pay days (one row per day, count present/half_day)
+        const attRows = await db.execute(sql`
+          SELECT employee_id,
+                 COUNT(*) FILTER (WHERE status IN ('present','half_day')) AS present_days
+          FROM attendance
+          WHERE company_id = ${targetCompanyId}
+            AND EXTRACT(MONTH FROM date::date) = ${monthNum}
+            AND EXTRACT(YEAR  FROM date::date) = ${parseInt(year)}
+          GROUP BY employee_id`);
+        for (const a of attRows.rows as any[]) attMap[a.employee_id] = a;
+
+        // Payroll: only used for "actual" deduction types (bonus, PF, ESI, LWF, PT, TDS, Loan)
         const payrollRows = await db.execute(sql`
           SELECT employee_id, bonus, pf_employee, esi, lwf_employee,
-                 professional_tax, tds, loan_deduction, working_days, present_days, pay_days
+                 professional_tax, tds, loan_deduction, pay_days, present_days
           FROM payroll
           WHERE company_id = ${targetCompanyId} AND year = ${parseInt(year)} AND month = ${monthStr}
             AND employee_id IN (${empInList})`);
         for (const p of payrollRows.rows as any[]) payrollMap[p.employee_id] = p;
 
-        // Compliance adjustments override everything
+        // Compliance adjustments — highest priority, override everything
         const adjRows = await db.execute(sql`
           SELECT employee_id, adjusted_attendance, adjusted_basic_salary,
                  adjusted_gross_salary, adjusted_net_salary
@@ -1347,26 +1363,27 @@ export function registerComplianceRoutes(app: Express) {
       }
 
       const employees = empRows.rows.map((r: any, idx: number) => {
-        const p = payrollMap[r.id] || {};
-        const adj = adjMap[r.id] || null;
+        const p   = payrollMap[r.id] || {};
+        const att = attMap[r.id]     || {};
+        const adj = adjMap[r.id]     || null;
 
-        const setupBasic   = Number(r.setup_basic  || 0);
-        const setupGross   = Number(r.setup_gross  || 0);
-        const workingDays  = Number(p.working_days || 26);
-        // Pay days: adjusted attendance > actual payroll > 0
+        const setupBasic = Number(r.setup_basic || 0);
+        const setupGross = Number(r.setup_gross || 0);
+
+        // Pay days priority: compliance adjustment → attendance → payroll → 0
         const payDays = adj?.adjusted_attendance != null
           ? Number(adj.adjusted_attendance)
-          : Number(p.pay_days || p.present_days || 0);
+          : Number(att.present_days || p.pay_days || p.present_days || 0);
 
         // Bonus: "actual" = from payroll, otherwise 0
         const bonus = r.bonus_type === "actual" ? Number(p.bonus || 0) : 0;
 
-        // Compliance earnings (prorated from compliance setup)
-        let compGross = payDays > 0 && workingDays > 0 ? Math.round(setupGross * payDays / workingDays) : 0;
-        let compBasic = payDays > 0 && workingDays > 0 ? Math.round(setupBasic * payDays / workingDays) : 0;
-        let compHra   = compGross - compBasic;
+        // Compliance earnings — prorated by calendar days (matching compliance adjustments screen)
+        let compGross = payDays > 0 && monDays > 0 ? Math.round(setupGross * payDays / monDays) : 0;
+        let compBasic = payDays > 0 && monDays > 0 ? Math.round(setupBasic * payDays / monDays) : 0;
+        let compHra   = Math.max(0, compGross - compBasic);
 
-        // Override with adjustments if present
+        // Compliance adjustment overrides (highest priority)
         if (adj?.adjusted_gross_salary != null) {
           compGross = Number(adj.adjusted_gross_salary);
           if (adj.adjusted_basic_salary != null) {
@@ -1374,36 +1391,38 @@ export function registerComplianceRoutes(app: Express) {
           } else {
             compBasic = setupGross > 0 ? Math.round(compGross * setupBasic / setupGross) : 0;
           }
-          compHra = compGross - compBasic;
+          compHra = Math.max(0, compGross - compBasic);
         }
 
         const totalEarnings = compGross + bonus;
 
-        // PF deduction from compliance type
+        // PF — "actual" uses payroll; otherwise calculated from compliance setup
         let pf = 0;
-        if (r.pf_type === "actual")      pf = Math.round(Number(p.pf_employee || 0));
+        if (r.pf_type === "actual")     pf = Math.round(Number(p.pf_employee || 0));
         else if (r.pf_type !== "na") {
-          const pfBase = Math.min(compBasic, Math.round(PF_CEILING * payDays / workingDays));
+          const pfBase = Math.min(compBasic, Math.round(PF_CEILING * payDays / monDays));
           pf = Math.round(pfBase * 0.12);
         }
 
-        // ESI deduction from compliance type
+        // ESI — "actual" uses payroll; otherwise calculated from compliance setup
         let esi = 0;
-        if (r.esic_type === "actual")    esi = Math.round(Number(p.esi || 0));
+        if (r.esic_type === "actual")   esi = Math.round(Number(p.esi || 0));
         else if (r.esic_type !== "na") {
-          const esicCeil = Math.round(ESIC_CEILING * payDays / workingDays);
-          if (totalEarnings <= esicCeil)  esi = Math.round(totalEarnings * 0.0075);
+          const esicCeil = Math.round(ESIC_CEILING * payDays / monDays);
+          if (totalEarnings <= esicCeil) esi = Math.round(totalEarnings * 0.0075);
         }
 
-        // LWF from compliance type
+        // LWF — "actual" uses payroll; otherwise fixed 25
         let lwf = 0;
-        if (r.lwf_type === "actual")     lwf = Math.round(Number(p.lwf_employee || 0));
-        else if (r.lwf_type !== "na")    lwf = 25;
+        if (r.lwf_type === "actual")    lwf = Math.round(Number(p.lwf_employee || 0));
+        else if (r.lwf_type !== "na")   lwf = 25;
 
-        const pt           = Number(p.professional_tax || 0);
-        const tds          = Number(p.tds              || 0);
-        const loanDeduction = Number(p.loan_deduction  || 0);
+        const pt            = Number(p.professional_tax || 0);
+        const tds           = Number(p.tds              || 0);
+        const loanDeduction = Number(p.loan_deduction   || 0);
         const totalDeductions = pf + esi + lwf + pt + tds + loanDeduction;
+
+        // Net salary: compliance adjustment → calculated
         const netSalary = adj?.adjusted_net_salary != null
           ? Number(adj.adjusted_net_salary)
           : totalEarnings - totalDeductions;
@@ -1415,7 +1434,7 @@ export function registerComplianceRoutes(app: Express) {
           designation:      r.designation || "",
           monthlyRate:      setupGross,
           payDays,
-          workingDays,
+          workingDays:      monDays,
           basicSalary:      compBasic,
           hra:              compHra,
           conveyance:       0,
