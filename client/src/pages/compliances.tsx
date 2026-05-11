@@ -2861,53 +2861,64 @@ function WagesRegisterView({ data }: { data: WagesRegisterData }) {
   </>);
 }
 
-// ─── Form XIV — Wage Slip ──────────────────────────────────────────────────────
+// ─── Form XV — Wage Slip (2-up per page) ─────────────────────────────────────
 function WageSlipView({ data }: { data: WagesRegisterData }) {
   const { company, client: c, month, year, employees } = data;
-  const monthFull = month && ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"].includes(month)
-    ? ["January","February","March","April","May","June","July","August","September","October","November","December"][["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"].indexOf(month)]
-    : month;
+  const monthIdx = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"].indexOf(month);
+  const monthFull = monthIdx >= 0 ? ["January","February","March","April","May","June","July","August","September","October","November","December"][monthIdx] : month;
+  const today = new Date().toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" });
+  const v = (...p: (string | null | undefined)[]) => p.filter(Boolean).join(", ") || "—";
   return CL_WRAP("wage-slip-print", <>
-    {CL_TITLE("Form XIV","See Rule 77 (1) (a) (iii)","Wage Slip")}
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: "16px", marginTop: "8px" }}>
+    {CL_TITLE("Form XV","[See 77(1)(b)]","Wage Slip")}
+    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px", marginTop: "8px" }}>
       {employees.length === 0 && <div style={{ color: "#666", padding: "20px" }}>No payroll data for this month</div>}
       {employees.map(e => (
-        <div key={e.serialNo} style={{ border: "1px solid #aaa", padding: "12px 14px", fontSize: "9.5px" }}>
-          <div style={{ textAlign: "center", fontWeight: 700, fontSize: "10.5px", marginBottom: "6px" }}>
-            {company.name}
+        <div key={e.serialNo} style={{ border: "1px solid #333", padding: "12px 14px", fontSize: "8.5px", pageBreakInside: "avoid", breakInside: "avoid" }}>
+          <div style={{ textAlign: "center", fontWeight: 700, marginBottom: "8px" }}>
+            <div style={{ fontSize: "12px" }}>FORM XV</div>
+            <div style={{ fontSize: "10px" }}>[See 77(1)(b)]</div>
+            <div style={{ fontSize: "12px" }}>WAGE SLIP</div>
           </div>
-          <div style={{ textAlign: "center", fontSize: "9px", marginBottom: "8px", color: "#555" }}>
-            Wage Slip for {monthFull} {year}
-          </div>
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <div style={{ marginBottom: "6px" }}><b>Name and address of Contractor :</b> {v(company.name, company.address)}</div>
+          <div style={{ marginBottom: "4px" }}><b>Name and address of establishment in/under which contract is carried on :</b> {v(c?.client_name, c?.client_address)}</div>
+          <div style={{ marginBottom: "4px" }}><b>Name and location of work :</b> {v(c?.nature_of_work, c?.location_of_work)}</div>
+          <div style={{ marginBottom: "4px" }}><b>Name and address of Principal Employer :</b> {v(c?.principal_employer_name, c?.principal_employer_address)}</div>
+          <div style={{ marginBottom: "4px" }}><b>For the month of :</b> {monthFull} {year}</div>
+          <div style={{ marginBottom: "8px" }}><b>Name and Father's Name of the workman :</b> <b style={{ fontSize: "9px" }}>{e.name}{e.fatherHusbandName ? ` S/O ${e.fatherHusbandName}` : ""}</b></div>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "8px" }}>
+            <thead>
+              <tr>
+                <th style={CL_TH}>{"No. of\ndays\nworked"}</th>
+                <th style={CL_TH}>{"Rate of daily\nwages/piece\nrate"}</th>
+                <th style={CL_TH}>{"No. of units\nworked in case\nof piece rate\nwork"}</th>
+                <th style={CL_TH}>{"Dates on which overtime\nhours worked and amount\nof overtime wages"}</th>
+                <th style={CL_TH}>{"Gross wages\npayable"}</th>
+                <th style={CL_TH}>{"Deductions\nif any"}</th>
+                <th style={CL_TH}>{"Net amount\npaid"}</th>
+                <th style={CL_TH}>{"Signature of the\ncontractor or his\nrepresentative"}</th>
+              </tr>
+            </thead>
             <tbody>
-              <tr><td style={{ padding: "2px 0", fontWeight: 700 }}>Name</td><td>: {e.name}</td></tr>
-              <tr><td style={{ padding: "2px 0", fontWeight: 700 }}>Designation</td><td>: {e.designation || "—"}</td></tr>
-              <tr><td style={{ padding: "2px 0", fontWeight: 700 }}>Pay Days</td><td>: {e.payDays}</td></tr>
+              <tr>
+                <td style={{ ...CL_TD, textAlign: "center" }}>{e.payDays}</td>
+                <td style={{ ...CL_TD, textAlign: "center" }}>{ni(e.monthlyRate)}<br />(Monthly)</td>
+                <td style={{ ...CL_TD, textAlign: "center" }}>N.A</td>
+                <td style={{ ...CL_TD, textAlign: "center" }}>NIL</td>
+                <td style={{ ...CL_TD, textAlign: "right" }}>{ni(e.totalEarnings)}</td>
+                <td style={{ ...CL_TD, fontSize: "7.5px", lineHeight: "1.6" }}>
+                  PF : {ni(e.pf)}<br />
+                  ESIC : {ni(e.esi)}<br />
+                  LWF : {ni(e.lwf)}<br />
+                  ADJS : 0
+                </td>
+                <td style={{ ...CL_TD, textAlign: "right", fontWeight: 700 }}>{ni(e.netSalary)}</td>
+                <td style={CL_TD}></td>
+              </tr>
             </tbody>
           </table>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 8px", marginTop: "6px" }}>
-            <div>
-              <div style={{ fontWeight: 700, borderBottom: "1px solid #ccc", marginBottom: "3px", paddingBottom: "2px" }}>Earnings (₹)</div>
-              {[["Basic", e.basicSalary], ["HRA", e.hra], ["Conveyance", e.conveyance], ["Special All.", e.specialAllowance], ["Other All.", (e.otherAllowances || 0) + (e.medicalAllowance || 0)], ["Bonus", e.bonus]].filter(([,v]) => (v as number) > 0).map(([l,v]) => (
-                <div key={String(l)} style={{ display: "flex", justifyContent: "space-between" }}><span>{l}</span><span>{ni(v as number)}</span></div>
-              ))}
-              <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 700, borderTop: "1px solid #ccc", marginTop: "3px", paddingTop: "2px" }}><span>Total</span><span>{ni(e.totalEarnings)}</span></div>
-            </div>
-            <div>
-              <div style={{ fontWeight: 700, borderBottom: "1px solid #ccc", marginBottom: "3px", paddingBottom: "2px" }}>Deductions (₹)</div>
-              {[["PF", e.pf], ["ESI", e.esi], ["Prof. Tax", e.pt], ["LWF", e.lwf], ["TDS", e.tds], ["Loan / Adv.", e.loanDeduction], ["Others", e.otherDeductions]].filter(([,v]) => (v as number) > 0).map(([l,v]) => (
-                <div key={String(l)} style={{ display: "flex", justifyContent: "space-between" }}><span>{l}</span><span>{ni(v as number)}</span></div>
-              ))}
-              <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 700, borderTop: "1px solid #ccc", marginTop: "3px", paddingTop: "2px" }}><span>Total</span><span>{ni(e.totalDeductions)}</span></div>
-            </div>
-          </div>
-          <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 700, fontSize: "10px", background: "#f5f5f5", padding: "4px 6px", marginTop: "8px", border: "1px solid #ccc" }}>
-            <span>Net Salary</span><span>₹ {ni(e.netSalary)}</span>
-          </div>
-          <div style={{ display: "flex", justifyContent: "space-between", marginTop: "16px", fontSize: "9px" }}>
-            <div style={{ borderTop: "1px solid #555", paddingTop: "2px", minWidth: "80px", textAlign: "center" }}>Employee Signature</div>
-            <div style={{ borderTop: "1px solid #555", paddingTop: "2px", minWidth: "80px", textAlign: "center" }}>Employer Signature</div>
+          <div style={{ display: "flex", justifyContent: "space-between", marginTop: "12px", fontSize: "8px" }}>
+            <div>Place : {c?.location_of_work || "—"}<br />Date : {today}</div>
+            <div>Signature of the Contractor:</div>
           </div>
         </div>
       ))}
@@ -3163,68 +3174,153 @@ function MonthYearPicker({ label, month, year, onMonth, onYear }: {
   );
 }
 
-// ─── Form XI — Employment Card (2-up grid) ────────────────────────────────────
+// ─── Form X — Employment Card (2-up, one card per employee) ──────────────────
 function EmploymentCardView({ data }: { data: WorkmenRegisterData }) {
   const { company, client: c, employees } = data;
   const v = (...p: (string | null | undefined)[]) => p.filter(Boolean).join(", ") || "—";
-  const CARD: React.CSSProperties = {
-    border: "2px solid #333", padding: "12px 14px", fontSize: "9.5px",
-    pageBreakInside: "avoid", breakInside: "avoid",
-  };
-  const ROW = (label: string, val: string) => (
-    <tr key={label}>
-      <td style={{ fontWeight: 700, whiteSpace: "nowrap", paddingRight: "6px", paddingBottom: "3px", verticalAlign: "top" }}>{label}</td>
-      <td style={{ paddingBottom: "3px" }}>: {val}</td>
-    </tr>
+  const today = new Date().toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" });
+  const HDR_ROW = (label: string, val: string) => (
+    <div key={label} style={{ marginBottom: "3px", fontSize: "8.5px" }}>
+      <b>{label} :</b> {val}
+    </div>
   );
   return CL_WRAP("employment-card-print", <>
-    {CL_TITLE("Form XI", "See Rule 76", "Employment Card")}
-    {CL_HDR(c as ClientInfo, company)}
-    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", marginTop: "8px" }}>
+    {CL_TITLE("Form X", "See Rule 75", "Employment Card")}
+    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px", marginTop: "8px" }}>
       {employees.length === 0 && <div style={{ color: "#666", padding: "20px" }}>No employees found</div>}
       {employees.map(e => (
-        <div key={e.serialNo} style={CARD}>
-          <div style={{ textAlign: "center", fontWeight: 700, fontSize: "11px", borderBottom: "1px solid #333", paddingBottom: "6px", marginBottom: "8px", letterSpacing: "0.5px" }}>
-            EMPLOYMENT CARD
+        <div key={e.serialNo} style={{ border: "1px solid #333", padding: "14px 16px", pageBreakInside: "avoid", breakInside: "avoid" }}>
+          <div style={{ textAlign: "center", fontWeight: 700, marginBottom: "10px" }}>
+            <div style={{ fontSize: "12px" }}>Form X</div>
+            <div style={{ fontSize: "10px" }}>[See rule 75]</div>
+            <div style={{ fontSize: "12px" }}>Employment Card</div>
           </div>
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          {HDR_ROW("Name and address of Contractor",   v(company.name, company.address))}
+          {HDR_ROW("Name and address of establishment in/under which contract is carried on", v(c?.client_name, c?.client_address))}
+          {HDR_ROW("Name and location of work",        v(c?.nature_of_work, c?.location_of_work))}
+          {HDR_ROW("Name and address of Principal Employer", v(c?.principal_employer_name, c?.principal_employer_address))}
+          <table style={{ width: "100%", borderCollapse: "collapse", marginTop: "10px", fontSize: "8.5px" }}>
+            <thead>
+              <tr>
+                {["Name of the workman","Serial no. in register of workman employed","Nature of employment/ designation","Wages rate (with particular unit, in case of piece work)","Wages Period","Date of Joining","Remarks"].map(h => (
+                  <th key={h} style={{ ...CL_TH, fontSize: "8px", padding: "3px 4px" }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
             <tbody>
-              {ROW("Name of Contractor",          company.name)}
-              {ROW("Establishment / Client",       v(c?.client_name))}
-              {ROW("Nature of Work",               v(c?.nature_of_work, c?.location_of_work))}
-              <tr><td colSpan={2} style={{ borderTop: "1px solid #ccc", paddingTop: "5px", paddingBottom: "3px" }}></td></tr>
-              {ROW("Serial No.",                   String(e.serialNo))}
-              {ROW("Name of Workman",              e.name)}
-              {ROW("Age & Sex",                    `${e.age ? e.age + ", " : ""}${e.sex || "—"}`)}
-              {ROW("Father's / Husband's Name",    e.fatherHusbandName || "—")}
-              {ROW("Designation",                  e.designation || "—")}
-              {ROW("Wages Period",                 e.wagesPeriod || "Monthly")}
-              {ROW("Date of Joining",              fmtDate(e.dateOfJoining) || "—")}
-              {ROW("Date of Leaving",              fmtDate(e.dateOfLeaving) || "—")}
-              {ROW("Permanent Address",            e.permanentAddress || "—")}
+              <tr>
+                <td style={{ ...CL_TD, fontWeight: 700, fontSize: "8.5px" }}>{e.name}</td>
+                <td style={{ ...CL_TD, textAlign: "center", fontSize: "8.5px" }}>{e.serialNo}</td>
+                <td style={{ ...CL_TD, fontSize: "8.5px" }}>{e.designation || "LABOUR"}</td>
+                <td style={{ ...CL_TD, fontSize: "8.5px" }}></td>
+                <td style={{ ...CL_TD, textAlign: "center", fontSize: "8.5px" }}>{e.wagesPeriod || "Monthly"}</td>
+                <td style={{ ...CL_TD, textAlign: "center", fontSize: "8.5px" }}>{fmtDate(e.dateOfJoining) || "—"}</td>
+                <td style={{ ...CL_TD, fontSize: "8.5px" }}></td>
+              </tr>
             </tbody>
           </table>
-          <div style={{ display: "flex", justifyContent: "space-between", marginTop: "16px", fontSize: "9px" }}>
-            <div style={{ borderTop: "1px solid #555", paddingTop: "2px", minWidth: "90px", textAlign: "center" }}>Workman's Signature</div>
-            <div style={{ borderTop: "1px solid #555", paddingTop: "2px", minWidth: "90px", textAlign: "center" }}>Contractor's Signature</div>
+          <div style={{ display: "flex", justifyContent: "space-between", marginTop: "14px", fontSize: "8px" }}>
+            <div>Place : {c?.location_of_work || "—"}<br />Date : {today}</div>
+            <div>Signature of the Contractor:</div>
           </div>
         </div>
       ))}
     </div>
-    {CL_FOOTER(c as ClientInfo)}
   </>);
 }
 
-// ─── CLRA Full Package — all 10 forms in one scrollable view ──────────────────
-function CLRAPackageView({ data }: { data: ClraPackageData }) {
-  const SEP = (
-    <div style={{ borderTop: "2px dashed #aaa", margin: "28px 0 24px" }} />
+// ─── Form XI — Service Certificate (one per employee) ─────────────────────────
+function ServiceCertificateView({ workmen, wages }: { workmen: WorkmenRegisterData; wages: WagesRegisterData }) {
+  const { company, client: c } = workmen;
+  const { month, year } = wages;
+  const monthIdx = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"].indexOf(month);
+  const monthFull = monthIdx >= 0 ? ["January","February","March","April","May","June","July","August","September","October","November","December"][monthIdx] : month;
+  const today = new Date().toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" });
+  const v = (...p: (string | null | undefined)[]) => p.filter(Boolean).join(", ") || "—";
+  const wMap = new Map(wages.employees.map(e => [e.name, e]));
+  const HDR = (label: string, val: string) => (
+    <div key={label} style={{ marginBottom: "4px", fontSize: "9px" }}>
+      <b>{label} :</b> {val}
+    </div>
   );
+  return CL_WRAP("service-cert-print", <>
+    {CL_TITLE("Form XI", "See Rule 76", "Service Certificate")}
+    <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
+      {workmen.employees.length === 0 && <div style={{ color: "#666", padding: "16px" }}>No employees found</div>}
+      {workmen.employees.map(e => {
+        const w = wMap.get(e.name);
+        const monthNum = monthIdx + 1;
+        const daysInMon = new Date(parseInt(year), monthNum, 0).getDate();
+        const fromDate = `01-${String(monthNum).padStart(2,"0")}-${year}`;
+        const toDate   = `${String(daysInMon).padStart(2,"0")}-${String(monthNum).padStart(2,"0")}-${year}`;
+        return (
+          <div key={e.serialNo} style={{ border: "1px solid #333", padding: "14px 16px", pageBreakInside: "avoid", breakInside: "avoid" }}>
+            {HDR("Name and address of Contractor",                        v(company.name, company.address))}
+            {HDR("Name and address of establishment in/under which contract is carried on", v(c?.client_name, c?.client_address))}
+            {HDR("Name and location of work",                             v(c?.nature_of_work, c?.location_of_work))}
+            {HDR("Name and address of Principal Employer",                v(c?.principal_employer_name, c?.principal_employer_address))}
+            <div style={{ marginBottom: "4px", fontSize: "9px" }}><b>Name and address of the workman :</b> <b style={{ fontSize: "9.5px" }}>{e.name}</b></div>
+            <div style={{ marginBottom: "4px", fontSize: "9px" }}><b>Age and date of birth :</b> {e.age ? e.age + " yr" : "—"}</div>
+            <div style={{ marginBottom: "8px", fontSize: "9px" }}><b>Father's/husband's Name :</b> {e.fatherHusbandName || "—"}</div>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "8.5px" }}>
+              <thead>
+                <tr>
+                  <th style={CL_TH}>{"Serial\nNo."}</th>
+                  <th style={CL_TH} colSpan={2}>{"Total period for which employed"}</th>
+                  <th style={CL_TH}>{"Actual No.\nof days\nworked"}</th>
+                  <th style={CL_TH}>{"Nature of\nwork done"}</th>
+                  <th style={CL_TH}>{"Rate of wage (with particulars\nof out unit in case of\npiece work)"}</th>
+                  <th style={CL_TH}>{"Total wages\nearned by\nworkman\nduring the\nperiod"}</th>
+                  <th style={CL_TH}>{"Total\ndeduction\nmade,\nif any"}</th>
+                  <th style={CL_TH}>{"Total wages\nactually\npaid"}</th>
+                  <th style={CL_TH}>{"Remarks"}</th>
+                </tr>
+                <tr>
+                  <th style={CL_TH}></th>
+                  <th style={CL_TH}>From</th>
+                  <th style={CL_TH}>To</th>
+                  <th style={CL_TH}></th><th style={CL_TH}></th><th style={CL_TH}></th>
+                  <th style={CL_TH}></th><th style={CL_TH}></th><th style={CL_TH}></th><th style={CL_TH}></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td style={{ ...CL_TD, textAlign: "center" }}>{e.serialNo}</td>
+                  <td style={{ ...CL_TD, textAlign: "center" }}>{fromDate}</td>
+                  <td style={{ ...CL_TD, textAlign: "center" }}>{toDate}</td>
+                  <td style={{ ...CL_TD, textAlign: "center" }}>{w?.payDays ?? "—"}</td>
+                  <td style={CL_TD}>{e.designation || "LABOUR"}</td>
+                  <td style={CL_TD}>Monthly</td>
+                  <td style={{ ...CL_TD, textAlign: "right" }}>{w ? ni(w.totalEarnings) : "—"}</td>
+                  <td style={CL_TD}>
+                    {w ? <>PF : {ni(w.pf)}<br />ESIC : {ni(w.esi)}<br />LWF : {ni(w.lwf)}<br />VPF : 0</> : "—"}
+                  </td>
+                  <td style={{ ...CL_TD, textAlign: "right", fontWeight: 700 }}>{w ? ni(w.netSalary) : "—"}</td>
+                  <td style={CL_TD}></td>
+                </tr>
+              </tbody>
+            </table>
+            <div style={{ display: "flex", justifyContent: "space-between", marginTop: "14px", fontSize: "8.5px" }}>
+              <div>Place : {c?.location_of_work || "—"}<br />Date : {today}</div>
+              <div style={{ textAlign: "right" }}>Signature of the Contractor:</div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  </>);
+}
+
+// ─── CLRA Full Package — all 11 forms in one scrollable view ─────────────────
+function CLRAPackageView({ data }: { data: ClraPackageData }) {
+  const SEP = <div style={{ borderTop: "2px dashed #aaa", margin: "28px 0 24px" }} />;
   return (
     <div style={{ background: "#fff" }}>
       <FormVIIIView data={data.viii} />
       {SEP}
       <EmploymentCardView data={data.ix} />
+      {SEP}
+      <ServiceCertificateView workmen={data.ix} wages={data.xiii} />
       {SEP}
       <WorkmenRegisterView data={data.ix} />
       {SEP}
@@ -3481,18 +3577,56 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
       });
       addFooter(lastY() + 8);
 
-      // ── Form XI — Employment Card ──────────────────────────────────────────
-      doc.addPage(); addTitle("FORM XI", "[See rule 76]", "Employment Card");
+      // ── Form X — Employment Card (one row per employee) ────────────────────
+      doc.addPage(); addTitle("FORM X", "[See rule 75]", "Employment Card");
       y = addHdr();
       autoTbl(doc, {
         startY: y,
-        head: [["Sr.\nNo.", "Name of Workman", "Age &\nSex", "Father's /\nHusband's Name", "Designation", "Wages\nPeriod", "Date of\nJoining", "Date of\nLeaving", "Permanent Address", "Signature /\nThumb Impression"]],
-        body: clraData.ix.employees.map(e => [e.serialNo, e.name, `${e.age ? e.age + ", " : ""}${e.sex}`, e.fatherHusbandName||"—", e.designation||"—", e.wagesPeriod||"Monthly", fmtDate(e.dateOfJoining)||"—", fmtDate(e.dateOfLeaving)||"—", e.permanentAddress||"—", ""]),
+        head: [["Name of\nthe workman", "Serial no. in\nregister of\nworkman employed", "Nature of\nemployment/\ndesignation", "Wages rate\n(with particular unit,\nin case of piece work)", "Wages\nPeriod", "Date of\nJoining", "Remarks"]],
+        body: clraData.ix.employees.map(e => [e.name, e.serialNo, e.designation||"LABOUR", "", e.wagesPeriod||"Monthly", fmtDate(e.dateOfJoining)||"—", ""]),
         styles: TS, headStyles: TH,
-        columnStyles: { 0:{ cellWidth:10, halign:"center" }, 1:{ cellWidth:28 }, 2:{ cellWidth:14, halign:"center" }, 3:{ cellWidth:24 }, 4:{ cellWidth:22 }, 5:{ cellWidth:14, halign:"center" }, 6:{ cellWidth:18, halign:"center" }, 7:{ cellWidth:18, halign:"center" }, 8:{ cellWidth:42 }, 9:{ cellWidth:22 } },
+        columnStyles: { 0:{ cellWidth:38 }, 1:{ cellWidth:24, halign:"center" }, 2:{ cellWidth:28 }, 3:{ cellWidth:30 }, 4:{ cellWidth:18, halign:"center" }, 5:{ cellWidth:22, halign:"center" }, 6:{ cellWidth:32 } },
         margin:{ left:M, right:M },
       });
       addFooter(lastY() + 8);
+
+      // ── Form XI — Service Certificate (one section per employee) ──────────
+      {
+        const wMap = new Map(clraData.xiii.employees.map((e: any) => [e.name, e]));
+        const mNum  = monthIdx + 1;
+        const dInM  = new Date(parseInt(toYear), mNum, 0).getDate();
+        const fromD = `01-${String(mNum).padStart(2,"0")}-${toYear}`;
+        const toD   = `${String(dInM).padStart(2,"0")}-${String(mNum).padStart(2,"0")}-${toYear}`;
+        doc.addPage(); addTitle("FORM XI", "[See rule 76]", "Service Certificate");
+        y = addHdr();
+        // Generate one block per employee
+        clraData.ix.employees.forEach((e: any, idx: number) => {
+          const w = wMap.get(e.name) as any;
+          if (idx > 0) y += 4;
+          const blkH = 48;
+          if (y + blkH > doc.internal.pageSize.getHeight() - 20) { doc.addPage(); addTitle("FORM XI", "[See rule 76]", "Service Certificate"); y = addHdr(); }
+          doc.setFont("times", "bold"); doc.setFontSize(8.5);
+          doc.text(`Name and address of the workman : `, M, y);
+          doc.setFont("times", "normal"); doc.text(e.name, M + doc.getTextWidth("Name and address of the workman : "), y); y += 5;
+          doc.setFont("times", "bold"); doc.text(`Age and date of birth : `, M, y);
+          doc.setFont("times", "normal"); doc.text(e.age ? `${e.age} yr` : "—", M + doc.getTextWidth("Age and date of birth : "), y); y += 5;
+          doc.setFont("times", "bold"); doc.text(`Father's/husband's Name : `, M, y);
+          doc.setFont("times", "normal"); doc.text(e.fatherHusbandName||"—", M + doc.getTextWidth("Father's/husband's Name : "), y); y += 5;
+          autoTbl(doc, {
+            startY: y,
+            head: [["Serial\nNo.", "From", "To", "Actual No.\nof days\nworked", "Nature of\nwork done", "Rate of\nwage", "Total wages\nearned by\nworkman", "Total\ndeduction\nmade, if any", "Total wages\nactually\npaid", "Remarks"]],
+            body: [[e.serialNo, fromD, toD, w?.payDays??"-", e.designation||"LABOUR", "Monthly", w ? w.totalEarnings.toLocaleString("en-IN") : "—", w ? `PF:${w.pf} ESI:${w.esi} LWF:${w.lwf}` : "—", w ? w.netSalary.toLocaleString("en-IN") : "—", ""]],
+            styles: { ...TS, fontSize: 7 }, headStyles: { ...TH, fontSize: 7 },
+            columnStyles: { 0:{ cellWidth:12, halign:"center" }, 1:{ cellWidth:20, halign:"center" }, 2:{ cellWidth:20, halign:"center" }, 3:{ cellWidth:16, halign:"center" }, 4:{ cellWidth:22 }, 5:{ cellWidth:16 }, 6:{ cellWidth:24, halign:"right" }, 7:{ cellWidth:28 }, 8:{ cellWidth:24, halign:"right" }, 9:{ cellWidth:14 } },
+            margin:{ left:M, right:M },
+          });
+          y = lastY() + 6;
+          doc.setFont("times", "normal"); doc.setFontSize(8);
+          doc.text(`Place : ${v(cl?.location_of_work)}`, M, y);
+          doc.setFont("times", "bold"); doc.text("Signature of the Contractor:", pw - M, y, { align: "right" });
+          y += 8; doc.line(M, y, pw - M, y); y += 4;
+        });
+      }
 
       // ── Form IX — Workmen Register ─────────────────────────────────────────
       doc.addPage(); addTitle("FORM IX", "[See rule 74]", "Register of Workmen Employed by Contractor");
@@ -3540,21 +3674,31 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
       });
       addFooter(lastY() + 8);
 
-      // ── Form XIV — Wage Slip ───────────────────────────────────────────────
-      doc.addPage(); addTitle("FORM XIV", "[See Rule 77 (1) (a) (iii)]", "Wage Slip");
+      // ── Form XV — Wage Slip (one row per employee, Form XV format) ────────
+      doc.addPage(); addTitle("FORM XV", "[See Rule 77 (1) (b)]", "Wage Slip");
       y = addHdr([["For the month of", `${monthFull} ${toYear}`]]);
       autoTbl(doc, {
         startY: y,
-        head: [["Sl.\nNo.", "Name of Workman", "Pay\nDays", "Basic\n(₹)", "HRA\n(₹)", "Bonus\n(₹)", "Total\nEarnings\n(₹)", "PF\n(₹)", "ESI\n(₹)", "PT\n(₹)", "LWF\n(₹)", "TDS\n(₹)", "Loan\n(₹)", "Total\nDed.\n(₹)", "Net\nSalary\n(₹)", "Emp.\nSignature"]],
-        body: clraData.xiii.employees.map(e => [e.serialNo, e.name, e.payDays, e.basicSalary||"—", e.hra||"—", e.bonus||"—", e.totalEarnings||"—", e.pf||"—", e.esi||"—", e.pt||"—", e.lwf||"—", e.tds||"—", e.loanDeduction||"—", e.totalDeductions||"—", e.netSalary||"—", ""]),
-        styles: TS, headStyles: TH,
-        columnStyles: { 0:{ cellWidth:10, halign:"center" }, 1:{ cellWidth:30 }, 2:{ cellWidth:10, halign:"center" }, 3:{ cellWidth:14, halign:"right" }, 4:{ cellWidth:12, halign:"right" }, 5:{ cellWidth:12, halign:"right" }, 6:{ cellWidth:16, halign:"right" }, 7:{ cellWidth:11, halign:"right" }, 8:{ cellWidth:11, halign:"right" }, 9:{ cellWidth:9, halign:"right" }, 10:{ cellWidth:9, halign:"right" }, 11:{ cellWidth:9, halign:"right" }, 12:{ cellWidth:11, halign:"right" }, 13:{ cellWidth:13, halign:"right" }, 14:{ cellWidth:15, halign:"right" }, 15:{ cellWidth:22 } },
+        head: [["Name of Workman\n& Father's Name", "No. of\ndays\nworked", "Rate of daily\nwages /\npiece rate", "No. of units\nworked in case\nof piece rate\nwork", "Dates on which\novertime hours\nworked & amount\nof overtime wages", "Gross wages\npayable\n(₹)", "Deductions\nif any", "Net amount\npaid\n(₹)", "Signature of\ncontractor or\nhis rep."]],
+        body: clraData.xiii.employees.map(e => [
+          `${e.name}${e.fatherHusbandName ? ` S/O ${e.fatherHusbandName}` : ""}`,
+          e.payDays,
+          `${e.monthlyRate ? e.monthlyRate.toLocaleString("en-IN") : "—"}\n(Monthly)`,
+          "N.A",
+          "NIL",
+          e.totalEarnings ? e.totalEarnings.toLocaleString("en-IN") : "—",
+          `PF:${e.pf||0}\nESIC:${e.esi||0}\nLWF:${e.lwf||0}\nADJS:0`,
+          e.netSalary ? e.netSalary.toLocaleString("en-IN") : "—",
+          "",
+        ]),
+        styles: { ...TS, minCellHeight: 14 }, headStyles: TH,
+        columnStyles: { 0:{ cellWidth:38 }, 1:{ cellWidth:12, halign:"center" }, 2:{ cellWidth:22, halign:"center" }, 3:{ cellWidth:22, halign:"center" }, 4:{ cellWidth:22, halign:"center" }, 5:{ cellWidth:20, halign:"right" }, 6:{ cellWidth:22 }, 7:{ cellWidth:20, halign:"right" }, 8:{ cellWidth:24 } },
         margin:{ left:M, right:M },
       });
       addFooter(lastY() + 8);
 
-      // ── Form XV — Damage Register ──────────────────────────────────────────
-      doc.addPage(); addTitle("FORM XV", "[See Rule 77 (2) (a)]", "Register of Deductions for Damage or Loss");
+      // ── Form XVI — Damage Register ────────────────────────────────────────
+      doc.addPage(); addTitle("FORM XVI", "[See Rule 77 (2) (a)]", "Register of Deductions for Damage or Loss");
       y = addHdr();
       autoTbl(doc, {
         startY: y,
@@ -3566,8 +3710,8 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
       });
       addFooter(lastY() + 8);
 
-      // ── Form XVI — Fines Register ──────────────────────────────────────────
-      doc.addPage(); addTitle("FORM XVI", "[See Rule 77 (2) (b)]", "Register of Fines");
+      // ── Form XVII — Fines Register ────────────────────────────────────────
+      doc.addPage(); addTitle("FORM XVII", "[See Rule 77 (2) (b)]", "Register of Fines");
       y = addHdr();
       autoTbl(doc, {
         startY: y,
@@ -3579,8 +3723,8 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
       });
       addFooter(lastY() + 8);
 
-      // ── Form XVII — Advances Register ─────────────────────────────────────
-      doc.addPage(); addTitle("FORM XVII", "[See Rule 77 (2) (c)]", "Register of Advances");
+      // ── Form XVIII — Advances Register ───────────────────────────────────
+      doc.addPage(); addTitle("FORM XVIII", "[See Rule 77 (2) (c)]", "Register of Advances");
       y = addHdr([["For the month of", `${monthFull} ${toYear}`]]);
       autoTbl(doc, {
         startY: y,
@@ -3592,8 +3736,8 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
       });
       addFooter(lastY() + 8);
 
-      // ── Form XVIII — OT Register ──────────────────────────────────────────
-      doc.addPage(); addTitle("FORM XVIII", "[See Rule 77 (2) (d)]", "Register of Overtime");
+      // ── Form XIX — OT Register ────────────────────────────────────────────
+      doc.addPage(); addTitle("FORM XIX", "[See Rule 77 (2) (d)]", "Register of Overtime");
       y = addHdr([["For the month of", `${monthFull} ${toYear}`]]);
       autoTbl(doc, {
         startY: y,
