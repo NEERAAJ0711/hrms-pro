@@ -804,10 +804,13 @@ function computeNetPayMaxDays(
   const monthlyBonus = Math.round(rTotal * 8.33 / 100);
   const bt = bonusType || "actual";
   if (bt === "monthly") {
-    // Bonus prorates with days → solve (rTotal + monthlyBonus) × D/monDays = netPay + deds
+    // Bonus prorates with days: both basic and bonus scale together, so floor is safe —
+    // any overshoot from rounding up would push compPayable above netPay.
     const denom = rTotal + monthlyBonus;
-    return denom > 0 ? Math.round((netPay + totalDeds) * monDays / denom) : monDays;
+    return denom > 0 ? Math.floor((netPay + totalDeds) * monDays / denom) : monDays;
   }
+  // Fixed bonus (actual/annual/na): use Math.round to avoid float-precision under-count.
+  // e.g. 8.9995 from payroll rounding must become 9, not 8 (Math.floor).
   const fixedBonus = bt === "na" ? 0 : bt === "annual" ? monthlyBonus : Math.min(bonus, monthlyBonus);
   const available   = netPay + totalDeds - fixedBonus;
   return available > 0 ? Math.round(available * monDays / rTotal) : 0;
