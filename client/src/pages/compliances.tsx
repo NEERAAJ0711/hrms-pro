@@ -3124,8 +3124,8 @@ function AnnualReturnView({ data, fromYear, toYear }: { data: WorkmenRegisterDat
           <th style={CL_TH}>{"Name & Surname\nof Workman"}</th>
           <th style={CL_TH}>{"Father's /\nHusband's Name"}</th>
           <th style={CL_TH}>{"Designation"}</th>
-          <th style={CL_TH}>{"Date of\nJoining"}</th>
-          <th style={CL_TH}>{"Date of\nLeaving"}</th>
+          <th style={CL_TH}>{"Date of\nAssign"}</th>
+          <th style={CL_TH}>{"Date of\nDe-Assign"}</th>
           <th style={CL_TH}>{"Total Days\nWorked"}</th>
           <th style={CL_TH}>{"Remarks"}</th>
         </tr>
@@ -3138,8 +3138,8 @@ function AnnualReturnView({ data, fromYear, toYear }: { data: WorkmenRegisterDat
             <td style={{ ...CL_TD, fontWeight: 700 }}>{e.name}</td>
             <td style={CL_TD}>{e.fatherHusbandName || "—"}</td>
             <td style={CL_TD}>{e.designation || "—"}</td>
-            <td style={{ ...CL_TD, textAlign: "center" }}>{fmtDate(e.dateOfJoining)}</td>
-            <td style={{ ...CL_TD, textAlign: "center" }}>{fmtDate(e.dateOfLeaving) || "—"}</td>
+            <td style={{ ...CL_TD, textAlign: "center" }}>{fmtDate((e as any).assignedDate || e.dateOfJoining)}</td>
+            <td style={{ ...CL_TD, textAlign: "center" }}>{fmtDate((e as any).deassignedDate || e.dateOfLeaving) || "—"}</td>
             <td style={CL_TD}></td>
             <td style={CL_TD}></td>
           </tr>
@@ -3202,7 +3202,7 @@ function EmploymentCardView({ data }: { data: WorkmenRegisterData }) {
           <table style={{ width: "100%", borderCollapse: "collapse", marginTop: "10px", fontSize: "8.5px" }}>
             <thead>
               <tr>
-                {["Name of the workman","Serial no. in register of workman employed","Nature of employment/ designation","Wages rate (with particular unit, in case of piece work)","Wages Period","Date of Joining","Remarks"].map(h => (
+                {["Name of the workman","Serial no. in register of workman employed","Nature of employment/ designation","Wages rate (with particular unit, in case of piece work)","Wages Period","Date of Assign","Remarks"].map(h => (
                   <th key={h} style={{ ...CL_TH, fontSize: "8px", padding: "3px 4px" }}>{h}</th>
                 ))}
               </tr>
@@ -3214,7 +3214,7 @@ function EmploymentCardView({ data }: { data: WorkmenRegisterData }) {
                 <td style={{ ...CL_TD, fontSize: "8.5px" }}>{e.designation || "LABOUR"}</td>
                 <td style={{ ...CL_TD, fontSize: "8.5px" }}></td>
                 <td style={{ ...CL_TD, textAlign: "center", fontSize: "8.5px" }}>{e.wagesPeriod || "Monthly"}</td>
-                <td style={{ ...CL_TD, textAlign: "center", fontSize: "8.5px" }}>{fmtDate(e.dateOfJoining) || "—"}</td>
+                <td style={{ ...CL_TD, textAlign: "center", fontSize: "8.5px" }}>{fmtDate((e as any).assignedDate || e.dateOfJoining) || "—"}</td>
                 <td style={{ ...CL_TD, fontSize: "8.5px" }}></td>
               </tr>
             </tbody>
@@ -3351,8 +3351,6 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
   const [selectedState,   setSelectedState]   = useState("");
   const [selectedAct,     setSelectedAct]     = useState("");
   const [selectedReport,  setSelectedReport]  = useState("");
-  const [fromMonth,       setFromMonth]       = useState(MONTHS_SHORT[now.getMonth()]);
-  const [fromYear,        setFromYear]        = useState(String(now.getFullYear()));
   const [toMonth,         setToMonth]         = useState(MONTHS_SHORT[now.getMonth()]);
   const [toYear,          setToYear]          = useState(String(now.getFullYear()));
   const [workmenData,   setWorkmenData]   = useState<WorkmenRegisterData | null>(null);
@@ -3444,19 +3442,6 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
     setLoading(false);
   };
 
-  // Auto-set From Month from project start date when Workmen Register is selected
-  useEffect(() => {
-    if (selectedReport === "Form IX – Workmen Register" && selectedProject !== "company") {
-      const proj = projects.find(p => p.id === selectedProject);
-      if (proj?.project_start_date) {
-        const d = new Date(proj.project_start_date);
-        if (!isNaN(d.getTime())) {
-          setFromMonth(MONTHS_SHORT[d.getMonth()]);
-          setFromYear(String(d.getFullYear()));
-        }
-      }
-    }
-  }, [selectedProject, selectedReport, projects]);
 
   const isWorkmenRegister = selectedReport === "Form IX – Workmen Register";
   const isCLRAPackage    = selectedReport === "CLRA Full Package – Forms VIII + IX + XII + XIII";
@@ -3633,7 +3618,7 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
           ([ ["Name of the Workman",          e.name || "—"],
              ["Father's / Husband's Name",    e.fatherHusbandName || "—"],
              ["Designation",                  e.designation || "LABOUR"],
-             ["Date of Joining",              fmtDate(e.dateOfJoining) || "—"],
+             ["Date of Assign",               fmtDate(e.assignedDate || e.dateOfJoining) || "—"],
              ["Rate of Wages",                w?.monthlyRate ? `₹ ${Number(w.monthlyRate).toLocaleString("en-IN")} (Monthly)` : (e.wagesPeriod || "Monthly")],
           ] as [string, string][]).forEach(([lbl, val]) => {
             doc.setFont("times", "bold"); doc.setFontSize(8); doc.text(lbl + " : ", M, cy);
@@ -3645,7 +3630,7 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
           autoTbl(doc, {
             startY: cy,
             head: [["Serial No.\nin Register", "Designation", "Rate of Wages", "Wages\nPeriod", "Date of\nJoining", "Remarks"]],
-            body: [[e.serialNo, e.designation || "LABOUR", w?.monthlyRate ? `₹ ${Number(w.monthlyRate).toLocaleString("en-IN")} Monthly` : "—", e.wagesPeriod || "Monthly", fmtDate(e.dateOfJoining) || "—", ""]],
+            body: [[e.serialNo, e.designation || "LABOUR", w?.monthlyRate ? `₹ ${Number(w.monthlyRate).toLocaleString("en-IN")} Monthly` : "—", e.wagesPeriod || "Monthly", fmtDate(e.assignedDate || e.dateOfJoining) || "—", ""]],
             styles: { ...TS, fontSize: 7.5 }, headStyles: { ...TH, fontSize: 7.5 },
             columnStyles: { 0:{ cellWidth:24, halign:"center" }, 1:{ cellWidth:40 }, 2:{ cellWidth:42 }, 3:{ cellWidth:25, halign:"center" }, 4:{ cellWidth:30, halign:"center" }, 5:{ cellWidth:"auto" as any } },
             margin: { left: M, right: M },
@@ -3659,8 +3644,9 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
         const selMonthNum = monthIdx + 1;
         const selYearNum  = parseInt(toYear);
         const newJoiners  = clraData.ix.employees.filter((e: any) => {
-          if (!e.dateOfJoining) return false;
-          const d = new Date(e.dateOfJoining);
+          const dateStr = e.assignedDate || e.dateOfJoining;
+          if (!dateStr) return false;
+          const d = new Date(dateStr);
           return !isNaN(d.getTime()) && d.getFullYear() === selYearNum && (d.getMonth() + 1) === selMonthNum;
         });
         const wageMap = new Map(clraData.xiii.employees.map((e: any) => [e.name, e]));
@@ -3735,7 +3721,18 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
           doc.setFont("times","bold"); doc.text("Signature of the Contractor", pw-M, fy, {align:"right"});
         };
 
-        const emps = clraData.ix.employees;
+        const emps = clraData.ix.employees.filter((e: any) => {
+          const dateStr = e.deassignedDate || e.dateOfLeaving;
+          if (!dateStr) return false;
+          const d = new Date(dateStr);
+          return !isNaN(d.getTime()) && d.getFullYear() === parseInt(toYear) && (d.getMonth() + 1) === (monthIdx + 1);
+        });
+        if (emps.length === 0) {
+          doc.addPage(); addTitle("FORM XI", "[See rule 76]", "Service Certificate");
+          y = addHdr();
+          doc.setFont("times", "italic"); doc.setFontSize(10);
+          doc.text(`No employees de-assigned during ${monthFull} ${toYear}.`, pw / 2, y + 12, { align: "center" });
+        }
         for (let i = 0; i < emps.length; i += 2) {
           doc.addPage();
           doc.setDrawColor(140); doc.setLineDashPattern([5,3], 0);
@@ -3751,8 +3748,8 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
       y = addHdr();
       autoTbl(doc, {
         startY: y,
-        head: [["Sr.\nNo.", "Name and\nsurname of\nworkman", "Age\nand\nSex", "Father's /\nHusband's\nName", "Wages\nPeriod", "Designation", "Permanent home\naddress of workman", "Present address", "Date of\nJoining", "Date of\nLeaving", "Signature /\nThumb Impression"]],
-        body: clraData.ix.employees.map(e => [e.serialNo, e.name, `${e.age ? e.age + ", " : ""}${e.sex}`, e.fatherHusbandName||"—", e.wagesPeriod, e.designation||"—", e.permanentAddress||"—", e.presentAddress||"—", fmtDate(e.dateOfJoining)||"—", fmtDate(e.dateOfLeaving)||"—", ""]),
+        head: [["Sr.\nNo.", "Name and\nsurname of\nworkman", "Age\nand\nSex", "Father's /\nHusband's\nName", "Wages\nPeriod", "Designation", "Permanent home\naddress of workman", "Present address", "Date of\nAssign", "Date of\nDe-Assign", "Signature /\nThumb Impression"]],
+        body: clraData.ix.employees.map(e => [e.serialNo, e.name, `${e.age ? e.age + ", " : ""}${e.sex}`, e.fatherHusbandName||"—", e.wagesPeriod, e.designation||"—", e.permanentAddress||"—", e.presentAddress||"—", fmtDate((e as any).assignedDate||e.dateOfJoining)||"—", fmtDate((e as any).deassignedDate||e.dateOfLeaving)||"—", ""]),
         styles: TS, headStyles: TH,
         columnStyles: { 0:{ cellWidth:10, halign:"center" }, 1:{ cellWidth:26 }, 2:{ cellWidth:14, halign:"center" }, 3:{ cellWidth:22 }, 4:{ cellWidth:14, halign:"center" }, 5:{ cellWidth:20 }, 6:{ cellWidth:38 }, 7:{ cellWidth:34 }, 8:{ cellWidth:18, halign:"center" }, 9:{ cellWidth:18, halign:"center" }, 10:{ cellWidth:22 } },
         margin:{ left:M, right:M },
@@ -3970,7 +3967,7 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
       <th>Sr. No.</th><th>Name &amp; Surname of Workman</th><th>Age &amp; Sex</th>
       <th>Father's / Husband's Name</th><th>Wages Period</th><th>Designation</th>
       <th>Permanent Home Address of Workman</th><th>Present Address</th>
-      <th>Date of Joining</th><th>Date of Leaving</th><th>Signature / Thumb Impression</th>
+      <th>Date of Assign</th><th>Date of De-Assign</th><th>Signature / Thumb Impression</th>
     </tr></thead><tbody>
     ${workmenData.employees.map(e => `<tr>
       <td class="sno">${e.serialNo}</td>
@@ -3981,8 +3978,8 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
       <td>${e.designation || ""}</td>
       <td>${e.permanentAddress || ""}</td>
       <td>${e.presentAddress || ""}</td>
-      <td class="sno">${fmtDate(e.dateOfJoining)}</td>
-      <td class="sno">${fmtDate(e.dateOfLeaving)}</td>
+      <td class="sno">${fmtDate(e.assignedDate || e.dateOfJoining)}</td>
+      <td class="sno">${fmtDate(e.deassignedDate || e.dateOfLeaving)}</td>
       <td></td>
     </tr>`).join("")}
     </tbody></table>
@@ -3993,7 +3990,7 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
     </body></html>`;
     const a = document.createElement("a");
     a.href = URL.createObjectURL(new Blob([html], { type: "application/vnd.ms-excel" }));
-    a.download = `Form-IX-Workmen-Register-${fromMonth}-${fromYear}.xls`;
+    a.download = `Form-IX-Workmen-Register-${toMonth}-${toYear}.xls`;
     a.click();
   };
 
@@ -4039,7 +4036,7 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
     // Main table
     autoTable(doc, {
       startY: y,
-      head: [["Sr.\nNo.", "Name & Surname\nof Workman", "Age &\nSex", "Father's /\nHusband's Name", "Wages\nPeriod", "Designation", "Permanent Home\nAddress of Workman", "Present Address", "Date of\nJoining", "Date of\nLeaving", "Signature /\nThumb Impression"]],
+      head: [["Sr.\nNo.", "Name & Surname\nof Workman", "Age &\nSex", "Father's /\nHusband's Name", "Wages\nPeriod", "Designation", "Permanent Home\nAddress of Workman", "Present Address", "Date of\nAssign", "Date of\nDe-Assign", "Signature /\nThumb Impression"]],
       body: workmenData.employees.map(e => [
         e.serialNo,
         e.name,
@@ -4049,8 +4046,8 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
         e.designation || "",
         e.permanentAddress || "",
         e.presentAddress || "",
-        fmtDate(e.dateOfJoining),
-        fmtDate(e.dateOfLeaving),
+        fmtDate((e as any).assignedDate || e.dateOfJoining),
+        fmtDate((e as any).deassignedDate || e.dateOfLeaving),
         "",
       ]),
       styles:     { fontSize: 7.5, font: "times", cellPadding: 2, overflow: "linebreak", valign: "top", lineWidth: 0.25, lineColor: [0, 0, 0] },
@@ -4079,7 +4076,7 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
     doc.setFont("times", "bold");
     doc.text("Signature of the Contractor", pw - 10, lastY, { align: "right" });
 
-    doc.save(`Form-IX-Workmen-Register-${fromMonth}-${fromYear}.pdf`);
+    doc.save(`Form-IX-Workmen-Register-${toMonth}-${toYear}.pdf`);
   };
 
   return (
@@ -4123,17 +4120,7 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
                 <SelectContent>{REPORT_TYPES.map(r => <SelectItem key={r} value={r}>{r}</SelectItem>)}</SelectContent>
               </Select>
             </div>
-            {isWorkmenRegister ? (
-              <div className="space-y-1">
-                <Label className="text-xs text-gray-500">From Month <span className="text-amber-500">(Project Start)</span></Label>
-                <div className="flex gap-1 h-9 items-center px-3 bg-amber-50 border border-amber-200 rounded-md text-xs text-amber-800 font-medium min-w-[140px]">
-                  {fromMonth} {fromYear}
-                </div>
-              </div>
-            ) : (
-              <MonthYearPicker label="From Month" month={fromMonth} year={fromYear} onMonth={setFromMonth} onYear={setFromYear} />
-            )}
-            <MonthYearPicker label="To Month" month={toMonth} year={toYear} onMonth={setToMonth} onYear={setToYear} />
+            <MonthYearPicker label="Month" month={toMonth} year={toYear} onMonth={setToMonth} onYear={setToYear} />
             <div className="flex items-end gap-2 pb-0">
               <Button onClick={loadReport} disabled={loading} className="h-9 bg-blue-600 hover:bg-blue-700 text-white">
                 <RefreshCw className={`h-4 w-4 mr-1.5 ${loading ? "animate-spin" : ""}`} />
@@ -4176,7 +4163,7 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
             {selectedReport === "Form XVI – Fines Register"           && workmenData  && <FinesRegisterView data={workmenData} />}
             {selectedReport === "Form XVII – Advances Register"       && wagesData    && <AdvancesRegisterView data={wagesData} />}
             {selectedReport === "Form XVIII – OT Register"            && otData       && <OTRegisterView data={otData} />}
-            {selectedReport === "Form XIX – Annual Return"            && workmenData  && <AnnualReturnView data={workmenData} fromYear={fromYear} toYear={toYear} />}
+            {selectedReport === "Form XIX – Annual Return"            && workmenData  && <AnnualReturnView data={workmenData} fromYear={toYear} toYear={toYear} />}
           </div>
         </Card>
       )}

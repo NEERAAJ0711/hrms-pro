@@ -1022,12 +1022,14 @@ export function registerComplianceRoutes(app: Express) {
               ''
             ) AS present_address,
             e.date_of_joining,
-            e.exit_date
+            e.exit_date,
+            cce.assigned_date,
+            cce.deassigned_date
           FROM compliance_client_employees cce
           JOIN employees e ON e.id = cce.employee_id
           LEFT JOIN compliance_employee_setup cs ON cs.employee_id = e.id AND cs.company_id = ${targetCompanyId}
-          WHERE cce.client_id = ${projectId} AND cce.status = 'active'
-          ORDER BY e.first_name, e.last_name
+          WHERE cce.client_id = ${projectId}
+          ORDER BY cce.assigned_date, e.first_name, e.last_name
         `);
       } else {
         empRows = await db.execute(sql`
@@ -1080,6 +1082,8 @@ export function registerComplianceRoutes(app: Express) {
           presentAddress:    r.present_address || "",
           dateOfJoining:     r.date_of_joining || "",
           dateOfLeaving:     r.exit_date || "",
+          assignedDate:      r.assigned_date || "",
+          deassignedDate:    r.deassigned_date || "",
         };
       });
 
