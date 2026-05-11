@@ -3839,16 +3839,79 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
       addFooter(lastY() + 8);
 
       // ── Form XIII — Register of Wages ──────────────────────────────────────
-      doc.addPage(); addTitle("FORM XIII", "[See Rule 77 (1) (a) (i)]", "Register of Wages");
+      doc.addPage(); addTitle("FORM XIII", "[See Rule 77 (1) (a) (ii)]", "Register of Wages");
       y = addHdr([["For the month of", `${monthFull} ${toYear}`]]);
-      autoTbl(doc, {
-        startY: y,
-        head: [["Sl.\nNo.", "Name of\nWorkman", "Designation", "Pay\nDays", "Basic\n(Rs.)", "HRA\n(Rs.)", "Bonus\n(Rs.)", "Total\nEarnings\n(Rs.)", "PF\n(Rs.)", "ESI\n(Rs.)", "PT\n(Rs.)", "LWF\n(Rs.)", "TDS\n(Rs.)", "Loan\n(Rs.)", "Total\nDed.\n(Rs.)", "Net\nSalary\n(Rs.)", "Sign."]],
-        body: clraData.xiii.employees.map(e => [e.serialNo, e.name, e.designation||"—", e.payDays, e.basicSalary||"—", e.hra||"—", e.bonus||"—", e.totalEarnings||"—", e.pf||"—", e.esi||"—", e.pt||"—", e.lwf||"—", e.tds||"—", e.loanDeduction||"—", e.totalDeductions||"—", e.netSalary||"—", ""]),
-        styles: TS, headStyles: TH,
-        columnStyles: { 0:{ cellWidth:10, halign:"center" }, 1:{ cellWidth:26 }, 2:{ cellWidth:20 }, 3:{ cellWidth:10, halign:"center" }, 4:{ cellWidth:14, halign:"right" }, 5:{ cellWidth:12, halign:"right" }, 6:{ cellWidth:12, halign:"right" }, 7:{ cellWidth:16, halign:"right" }, 8:{ cellWidth:11, halign:"right" }, 9:{ cellWidth:11, halign:"right" }, 10:{ cellWidth:9, halign:"right" }, 11:{ cellWidth:9, halign:"right" }, 12:{ cellWidth:9, halign:"right" }, 13:{ cellWidth:11, halign:"right" }, 14:{ cellWidth:13, halign:"right" }, 15:{ cellWidth:15, halign:"right" }, 16:{ cellWidth:16 } },
-        margin:{ left:M, right:M },
-      });
+      {
+        const niP = (n: number | null | undefined) => (n && n !== 0) ? n.toLocaleString("en-IN") : "—";
+        const E_BG: [number,number,number] = [200, 230, 201]; // light green
+        const D_BG: [number,number,number] = [252, 228, 236]; // light pink
+        const thEarn = { ...TH, fillColor: E_BG };
+        const thDed  = { ...TH, fillColor: D_BG };
+        autoTbl(doc, {
+          startY: y,
+          head: [
+            [
+              { content: "Sl.\nNo.",      rowSpan: 2, styles: { ...TH, cellWidth: 8,  halign: "center" } },
+              { content: "Name of\nWorkman", rowSpan: 2, styles: { ...TH, cellWidth: 40 } },
+              { content: "Designation",   rowSpan: 2, styles: { ...TH, cellWidth: 24 } },
+              { content: "Pay\nDays",     rowSpan: 2, styles: { ...TH, cellWidth: 10, halign: "center" } },
+              { content: "Earnings (Rs.)", colSpan: 4, styles: { ...thEarn, halign: "center" } },
+              { content: "Deductions (Rs.)", colSpan: 5, styles: { ...thDed, halign: "center" } },
+              { content: "Net\nSalary\n(Rs.)", rowSpan: 2, styles: { ...TH, cellWidth: 19, halign: "right" } },
+              { content: "Sign.",          rowSpan: 2, styles: { ...TH, cellWidth: 24 } },
+            ],
+            [
+              { content: "Basic\n(Rs.)",        styles: { ...thEarn, cellWidth: 17, halign: "right" } },
+              { content: "Allowances\n(Rs.)",   styles: { ...thEarn, cellWidth: 18, halign: "right" } },
+              { content: "Bonus\n(Rs.)",        styles: { ...thEarn, cellWidth: 14, halign: "right" } },
+              { content: "Total\nEarnings\n(Rs.)", styles: { ...thEarn, cellWidth: 19, halign: "right", fontStyle: "bold" } },
+              { content: "PF\n(Rs.)",           styles: { ...thDed,  cellWidth: 14, halign: "right" } },
+              { content: "ESI\n(Rs.)",          styles: { ...thDed,  cellWidth: 14, halign: "right" } },
+              { content: "LWF\n(Rs.)",          styles: { ...thDed,  cellWidth: 12, halign: "right" } },
+              { content: "Loan\n(Rs.)",         styles: { ...thDed,  cellWidth: 14, halign: "right" } },
+              { content: "Total\nDed.\n(Rs.)",  styles: { ...thDed,  cellWidth: 16, halign: "right", fontStyle: "bold" } },
+            ],
+          ],
+          body: clraData.xiii.employees.map(e => {
+            const visibleDed = (e.pf || 0) + (e.esi || 0) + (e.lwf || 0) + (e.loanDeduction || 0);
+            const visibleNet = (e.totalEarnings || 0) - visibleDed;
+            return [
+              e.serialNo,
+              e.name,
+              e.designation || "—",
+              e.payDays || "—",
+              niP(e.basicSalary),
+              niP(e.hra),
+              niP(e.bonus),
+              niP(e.totalEarnings),
+              niP(e.pf),
+              niP(e.esi),
+              niP(e.lwf),
+              niP(e.loanDeduction),
+              niP(visibleDed),
+              niP(visibleNet),
+              "",
+            ];
+          }),
+          styles: { ...TS, fontSize: 7.5 },
+          headStyles: TH,
+          columnStyles: {
+            0:  { halign: "center" },
+            3:  { halign: "center" },
+            4:  { halign: "right" },
+            5:  { halign: "right" },
+            6:  { halign: "right" },
+            7:  { halign: "right", fontStyle: "bold" },
+            8:  { halign: "right" },
+            9:  { halign: "right" },
+            10: { halign: "right" },
+            11: { halign: "right" },
+            12: { halign: "right", fontStyle: "bold" },
+            13: { halign: "right", fontStyle: "bold" },
+          },
+          margin: { left: M, right: M },
+        });
+      }
       addFooter(lastY() + 8);
 
       // ── Form XV — Wage Slip (2-up, one slip per employee) ────────────────────
