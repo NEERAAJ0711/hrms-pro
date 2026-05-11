@@ -2828,25 +2828,23 @@ function WagesRegisterView({ data }: { data: WagesRegisterData }) {
     <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "8px", tableLayout: "fixed" }}>
       <colgroup>
         <col style={{ width: "3%" }} />
-        <col style={{ width: "14%" }} />
-        <col style={{ width: "9%" }} />
+        <col style={{ width: "16%" }} />
+        <col style={{ width: "10%" }} />
         <col style={{ width: "5%" }} />
-        {/* Earnings: Basic, HRA, Bonus, Total */}
+        {/* Earnings: Basic, Allowances, Bonus, Total */}
+        <col style={{ width: "7%" }} />
+        <col style={{ width: "7%" }} />
         <col style={{ width: "6%" }} />
-        <col style={{ width: "6%" }} />
+        <col style={{ width: "8%" }} />
+        {/* Deductions: PF, ESI, LWF, Loan, Total */}
+        <col style={{ width: "7%" }} />
+        <col style={{ width: "7%" }} />
         <col style={{ width: "5%" }} />
-        <col style={{ width: "6%" }} />
-        {/* Deductions: PF, ESI, PT, LWF, TDS, Loan, Total */}
-        <col style={{ width: "5%" }} />
-        <col style={{ width: "5%" }} />
-        <col style={{ width: "4%" }} />
-        <col style={{ width: "4%" }} />
-        <col style={{ width: "4%" }} />
-        <col style={{ width: "5%" }} />
-        <col style={{ width: "6%" }} />
-        {/* Net Salary, Sign */}
         <col style={{ width: "6%" }} />
         <col style={{ width: "7%" }} />
+        {/* Net Salary, Sign */}
+        <col style={{ width: "8%" }} />
+        <col style={{ width: "8%" }} />
       </colgroup>
       <thead>
         <tr>
@@ -2855,68 +2853,70 @@ function WagesRegisterView({ data }: { data: WagesRegisterData }) {
           <th style={CL_TH} rowSpan={2}>{"Designation"}</th>
           <th style={CL_TH} rowSpan={2}>{"Pay\nDays"}</th>
           <th style={{ ...thE, background: "#c8e6c9" }} colSpan={4}>Earnings (Rs.)</th>
-          <th style={{ ...thD, background: "#f8bbd0" }} colSpan={7}>Deductions (Rs.)</th>
+          <th style={{ ...thD, background: "#f8bbd0" }} colSpan={5}>Deductions (Rs.)</th>
           <th style={CL_TH} rowSpan={2}>{"Net\nSalary\n(Rs.)"}</th>
           <th style={CL_TH} rowSpan={2}>{"Sign."}</th>
         </tr>
         <tr>
           <th style={thE}>{"Basic\n(Rs.)"}</th>
-          <th style={thE}>{"HRA\n(Rs.)"}</th>
+          <th style={thE}>{"Allowances\n(Rs.)"}</th>
           <th style={thE}>{"Bonus\n(Rs.)"}</th>
           <th style={{ ...thE, fontWeight: 900 }}>{"Total\nEarnings\n(Rs.)"}</th>
           <th style={thD}>{"PF\n(Rs.)"}</th>
           <th style={thD}>{"ESI\n(Rs.)"}</th>
-          <th style={thD}>{"PT\n(Rs.)"}</th>
           <th style={thD}>{"LWF\n(Rs.)"}</th>
-          <th style={thD}>{"TDS\n(Rs.)"}</th>
           <th style={thD}>{"Loan\n(Rs.)"}</th>
           <th style={{ ...thD, fontWeight: 900 }}>{"Total\nDed.\n(Rs.)"}</th>
         </tr>
       </thead>
       <tbody>
         {employees.length === 0 && (
-          <tr><td colSpan={17} style={{ ...CL_TD, textAlign: "center", padding: "16px" }}>No payroll data for this month</td></tr>
+          <tr><td colSpan={15} style={{ ...CL_TD, textAlign: "center", padding: "16px" }}>No payroll data for this month</td></tr>
         )}
-        {employees.map(e => (
-          <tr key={e.serialNo}>
-            <td style={{ ...CL_TD, textAlign: "center" }}>{e.serialNo}</td>
-            <td style={{ ...CL_TD, fontWeight: 700, wordBreak: "break-word" }}>{e.name}</td>
-            <td style={{ ...CL_TD, wordBreak: "break-word" }}>{e.designation || "—"}</td>
-            <td style={{ ...CL_TD, textAlign: "center" }}>{e.payDays || "—"}</td>
-            <td style={{ ...CL_TD, textAlign: "right" }}>{ni(e.basicSalary)}</td>
-            <td style={{ ...CL_TD, textAlign: "right" }}>{ni(e.hra)}</td>
-            <td style={{ ...CL_TD, textAlign: "right" }}>{ni(e.bonus)}</td>
-            <td style={{ ...CL_TD, textAlign: "right", fontWeight: 700 }}>{ni(e.totalEarnings)}</td>
-            <td style={{ ...CL_TD, textAlign: "right" }}>{ni(e.pf)}</td>
-            <td style={{ ...CL_TD, textAlign: "right" }}>{ni(e.esi)}</td>
-            <td style={{ ...CL_TD, textAlign: "right" }}>{ni(e.pt)}</td>
-            <td style={{ ...CL_TD, textAlign: "right" }}>{ni(e.lwf)}</td>
-            <td style={{ ...CL_TD, textAlign: "right" }}>{ni(e.tds)}</td>
-            <td style={{ ...CL_TD, textAlign: "right" }}>{ni(e.loanDeduction)}</td>
-            <td style={{ ...CL_TD, textAlign: "right", fontWeight: 700 }}>{ni(e.totalDeductions)}</td>
-            <td style={{ ...CL_TD, textAlign: "right", fontWeight: 700 }}>{ni(e.netSalary)}</td>
-            <td style={CL_TD}></td>
-          </tr>
-        ))}
-        {employees.length > 0 && (
-          <tr style={{ fontWeight: 700, background: "#f0f0f0" }}>
-            <td colSpan={3} style={{ ...CL_TD, textAlign: "center", fontWeight: 900 }}>TOTAL</td>
-            <td style={{ ...CL_TD, textAlign: "center" }}>—</td>
-            <td style={{ ...CL_TD, textAlign: "right" }}>{ni(totals.basicSalary)}</td>
-            <td style={{ ...CL_TD, textAlign: "right" }}>{ni(totals.hra)}</td>
-            <td style={{ ...CL_TD, textAlign: "right" }}>{ni(totals.bonus)}</td>
-            <td style={{ ...CL_TD, textAlign: "right", fontWeight: 900 }}>{ni(totals.totalEarnings)}</td>
-            <td style={{ ...CL_TD, textAlign: "right" }}>{ni(totals.pf)}</td>
-            <td style={{ ...CL_TD, textAlign: "right" }}>{ni(totals.esi)}</td>
-            <td style={{ ...CL_TD, textAlign: "right" }}>{ni(totals.pt)}</td>
-            <td style={{ ...CL_TD, textAlign: "right" }}>{ni(totals.lwf)}</td>
-            <td style={{ ...CL_TD, textAlign: "right" }}>{ni(totals.tds)}</td>
-            <td style={{ ...CL_TD, textAlign: "right" }}>{ni(totals.loanDeduction)}</td>
-            <td style={{ ...CL_TD, textAlign: "right", fontWeight: 900 }}>{ni(totals.totalDeductions)}</td>
-            <td style={{ ...CL_TD, textAlign: "right", fontWeight: 900 }}>{ni(totals.netSalary)}</td>
-            <td style={CL_TD}></td>
-          </tr>
-        )}
+        {employees.map(e => {
+          const visibleDed = e.pf + e.esi + e.lwf + e.loanDeduction;
+          const visibleNet = e.totalEarnings - visibleDed;
+          return (
+            <tr key={e.serialNo}>
+              <td style={{ ...CL_TD, textAlign: "center" }}>{e.serialNo}</td>
+              <td style={{ ...CL_TD, fontWeight: 700, wordBreak: "break-word" }}>{e.name}</td>
+              <td style={{ ...CL_TD, wordBreak: "break-word" }}>{e.designation || "—"}</td>
+              <td style={{ ...CL_TD, textAlign: "center" }}>{e.payDays || "—"}</td>
+              <td style={{ ...CL_TD, textAlign: "right" }}>{ni(e.basicSalary)}</td>
+              <td style={{ ...CL_TD, textAlign: "right" }}>{ni(e.hra)}</td>
+              <td style={{ ...CL_TD, textAlign: "right" }}>{ni(e.bonus)}</td>
+              <td style={{ ...CL_TD, textAlign: "right", fontWeight: 700 }}>{ni(e.totalEarnings)}</td>
+              <td style={{ ...CL_TD, textAlign: "right" }}>{ni(e.pf)}</td>
+              <td style={{ ...CL_TD, textAlign: "right" }}>{ni(e.esi)}</td>
+              <td style={{ ...CL_TD, textAlign: "right" }}>{ni(e.lwf)}</td>
+              <td style={{ ...CL_TD, textAlign: "right" }}>{ni(e.loanDeduction)}</td>
+              <td style={{ ...CL_TD, textAlign: "right", fontWeight: 700 }}>{ni(visibleDed)}</td>
+              <td style={{ ...CL_TD, textAlign: "right", fontWeight: 700 }}>{ni(visibleNet)}</td>
+              <td style={CL_TD}></td>
+            </tr>
+          );
+        })}
+        {employees.length > 0 && (() => {
+          const totVisibleDed = totals.pf + totals.esi + totals.lwf + totals.loanDeduction;
+          const totVisibleNet = totals.totalEarnings - totVisibleDed;
+          return (
+            <tr style={{ fontWeight: 700, background: "#f0f0f0" }}>
+              <td colSpan={3} style={{ ...CL_TD, textAlign: "center", fontWeight: 900 }}>TOTAL</td>
+              <td style={{ ...CL_TD, textAlign: "center" }}>—</td>
+              <td style={{ ...CL_TD, textAlign: "right" }}>{ni(totals.basicSalary)}</td>
+              <td style={{ ...CL_TD, textAlign: "right" }}>{ni(totals.hra)}</td>
+              <td style={{ ...CL_TD, textAlign: "right" }}>{ni(totals.bonus)}</td>
+              <td style={{ ...CL_TD, textAlign: "right", fontWeight: 900 }}>{ni(totals.totalEarnings)}</td>
+              <td style={{ ...CL_TD, textAlign: "right" }}>{ni(totals.pf)}</td>
+              <td style={{ ...CL_TD, textAlign: "right" }}>{ni(totals.esi)}</td>
+              <td style={{ ...CL_TD, textAlign: "right" }}>{ni(totals.lwf)}</td>
+              <td style={{ ...CL_TD, textAlign: "right" }}>{ni(totals.loanDeduction)}</td>
+              <td style={{ ...CL_TD, textAlign: "right", fontWeight: 900 }}>{ni(totVisibleDed)}</td>
+              <td style={{ ...CL_TD, textAlign: "right", fontWeight: 900 }}>{ni(totVisibleNet)}</td>
+              <td style={CL_TD}></td>
+            </tr>
+          );
+        })()}
       </tbody>
     </table>
     {CL_FOOTER(c)}
