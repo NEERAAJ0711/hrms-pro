@@ -806,11 +806,11 @@ function computeNetPayMaxDays(
   if (bt === "monthly") {
     // Bonus prorates with days → solve (rTotal + monthlyBonus) × D/monDays = netPay + deds
     const denom = rTotal + monthlyBonus;
-    return denom > 0 ? Math.floor((netPay + totalDeds) * monDays / denom) : monDays;
+    return denom > 0 ? Math.round((netPay + totalDeds) * monDays / denom) : monDays;
   }
   const fixedBonus = bt === "na" ? 0 : bt === "annual" ? monthlyBonus : Math.min(bonus, monthlyBonus);
   const available   = netPay + totalDeds - fixedBonus;
-  return available > 0 ? Math.floor(available * monDays / rTotal) : 0;
+  return available > 0 ? Math.round(available * monDays / rTotal) : 0;
 }
 
 // ─── Multi-select dropdown ────────────────────────────────────────────────────
