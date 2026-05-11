@@ -242,6 +242,7 @@ interface ClraPackageData {
   ix:    WorkmenRegisterData;
   xii:   MusterRollData;
   xiii:  WagesRegisterData;
+  xviii: OTRegisterData;
 }
 
 const fmt = (n: number | null | undefined) =>
@@ -3162,24 +3163,84 @@ function MonthYearPicker({ label, month, year, onMonth, onYear }: {
   );
 }
 
-// ─── CLRA Full Package — Form VIII + IX + XII + XIII in one view ─────────────
+// ─── Form XI — Employment Card (2-up grid) ────────────────────────────────────
+function EmploymentCardView({ data }: { data: WorkmenRegisterData }) {
+  const { company, client: c, employees } = data;
+  const v = (...p: (string | null | undefined)[]) => p.filter(Boolean).join(", ") || "—";
+  const CARD: React.CSSProperties = {
+    border: "2px solid #333", padding: "12px 14px", fontSize: "9.5px",
+    pageBreakInside: "avoid", breakInside: "avoid",
+  };
+  const ROW = (label: string, val: string) => (
+    <tr key={label}>
+      <td style={{ fontWeight: 700, whiteSpace: "nowrap", paddingRight: "6px", paddingBottom: "3px", verticalAlign: "top" }}>{label}</td>
+      <td style={{ paddingBottom: "3px" }}>: {val}</td>
+    </tr>
+  );
+  return CL_WRAP("employment-card-print", <>
+    {CL_TITLE("Form XI", "See Rule 76", "Employment Card")}
+    {CL_HDR(c as ClientInfo, company)}
+    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", marginTop: "8px" }}>
+      {employees.length === 0 && <div style={{ color: "#666", padding: "20px" }}>No employees found</div>}
+      {employees.map(e => (
+        <div key={e.serialNo} style={CARD}>
+          <div style={{ textAlign: "center", fontWeight: 700, fontSize: "11px", borderBottom: "1px solid #333", paddingBottom: "6px", marginBottom: "8px", letterSpacing: "0.5px" }}>
+            EMPLOYMENT CARD
+          </div>
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <tbody>
+              {ROW("Name of Contractor",          company.name)}
+              {ROW("Establishment / Client",       v(c?.client_name))}
+              {ROW("Nature of Work",               v(c?.nature_of_work, c?.location_of_work))}
+              <tr><td colSpan={2} style={{ borderTop: "1px solid #ccc", paddingTop: "5px", paddingBottom: "3px" }}></td></tr>
+              {ROW("Serial No.",                   String(e.serialNo))}
+              {ROW("Name of Workman",              e.name)}
+              {ROW("Age & Sex",                    `${e.age ? e.age + ", " : ""}${e.sex || "—"}`)}
+              {ROW("Father's / Husband's Name",    e.fatherHusbandName || "—")}
+              {ROW("Designation",                  e.designation || "—")}
+              {ROW("Wages Period",                 e.wagesPeriod || "Monthly")}
+              {ROW("Date of Joining",              fmtDate(e.dateOfJoining) || "—")}
+              {ROW("Date of Leaving",              fmtDate(e.dateOfLeaving) || "—")}
+              {ROW("Permanent Address",            e.permanentAddress || "—")}
+            </tbody>
+          </table>
+          <div style={{ display: "flex", justifyContent: "space-between", marginTop: "16px", fontSize: "9px" }}>
+            <div style={{ borderTop: "1px solid #555", paddingTop: "2px", minWidth: "90px", textAlign: "center" }}>Workman's Signature</div>
+            <div style={{ borderTop: "1px solid #555", paddingTop: "2px", minWidth: "90px", textAlign: "center" }}>Contractor's Signature</div>
+          </div>
+        </div>
+      ))}
+    </div>
+    {CL_FOOTER(c as ClientInfo)}
+  </>);
+}
+
+// ─── CLRA Full Package — all 10 forms in one scrollable view ──────────────────
 function CLRAPackageView({ data }: { data: ClraPackageData }) {
   const SEP = (
-    <div style={{ borderTop: "2px dashed #aaa", margin: "28px 0 24px", pageBreakAfter: "always" }} />
+    <div style={{ borderTop: "2px dashed #aaa", margin: "28px 0 24px" }} />
   );
   return (
     <div style={{ background: "#fff" }}>
-      {/* Form VIII — Register of Particulars of Contractors */}
       <FormVIIIView data={data.viii} />
       {SEP}
-      {/* Form IX — Register of Workmen Employed by Contractor */}
+      <EmploymentCardView data={data.ix} />
+      {SEP}
       <WorkmenRegisterView data={data.ix} />
       {SEP}
-      {/* Form XII — Muster Roll */}
       <MusterRollView data={data.xii} />
       {SEP}
-      {/* Form XIII — Register of Wages */}
       <WagesRegisterView data={data.xiii} />
+      {SEP}
+      <WageSlipView data={data.xiii} />
+      {SEP}
+      <DeductionsRegisterView data={data.ix} />
+      {SEP}
+      <FinesRegisterView data={data.ix} />
+      {SEP}
+      <AdvancesRegisterView data={data.xiii} />
+      {SEP}
+      <OTRegisterView data={data.xviii} />
     </div>
   );
 }
@@ -3271,13 +3332,14 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
 
       } else if (selectedReport === "CLRA Full Package – Forms VIII + IX + XII + XIII") {
         const ixParams = new URLSearchParams({ projectId: effectiveProject, ...(isSuperAdmin ? { companyId } : {}) });
-        const [viii, ix, xii, xiii] = await Promise.all([
+        const [viii, ix, xii, xiii, xviii] = await Promise.all([
           safeJson(await fetch(`/api/compliance/form-viii?${qp}`,        { credentials: "include" })),
           safeJson(await fetch(`/api/compliance/workmen-register?${ixParams}`, { credentials: "include" })),
           safeJson(await fetch(`/api/compliance/muster-roll?${qp}`,      { credentials: "include" })),
           safeJson(await fetch(`/api/compliance/wages-register?${qp}`,   { credentials: "include" })),
+          safeJson(await fetch(`/api/compliance/ot-register?${qp}`,      { credentials: "include" })),
         ]);
-        setClraData({ viii, ix, xii, xiii });
+        setClraData({ viii, ix, xii, xiii, xviii });
       }
       setLoaded(true);
     } catch (e: any) {
@@ -3340,6 +3402,212 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
       pdf.save(fileName);
     } catch {
       toast({ title: "PDF Error", description: "Failed to generate PDF. Please try again.", variant: "destructive" });
+    }
+  };
+
+  const downloadCLRAPackagePDF = async () => {
+    if (!clraData) { toast({ title: "No data", description: "Generate the CLRA Package first.", variant: "destructive" }); return; }
+    try {
+      const { jsPDF } = await import("jspdf");
+      const autoTbl = (await import("jspdf-autotable")).default;
+      const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+      const pw  = doc.internal.pageSize.getWidth();
+      const M   = 10;
+      const company  = clraData.viii.company;
+      const cl       = clraData.viii.client;
+      const monthIdx = MONTHS_SHORT.indexOf(toMonth);
+      const monthFull = monthIdx >= 0 ? MONTHS[monthIdx] : toMonth;
+      const v = (...ps: (string | null | undefined)[]) => ps.filter(Boolean).join(", ") || "—";
+
+      const addTitle = (form: string, rule: string, title: string) => {
+        doc.setFont("times", "bold"); doc.setFontSize(14);
+        doc.text(form, pw / 2, 14, { align: "center" });
+        doc.setFontSize(10); doc.text(rule, pw / 2, 20, { align: "center" });
+        doc.setFontSize(12); doc.text(title.toUpperCase(), pw / 2, 26, { align: "center" });
+        doc.setDrawColor(0); doc.line(M, 29, pw - M, 29);
+      };
+
+      const addHdr = (extra?: [string, string][]): number => {
+        const rows: [string, string][] = [
+          ["Name and address of Contractor",                                          v(company.name, company.address)],
+          ["Name and address of establishment in/under which contract is carried on", v(cl?.client_name, cl?.client_address)],
+          ["Name and location of work",                                               v(cl?.nature_of_work, cl?.location_of_work)],
+          ["Name and address of Principal Employer",                                  v(cl?.principal_employer_name, cl?.principal_employer_address)],
+          ...(extra || []),
+        ];
+        let cy = 35;
+        rows.forEach(([lbl, val]) => {
+          doc.setFont("times", "bold"); doc.setFontSize(8.5);
+          const lw = doc.getTextWidth(lbl + " : ");
+          doc.text(lbl + " : ", M, cy);
+          doc.setFont("times", "normal");
+          const lines = doc.splitTextToSize(val, pw - M * 2 - lw);
+          doc.text(lines, M + lw, cy);
+          cy += 5 * (lines.length || 1);
+        });
+        doc.line(M, cy, pw - M, cy);
+        return cy + 4;
+      };
+
+      const addFooter = (y: number) => {
+        doc.setFont("times", "normal"); doc.setFontSize(8.5);
+        doc.text(`Place : ${v(cl?.location_of_work)}`, M, y);
+        doc.setFont("times", "bold");
+        doc.text("Signature of the Contractor", pw - M, y, { align: "right" });
+      };
+
+      const lastY = () => (doc as any).lastAutoTable.finalY;
+
+      const TS = { font: "times" as const, fontSize: 7.5, lineWidth: 0.25, lineColor: [0,0,0] as [number,number,number], valign: "top" as const, overflow: "linebreak" as const };
+      const TH = { fillColor: [220,230,241] as [number,number,number], textColor: [0,0,0] as [number,number,number], fontStyle: "bold" as const, halign: "center" as const, fontSize: 7.5, lineWidth: 0.25, lineColor: [0,0,0] as [number,number,number] };
+
+      // ── Form VIII ──────────────────────────────────────────────────────────
+      addTitle("FORM VIII", "[See rule 73]", "Register of Particulars of Contractors");
+      let y = addHdr([["Nature and location of work", v(cl?.nature_of_work, cl?.location_of_work)]]);
+      doc.setFont("times", "bold"); doc.setFontSize(9.5); doc.text("PART – I", M, y); y += 5;
+      autoTbl(doc, {
+        startY: y,
+        head: [["Period of contract", "Amount/value of contract work", "Maximum no. of workmen employed", "Security deposited with principal employer"]],
+        body:  [[v((cl as any)?.project_start_date ? fmtDate((cl as any).project_start_date) : "—", "to", (cl as any)?.project_end_date ? fmtDate((cl as any).project_end_date) : "—"), "—", String(clraData.viii.maxWorkmen || "—"), "—"]],
+        styles: TS, headStyles: TH, columnStyles: { 0:{ halign:"center" }, 1:{ halign:"center" }, 2:{ halign:"center" }, 3:{ halign:"center" } }, margin:{ left:M, right:M },
+      });
+      y = lastY() + 6;
+      doc.setFont("times", "bold"); doc.setFontSize(9.5); doc.text("Part II — Progress of Contract Work", M, y); y += 5;
+      autoTbl(doc, {
+        startY: y,
+        head: [["Wage Period", "Total Amount of wages earned by the workmen", "Amount actually disbursed on pay day"]],
+        body:  [[`${monthFull}-${toYear}`, clraData.viii.totalWages ? clraData.viii.totalWages.toLocaleString("en-IN") : "—", clraData.viii.disbursedWages ? clraData.viii.disbursedWages.toLocaleString("en-IN") : "—"]],
+        styles: TS, headStyles: TH, columnStyles: { 0:{ halign:"center" }, 1:{ halign:"center" }, 2:{ halign:"center" } }, margin:{ left:M, right:M },
+      });
+      addFooter(lastY() + 8);
+
+      // ── Form XI — Employment Card ──────────────────────────────────────────
+      doc.addPage(); addTitle("FORM XI", "[See rule 76]", "Employment Card");
+      y = addHdr();
+      autoTbl(doc, {
+        startY: y,
+        head: [["Sr.\nNo.", "Name of Workman", "Age &\nSex", "Father's /\nHusband's Name", "Designation", "Wages\nPeriod", "Date of\nJoining", "Date of\nLeaving", "Permanent Address", "Signature /\nThumb Impression"]],
+        body: clraData.ix.employees.map(e => [e.serialNo, e.name, `${e.age ? e.age + ", " : ""}${e.sex}`, e.fatherHusbandName||"—", e.designation||"—", e.wagesPeriod||"Monthly", fmtDate(e.dateOfJoining)||"—", fmtDate(e.dateOfLeaving)||"—", e.permanentAddress||"—", ""]),
+        styles: TS, headStyles: TH,
+        columnStyles: { 0:{ cellWidth:10, halign:"center" }, 1:{ cellWidth:28 }, 2:{ cellWidth:14, halign:"center" }, 3:{ cellWidth:24 }, 4:{ cellWidth:22 }, 5:{ cellWidth:14, halign:"center" }, 6:{ cellWidth:18, halign:"center" }, 7:{ cellWidth:18, halign:"center" }, 8:{ cellWidth:42 }, 9:{ cellWidth:22 } },
+        margin:{ left:M, right:M },
+      });
+      addFooter(lastY() + 8);
+
+      // ── Form IX — Workmen Register ─────────────────────────────────────────
+      doc.addPage(); addTitle("FORM IX", "[See rule 74]", "Register of Workmen Employed by Contractor");
+      y = addHdr();
+      autoTbl(doc, {
+        startY: y,
+        head: [["Sr.\nNo.", "Name and\nsurname of\nworkman", "Age\nand\nSex", "Father's /\nHusband's\nName", "Wages\nPeriod", "Designation", "Permanent home\naddress of workman", "Present address", "Date of\nJoining", "Date of\nLeaving", "Signature /\nThumb Impression"]],
+        body: clraData.ix.employees.map(e => [e.serialNo, e.name, `${e.age ? e.age + ", " : ""}${e.sex}`, e.fatherHusbandName||"—", e.wagesPeriod, e.designation||"—", e.permanentAddress||"—", e.presentAddress||"—", fmtDate(e.dateOfJoining)||"—", fmtDate(e.dateOfLeaving)||"—", ""]),
+        styles: TS, headStyles: TH,
+        columnStyles: { 0:{ cellWidth:10, halign:"center" }, 1:{ cellWidth:26 }, 2:{ cellWidth:14, halign:"center" }, 3:{ cellWidth:22 }, 4:{ cellWidth:14, halign:"center" }, 5:{ cellWidth:20 }, 6:{ cellWidth:38 }, 7:{ cellWidth:34 }, 8:{ cellWidth:18, halign:"center" }, 9:{ cellWidth:18, halign:"center" }, 10:{ cellWidth:22 } },
+        margin:{ left:M, right:M },
+      });
+      addFooter(lastY() + 8);
+
+      // ── Form XII — Muster Roll ─────────────────────────────────────────────
+      doc.addPage(); addTitle("FORM XII", "[See Rule 77 (1) (a) (i)]", "Muster Roll");
+      y = addHdr([["For the month of", `${monthFull} ${toYear}`]]);
+      const days = Array.from({ length: clraData.xii.daysInMonth }, (_, i) => i + 1);
+      autoTbl(doc, {
+        startY: y,
+        head: [["S.\nNo.", "Name of Employee", "Father's /\nHusband's Name", "Gender", ...days.map(d => String(d)), "Total\nPresent", "WO+\nHD", "Net Pay\nDays"]],
+        body: clraData.xii.employees.map(e => [e.serialNo, e.name, e.fatherHusbandName||"—", e.gender, ...days.map(d => e.attendance[d]||""), e.presentDays, e.woHd, e.netPayDays]),
+        styles: { ...TS, fontSize: 6.5, cellPadding: 1.5 }, headStyles: { ...TH, fontSize: 6.5 },
+        columnStyles: {
+          0:{ cellWidth:8, halign:"center" }, 1:{ cellWidth:25 }, 2:{ cellWidth:22 }, 3:{ cellWidth:12, halign:"center" },
+          ...Object.fromEntries(days.map((_, i) => [i + 4, { cellWidth: 6, halign: "center" as const }])),
+          [4 + days.length]:     { cellWidth: 11, halign: "center" as const },
+          [4 + days.length + 1]: { cellWidth: 9,  halign: "center" as const },
+          [4 + days.length + 2]: { cellWidth: 12, halign: "center" as const },
+        },
+        margin:{ left:M, right:M },
+      });
+      addFooter(lastY() + 8);
+
+      // ── Form XIII — Register of Wages ──────────────────────────────────────
+      doc.addPage(); addTitle("FORM XIII", "[See Rule 77 (1) (a) (i)]", "Register of Wages");
+      y = addHdr([["For the month of", `${monthFull} ${toYear}`]]);
+      autoTbl(doc, {
+        startY: y,
+        head: [["Sl.\nNo.", "Name of\nWorkman", "Designation", "Pay\nDays", "Basic\n(₹)", "HRA\n(₹)", "Bonus\n(₹)", "Total\nEarnings\n(₹)", "PF\n(₹)", "ESI\n(₹)", "PT\n(₹)", "LWF\n(₹)", "TDS\n(₹)", "Loan\n(₹)", "Total\nDed.\n(₹)", "Net\nSalary\n(₹)", "Sign."]],
+        body: clraData.xiii.employees.map(e => [e.serialNo, e.name, e.designation||"—", e.payDays, e.basicSalary||"—", e.hra||"—", e.bonus||"—", e.totalEarnings||"—", e.pf||"—", e.esi||"—", e.pt||"—", e.lwf||"—", e.tds||"—", e.loanDeduction||"—", e.totalDeductions||"—", e.netSalary||"—", ""]),
+        styles: TS, headStyles: TH,
+        columnStyles: { 0:{ cellWidth:10, halign:"center" }, 1:{ cellWidth:26 }, 2:{ cellWidth:20 }, 3:{ cellWidth:10, halign:"center" }, 4:{ cellWidth:14, halign:"right" }, 5:{ cellWidth:12, halign:"right" }, 6:{ cellWidth:12, halign:"right" }, 7:{ cellWidth:16, halign:"right" }, 8:{ cellWidth:11, halign:"right" }, 9:{ cellWidth:11, halign:"right" }, 10:{ cellWidth:9, halign:"right" }, 11:{ cellWidth:9, halign:"right" }, 12:{ cellWidth:9, halign:"right" }, 13:{ cellWidth:11, halign:"right" }, 14:{ cellWidth:13, halign:"right" }, 15:{ cellWidth:15, halign:"right" }, 16:{ cellWidth:16 } },
+        margin:{ left:M, right:M },
+      });
+      addFooter(lastY() + 8);
+
+      // ── Form XIV — Wage Slip ───────────────────────────────────────────────
+      doc.addPage(); addTitle("FORM XIV", "[See Rule 77 (1) (a) (iii)]", "Wage Slip");
+      y = addHdr([["For the month of", `${monthFull} ${toYear}`]]);
+      autoTbl(doc, {
+        startY: y,
+        head: [["Sl.\nNo.", "Name of Workman", "Pay\nDays", "Basic\n(₹)", "HRA\n(₹)", "Bonus\n(₹)", "Total\nEarnings\n(₹)", "PF\n(₹)", "ESI\n(₹)", "PT\n(₹)", "LWF\n(₹)", "TDS\n(₹)", "Loan\n(₹)", "Total\nDed.\n(₹)", "Net\nSalary\n(₹)", "Emp.\nSignature"]],
+        body: clraData.xiii.employees.map(e => [e.serialNo, e.name, e.payDays, e.basicSalary||"—", e.hra||"—", e.bonus||"—", e.totalEarnings||"—", e.pf||"—", e.esi||"—", e.pt||"—", e.lwf||"—", e.tds||"—", e.loanDeduction||"—", e.totalDeductions||"—", e.netSalary||"—", ""]),
+        styles: TS, headStyles: TH,
+        columnStyles: { 0:{ cellWidth:10, halign:"center" }, 1:{ cellWidth:30 }, 2:{ cellWidth:10, halign:"center" }, 3:{ cellWidth:14, halign:"right" }, 4:{ cellWidth:12, halign:"right" }, 5:{ cellWidth:12, halign:"right" }, 6:{ cellWidth:16, halign:"right" }, 7:{ cellWidth:11, halign:"right" }, 8:{ cellWidth:11, halign:"right" }, 9:{ cellWidth:9, halign:"right" }, 10:{ cellWidth:9, halign:"right" }, 11:{ cellWidth:9, halign:"right" }, 12:{ cellWidth:11, halign:"right" }, 13:{ cellWidth:13, halign:"right" }, 14:{ cellWidth:15, halign:"right" }, 15:{ cellWidth:22 } },
+        margin:{ left:M, right:M },
+      });
+      addFooter(lastY() + 8);
+
+      // ── Form XV — Damage Register ──────────────────────────────────────────
+      doc.addPage(); addTitle("FORM XV", "[See Rule 77 (2) (a)]", "Register of Deductions for Damage or Loss");
+      y = addHdr();
+      autoTbl(doc, {
+        startY: y,
+        head: [["S.\nNo.", "Name & Surname\nof Workman", "Designation", "Nature of Damage\nor Loss", "Date of Damage\nor Loss", "Amount of\nDeduction (₹)", "Date of\nDeduction", "No. of\nInstalments", "Remarks", "Signature of\nContractor"]],
+        body: clraData.ix.employees.map(e => [e.serialNo, e.name, e.designation||"—", "", "", "", "", "", "", ""]),
+        styles: { ...TS, minCellHeight: 10 }, headStyles: TH,
+        columnStyles: { 0:{ cellWidth:10, halign:"center" }, 1:{ cellWidth:30 } },
+        margin:{ left:M, right:M },
+      });
+      addFooter(lastY() + 8);
+
+      // ── Form XVI — Fines Register ──────────────────────────────────────────
+      doc.addPage(); addTitle("FORM XVI", "[See Rule 77 (2) (b)]", "Register of Fines");
+      y = addHdr();
+      autoTbl(doc, {
+        startY: y,
+        head: [["S.\nNo.", "Name & Surname\nof Workman", "Designation", "Act or Omission\nfor which Fined", "Date of Act\nor Omission", "Date of Imposition\nof Fine", "Amount of\nFine (₹)", "Date of\nRecovery", "Amount of\nRecovery (₹)", "Remarks"]],
+        body: clraData.ix.employees.map(e => [e.serialNo, e.name, e.designation||"—", "", "", "", "", "", "", ""]),
+        styles: { ...TS, minCellHeight: 10 }, headStyles: TH,
+        columnStyles: { 0:{ cellWidth:10, halign:"center" }, 1:{ cellWidth:30 } },
+        margin:{ left:M, right:M },
+      });
+      addFooter(lastY() + 8);
+
+      // ── Form XVII — Advances Register ─────────────────────────────────────
+      doc.addPage(); addTitle("FORM XVII", "[See Rule 77 (2) (c)]", "Register of Advances");
+      y = addHdr([["For the month of", `${monthFull} ${toYear}`]]);
+      autoTbl(doc, {
+        startY: y,
+        head: [["S.\nNo.", "Name & Surname\nof Workman", "Designation", "Purpose of\nAdvance", "Date of\nAdvance", "Amount of\nAdvance (₹)", "Recovery Per\nInstalment (₹)", "No. of\nInstalments", "Amount\nRecovered (₹)", "Balance\nOutstanding (₹)", "Remarks"]],
+        body: clraData.xiii.employees.map(e => [e.serialNo, e.name, e.designation||"—", "—", "", e.loanDeduction > 0 ? e.loanDeduction.toLocaleString("en-IN") : "—", e.loanDeduction > 0 ? e.loanDeduction.toLocaleString("en-IN") : "—", e.loanDeduction > 0 ? "1" : "—", e.loanDeduction > 0 ? e.loanDeduction.toLocaleString("en-IN") : "—", "", ""]),
+        styles: { ...TS, minCellHeight: 10 }, headStyles: TH,
+        columnStyles: { 0:{ cellWidth:10, halign:"center" }, 1:{ cellWidth:28 }, 4:{ halign:"right" }, 5:{ halign:"right" }, 6:{ halign:"right" }, 7:{ halign:"center" }, 8:{ halign:"right" } },
+        margin:{ left:M, right:M },
+      });
+      addFooter(lastY() + 8);
+
+      // ── Form XVIII — OT Register ──────────────────────────────────────────
+      doc.addPage(); addTitle("FORM XVIII", "[See Rule 77 (2) (d)]", "Register of Overtime");
+      y = addHdr([["For the month of", `${monthFull} ${toYear}`]]);
+      autoTbl(doc, {
+        startY: y,
+        head: [["S.\nNo.", "Name & Surname\nof Workman", "Designation", "Normal\nWorking\nDays", "OT\nDays", "OT\nHours", "Normal\nWages (₹)", "OT\nWages (₹)", "Total\nWages (₹)", "Signature /\nThumb Impression"]],
+        body: clraData.xviii.employees.map(e => [e.serialNo, e.name, e.designation||"—", e.normalDays, e.otDays, e.otHours, e.normalWages.toLocaleString("en-IN"), e.otWages > 0 ? e.otWages.toLocaleString("en-IN") : "—", (e.normalWages + e.otWages).toLocaleString("en-IN"), ""]),
+        styles: TS, headStyles: TH,
+        columnStyles: { 0:{ cellWidth:10, halign:"center" }, 1:{ cellWidth:30 }, 2:{ cellWidth:24 }, 3:{ cellWidth:16, halign:"center" }, 4:{ cellWidth:12, halign:"center" }, 5:{ cellWidth:12, halign:"center" }, 6:{ cellWidth:20, halign:"right" }, 7:{ cellWidth:20, halign:"right" }, 8:{ cellWidth:20, halign:"right" }, 9:{ cellWidth:22 } },
+        margin:{ left:M, right:M },
+      });
+      addFooter(lastY() + 8);
+
+      doc.save(`CLRA-Package-${toMonth}-${toYear}.pdf`);
+    } catch (err: any) {
+      toast({ title: "PDF Error", description: err.message || "Failed to generate PDF.", variant: "destructive" });
     }
   };
 
@@ -3557,8 +3825,8 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
                     <Download className="h-4 w-4 mr-1.5" /> Excel
                   </Button>
                 </>) : isCLRAPackage ? (
-                  <Button variant="outline" onClick={printReport} className="h-9 border-purple-300 text-purple-700 hover:bg-purple-50">
-                    <Download className="h-4 w-4 mr-1.5" /> Download CLRA Package
+                  <Button variant="outline" onClick={downloadCLRAPackagePDF} className="h-9 border-purple-300 text-purple-700 hover:bg-purple-50">
+                    <Download className="h-4 w-4 mr-1.5" /> Download CLRA Package PDF
                   </Button>
                 ) : (
                   <Button variant="outline" onClick={printReport} className="h-9 border-indigo-300 text-indigo-700 hover:bg-indigo-50">
