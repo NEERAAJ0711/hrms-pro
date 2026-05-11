@@ -3507,20 +3507,32 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
       const { jsPDF } = await import("jspdf");
       const autoTbl = (await import("jspdf-autotable")).default;
       const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
-      const pw  = doc.internal.pageSize.getWidth();
-      const M   = 10;
+      const pw  = doc.internal.pageSize.getWidth();   // 297mm
+      const ph  = doc.internal.pageSize.getHeight();  // 210mm
+      const M   = 14;   // outer margin on all sides
+      const LH  = 4.5;  // line height per text row in header (mm)
       const company  = clraData.viii.company;
       const cl       = clraData.viii.client;
       const monthIdx = MONTHS_SHORT.indexOf(toMonth);
       const monthFull = monthIdx >= 0 ? MONTHS[monthIdx] : toMonth;
       const v = (...ps: (string | null | undefined)[]) => ps.filter(Boolean).join(", ") || "—";
 
+      // Draw page-number footer on every page
+      const addPageNum = () => {
+        const total = doc.getNumberOfPages();
+        for (let i = 1; i <= total; i++) {
+          doc.setPage(i);
+          doc.setFont("times", "normal"); doc.setFontSize(7.5);
+          doc.text(`Page ${i} of ${total}`, pw / 2, ph - 5, { align: "center" });
+        }
+      };
+
       const addTitle = (form: string, rule: string, title: string) => {
         doc.setFont("times", "bold"); doc.setFontSize(14);
-        doc.text(form, pw / 2, 14, { align: "center" });
-        doc.setFontSize(10); doc.text(rule, pw / 2, 20, { align: "center" });
-        doc.setFontSize(12); doc.text(title.toUpperCase(), pw / 2, 26, { align: "center" });
-        doc.setDrawColor(0); doc.line(M, 29, pw - M, 29);
+        doc.text(form, pw / 2, M, { align: "center" });
+        doc.setFontSize(10); doc.text(rule, pw / 2, M + 6, { align: "center" });
+        doc.setFontSize(12); doc.text(title.toUpperCase(), pw / 2, M + 12, { align: "center" });
+        doc.setDrawColor(80, 80, 80); doc.line(M, M + 15, pw - M, M + 15);
       };
 
       const addHdr = (extra?: [string, string][]): number => {
@@ -3531,31 +3543,35 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
           ["Name and address of Principal Employer",                                  v(cl?.principal_employer_name, cl?.principal_employer_address)],
           ...(extra || []),
         ];
-        let cy = 35;
+        let cy = M + 19;  // start just below the title divider line
+        const maxValW = pw - M * 2 - 80; // 80mm max for label width
         rows.forEach(([lbl, val]) => {
           doc.setFont("times", "bold"); doc.setFontSize(8.5);
-          const lw = doc.getTextWidth(lbl + " : ");
           doc.text(lbl + " : ", M, cy);
-          doc.setFont("times", "normal");
-          const lines = doc.splitTextToSize(val, pw - M * 2 - lw);
-          doc.text(lines, M + lw, cy);
-          cy += 5 * (lines.length || 1);
+          const lw = doc.getTextWidth(lbl + " : ");
+          doc.setFont("times", "normal"); doc.setFontSize(8.5);
+          const lines: string[] = doc.splitTextToSize(val, pw - M - lw - M);
+          lines.forEach((line: string, i: number) => {
+            doc.text(line, M + lw, cy + i * LH);
+          });
+          cy += Math.max(1, lines.length) * LH + 1;
         });
-        doc.line(M, cy, pw - M, cy);
+        doc.setDrawColor(80, 80, 80); doc.line(M, cy, pw - M, cy);
         return cy + 4;
       };
 
       const addFooter = (y: number) => {
+        const footY = Math.min(y, ph - M - 3);
         doc.setFont("times", "normal"); doc.setFontSize(8.5);
-        doc.text(`Place : ${v(cl?.location_of_work)}`, M, y);
-        doc.setFont("times", "bold");
-        doc.text("Signature of the Contractor", pw - M, y, { align: "right" });
+        doc.text(`Place : ${v(cl?.location_of_work)}`, M, footY);
+        doc.setFont("times", "bold"); doc.setFontSize(8.5);
+        doc.text("Signature of the Contractor", pw - M, footY, { align: "right" });
       };
 
       const lastY = () => (doc as any).lastAutoTable.finalY;
 
-      const TS = { font: "times" as const, fontSize: 7.5, lineWidth: 0.25, lineColor: [0,0,0] as [number,number,number], valign: "top" as const, overflow: "linebreak" as const };
-      const TH = { fillColor: [220,230,241] as [number,number,number], textColor: [0,0,0] as [number,number,number], fontStyle: "bold" as const, halign: "center" as const, fontSize: 7.5, lineWidth: 0.25, lineColor: [0,0,0] as [number,number,number] };
+      const TS = { font: "times" as const, fontSize: 8, lineWidth: 0.3, lineColor: [50,50,50] as [number,number,number], valign: "top" as const, overflow: "linebreak" as const, cellPadding: 2 };
+      const TH = { fillColor: [220,230,241] as [number,number,number], textColor: [0,0,0] as [number,number,number], fontStyle: "bold" as const, halign: "center" as const, fontSize: 8, lineWidth: 0.3, lineColor: [50,50,50] as [number,number,number], cellPadding: 2 };
 
       // ── Form VIII ──────────────────────────────────────────────────────────
       addTitle("FORM VIII", "[See rule 73]", "Register of Particulars of Contractors");
@@ -3645,17 +3661,21 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
       doc.addPage(); addTitle("FORM XII", "[See Rule 77 (1) (a) (i)]", "Muster Roll");
       y = addHdr([["For the month of", `${monthFull} ${toYear}`]]);
       const days = Array.from({ length: clraData.xii.daysInMonth }, (_, i) => i + 1);
+      const usableW  = pw - M * 2;               // 297-28 = 269mm
+      const fixedW   = 8 + 24 + 18 + 10;         // S.No + Name + Father + Gender = 60mm
+      const summaryW = 12 + 10 + 13;             // TotalPresent + WO+HD + NetPayDays = 35mm
+      const dayW     = parseFloat(((usableW - fixedW - summaryW) / days.length).toFixed(2)); // ~5.6mm
       autoTbl(doc, {
         startY: y,
-        head: [["S.\nNo.", "Name of Employee", "Father's /\nHusband's Name", "Gender", ...days.map(d => String(d)), "Total\nPresent", "WO+\nHD", "Net Pay\nDays"]],
-        body: clraData.xii.employees.map(e => [e.serialNo, e.name, e.fatherHusbandName||"—", e.gender, ...days.map(d => e.attendance[d]||""), e.presentDays, e.woHd, e.netPayDays]),
-        styles: { ...TS, fontSize: 6.5, cellPadding: 1.5 }, headStyles: { ...TH, fontSize: 6.5 },
+        head: [["S.\nNo.", "Name of\nEmployee", "Father's /\nHusband's\nName", "G", ...days.map(d => String(d)), "Pres.", "WO\n+HD", "Net\nDays"]],
+        body: clraData.xii.employees.map(e => [e.serialNo, e.name, e.fatherHusbandName||"—", (e.gender||"").charAt(0), ...days.map(d => e.attendance[d]||""), e.presentDays, e.woHd, e.netPayDays]),
+        styles: { ...TS, fontSize: 6, cellPadding: 1 }, headStyles: { ...TH, fontSize: 6, cellPadding: 1 },
         columnStyles: {
-          0:{ cellWidth:8, halign:"center" }, 1:{ cellWidth:25 }, 2:{ cellWidth:22 }, 3:{ cellWidth:12, halign:"center" },
-          ...Object.fromEntries(days.map((_, i) => [i + 4, { cellWidth: 6, halign: "center" as const }])),
-          [4 + days.length]:     { cellWidth: 11, halign: "center" as const },
-          [4 + days.length + 1]: { cellWidth: 9,  halign: "center" as const },
-          [4 + days.length + 2]: { cellWidth: 12, halign: "center" as const },
+          0:{ cellWidth:8, halign:"center" }, 1:{ cellWidth:24 }, 2:{ cellWidth:18 }, 3:{ cellWidth:10, halign:"center" },
+          ...Object.fromEntries(days.map((_, i) => [i + 4, { cellWidth: dayW, halign: "center" as const }])),
+          [4 + days.length]:     { cellWidth: 12, halign: "center" as const },
+          [4 + days.length + 1]: { cellWidth: 10, halign: "center" as const },
+          [4 + days.length + 2]: { cellWidth: 13, halign: "center" as const },
         },
         margin:{ left:M, right:M },
       });
@@ -3749,6 +3769,7 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
       });
       addFooter(lastY() + 8);
 
+      addPageNum();
       doc.save(`CLRA-Package-${toMonth}-${toYear}.pdf`);
     } catch (err: any) {
       toast({ title: "PDF Error", description: err.message || "Failed to generate PDF.", variant: "destructive" });
