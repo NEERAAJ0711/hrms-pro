@@ -40,6 +40,7 @@ const YEARS = Array.from({ length: 5 }, (_, i) => CURRENT_YEAR - i);
 const REPORT_STATES = ["Delhi","Uttar Pradesh","Haryana","Maharashtra","Karnataka","Rajasthan","Gujarat","Punjab","Madhya Pradesh","Telangana"];
 const REPORT_ACTS   = ["Contract Labour (R&A) Act","Minimum Wages Act","Payment of Wages Act","ESI Act","EPF & MP Act","Maternity Benefit Act","Payment of Bonus Act","Factories Act"];
 const REPORT_TYPES  = [
+  "CLRA Full Package – Forms VIII + IX + XII + XIII",
   "Form VIII – Contractor Particulars",
   "Form IX – Workmen Register",
   "Form XII – Muster Roll",
@@ -234,6 +235,13 @@ interface OTRegisterData {
   client: ClientInfo;
   month: string; year: string;
   employees: OTEmp[];
+}
+
+interface ClraPackageData {
+  viii:  FormVIIIData;
+  ix:    WorkmenRegisterData;
+  xii:   MusterRollData;
+  xiii:  WagesRegisterData;
 }
 
 const fmt = (n: number | null | undefined) =>
@@ -3154,6 +3162,28 @@ function MonthYearPicker({ label, month, year, onMonth, onYear }: {
   );
 }
 
+// ─── CLRA Full Package — Form VIII + IX + XII + XIII in one view ─────────────
+function CLRAPackageView({ data }: { data: ClraPackageData }) {
+  const SEP = (
+    <div style={{ borderTop: "2px dashed #aaa", margin: "28px 0 24px", pageBreakAfter: "always" }} />
+  );
+  return (
+    <div style={{ background: "#fff" }}>
+      {/* Form VIII — Register of Particulars of Contractors */}
+      <FormVIIIView data={data.viii} />
+      {SEP}
+      {/* Form IX — Register of Workmen Employed by Contractor */}
+      <WorkmenRegisterView data={data.ix} />
+      {SEP}
+      {/* Form XII — Muster Roll */}
+      <MusterRollView data={data.xii} />
+      {SEP}
+      {/* Form XIII — Register of Wages */}
+      <WagesRegisterView data={data.xiii} />
+    </div>
+  );
+}
+
 function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
   companyId: string; isSuperAdmin: boolean; user: any; toast: any;
 }) {
@@ -3173,6 +3203,7 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
   const [musterData,    setMusterData]    = useState<MusterRollData | null>(null);
   const [wagesData,     setWagesData]     = useState<WagesRegisterData | null>(null);
   const [otData,        setOtData]        = useState<OTRegisterData | null>(null);
+  const [clraData,      setClraData]      = useState<ClraPackageData | null>(null);
   const [loading, setLoading] = useState(false);
   const [loaded,  setLoaded]  = useState(false);
 
@@ -3204,7 +3235,7 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
       }
     }
     setLoading(true);
-    setWorkmenData(null); setFormVIIIData(null); setMusterData(null); setWagesData(null); setOtData(null);
+    setWorkmenData(null); setFormVIIIData(null); setMusterData(null); setWagesData(null); setOtData(null); setClraData(null);
     setLoaded(false);
     const qp = new URLSearchParams({
       projectId: effectiveProject,
@@ -3237,6 +3268,16 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
 
       } else if (selectedReport === "Form XVIII – OT Register") {
         setOtData(await safeJson(await fetch(`/api/compliance/ot-register?${qp}`, { credentials: "include" })));
+
+      } else if (selectedReport === "CLRA Full Package – Forms VIII + IX + XII + XIII") {
+        const ixParams = new URLSearchParams({ projectId: effectiveProject, ...(isSuperAdmin ? { companyId } : {}) });
+        const [viii, ix, xii, xiii] = await Promise.all([
+          safeJson(await fetch(`/api/compliance/form-viii?${qp}`,        { credentials: "include" })),
+          safeJson(await fetch(`/api/compliance/workmen-register?${ixParams}`, { credentials: "include" })),
+          safeJson(await fetch(`/api/compliance/muster-roll?${qp}`,      { credentials: "include" })),
+          safeJson(await fetch(`/api/compliance/wages-register?${qp}`,   { credentials: "include" })),
+        ]);
+        setClraData({ viii, ix, xii, xiii });
       }
       setLoaded(true);
     } catch (e: any) {
@@ -3260,7 +3301,8 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
   }, [selectedProject, selectedReport, projects]);
 
   const isWorkmenRegister = selectedReport === "Form IX – Workmen Register";
-  const hasReport = !!(workmenData || formVIIIData || musterData || wagesData || otData);
+  const isCLRAPackage    = selectedReport === "CLRA Full Package – Forms VIII + IX + XII + XIII";
+  const hasReport = !!(workmenData || formVIIIData || musterData || wagesData || otData || clraData);
 
   const printReport = async () => {
     const printDiv = document.getElementById("report-print-area");
@@ -3514,7 +3556,11 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
                   <Button variant="outline" onClick={downloadExcel} className="h-9 border-green-300 text-green-700 hover:bg-green-50">
                     <Download className="h-4 w-4 mr-1.5" /> Excel
                   </Button>
-                </>) : (
+                </>) : isCLRAPackage ? (
+                  <Button variant="outline" onClick={printReport} className="h-9 border-purple-300 text-purple-700 hover:bg-purple-50">
+                    <Download className="h-4 w-4 mr-1.5" /> Download CLRA Package
+                  </Button>
+                ) : (
                   <Button variant="outline" onClick={printReport} className="h-9 border-indigo-300 text-indigo-700 hover:bg-indigo-50">
                     <Download className="h-4 w-4 mr-1.5" /> Download
                   </Button>
@@ -3529,6 +3575,7 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
       {loaded && hasReport && (
         <Card className="overflow-hidden">
           <div id="report-print-area">
+            {isCLRAPackage                                            && clraData     && <CLRAPackageView data={clraData} />}
             {isWorkmenRegister && workmenData && <WorkmenRegisterView data={workmenData} />}
             {selectedReport === "Form VIII – Contractor Particulars"  && formVIIIData && <FormVIIIView data={formVIIIData} />}
             {selectedReport === "Form XII – Muster Roll"              && musterData   && <MusterRollView data={musterData} />}
