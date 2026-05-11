@@ -1285,15 +1285,15 @@ export function registerComplianceRoutes(app: Express) {
         client = clientRow.rows[0] || null;
       }
 
-      // Employees with compliance setup rates
+      // Employees with compliance setup rates, falling back to salary_structures when not configured
       let empRows: any;
       if (projectId && projectId !== "company") {
         empRows = await db.execute(sql`
           SELECT e.id, e.first_name || ' ' || e.last_name AS full_name,
                  e.father_husband_name,
                  COALESCE(cs.designation, e.designation, '') AS designation,
-                 COALESCE(cs.basic_salary, 0)   AS setup_basic,
-                 COALESCE(cs.gross_salary, 0)   AS setup_gross,
+                 COALESCE(NULLIF(cs.basic_salary, 0), ss.basic_salary, 0)  AS setup_basic,
+                 COALESCE(NULLIF(cs.gross_salary, 0), ss.gross_salary, 0)  AS setup_gross,
                  COALESCE(cs.pf_type,    'na')  AS pf_type,
                  COALESCE(cs.esic_type,  'na')  AS esic_type,
                  COALESCE(cs.lwf_type,   'na')  AS lwf_type,
@@ -1301,6 +1301,7 @@ export function registerComplianceRoutes(app: Express) {
           FROM compliance_client_employees cce
           JOIN employees e ON e.id = cce.employee_id
           LEFT JOIN compliance_employee_setup cs ON cs.employee_id = e.id AND cs.company_id = ${targetCompanyId}
+          LEFT JOIN salary_structures ss ON ss.employee_id = e.id AND ss.company_id = ${targetCompanyId}
           WHERE cce.client_id = ${projectId} AND cce.status = 'active'
           ORDER BY e.first_name, e.last_name`);
       } else {
@@ -1308,14 +1309,15 @@ export function registerComplianceRoutes(app: Express) {
           SELECT e.id, e.first_name || ' ' || e.last_name AS full_name,
                  e.father_husband_name,
                  COALESCE(cs.designation, e.designation, '') AS designation,
-                 COALESCE(cs.basic_salary, 0)   AS setup_basic,
-                 COALESCE(cs.gross_salary, 0)   AS setup_gross,
+                 COALESCE(NULLIF(cs.basic_salary, 0), ss.basic_salary, 0)  AS setup_basic,
+                 COALESCE(NULLIF(cs.gross_salary, 0), ss.gross_salary, 0)  AS setup_gross,
                  COALESCE(cs.pf_type,    'na')  AS pf_type,
                  COALESCE(cs.esic_type,  'na')  AS esic_type,
                  COALESCE(cs.lwf_type,   'na')  AS lwf_type,
                  COALESCE(cs.bonus_type, 'na')  AS bonus_type
           FROM employees e
           LEFT JOIN compliance_employee_setup cs ON cs.employee_id = e.id AND cs.company_id = ${targetCompanyId}
+          LEFT JOIN salary_structures ss ON ss.employee_id = e.id AND ss.company_id = ${targetCompanyId}
           WHERE e.company_id = ${targetCompanyId} AND e.status = 'active'
           ORDER BY e.first_name, e.last_name`);
       }

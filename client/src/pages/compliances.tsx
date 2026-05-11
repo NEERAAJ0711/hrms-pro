@@ -2805,65 +2805,93 @@ function WagesRegisterView({ data }: { data: WagesRegisterData }) {
     ? ["January","February","March","April","May","June","July","August","September","October","November","December"][["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"].indexOf(month)]
     : month;
   const totals = employees.reduce((a, e) => ({
-    basicSalary: a.basicSalary + e.basicSalary,
-    hra: a.hra + e.hra, conveyance: a.conveyance + e.conveyance,
-    otherAllowances: a.otherAllowances + e.otherAllowances + e.medicalAllowance + e.specialAllowance,
-    bonus: a.bonus + e.bonus, totalEarnings: a.totalEarnings + e.totalEarnings,
-    pf: a.pf + e.pf, esi: a.esi + e.esi, pt: a.pt + e.pt,
-    lwf: a.lwf + e.lwf, loanDeduction: a.loanDeduction + e.loanDeduction,
-    otherDeductions: a.otherDeductions + e.otherDeductions + e.tds,
-    totalDeductions: a.totalDeductions + e.totalDeductions, netSalary: a.netSalary + e.netSalary,
-  }), { basicSalary:0, hra:0, conveyance:0, otherAllowances:0, bonus:0, totalEarnings:0, pf:0, esi:0, pt:0, lwf:0, loanDeduction:0, otherDeductions:0, totalDeductions:0, netSalary:0 });
+    basicSalary:    a.basicSalary    + e.basicSalary,
+    hra:            a.hra            + e.hra,
+    bonus:          a.bonus          + e.bonus,
+    totalEarnings:  a.totalEarnings  + e.totalEarnings,
+    pf:             a.pf             + e.pf,
+    esi:            a.esi            + e.esi,
+    pt:             a.pt             + e.pt,
+    lwf:            a.lwf            + e.lwf,
+    tds:            a.tds            + e.tds,
+    loanDeduction:  a.loanDeduction  + e.loanDeduction,
+    totalDeductions:a.totalDeductions+ e.totalDeductions,
+    netSalary:      a.netSalary      + e.netSalary,
+  }), { basicSalary:0, hra:0, bonus:0, totalEarnings:0, pf:0, esi:0, pt:0, lwf:0, tds:0, loanDeduction:0, totalDeductions:0, netSalary:0 });
+
+  const thE = { ...CL_TH, background: "#e8f5e9" };
+  const thD = { ...CL_TH, background: "#fce4ec" };
+
   return CL_WRAP("wages-register-print", <>
     {CL_TITLE("Form XIII","See Rule 77 (1) (a) (ii)","Register of Wages")}
     {CL_HDR(c, company, [["For the month of", `${monthFull} ${year}`]])}
-    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "8.5px" }}>
+    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "8px", tableLayout: "fixed" }}>
+      <colgroup>
+        <col style={{ width: "3%" }} />
+        <col style={{ width: "14%" }} />
+        <col style={{ width: "9%" }} />
+        <col style={{ width: "5%" }} />
+        {/* Earnings: Basic, HRA, Bonus, Total */}
+        <col style={{ width: "6%" }} />
+        <col style={{ width: "6%" }} />
+        <col style={{ width: "5%" }} />
+        <col style={{ width: "6%" }} />
+        {/* Deductions: PF, ESI, PT, LWF, TDS, Loan, Total */}
+        <col style={{ width: "5%" }} />
+        <col style={{ width: "5%" }} />
+        <col style={{ width: "4%" }} />
+        <col style={{ width: "4%" }} />
+        <col style={{ width: "4%" }} />
+        <col style={{ width: "5%" }} />
+        <col style={{ width: "6%" }} />
+        {/* Net Salary, Sign */}
+        <col style={{ width: "6%" }} />
+        <col style={{ width: "7%" }} />
+      </colgroup>
       <thead>
         <tr>
-          <th style={CL_TH} rowSpan={2}>{"S.\nNo."}</th>
+          <th style={CL_TH} rowSpan={2}>{"Sl.\nNo."}</th>
           <th style={CL_TH} rowSpan={2}>{"Name of\nWorkman"}</th>
-          <th style={CL_TH} rowSpan={2}>{"Father's /\nHusband's\nName"}</th>
           <th style={CL_TH} rowSpan={2}>{"Designation"}</th>
-          <th style={CL_TH} rowSpan={2}>{"Rate of\nWages\n(Rs./mo)"}</th>
           <th style={CL_TH} rowSpan={2}>{"Pay\nDays"}</th>
-          <th style={{ ...CL_TH, background: "#e8f5e9" }} colSpan={5}>Earnings</th>
-          <th style={{ ...CL_TH, background: "#fce4ec" }} colSpan={6}>Deductions</th>
+          <th style={{ ...thE, background: "#c8e6c9" }} colSpan={4}>Earnings (Rs.)</th>
+          <th style={{ ...thD, background: "#f8bbd0" }} colSpan={7}>Deductions (Rs.)</th>
           <th style={CL_TH} rowSpan={2}>{"Net\nSalary\n(Rs.)"}</th>
-          <th style={CL_TH} rowSpan={2}>{"Signature /\nThumb\nImpression"}</th>
+          <th style={CL_TH} rowSpan={2}>{"Sign."}</th>
         </tr>
         <tr>
-          <th style={{ ...CL_TH, background: "#e8f5e9" }}>{"Basic\n(Rs.)"}</th>
-          <th style={{ ...CL_TH, background: "#e8f5e9" }}>{"HRA\n(Rs.)"}</th>
-          <th style={{ ...CL_TH, background: "#e8f5e9" }}>{"Conv.\n& Other\n(Rs.)"}</th>
-          <th style={{ ...CL_TH, background: "#e8f5e9" }}>{"Bonus\n(Rs.)"}</th>
-          <th style={{ ...CL_TH, background: "#e8f5e9" }}>{"Total\nEarnings\n(Rs.)"}</th>
-          <th style={{ ...CL_TH, background: "#fce4ec" }}>{"PF\n(Rs.)"}</th>
-          <th style={{ ...CL_TH, background: "#fce4ec" }}>{"ESI\n(Rs.)"}</th>
-          <th style={{ ...CL_TH, background: "#fce4ec" }}>{"PT\n(Rs.)"}</th>
-          <th style={{ ...CL_TH, background: "#fce4ec" }}>{"LWF\n(Rs.)"}</th>
-          <th style={{ ...CL_TH, background: "#fce4ec" }}>{"Loan /\nAdv\n(Rs.)"}</th>
-          <th style={{ ...CL_TH, background: "#fce4ec" }}>{"Total\nDeds\n(Rs.)"}</th>
+          <th style={thE}>{"Basic\n(Rs.)"}</th>
+          <th style={thE}>{"HRA\n(Rs.)"}</th>
+          <th style={thE}>{"Bonus\n(Rs.)"}</th>
+          <th style={{ ...thE, fontWeight: 900 }}>{"Total\nEarnings\n(Rs.)"}</th>
+          <th style={thD}>{"PF\n(Rs.)"}</th>
+          <th style={thD}>{"ESI\n(Rs.)"}</th>
+          <th style={thD}>{"PT\n(Rs.)"}</th>
+          <th style={thD}>{"LWF\n(Rs.)"}</th>
+          <th style={thD}>{"TDS\n(Rs.)"}</th>
+          <th style={thD}>{"Loan\n(Rs.)"}</th>
+          <th style={{ ...thD, fontWeight: 900 }}>{"Total\nDed.\n(Rs.)"}</th>
         </tr>
       </thead>
       <tbody>
-        {employees.length === 0 && <tr><td colSpan={17} style={{ ...CL_TD, textAlign: "center", padding: "16px" }}>No payroll data for this month</td></tr>}
+        {employees.length === 0 && (
+          <tr><td colSpan={17} style={{ ...CL_TD, textAlign: "center", padding: "16px" }}>No payroll data for this month</td></tr>
+        )}
         {employees.map(e => (
           <tr key={e.serialNo}>
             <td style={{ ...CL_TD, textAlign: "center" }}>{e.serialNo}</td>
-            <td style={{ ...CL_TD, fontWeight: 700 }}>{e.name}</td>
-            <td style={CL_TD}>{e.fatherHusbandName || "—"}</td>
-            <td style={CL_TD}>{e.designation || "—"}</td>
-            <td style={{ ...CL_TD, textAlign: "right" }}>{ni(e.monthlyRate)}</td>
-            <td style={{ ...CL_TD, textAlign: "center" }}>{e.payDays}</td>
+            <td style={{ ...CL_TD, fontWeight: 700, wordBreak: "break-word" }}>{e.name}</td>
+            <td style={{ ...CL_TD, wordBreak: "break-word" }}>{e.designation || "—"}</td>
+            <td style={{ ...CL_TD, textAlign: "center" }}>{e.payDays || "—"}</td>
             <td style={{ ...CL_TD, textAlign: "right" }}>{ni(e.basicSalary)}</td>
             <td style={{ ...CL_TD, textAlign: "right" }}>{ni(e.hra)}</td>
-            <td style={{ ...CL_TD, textAlign: "right" }}>{ni(e.conveyance + e.medicalAllowance + e.specialAllowance + e.otherAllowances)}</td>
             <td style={{ ...CL_TD, textAlign: "right" }}>{ni(e.bonus)}</td>
             <td style={{ ...CL_TD, textAlign: "right", fontWeight: 700 }}>{ni(e.totalEarnings)}</td>
             <td style={{ ...CL_TD, textAlign: "right" }}>{ni(e.pf)}</td>
             <td style={{ ...CL_TD, textAlign: "right" }}>{ni(e.esi)}</td>
             <td style={{ ...CL_TD, textAlign: "right" }}>{ni(e.pt)}</td>
             <td style={{ ...CL_TD, textAlign: "right" }}>{ni(e.lwf)}</td>
+            <td style={{ ...CL_TD, textAlign: "right" }}>{ni(e.tds)}</td>
             <td style={{ ...CL_TD, textAlign: "right" }}>{ni(e.loanDeduction)}</td>
             <td style={{ ...CL_TD, textAlign: "right", fontWeight: 700 }}>{ni(e.totalDeductions)}</td>
             <td style={{ ...CL_TD, textAlign: "right", fontWeight: 700 }}>{ni(e.netSalary)}</td>
@@ -2872,21 +2900,20 @@ function WagesRegisterView({ data }: { data: WagesRegisterData }) {
         ))}
         {employees.length > 0 && (
           <tr style={{ fontWeight: 700, background: "#f0f0f0" }}>
-            <td colSpan={4} style={{ ...CL_TD, textAlign: "center" }}>TOTAL</td>
-            <td style={{ ...CL_TD, textAlign: "center" }}>—</td>
+            <td colSpan={3} style={{ ...CL_TD, textAlign: "center", fontWeight: 900 }}>TOTAL</td>
             <td style={{ ...CL_TD, textAlign: "center" }}>—</td>
             <td style={{ ...CL_TD, textAlign: "right" }}>{ni(totals.basicSalary)}</td>
             <td style={{ ...CL_TD, textAlign: "right" }}>{ni(totals.hra)}</td>
-            <td style={{ ...CL_TD, textAlign: "right" }}>{ni(totals.otherAllowances + totals.conveyance)}</td>
             <td style={{ ...CL_TD, textAlign: "right" }}>{ni(totals.bonus)}</td>
-            <td style={{ ...CL_TD, textAlign: "right" }}>{ni(totals.totalEarnings)}</td>
+            <td style={{ ...CL_TD, textAlign: "right", fontWeight: 900 }}>{ni(totals.totalEarnings)}</td>
             <td style={{ ...CL_TD, textAlign: "right" }}>{ni(totals.pf)}</td>
             <td style={{ ...CL_TD, textAlign: "right" }}>{ni(totals.esi)}</td>
             <td style={{ ...CL_TD, textAlign: "right" }}>{ni(totals.pt)}</td>
             <td style={{ ...CL_TD, textAlign: "right" }}>{ni(totals.lwf)}</td>
+            <td style={{ ...CL_TD, textAlign: "right" }}>{ni(totals.tds)}</td>
             <td style={{ ...CL_TD, textAlign: "right" }}>{ni(totals.loanDeduction)}</td>
-            <td style={{ ...CL_TD, textAlign: "right" }}>{ni(totals.totalDeductions)}</td>
-            <td style={{ ...CL_TD, textAlign: "right" }}>{ni(totals.netSalary)}</td>
+            <td style={{ ...CL_TD, textAlign: "right", fontWeight: 900 }}>{ni(totals.totalDeductions)}</td>
+            <td style={{ ...CL_TD, textAlign: "right", fontWeight: 900 }}>{ni(totals.netSalary)}</td>
             <td style={CL_TD}></td>
           </tr>
         )}
