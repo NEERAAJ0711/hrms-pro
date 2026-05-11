@@ -5710,6 +5710,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.delete("/api/loan-advances/:id", requireAuth, requireRole("super_admin", "company_admin", "hr_admin"), async (req, res) => {
+    try {
+      const record = await storage.getLoanAdvance(req.params.id);
+      if (!record) return res.status(404).json({ error: "Not found" });
+      if (!["pending", "rejected", "cancelled"].includes(record.status)) {
+        return res.status(400).json({ error: "Only pending, rejected, or cancelled records can be deleted" });
+      }
+      await storage.deleteLoanAdvance(req.params.id);
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete record" });
+    }
+  });
+
   // ===== Notification Routes =====
   app.get("/api/notifications", requireAuth, async (req, res) => {
     try {

@@ -30,6 +30,8 @@ import {
   AlertCircle,
   CalendarClock,
   RefreshCw,
+  Pencil,
+  Trash2,
 } from "lucide-react";
 import type { LoanAdvance } from "@shared/schema";
 
@@ -76,7 +78,10 @@ export default function LoanAdvancesPage() {
   const [rejectOpen, setRejectOpen] = useState(false);
   const [viewOpen, setViewOpen] = useState(false);
   const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const [selected, setSelected] = useState<EnrichedLoanAdvance | null>(null);
+  const [editForm, setEditForm] = useState({ type: "advance", amount: "", purpose: "" });
   const [activeTab, setActiveTab] = useState("all");
   const [scheduleForm, setScheduleForm] = useState({ totalInstallments: "", installmentAmount: "", deductionStartMonth: "", remarks: "" });
 
@@ -168,6 +173,33 @@ export default function LoanAdvancesPage() {
       setScheduleOpen(false);
       setScheduleForm({ totalInstallments: "", installmentAmount: "", deductionStartMonth: "", remarks: "" });
       toast({ title: "Schedule Updated", description: "Deduction schedule has been changed successfully." });
+    },
+    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const editMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: object }) => {
+      const res = await apiRequest("PATCH", `/api/loan-advances/${id}`, data);
+      return res.json();
+    },
+    onSuccess: () => {
+      invalidate();
+      setEditOpen(false);
+      toast({ title: "Updated", description: "Loan/advance application has been updated." });
+    },
+    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await apiRequest("DELETE", `/api/loan-advances/${id}`);
+      return res.json();
+    },
+    onSuccess: () => {
+      invalidate();
+      setDeleteOpen(false);
+      setSelected(null);
+      toast({ title: "Deleted", description: "The application has been permanently deleted." });
     },
     onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
@@ -417,12 +449,28 @@ export default function LoanAdvancesPage() {
                             <Button size="icon" variant="ghost" className="h-7 w-7" title="View" onClick={() => { setSelected(r); setViewOpen(true); }}>
                               <Eye className="h-3.5 w-3.5" />
                             </Button>
+                            {/* Edit — admin or employee for own pending record */}
+                            {r.status === "pending" && (isAdmin || true) && (
+                              <Button size="icon" variant="ghost" className="h-7 w-7 text-blue-600 hover:text-blue-700 hover:bg-blue-50" title="Edit" onClick={() => {
+                                setSelected(r);
+                                setEditForm({ type: r.type, amount: String(r.amount), purpose: r.purpose || "" });
+                                setEditOpen(true);
+                              }}>
+                                <Pencil className="h-3.5 w-3.5" />
+                              </Button>
+                            )}
+                            {/* Delete — admin only, pending/rejected/cancelled */}
+                            {isAdmin && ["pending","rejected","cancelled"].includes(r.status) && (
+                              <Button size="icon" variant="ghost" className="h-7 w-7 text-red-500 hover:text-red-600 hover:bg-red-50" title="Delete" onClick={() => { setSelected(r); setDeleteOpen(true); }}>
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
+                            )}
                             {isAdmin && r.status === "pending" && (
                               <>
                                 <Button size="icon" variant="ghost" className="h-7 w-7 text-green-600 hover:text-green-700 hover:bg-green-50" title="Approve" onClick={() => openApprove(r)}>
                                   <CheckCircle2 className="h-3.5 w-3.5" />
                                 </Button>
-                                <Button size="icon" variant="ghost" className="h-7 w-7 text-red-500 hover:text-red-600 hover:bg-red-50" title="Reject" onClick={() => { setSelected(r); setRejectOpen(true); }}>
+                                <Button size="icon" variant="ghost" className="h-7 w-7 text-orange-500 hover:text-orange-600 hover:bg-orange-50" title="Reject" onClick={() => { setSelected(r); setRejectOpen(true); }}>
                                   <XCircle className="h-3.5 w-3.5" />
                                 </Button>
                               </>
@@ -823,6 +871,119 @@ export default function LoanAdvancesPage() {
             >
               {rescheduleMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
               Update Schedule
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Dialog */}
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Pencil className="h-5 w-5 text-blue-600" />
+              Edit Application
+            </DialogTitle>
+          </DialogHeader>
+          {selected && (
+            <div className="space-y-4 py-2">
+              <div className="rounded-lg bg-muted/50 border p-3 text-sm flex justify-between">
+                <span className="text-muted-foreground">Employee</span>
+                <span className="font-medium">{selected.employeeName}</span>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Type</Label>
+                <Select value={editForm.type} onValueChange={v => setEditForm(f => ({ ...f, type: v }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="advance">Salary Advance</SelectItem>
+                    <SelectItem value="loan">Loan</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Amount (₹) <span className="text-red-500">*</span></Label>
+                <div className="relative">
+                  <IndianRupee className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    className="pl-9"
+                    type="number"
+                    min="1"
+                    value={editForm.amount}
+                    onChange={e => setEditForm(f => ({ ...f, amount: e.target.value }))}
+                  />
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Purpose / Reason</Label>
+                <Textarea
+                  rows={3}
+                  placeholder="Reason for this request..."
+                  value={editForm.purpose}
+                  onChange={e => setEditForm(f => ({ ...f, purpose: e.target.value }))}
+                />
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditOpen(false)}>Cancel</Button>
+            <Button
+              disabled={!editForm.amount || editMutation.isPending}
+              onClick={() => selected && editMutation.mutate({
+                id: selected.id,
+                data: { type: editForm.type, amount: Number(editForm.amount), purpose: editForm.purpose },
+              })}
+            >
+              {editMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              Save Changes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirm Dialog */}
+      <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-600">
+              <Trash2 className="h-5 w-5" />
+              Delete Application
+            </DialogTitle>
+          </DialogHeader>
+          {selected && (
+            <div className="py-2 space-y-3">
+              <p className="text-sm text-muted-foreground">
+                This will permanently delete the application. This action cannot be undone.
+              </p>
+              <div className="rounded-lg bg-red-50 border border-red-200 p-3 text-sm space-y-1">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Employee</span>
+                  <span className="font-medium">{selected.employeeName}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Type</span>
+                  <span className="font-medium capitalize">{selected.type}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Amount</span>
+                  <span className="font-bold text-red-700">{fmt(selected.amount)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Status</span>
+                  <StatusBadge status={selected.status} />
+                </div>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteOpen(false)}>Cancel</Button>
+            <Button
+              variant="destructive"
+              disabled={deleteMutation.isPending}
+              onClick={() => selected && deleteMutation.mutate(selected.id)}
+            >
+              {deleteMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              Delete Permanently
             </Button>
           </DialogFooter>
         </DialogContent>
