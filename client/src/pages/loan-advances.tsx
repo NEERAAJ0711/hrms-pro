@@ -459,8 +459,8 @@ export default function LoanAdvancesPage() {
                                 <Pencil className="h-3.5 w-3.5" />
                               </Button>
                             )}
-                            {/* Delete — admin only, pending/rejected/cancelled */}
-                            {isAdmin && ["pending","rejected","cancelled"].includes(r.status) && (
+                            {/* Delete — admin only, non-active records */}
+                            {isAdmin && ["pending","rejected","cancelled","closed"].includes(r.status) && (
                               <Button size="icon" variant="ghost" className="h-7 w-7 text-red-500 hover:text-red-600 hover:bg-red-50" title="Delete" onClick={() => { setSelected(r); setDeleteOpen(true); }}>
                                 <Trash2 className="h-3.5 w-3.5" />
                               </Button>
