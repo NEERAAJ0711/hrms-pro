@@ -3676,27 +3676,20 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
           doc.setFont("times", "bold"); doc.text("Signature of the Contractor", pw - M, fy, { align: "right" });
         };
 
-        const selMonthNum = monthIdx + 1;
-        const selYearNum  = parseInt(toYear);
-        const newJoiners  = clraData.ix.employees.filter((e: any) => {
-          const dateStr = e.assignedDate || e.dateOfJoining;
-          if (!dateStr) return false;
-          const d = new Date(dateStr);
-          return !isNaN(d.getTime()) && d.getFullYear() === selYearNum && (d.getMonth() + 1) === selMonthNum;
-        });
+        const allWorkmen  = clraData.ix.employees;
         const wageMap = new Map(clraData.xiii.employees.map((e: any) => [e.name, e]));
 
-        if (newJoiners.length === 0) {
+        if (allWorkmen.length === 0) {
           doc.addPage(); addTitle("FORM X", "[See rule 75]", "Employment Card");
           y = addHdr();
           doc.setFont("times", "italic"); doc.setFontSize(10);
-          doc.text(`No new employees joined during ${monthFull} ${toYear}.`, pw / 2, y + 12, { align: "center" });
+          doc.text(`No employees assigned to this project.`, pw / 2, y + 12, { align: "center" });
         } else {
-          for (let i = 0; i < newJoiners.length; i += 2) {
+          for (let i = 0; i < allWorkmen.length; i += 2) {
             doc.addPage();
             drawDivider();
-            drawXSlot(M, newJoiners[i], wageMap.get(newJoiners[i].name));
-            if (newJoiners[i + 1]) drawXSlot(slot2Y, newJoiners[i + 1], wageMap.get(newJoiners[i + 1].name));
+            drawXSlot(M, allWorkmen[i], wageMap.get(allWorkmen[i].name));
+            if (allWorkmen[i + 1]) drawXSlot(slot2Y, allWorkmen[i + 1], wageMap.get(allWorkmen[i + 1].name));
           }
         }
       }
