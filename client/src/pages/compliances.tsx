@@ -3610,10 +3610,14 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
         return cy + 4;
       };
 
+      // Format current date as "7 April 2026"
+      const todayFmt = new Date().toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" });
+
       const addFooter = (y: number) => {
-        const footY = Math.min(y, ph - M - 3);
+        const footY = Math.min(y, ph - M - 6);
         doc.setFont("times", "normal"); doc.setFontSize(8.5);
         doc.text(`Place : ${v(cl?.location_of_work)}`, M, footY);
+        doc.text(`Date  : ${todayFmt}`, M, footY + 5);
         doc.setFont("times", "bold"); doc.setFontSize(8.5);
         doc.text("Signature of the Contractor", pw - M, footY, { align: "right" });
       };
@@ -3625,12 +3629,19 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
 
       // ── Form VIII ──────────────────────────────────────────────────────────
       addTitle("FORM VIII", "[See rule 73]", "Register of Particulars of Contractors");
-      let y = addHdr([["Nature and location of work", v(cl?.nature_of_work, cl?.location_of_work)]]);
+      // addHdr already outputs "Name and location of work" — no extra row needed here
+      let y = addHdr();
       doc.setFont("times", "bold"); doc.setFontSize(9.5); doc.text("PART – I", M, y); y += 5;
+      const periodStr = (() => {
+        const s = (cl as any)?.project_start_date ? fmtDate((cl as any).project_start_date) : "";
+        const e = (cl as any)?.project_end_date   ? fmtDate((cl as any).project_end_date)   : "";
+        if (!s && !e) return "—";
+        return s ? (e ? `${s}  to  ${e}` : `${s}  to  —`) : `—  to  ${e}`;
+      })();
       autoTbl(doc, {
         startY: y,
-        head: [["Period of contract", "Amount/value of contract work", "Maximum no. of workmen employed", "Security deposited with principal employer"]],
-        body:  [[v((cl as any)?.project_start_date ? fmtDate((cl as any).project_start_date) : "—", "to", (cl as any)?.project_end_date ? fmtDate((cl as any).project_end_date) : "—"), "—", String(clraData.viii.maxWorkmen || "—"), "—"]],
+        head: [["Period of contract", "Amount value of contract work", "Maximum no. of workmen\nemployed by the contractor", "Security deposited with\nthe principal employer"]],
+        body:  [[periodStr, "—", String(clraData.viii.maxWorkmen || "—"), "—"]],
         styles: TS, headStyles: TH, columnStyles: { 0:{ halign:"center" }, 1:{ halign:"center" }, 2:{ halign:"center" }, 3:{ halign:"center" } }, margin:{ left:M, right:M },
       });
       y = lastY() + 6;
@@ -3644,15 +3655,41 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
       addFooter(lastY() + 8);
 
       // ── Form IX — Workmen Register ─────────────────────────────────────────
+      // Landscape A4 usable width = 297 - 28 = 269mm
+      // Column widths: 10+28+14+24+14+22+44+40+19+19+35 = 269mm
       doc.addPage(); addTitle("FORM IX", "[See rule 74]", "Register of Workmen Employed by Contractor");
       y = addHdr();
       autoTbl(doc, {
         startY: y,
-        head: [["Sr.\nNo.", "Name and\nsurname of\nworkman", "Age\nand\nSex", "Father's /\nHusband's\nName", "Wages\nPeriod", "Designation", "Permanent home\naddress of workman", "Present address", "Date of\nAssign", "Date of\nDe-Assign", "Signature /\nThumb Impression"]],
-        body: clraData.ix.employees.map(e => [e.serialNo, e.name, `${e.age ? e.age + ", " : ""}${e.sex}`, e.fatherHusbandName||"—", e.wagesPeriod, e.designation||"—", e.permanentAddress||"—", e.presentAddress||"—", fmtDate((e as any).assignedDate||e.dateOfJoining)||"—", fmtDate((e as any).deassignedDate||e.dateOfLeaving)||"—", ""]),
-        styles: TS, headStyles: TH,
-        columnStyles: { 0:{ cellWidth:10, halign:"center" }, 1:{ cellWidth:26 }, 2:{ cellWidth:14, halign:"center" }, 3:{ cellWidth:22 }, 4:{ cellWidth:14, halign:"center" }, 5:{ cellWidth:20 }, 6:{ cellWidth:38 }, 7:{ cellWidth:34 }, 8:{ cellWidth:18, halign:"center" }, 9:{ cellWidth:18, halign:"center" }, 10:{ cellWidth:22 } },
-        margin:{ left:M, right:M },
+        head: [["Sr.\nNo.", "Name and\nsurname of\nworkman", "Age\nand\nSex", "Father's /\nHusband's\nName", "Wages\nPeriod", "Designation", "Permanent home\naddress of workman", "Present address", "Date of\nJoining", "Date of\nLeaving", "Signature /\nThumb\nImpression"]],
+        body: clraData.ix.employees.map(e => [
+          e.serialNo,
+          e.name,
+          `${e.age ? e.age + ",\n" : ""}${e.sex || ""}`,
+          e.fatherHusbandName || "—",
+          e.wagesPeriod || "Monthly",
+          e.designation || "—",
+          e.permanentAddress || "—",
+          e.presentAddress || "—",
+          fmtDate((e as any).assignedDate || e.dateOfJoining) || "—",
+          fmtDate((e as any).deassignedDate || e.dateOfLeaving) || "—",
+          "",
+        ]),
+        styles: { ...TS, minCellHeight: 10 }, headStyles: TH,
+        columnStyles: {
+          0:  { cellWidth: 10, halign: "center" },
+          1:  { cellWidth: 28 },
+          2:  { cellWidth: 14, halign: "center" },
+          3:  { cellWidth: 24 },
+          4:  { cellWidth: 14, halign: "center" },
+          5:  { cellWidth: 22 },
+          6:  { cellWidth: 44 },
+          7:  { cellWidth: 40 },
+          8:  { cellWidth: 19, halign: "center" },
+          9:  { cellWidth: 19, halign: "center" },
+          10: { cellWidth: 35 },
+        },
+        margin: { left: M, right: M },
       });
       addFooter(lastY() + 8);
 
