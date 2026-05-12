@@ -6,7 +6,7 @@ import {
   Clock, XCircle, Settings, Plus, Trash2, Signal, SignalLow, Download, Users,
   ShieldAlert, ShieldCheck, Pencil, KeyRound, Activity, UserCheck, FileUp,
   RotateCcw, ChevronDown, ChevronUp, User, CalendarDays, Timer, Wifi, WifiOff,
-  Building2, BadgeCheck, Link2, Zap, Search, ArrowRightLeft
+  Building2, BadgeCheck, Link2, Zap, Search, ArrowRightLeft, Lock
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -629,6 +629,7 @@ export default function BiometricPage() {
                         const isAutoMatched = !log.employeeId && !!r.resolvedEmployeeId;
                         const isEditingType = editingPunchTypeId === log.id;
                         const pt = (log.punchType || "unknown").toLowerCase();
+                        const isOverride = !!(log as any).punchTypeOverride;
                         return (
                           <TableRow key={log.id} className={log.missingPunch ? "bg-amber-50/50 dark:bg-amber-950/20" : ""}>
                             <TableCell className="pl-4 text-xs text-muted-foreground">{idx + 1}</TableCell>
@@ -682,11 +683,14 @@ export default function BiometricPage() {
                                   <Badge
                                     variant="outline"
                                     className={`text-xs capitalize cursor-default ${pt === "in" ? "border-green-300 bg-green-50 text-green-800 dark:bg-green-950 dark:text-green-300" : pt === "out" ? "border-red-300 bg-red-50 text-red-800 dark:bg-red-950 dark:text-red-300" : ""}`}
-                                  >{log.punchType || "unknown"}</Badge>
+                                  >
+                                    {log.punchType || "unknown"}
+                                    {isOverride && <Lock className="inline ml-1 h-2.5 w-2.5 opacity-60" title="Manually set" />}
+                                  </Badge>
                                   <button
                                     onClick={() => setEditingPunchTypeId(log.id)}
                                     className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded hover:bg-muted"
-                                    title="Edit punch type"
+                                    title={isOverride ? "Edit punch type (manually set)" : "Edit punch type"}
                                     data-testid={`button-edit-punchtype-${log.id}`}
                                   ><ArrowRightLeft className="h-3 w-3 text-muted-foreground" /></button>
                                 </div>

@@ -648,6 +648,7 @@ export const biometricPunchLogs = pgTable("biometric_punch_logs", {
   punchTime: text("punch_time").notNull(),
   punchDate: text("punch_date").notNull(),
   punchType: text("punch_type").default("unknown"),
+  punchTypeOverride: boolean("punch_type_override").default(false),
   deviceId: text("device_id"),
   isProcessed: boolean("is_processed").default(false),
   isDuplicate: boolean("is_duplicate").default(false),

@@ -402,6 +402,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     console.error("[migrations] biometric_punch_logs_dedup_unique failed:", err);
   });
 
+  // punch_type_override flag — lets admins manually correct in/out type
+  // without the auto-classifier overwriting their change on the next sync.
+  await db.execute(sql`
+    ALTER TABLE biometric_punch_logs ADD COLUMN IF NOT EXISTS punch_type_override boolean NOT NULL DEFAULT false;
+  `).catch((err) => console.error("[migrations] add punch_type_override failed:", err));
+
   // Mirror of migrations/007: per-device ADMS auth (shared secret OR pinned
   // source CIDR). Backfills existing devices to their last-seen push IP so
   // the deployed device keeps working without manual reconfiguration.
@@ -2191,6 +2197,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           bpl.punch_date          AS "punchDate",
           bpl.punch_time          AS "punchTime",
           bpl.punch_type          AS "punchType",
+          bpl.punch_type_override AS "punchTypeOverride",
           bpl.device_id           AS "deviceId",
           bpl.is_processed        AS "isProcessed",
           bpl.is_duplicate        AS "isDuplicate",
@@ -2230,9 +2237,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         deviceEmployeeId: r.deviceEmployeeId,
         punchDate:        r.punchDate,
         punchTime:        r.punchTime,
-        punchType:        r.punchType,
-        deviceId:         r.deviceId,
-        isProcessed:      !!r.isProcessed,
+        punchType:         r.punchType,
+        punchTypeOverride: !!r.punchTypeOverride,
+        deviceId:          r.deviceId,
+        isProcessed:       !!r.isProcessed,
         isDuplicate:      !!r.isDuplicate,
         missingPunch:     !!r.missingPunch,
         syncedAt:         r.syncedAt,
@@ -2252,7 +2260,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Update punch type for a single log (manual correction for in/out mix-ups)
+  // Update punch type for a single log (manual correction for in/out mix-ups).
+  // Sets punch_type_override = true so the auto-classifier will not overwrite
+  // this correction on future syncs. Then re-classifies the rest of the day's
+  // punches for that employee (those without override), updates attendance.
   app.patch("/api/biometric/logs/:id/punch-type", requireAuth, requireRole("super_admin", "company_admin"), async (req: any, res) => {
     try {
       const { id } = req.params;
@@ -2264,26 +2275,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const companyClause = user.role !== "super_admin"
         ? sql`AND company_id = ${user.companyId}`
         : sql``;
+
+      // 1. Mark this specific log as manually overridden & set its type
       const result = await db.execute(sql`
         UPDATE biometric_punch_logs
-        SET punch_type   = ${punchType},
-            is_processed = false,
-            synced_at    = NULL
+        SET punch_type          = ${punchType},
+            punch_type_override = true,
+            is_processed        = false,
+            synced_at           = NULL
         WHERE id = ${id}
           ${companyClause}
       `);
       if ((result as any)?.rowCount === 0) {
         return res.status(404).json({ error: "Log not found" });
       }
-      // Trigger re-sync so attendance gets updated immediately
-      const logRow = await db.execute(sql`SELECT company_id FROM biometric_punch_logs WHERE id = ${id}`);
-      const cid = (logRow as any)?.rows?.[0]?.company_id;
-      if (cid) {
+
+      // 2. Fetch employee_id + punch_date + company_id for this log
+      const logRow = await db.execute<{
+        employee_id: string; punch_date: string; company_id: string;
+      }>(sql`SELECT employee_id, punch_date, company_id FROM biometric_punch_logs WHERE id = ${id}`);
+      const logData = (logRow as any)?.rows?.[0];
+
+      if (logData?.employee_id && logData?.punch_date) {
+        // 3. Re-classify all non-overridden punches for this employee+date
+        //    so first=in / last=out is correctly reassigned after the admin edit
         import("./biometric-attendance-sync")
-          .then(({ processBiometricAttendance }) => processBiometricAttendance(cid))
-          .catch(err => console.error("[patch-punch-type] re-sync failed:", err));
+          .then(async ({ classifyPunchTypes, processBiometricAttendance }) => {
+            await classifyPunchTypes(logData.employee_id, logData.punch_date, logData.company_id);
+            await processBiometricAttendance(logData.company_id);
+          })
+          .catch(err => console.error("[patch-punch-type] re-classify/sync failed:", err));
       }
-      res.json({ success: true, punchType });
+
+      res.json({ success: true, punchType, override: true });
     } catch (error: any) {
       console.error("[biometric/logs/punch-type] error:", error);
       res.status(500).json({ error: "Failed to update punch type" });

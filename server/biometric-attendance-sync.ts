@@ -33,8 +33,9 @@ import {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const SWEEP_MS = 5 * 60 * 1000; // every 5 minutes
-const MAX_WORK_HOURS = 24;       // supports round-the-clock / night-shift workers
+const SWEEP_MS = 5 * 60 * 1000;  // every 5 minutes
+const MAX_WORK_HOURS   = 24;      // cap for work-hours calculation (cross-midnight shifts)
+const MISS_PUNCH_HOURS = 12.5;    // mark miss_punch after 12h 30m with no clock-out
 
 let _sweepTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -84,9 +85,9 @@ function nextDateStr(dateStr: string): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-/** "HH:MM" string for (now − MAX_WORK_HOURS). Used for the today-miss-punch check. */
+/** "HH:MM" string for (now − MISS_PUNCH_HOURS). Used for the today-miss-punch check. */
 function cutoffTimeStr(): string {
-  const d = new Date(Date.now() - MAX_WORK_HOURS * 60 * 60 * 1000);
+  const d = new Date(Date.now() - MISS_PUNCH_HOURS * 60 * 60 * 1000);
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
@@ -208,6 +209,77 @@ async function backfillBiometricOtHours(recentOnly = false): Promise<void> {
     if (updated) console.log(`[BioAttSync] OT backfill${recentOnly ? " (recent)" : ""}: fixed ${updated} record(s)`);
   } catch (err) {
     console.error("[BioAttSync] backfillBiometricOtHours failed:", err);
+  }
+}
+
+// ─── Punch-type auto-classifier ───────────────────────────────────────────────
+
+/**
+ * For each (employeeId, punchDate) group: sort ALL punch logs by time and
+ * assign punch_type = "in" to the FIRST punch and "out" to the LAST punch
+ * (when more than one punch exists). Middle punches get "in" (treated as
+ * redundant re-punches at the same access point).
+ *
+ * Punches where punch_type_override = true are SKIPPED — admin corrections
+ * are never overwritten by the auto-classifier.
+ *
+ * @param employeeId  when provided, only classify for this employee
+ * @param punchDate   when provided, only classify for this specific date
+ */
+export async function classifyPunchTypes(
+  employeeId?: string,
+  punchDate?: string,
+  companyFilter?: string,
+): Promise<void> {
+  try {
+    const empFilter  = employeeId  ? sql`AND employee_id = ${employeeId}`   : sql``;
+    const dateFilter = punchDate   ? sql`AND punch_date  = ${punchDate}`    : sql``;
+    const coFilter   = companyFilter ? sql`AND company_id = ${companyFilter}` : sql``;
+
+    // Fetch all non-overridden, mapped punches grouped into (emp, date) buckets
+    const rows = await db.execute<{
+      id: string;
+      employee_id: string;
+      punch_date: string;
+      punch_time: string;
+    }>(sql`
+      SELECT id, employee_id, punch_date, punch_time
+      FROM   biometric_punch_logs
+      WHERE  employee_id         IS NOT NULL
+        AND  punch_type_override  = false
+        ${empFilter}
+        ${dateFilter}
+        ${coFilter}
+      ORDER  BY employee_id, punch_date, punch_time ASC
+    `);
+
+    if (!rows.rows.length) return;
+
+    // Group by (employeeId, punchDate)
+    const groups = new Map<string, Array<{ id: string; punch_time: string }>>();
+    for (const r of rows.rows) {
+      const key = `${r.employee_id}::${r.punch_date}`;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push({ id: r.id, punch_time: r.punch_time });
+    }
+
+    // For each group, update DB in bulk
+    for (const [, punches] of groups) {
+      if (punches.length === 0) continue;
+      // Already sorted ASC by punch_time (from the query ORDER BY)
+      for (let i = 0; i < punches.length; i++) {
+        const newType = i === 0 ? "in" : (i === punches.length - 1 ? "out" : "in");
+        await db.execute(sql`
+          UPDATE biometric_punch_logs
+          SET punch_type = ${newType}
+          WHERE id = ${punches[i].id}
+            AND punch_type_override = false
+        `);
+      }
+    }
+    console.log(`[BioAttSync] classifyPunchTypes: classified ${groups.size} group(s)`);
+  } catch (err) {
+    console.error("[BioAttSync] classifyPunchTypes failed:", err);
   }
 }
 
@@ -413,6 +485,10 @@ export async function processBiometricAttendance(
   } catch (err) {
     console.error("[BioAttSync] Backfill update failed:", err);
   }
+
+  // Auto-assign punch types: first punch of each day → "in", last → "out".
+  // Skips any logs where admin has set punch_type_override = true.
+  await classifyPunchTypes(undefined, undefined, companyFilter);
 
   // Run the miss-punch rule on every sweep cycle
   await applyMissPunchRule();
