@@ -1338,12 +1338,14 @@ export function registerComplianceRoutes(app: Express) {
       if (empIds.length > 0) {
         const empInList = sql.join(empIds.map((id: string) => sql`${id}`), sql`, `);
 
-        // Attendance: primary source for pay days (one row per day, count present/half_day)
+        // Attendance: primary source for pay days.
+        // Filter by employee_id (not company_id) so CLRA project employees' attendance
+        // is found regardless of which company's company_id their records carry.
         const attRows = await db.execute(sql`
           SELECT employee_id,
                  COUNT(*) FILTER (WHERE status IN ('present','half_day')) AS present_days
           FROM attendance
-          WHERE company_id = ${targetCompanyId}
+          WHERE employee_id IN (${empInList})
             AND EXTRACT(MONTH FROM date::date) = ${monthNum}
             AND EXTRACT(YEAR  FROM date::date) = ${parseInt(year)}
           GROUP BY employee_id`);
