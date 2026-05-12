@@ -3656,71 +3656,73 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
       });
       addFooter(lastY() + 8);
 
-      // ── Form X — Employment Card (2-up) ───────────────────────────────────────
+      // ── Form X — Employment Card (2-up LEFT/RIGHT) ────────────────────────────
       {
-        const slotH   = (ph - 2 * M - 4) / 2;   // ~89mm per slot
-        const slot2Y  = M + slotH + 4;            // top of second slot
-        const dividerY = M + slotH + 2;           // dashed line position
+        // Left/right split: each slot is ~132mm wide × full page height → much more vertical room
+        const slotW  = Math.floor((pw - 2 * M - 4) / 2);  // ~132mm per slot
+        const slot2X = M + slotW + 4;                       // right slot x start
+        const divX   = M + slotW + 2;                       // vertical divider x
 
-        const drawDivider = () => {
+        const drawVDivX = () => {
           doc.setDrawColor(140); doc.setLineDashPattern([5, 3], 0);
-          doc.line(M, dividerY, pw - M, dividerY);
+          doc.line(divX, M, divX, ph - M);
           doc.setLineDashPattern([], 0); doc.setDrawColor(50);
         };
 
-        // Draw one compact Employment Card slot starting at sy
-        const drawXSlot = (sy: number, e: any, w: any) => {
-          let cy = sy;
+        const drawXSlot = (sx: number, e: any, w: any) => {
+          const mr = pw - sx - slotW;   // right margin for autoTbl
+          const cx = sx + slotW / 2;    // centre of this slot
+          let cy = M;
           doc.setFont("times", "bold"); doc.setFontSize(11);
-          doc.text("FORM X", pw / 2, cy + 6, { align: "center" });
+          doc.text("FORM X", cx, cy + 6, { align: "center" });
           doc.setFont("times", "normal"); doc.setFontSize(8);
-          doc.text("[See rule 75]", pw / 2, cy + 11, { align: "center" });
+          doc.text("[See rule 75]", cx, cy + 11, { align: "center" });
           doc.setFont("times", "bold"); doc.setFontSize(10);
-          doc.text("EMPLOYMENT CARD", pw / 2, cy + 16, { align: "center" });
-          doc.setDrawColor(80, 80, 80); doc.line(M, cy + 18, pw - M, cy + 18); cy += 22;
-          // Compact header rows (abbreviated labels to save width)
-          ([ ["Contractor", v(company.name, company.address)],
-             ["Establishment", v(cl?.client_name, cl?.client_address)],
-             ["Location", v(cl?.nature_of_work, cl?.location_of_work)],
-             ["Principal Employer", v(cl?.principal_employer_name, cl?.principal_employer_address)],
+          doc.text("EMPLOYMENT CARD", cx, cy + 16, { align: "center" });
+          doc.setDrawColor(80, 80, 80); doc.line(sx, cy + 18, sx + slotW, cy + 18); cy += 22;
+          ([ ["Contractor",        v(company.name, company.address)],
+             ["Establishment",     v(cl?.client_name, cl?.client_address)],
+             ["Location",          v(cl?.nature_of_work, cl?.location_of_work)],
+             ["Principal Employer",v(cl?.principal_employer_name, cl?.principal_employer_address)],
           ] as [string, string][]).forEach(([lbl, val]) => {
-            doc.setFont("times", "bold"); doc.setFontSize(7.5); doc.text(lbl + " : ", M, cy);
+            doc.setFont("times", "bold"); doc.setFontSize(7.5); doc.text(lbl + " : ", sx, cy);
             const lw = doc.getTextWidth(lbl + " : ");
             doc.setFont("times", "normal"); doc.setFontSize(7.5);
-            const ls: string[] = doc.splitTextToSize(val, pw - M * 2 - lw);
-            ls.forEach((l: string, i: number) => doc.text(l, M + lw, cy + i * 3.5));
+            const ls: string[] = doc.splitTextToSize(val, slotW - lw);
+            ls.forEach((l: string, i: number) => doc.text(l, sx + lw, cy + i * 3.5));
             cy += Math.max(1, ls.length) * 3.5 + 0.5;
           });
-          doc.setDrawColor(80, 80, 80); doc.line(M, cy, pw - M, cy); cy += 3;
-          // Employee detail rows
-          ([ ["Name of the Workman",          e.name || "—"],
-             ["Father's / Husband's Name",    e.fatherHusbandName || "—"],
-             ["Designation",                  e.designation || "LABOUR"],
-             ["Date of Assign",               fmtDate(e.assignedDate || e.dateOfJoining) || "—"],
-             ["Rate of Wages",                w?.monthlyRate ? `₹ ${Number(w.monthlyRate).toLocaleString("en-IN")} (Monthly)` : (e.wagesPeriod || "Monthly")],
+          doc.setDrawColor(80, 80, 80); doc.line(sx, cy, sx + slotW, cy); cy += 3;
+          ([ ["Name of the Workman",       e.name || "—"],
+             ["Father's / Husband's Name", e.fatherHusbandName || "—"],
+             ["Designation",               e.designation || "LABOUR"],
+             ["Date of Assign",            fmtDate(e.assignedDate || e.dateOfJoining) || "—"],
+             ["Rate of Wages",             w?.monthlyRate ? `₹ ${Number(w.monthlyRate).toLocaleString("en-IN")} (Monthly)` : (e.wagesPeriod || "Monthly")],
           ] as [string, string][]).forEach(([lbl, val]) => {
-            doc.setFont("times", "bold"); doc.setFontSize(8); doc.text(lbl + " : ", M, cy);
+            doc.setFont("times", "bold"); doc.setFontSize(8); doc.text(lbl + " : ", sx, cy);
             const lw = doc.getTextWidth(lbl + " : ");
-            doc.setFont("times", "normal"); doc.setFontSize(8); doc.text(val, M + lw, cy);
-            cy += 4.5;
+            doc.setFont("times", "normal"); doc.setFontSize(8);
+            const ls: string[] = doc.splitTextToSize(val, slotW - lw);
+            ls.forEach((l: string, i: number) => doc.text(l, sx + lw, cy + i * 4.5));
+            cy += Math.max(1, ls.length) * 4.5;
           });
-          doc.setDrawColor(80, 80, 80); doc.line(M, cy, pw - M, cy); cy += 2;
+          doc.setDrawColor(80, 80, 80); doc.line(sx, cy, sx + slotW, cy); cy += 2;
           autoTbl(doc, {
             startY: cy,
-            head: [["Serial No.\nin Register", "Designation", "Rate of Wages", "Wages\nPeriod", "Date of\nJoining", "Remarks"]],
+            head: [["Sl.\nNo.", "Designation", "Rate of Wages", "Wages\nPeriod", "Date of\nJoining", "Remarks"]],
             body: [[e.serialNo, e.designation || "LABOUR", w?.monthlyRate ? `₹ ${Number(w.monthlyRate).toLocaleString("en-IN")} Monthly` : "—", e.wagesPeriod || "Monthly", fmtDate(e.assignedDate || e.dateOfJoining) || "—", ""]],
             styles: { ...TS, fontSize: 7.5 }, headStyles: { ...TH, fontSize: 7.5 },
-            columnStyles: { 0:{ cellWidth:24, halign:"center" }, 1:{ cellWidth:40 }, 2:{ cellWidth:42 }, 3:{ cellWidth:25, halign:"center" }, 4:{ cellWidth:30, halign:"center" }, 5:{ cellWidth:"auto" as any } },
-            margin: { left: M, right: M },
+            columnStyles: { 0:{ cellWidth:12, halign:"center" }, 1:{ cellWidth:26 }, 2:{ cellWidth:32 }, 3:{ cellWidth:18, halign:"center" }, 4:{ cellWidth:22, halign:"center" }, 5:{ cellWidth:"auto" as any } },
+            margin: { left: sx, right: mr },
           });
-          const fy = lastY() + 5;
+          const fy = lastY() + 6;
           doc.setFont("times", "normal"); doc.setFontSize(7.5);
-          doc.text(`Place : ${v(cl?.location_of_work)}`, M, fy);
-          doc.setFont("times", "bold"); doc.text("Signature of the Contractor", pw - M, fy, { align: "right" });
+          doc.text(`Place : ${v(cl?.location_of_work)}`, sx, fy);
+          doc.setFont("times", "bold"); doc.text("Signature of the Contractor", sx + slotW, fy, { align: "right" });
         };
 
-        const allWorkmen  = clraData.ix.employees;
-        const wageMap = new Map(clraData.xiii.employees.map((e: any) => [e.name, e]));
+        const allWorkmen = clraData.ix.employees;
+        const wageMap    = new Map(clraData.xiii.employees.map((e: any) => [e.name, e]));
 
         if (allWorkmen.length === 0) {
           doc.addPage(); addTitle("FORM X", "[See rule 75]", "Employment Card");
@@ -3730,18 +3732,18 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
         } else {
           for (let i = 0; i < allWorkmen.length; i += 2) {
             doc.addPage();
-            drawDivider();
+            drawVDivX();
             drawXSlot(M, allWorkmen[i], wageMap.get(allWorkmen[i].name));
-            if (allWorkmen[i + 1]) drawXSlot(slot2Y, allWorkmen[i + 1], wageMap.get(allWorkmen[i + 1].name));
+            if (allWorkmen[i + 1]) drawXSlot(slot2X, allWorkmen[i + 1], wageMap.get(allWorkmen[i + 1].name));
           }
         }
       }
 
-      // ── Form XI — Service Certificate (2-up, one per employee) ──────────────
+      // ── Form XI — Service Certificate (2-up LEFT/RIGHT) ──────────────────────
       {
-        const slotH  = (ph - 2 * M - 4) / 2;
-        const slot2Y = M + slotH + 4;
-        const divY   = M + slotH + 2;
+        const slotW  = Math.floor((pw - 2 * M - 4) / 2);
+        const slot2X = M + slotW + 4;
+        const divX   = M + slotW + 2;
 
         const wMap  = new Map(clraData.xiii.employees.map((e: any) => [e.name, e]));
         const mNum  = monthIdx + 1;
@@ -3749,47 +3751,54 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
         const fromD = `01-${String(mNum).padStart(2,"0")}-${toYear}`;
         const toD   = `${String(dInM).padStart(2,"0")}-${String(mNum).padStart(2,"0")}-${toYear}`;
 
-        const drawXISlot = (sy: number, e: any, w: any) => {
-          let cy = sy;
+        const drawVDivXI = () => {
+          doc.setDrawColor(140); doc.setLineDashPattern([5,3], 0);
+          doc.line(divX, M, divX, ph - M);
+          doc.setLineDashPattern([], 0); doc.setDrawColor(50);
+        };
+
+        const drawXISlot = (sx: number, e: any, w: any) => {
+          const mr = pw - sx - slotW;
+          const cx = sx + slotW / 2;
+          let cy = M;
           doc.setFont("times","bold"); doc.setFontSize(11);
-          doc.text("FORM XI", pw/2, cy+6, {align:"center"});
+          doc.text("FORM XI", cx, cy+6, {align:"center"});
           doc.setFont("times","normal"); doc.setFontSize(8);
-          doc.text("[See rule 76]", pw/2, cy+11, {align:"center"});
+          doc.text("[See rule 76]", cx, cy+11, {align:"center"});
           doc.setFont("times","bold"); doc.setFontSize(10);
-          doc.text("SERVICE CERTIFICATE", pw/2, cy+16, {align:"center"});
-          doc.setDrawColor(80,80,80); doc.line(M, cy+18, pw-M, cy+18); cy += 22;
-          // Compact header: standard 4 rows + 3 workman rows
-          ([ ["Contractor",       v(company.name, company.address)],
-             ["Establishment",    v(cl?.client_name, cl?.client_address)],
-             ["Location",         v(cl?.nature_of_work, cl?.location_of_work)],
-             ["Principal Employer", v(cl?.principal_employer_name, cl?.principal_employer_address)],
-             ["Workman Name",     e.name || "—"],
-             ["Age / DOB",        e.age ? `${e.age} yr` : "—"],
+          doc.text("SERVICE CERTIFICATE", cx, cy+16, {align:"center"});
+          doc.setDrawColor(80,80,80); doc.line(sx, cy+18, sx+slotW, cy+18); cy += 22;
+          ([ ["Contractor",        v(company.name, company.address)],
+             ["Establishment",     v(cl?.client_name, cl?.client_address)],
+             ["Location",          v(cl?.nature_of_work, cl?.location_of_work)],
+             ["Principal Employer",v(cl?.principal_employer_name, cl?.principal_employer_address)],
+             ["Workman Name",      e.name || "—"],
+             ["Age / DOB",         e.age ? `${e.age} yr` : "—"],
              ["Father's / Husband's Name", e.fatherHusbandName || "—"],
           ] as [string,string][]).forEach(([lbl, val]) => {
-            doc.setFont("times","bold"); doc.setFontSize(7.5); doc.text(lbl+" : ", M, cy);
+            doc.setFont("times","bold"); doc.setFontSize(7.5); doc.text(lbl+" : ", sx, cy);
             const lw = doc.getTextWidth(lbl+" : ");
             doc.setFont("times","normal"); doc.setFontSize(7.5);
-            const ls: string[] = doc.splitTextToSize(val, pw-M*2-lw);
-            ls.forEach((l:string,i:number) => doc.text(l, M+lw, cy+i*3.5));
+            const ls: string[] = doc.splitTextToSize(val, slotW - lw);
+            ls.forEach((l:string, i:number) => doc.text(l, sx+lw, cy+i*3.5));
             cy += Math.max(1, ls.length)*3.5 + 0.5;
           });
-          doc.setDrawColor(80,80,80); doc.line(M, cy, pw-M, cy); cy += 3;
+          doc.setDrawColor(80,80,80); doc.line(sx, cy, sx+slotW, cy); cy += 3;
           autoTbl(doc, {
             startY: cy,
-            head:[["Sr.\nNo.","From","To","Days\nworked","Nature of\nwork","Rate of\nwage","Total wages\nearned (₹)","Deductions","Net wages\npaid (₹)","Remarks"]],
+            head:[["Sr.\nNo.","From","To","Days\nWorked","Nature of\nWork","Rate of\nWage","Total Wages\nEarned (₹)","Deductions","Net Wages\nPaid (₹)","Remarks"]],
             body:[[e.serialNo, fromD, toD, w?.payDays??"—", e.designation||"LABOUR", "Monthly",
               w ? w.totalEarnings.toLocaleString("en-IN") : "—",
               w ? `PF:${w.pf||0} ESI:${w.esi||0} LWF:${w.lwf||0}` : "—",
               w ? w.netSalary.toLocaleString("en-IN") : "—", ""]],
-            styles:{...TS, fontSize:7.5, minCellHeight:12}, headStyles:{...TH, fontSize:7.5},
-            columnStyles:{0:{cellWidth:11,halign:"center"},1:{cellWidth:20,halign:"center"},2:{cellWidth:20,halign:"center"},3:{cellWidth:13,halign:"center"},4:{cellWidth:22},5:{cellWidth:14,halign:"center"},6:{cellWidth:24,halign:"right"},7:{cellWidth:30},8:{cellWidth:24,halign:"right"},9:{cellWidth:"auto" as any}},
-            margin:{left:M, right:M},
+            styles:{...TS, fontSize:7, minCellHeight:12}, headStyles:{...TH, fontSize:7},
+            columnStyles:{0:{cellWidth:9,halign:"center"},1:{cellWidth:16,halign:"center"},2:{cellWidth:16,halign:"center"},3:{cellWidth:11,halign:"center"},4:{cellWidth:18},5:{cellWidth:13,halign:"center"},6:{cellWidth:20,halign:"right"},7:{cellWidth:22},8:{cellWidth:20,halign:"right"},9:{cellWidth:"auto" as any}},
+            margin:{left:sx, right:mr},
           });
-          const fy = lastY()+5;
+          const fy = lastY()+6;
           doc.setFont("times","normal"); doc.setFontSize(7.5);
-          doc.text(`Place : ${v(cl?.location_of_work)}`, M, fy);
-          doc.setFont("times","bold"); doc.text("Signature of the Contractor", pw-M, fy, {align:"right"});
+          doc.text(`Place : ${v(cl?.location_of_work)}`, sx, fy);
+          doc.setFont("times","bold"); doc.text("Signature of the Contractor", sx+slotW, fy, {align:"right"});
         };
 
         const emps = clraData.ix.employees.filter((e: any) => {
@@ -3806,11 +3815,9 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
         }
         for (let i = 0; i < emps.length; i += 2) {
           doc.addPage();
-          doc.setDrawColor(140); doc.setLineDashPattern([5,3], 0);
-          doc.line(M, divY, pw-M, divY);
-          doc.setLineDashPattern([], 0); doc.setDrawColor(50);
+          drawVDivXI();
           drawXISlot(M, emps[i], wMap.get(emps[i].name));
-          if (emps[i+1]) drawXISlot(slot2Y, emps[i+1], wMap.get(emps[i+1].name));
+          if (emps[i+1]) drawXISlot(slot2X, emps[i+1], wMap.get(emps[i+1].name));
         }
       }
 
@@ -3914,82 +3921,110 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
       }
       addFooter(lastY() + 8);
 
-      // ── Form XV — Wage Slip (2-up, one slip per employee) ────────────────────
+      // ── Form XV — Wage Slip (2-up LEFT/RIGHT) ────────────────────────────────
       {
-        const slotH  = (ph - 2 * M - 4) / 2;
-        const slot2Y = M + slotH + 4;
-        const divY   = M + slotH + 2;
+        const slotW  = Math.floor((pw - 2 * M - 4) / 2);
+        const slot2X = M + slotW + 4;
+        const divX   = M + slotW + 2;
 
-        const drawXVSlot = (sy: number, e: any) => {
-          let cy = sy;
+        const drawVDivXV = () => {
+          doc.setDrawColor(140); doc.setLineDashPattern([5,3], 0);
+          doc.line(divX, M, divX, ph - M);
+          doc.setLineDashPattern([], 0); doc.setDrawColor(50);
+        };
+
+        const drawXVSlot = (sx: number, e: any) => {
+          const mr = pw - sx - slotW;
+          const cx = sx + slotW / 2;
+          let cy = M;
           doc.setFont("times","bold"); doc.setFontSize(11);
-          doc.text("FORM XV", pw/2, cy+6, {align:"center"});
+          doc.text("FORM XV", cx, cy+6, {align:"center"});
           doc.setFont("times","normal"); doc.setFontSize(8);
-          doc.text("[See Rule 77 (1) (b)]", pw/2, cy+11, {align:"center"});
+          doc.text("[See Rule 77 (1) (b)]", cx, cy+11, {align:"center"});
           doc.setFont("times","bold"); doc.setFontSize(10);
-          doc.text("WAGE SLIP", pw/2, cy+16, {align:"center"});
-          doc.setDrawColor(80,80,80); doc.line(M, cy+18, pw-M, cy+18); cy += 22;
-          // Compact header + month row
-          ([ ["Contractor",       v(company.name, company.address)],
-             ["Establishment",    v(cl?.client_name, cl?.client_address)],
-             ["Location",         v(cl?.nature_of_work, cl?.location_of_work)],
-             ["Principal Employer", v(cl?.principal_employer_name, cl?.principal_employer_address)],
-             ["For the month of", `${monthFull} ${toYear}`],
+          doc.text("WAGE SLIP", cx, cy+16, {align:"center"});
+          doc.setDrawColor(80,80,80); doc.line(sx, cy+18, sx+slotW, cy+18); cy += 22;
+          ([ ["Contractor",        v(company.name, company.address)],
+             ["Establishment",     v(cl?.client_name, cl?.client_address)],
+             ["Location",          v(cl?.nature_of_work, cl?.location_of_work)],
+             ["Principal Employer",v(cl?.principal_employer_name, cl?.principal_employer_address)],
+             ["For the month of",  `${monthFull} ${toYear}`],
           ] as [string,string][]).forEach(([lbl, val]) => {
-            doc.setFont("times","bold"); doc.setFontSize(7.5); doc.text(lbl+" : ", M, cy);
+            doc.setFont("times","bold"); doc.setFontSize(7.5); doc.text(lbl+" : ", sx, cy);
             const lw = doc.getTextWidth(lbl+" : ");
             doc.setFont("times","normal"); doc.setFontSize(7.5);
-            const ls: string[] = doc.splitTextToSize(val, pw-M*2-lw);
-            ls.forEach((l:string,i:number) => doc.text(l, M+lw, cy+i*3.5));
+            const ls: string[] = doc.splitTextToSize(val, slotW - lw);
+            ls.forEach((l:string, i:number) => doc.text(l, sx+lw, cy+i*3.5));
             cy += Math.max(1, ls.length)*3.5 + 0.5;
           });
-          doc.setDrawColor(80,80,80); doc.line(M, cy, pw-M, cy); cy += 3;
-          // Name line
-          const nameLabel = "Name & Father's Name S/O : ";
-          doc.setFont("times","bold"); doc.setFontSize(9); doc.text(nameLabel, M, cy);
+          doc.setDrawColor(80,80,80); doc.line(sx, cy, sx+slotW, cy); cy += 3;
+          // Employee name line
+          const nameLabel = "Name & S/O : ";
+          doc.setFont("times","bold"); doc.setFontSize(9); doc.text(nameLabel, sx, cy);
           doc.setFont("times","normal"); doc.setFontSize(9);
-          doc.text(`${e.name}${e.fatherHusbandName ? "  S/O  "+e.fatherHusbandName : ""}`, M+doc.getTextWidth(nameLabel), cy);
-          cy += 6;
+          const nameTxt = `${e.name}${e.fatherHusbandName ? "  S/O  "+e.fatherHusbandName : ""}`;
+          const nameLines: string[] = doc.splitTextToSize(nameTxt, slotW - doc.getTextWidth(nameLabel));
+          nameLines.forEach((l: string, i: number) => doc.text(l, sx + doc.getTextWidth(nameLabel), cy + i * 4.5));
+          cy += Math.max(1, nameLines.length) * 4.5 + 1;
+          // Designation & Emp Code row
+          doc.setFont("times","bold"); doc.setFontSize(8);
+          doc.text("Designation : ", sx, cy);
+          doc.setFont("times","normal"); doc.setFontSize(8);
+          doc.text(e.designation || "—", sx + doc.getTextWidth("Designation : "), cy);
+          cy += 5;
           autoTbl(doc, {
             startY: cy,
             head:[[
-              "No. of days\nworked",
-              "Rate of wages\n(Monthly)",
-              "No. of units\n(piece rate)",
-              "OT hours\n& OT wages",
-              "Gross wages\npayable (Rs.)",
+              "No. of Days\nWorked",
+              "Rate of Wages\n(Monthly)",
+              "No. of Units\n(Piece Rate)",
+              "OT Hours\n& OT Wages",
+              "Gross Wages\nPayable (Rs.)",
               "Deductions\nif any",
-              "Net amount\npaid (Rs.)",
-              "Signature\nof workman",
+              "Net Amount\nPaid (Rs.)",
+              "Signature\nof Workman",
             ]],
             body:[[
               String(e.payDays ?? "—"),
-              e.monthlyRate ? `Rs.${e.monthlyRate.toLocaleString("en-IN")}` : "—",
+              e.monthlyRate ? `Rs.${Number(e.monthlyRate).toLocaleString("en-IN")}` : "—",
               "N.A.",
               "NIL",
-              e.totalEarnings ? `Rs.${e.totalEarnings.toLocaleString("en-IN")}` : "—",
-              `PF  : Rs.${e.pf||0}\nESIC: Rs.${e.esi||0}\nLWF : Rs.${e.lwf||0}\nAdjs: Rs.0`,
-              e.netSalary ? `Rs.${e.netSalary.toLocaleString("en-IN")}` : "—",
+              e.totalEarnings ? `Rs.${Number(e.totalEarnings).toLocaleString("en-IN")}` : "—",
+              `PF   : Rs.${e.pf||0}\nESIC : Rs.${e.esi||0}\nLWF  : Rs.${e.lwf||0}`,
+              e.netSalary ? `Rs.${Number(e.netSalary).toLocaleString("en-IN")}` : "—",
               "",
             ]],
-            styles:{...TS, minCellHeight:20}, headStyles:TH,
-            columnStyles:{0:{cellWidth:22,halign:"center"},1:{cellWidth:30,halign:"center"},2:{cellWidth:24,halign:"center"},3:{cellWidth:26,halign:"center"},4:{cellWidth:26,halign:"right"},5:{cellWidth:36},6:{cellWidth:26,halign:"right"},7:{cellWidth:"auto" as any}},
-            margin:{left:M, right:M},
+            styles:{...TS, fontSize:7.5, minCellHeight:18}, headStyles:{...TH, fontSize:7.5},
+            columnStyles:{
+              0:{cellWidth:16,halign:"center"},
+              1:{cellWidth:22,halign:"center"},
+              2:{cellWidth:16,halign:"center"},
+              3:{cellWidth:16,halign:"center"},
+              4:{cellWidth:20,halign:"right"},
+              5:{cellWidth:26},
+              6:{cellWidth:20,halign:"right"},
+              7:{cellWidth:"auto" as any},
+            },
+            margin:{left:sx, right:mr},
           });
-          const fy = lastY()+5;
+          const fy = lastY()+6;
           doc.setFont("times","normal"); doc.setFontSize(7.5);
-          doc.text(`Place : ${v(cl?.location_of_work)}`, M, fy);
-          doc.setFont("times","bold"); doc.text("Signature of the Contractor", pw-M, fy, {align:"right"});
+          doc.text(`Place : ${v(cl?.location_of_work)}`, sx, fy);
+          doc.setFont("times","bold"); doc.text("Signature of the Contractor", sx+slotW, fy, {align:"right"});
         };
 
         const wageEmps = clraData.xiii.employees;
+        if (wageEmps.length === 0) {
+          doc.addPage(); addTitle("FORM XV", "[See Rule 77 (1) (b)]", "Wage Slip");
+          y = addHdr([["For the month of", `${monthFull} ${toYear}`]]);
+          doc.setFont("times","italic"); doc.setFontSize(10);
+          doc.text("No wage data available.", pw / 2, y + 12, { align: "center" });
+        }
         for (let i = 0; i < wageEmps.length; i += 2) {
           doc.addPage();
-          doc.setDrawColor(140); doc.setLineDashPattern([5,3], 0);
-          doc.line(M, divY, pw-M, divY);
-          doc.setLineDashPattern([], 0); doc.setDrawColor(50);
+          drawVDivXV();
           drawXVSlot(M, wageEmps[i]);
-          if (wageEmps[i+1]) drawXVSlot(slot2Y, wageEmps[i+1]);
+          if (wageEmps[i+1]) drawXVSlot(slot2X, wageEmps[i+1]);
         }
       }
 
