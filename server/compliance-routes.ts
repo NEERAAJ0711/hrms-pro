@@ -1354,8 +1354,11 @@ export function registerComplianceRoutes(app: Express) {
 
         // Compliance adjustments — highest priority, override everything
         const adjRows = await db.execute(sql`
-          SELECT employee_id, adjusted_attendance, adjusted_basic_salary,
-                 adjusted_gross_salary, adjusted_net_salary
+          SELECT employee_id,
+                 original_attendance, adjusted_attendance,
+                 original_basic_salary, adjusted_basic_salary,
+                 original_gross_salary, adjusted_gross_salary,
+                 original_net_salary,  adjusted_net_salary
           FROM compliance_adjustments
           WHERE company_id = ${targetCompanyId} AND month = ${monthStr} AND year = ${parseInt(year)}
             AND employee_id IN (${empInList})`);
@@ -1370,9 +1373,15 @@ export function registerComplianceRoutes(app: Express) {
         const setupBasic = Number(r.setup_basic || 0);
         const setupGross = Number(r.setup_gross || 0);
 
-        // Pay days priority: compliance adjustment → attendance → payroll → 0
+        // Pay days priority:
+        //   1. adjusted_attendance (manual override in adjustment tab)
+        //   2. original_attendance (calculated value shown in adjustment tab)
+        //   3. attendance table present_days
+        //   4. payroll pay_days / present_days
         const payDays = adj?.adjusted_attendance != null
           ? Number(adj.adjusted_attendance)
+          : adj?.original_attendance != null
+          ? Number(adj.original_attendance)
           : Number(att.present_days || p.pay_days || p.present_days || 0);
 
         // Standard working days denominator for India compliance (Payment of Wages Act):

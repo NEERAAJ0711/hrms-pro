@@ -3892,44 +3892,52 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
       addFooter(lastY() + 8);
 
       // ── Form XIII — Register of Wages ──────────────────────────────────────
-      // Simplified columns as per requirement:
-      // Earnings: Basic | Allowances | Bonus | Total
-      // Deductions: PF | ESIC | LWF | Adv | Total
-      // Basic & Allowances = employee setup (monthly) rates
-      // Column widths total = 269mm (landscape usable)
-      // 8+50+10+22+10 | 17+18+14+16 | 12+12+10+10+11 | 20+29 = 269mm
+      // Groups: Amount of Wages Rate | Amount of Wages Earned | Deductions
+      // Allowances = single column (HRA + other combined)
+      // Rate columns use monthly setup amounts; Earned columns use adjusted/prorated amounts
+      // Days = from adjustment tab (original_attendance → adjusted_attendance)
+      // Deductions: PF, ESIC, LWF, Adv only
+      // Col widths: 8+38+9+20+9 | 13+13+12 | 14+14+12+13 | 12+12+10+10+11 | 16+23 = 269mm
       doc.addPage(); addTitle("FORM XIII", "[See Rule 77 (1) (a) (i)]", "Register of Wages");
       y = addHdr([["For the month of", `${monthFull} ${toYear}`]]);
       {
-        const n0 = (n: number | null | undefined) => (n != null && n !== 0) ? n.toLocaleString("en-IN") : "0";
-        const A_BG: [number,number,number] = [200, 230, 201];
-        const D_BG: [number,number,number] = [252, 228, 236];
+        const n0  = (n: number | null | undefined) => (n != null && n !== 0) ? n.toLocaleString("en-IN") : "0";
+        const R_BG: [number,number,number] = [204, 229, 255]; // blue  – Rate
+        const A_BG: [number,number,number] = [200, 230, 201]; // green – Earned
+        const D_BG: [number,number,number] = [252, 228, 236]; // pink  – Deductions
+        const thRate = { ...TH, fillColor: R_BG };
         const thEarn = { ...TH, fillColor: A_BG };
         const thDed  = { ...TH, fillColor: D_BG };
         autoTbl(doc, {
           startY: y,
           head: [
+            // Row 1 — group headers
             [
               { content: "Sl.\nNo.",                            rowSpan: 2, styles: { ...TH,     cellWidth: 8,  halign:"center", valign:"middle" } },
-              { content: "Name and Surname\nS/O Father's Name", rowSpan: 2, styles: { ...TH,     cellWidth: 50,                  valign:"middle" } },
-              { content: "Sr.\nNo.",                            rowSpan: 2, styles: { ...TH,     cellWidth: 10, halign:"center", valign:"middle" } },
-              { content: "Designation /\nNature of Work",       rowSpan: 2, styles: { ...TH,     cellWidth: 22,                  valign:"middle" } },
-              { content: "No. of\nDays",                        rowSpan: 2, styles: { ...TH,     cellWidth: 10, halign:"center", valign:"middle" } },
-              { content: "Earnings",                            colSpan: 4, styles: { ...thEarn,               halign:"center"                 } },
+              { content: "Name and Surname\nS/O Father's Name", rowSpan: 2, styles: { ...TH,     cellWidth: 38,                  valign:"middle" } },
+              { content: "Sr.\nNo.",                            rowSpan: 2, styles: { ...TH,     cellWidth: 9,  halign:"center", valign:"middle" } },
+              { content: "Designation /\nNature of Work",       rowSpan: 2, styles: { ...TH,     cellWidth: 20,                  valign:"middle" } },
+              { content: "No. of\nDays",                        rowSpan: 2, styles: { ...TH,     cellWidth: 9,  halign:"center", valign:"middle" } },
+              { content: "Amount of Wages Rate",                colSpan: 3, styles: { ...thRate,               halign:"center"                 } },
+              { content: "Amount of Wages Earned",              colSpan: 4, styles: { ...thEarn,               halign:"center"                 } },
               { content: "Deductions",                          colSpan: 5, styles: { ...thDed,                halign:"center"                 } },
-              { content: "Net\nAmount\nPaid",                   rowSpan: 2, styles: { ...TH,     cellWidth: 20, halign:"right",  valign:"middle" } },
-              { content: "Signature /\nThumb\nImpression",      rowSpan: 2, styles: { ...TH,     cellWidth: 29,                  valign:"middle" } },
+              { content: "Net\nAmount\nPaid",                   rowSpan: 2, styles: { ...TH,     cellWidth: 16, halign:"right",  valign:"middle" } },
+              { content: "Signature /\nThumb\nImpression",      rowSpan: 2, styles: { ...TH,     cellWidth: 23,                  valign:"middle" } },
             ],
+            // Row 2 — sub-column headers
             [
-              { content: "Basic",        styles: { ...thEarn, cellWidth: 17, halign:"right" } },
-              { content: "Allowances",   styles: { ...thEarn, cellWidth: 18, halign:"right" } },
-              { content: "Bonus",        styles: { ...thEarn, cellWidth: 14, halign:"right" } },
-              { content: "Total\n(Gross)", styles: { ...thEarn, cellWidth: 16, halign:"right", fontStyle:"bold" } },
-              { content: "PF",           styles: { ...thDed,  cellWidth: 12, halign:"right" } },
-              { content: "ESIC",         styles: { ...thDed,  cellWidth: 12, halign:"right" } },
-              { content: "LWF",          styles: { ...thDed,  cellWidth: 10, halign:"right" } },
-              { content: "Adv.",         styles: { ...thDed,  cellWidth: 10, halign:"right" } },
-              { content: "Total\nDed.",  styles: { ...thDed,  cellWidth: 11, halign:"right", fontStyle:"bold" } },
+              { content: "Basic",          styles: { ...thRate, cellWidth: 13, halign:"right" } },
+              { content: "Allowances",     styles: { ...thRate, cellWidth: 13, halign:"right" } },
+              { content: "Total",          styles: { ...thRate, cellWidth: 12, halign:"right", fontStyle:"bold" } },
+              { content: "Basic",          styles: { ...thEarn, cellWidth: 14, halign:"right" } },
+              { content: "Allowances",     styles: { ...thEarn, cellWidth: 14, halign:"right" } },
+              { content: "Bonus",          styles: { ...thEarn, cellWidth: 12, halign:"right" } },
+              { content: "Total\n(Gross)", styles: { ...thEarn, cellWidth: 13, halign:"right", fontStyle:"bold" } },
+              { content: "PF",             styles: { ...thDed,  cellWidth: 12, halign:"right" } },
+              { content: "ESIC",           styles: { ...thDed,  cellWidth: 12, halign:"right" } },
+              { content: "LWF",            styles: { ...thDed,  cellWidth: 10, halign:"right" } },
+              { content: "Adv.",           styles: { ...thDed,  cellWidth: 10, halign:"right" } },
+              { content: "Total\nDed.",    styles: { ...thDed,  cellWidth: 11, halign:"right", fontStyle:"bold" } },
             ],
           ],
           body: clraData.xiii.employees.map(e => {
@@ -3941,10 +3949,14 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
               e.serialNo,
               e.designation || "LABOUR",
               e.payDays ?? "—",
-              // Earnings — Basic & Allowances from employee setup (monthly rates)
-              (e.setupBasic  || 0) > 0 ? (e.setupBasic  || 0).toLocaleString("en-IN") : "—",
-              (e.setupHra    || 0) > 0 ? (e.setupHra    || 0).toLocaleString("en-IN") : "—",
-              (e.bonus       || 0) > 0 ? (e.bonus       || 0).toLocaleString("en-IN") : "0",
+              // Amount of Wages Rate — monthly setup amounts (not prorated)
+              (e.setupBasic || 0) > 0 ? (e.setupBasic || 0).toLocaleString("en-IN") : "—",
+              (e.setupHra   || 0) > 0 ? (e.setupHra   || 0).toLocaleString("en-IN") : "—",
+              (e.monthlyRate|| 0) > 0 ? (e.monthlyRate|| 0).toLocaleString("en-IN") : "—",
+              // Amount of Wages Earned — prorated by adjusted days
+              n0(e.basicSalary),
+              n0(e.hra),
+              (e.bonus || 0) > 0 ? (e.bonus || 0).toLocaleString("en-IN") : "0",
               n0(e.totalEarnings),
               // Deductions
               n0(e.pf),
@@ -3965,14 +3977,17 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
             4:  { halign: "center" },
             5:  { halign: "right" },
             6:  { halign: "right" },
-            7:  { halign: "right" },
-            8:  { halign: "right", fontStyle: "bold" },
+            7:  { halign: "right", fontStyle: "bold" },
+            8:  { halign: "right" },
             9:  { halign: "right" },
             10: { halign: "right" },
-            11: { halign: "right" },
+            11: { halign: "right", fontStyle: "bold" },
             12: { halign: "right" },
-            13: { halign: "right", fontStyle: "bold" },
-            14: { halign: "right", fontStyle: "bold" },
+            13: { halign: "right" },
+            14: { halign: "right" },
+            15: { halign: "right" },
+            16: { halign: "right", fontStyle: "bold" },
+            17: { halign: "right", fontStyle: "bold" },
           },
           margin: { left: M, right: M },
         });
