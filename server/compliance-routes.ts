@@ -1343,10 +1343,10 @@ export function registerComplianceRoutes(app: Express) {
           GROUP BY employee_id`);
         for (const a of attRows.rows as any[]) attMap[a.employee_id] = a;
 
-        // Payroll: only used for "actual" deduction types (bonus, PF, ESI, LWF, PT, TDS, Loan)
+        // Payroll: used for "actual" deduction types + working_days denominator
         const payrollRows = await db.execute(sql`
           SELECT employee_id, bonus, pf_employee, esi, lwf_employee,
-                 professional_tax, tds, loan_deduction, pay_days, present_days
+                 professional_tax, tds, loan_deduction, pay_days, present_days, working_days
           FROM payroll
           WHERE company_id = ${targetCompanyId} AND year = ${parseInt(year)} AND month = ${monthStr}
             AND employee_id IN (${empInList})`);
@@ -1375,12 +1375,17 @@ export function registerComplianceRoutes(app: Express) {
           ? Number(adj.adjusted_attendance)
           : Number(att.present_days || p.pay_days || p.present_days || 0);
 
+        // Standard working days denominator for India compliance (Payment of Wages Act):
+        // daily wage = monthly wage / 26 (standard).  Use actual payroll working_days when
+        // available so months with 5 Sundays are handled correctly.
+        const wDays = Number(p.working_days) || 26;
+
         // Bonus: "actual" = from payroll, otherwise 0
         const bonus = r.bonus_type === "actual" ? Number(p.bonus || 0) : 0;
 
-        // Compliance earnings — prorated by calendar days (matching compliance adjustments screen)
-        let compGross = payDays > 0 && monDays > 0 ? Math.round(setupGross * payDays / monDays) : 0;
-        let compBasic = payDays > 0 && monDays > 0 ? Math.round(setupBasic * payDays / monDays) : 0;
+        // Compliance earnings — prorated by standard working days (India norm: ÷26)
+        let compGross = payDays > 0 ? Math.round(setupGross * payDays / wDays) : 0;
+        let compBasic = payDays > 0 ? Math.round(setupBasic * payDays / wDays) : 0;
         let compHra   = Math.max(0, compGross - compBasic);
 
         // Compliance adjustment overrides (highest priority)
@@ -1400,7 +1405,7 @@ export function registerComplianceRoutes(app: Express) {
         let pf = 0;
         if (r.pf_type === "actual")     pf = Math.round(Number(p.pf_employee || 0));
         else if (r.pf_type !== "na") {
-          const pfBase = Math.min(compBasic, Math.round(PF_CEILING * payDays / monDays));
+          const pfBase = Math.min(compBasic, Math.round(PF_CEILING * payDays / wDays));
           pf = Math.round(pfBase * 0.12);
         }
 
@@ -1408,7 +1413,7 @@ export function registerComplianceRoutes(app: Express) {
         let esi = 0;
         if (r.esic_type === "actual")   esi = Math.round(Number(p.esi || 0));
         else if (r.esic_type !== "na") {
-          const esicCeil = Math.round(ESIC_CEILING * payDays / monDays);
+          const esicCeil = Math.round(ESIC_CEILING * payDays / wDays);
           if (totalEarnings <= esicCeil) esi = Math.round(totalEarnings * 0.0075);
         }
 
@@ -1434,7 +1439,7 @@ export function registerComplianceRoutes(app: Express) {
           designation:      r.designation || "",
           monthlyRate:      setupGross,
           payDays,
-          workingDays:      monDays,
+          workingDays:      wDays,
           basicSalary:      compBasic,
           hra:              compHra,
           conveyance:       0,

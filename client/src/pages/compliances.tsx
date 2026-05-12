@@ -3801,17 +3801,13 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
           doc.setFont("times","bold"); doc.text("Signature of the Contractor", sx+slotW, fy, {align:"right"});
         };
 
-        const emps = clraData.ix.employees.filter((e: any) => {
-          const dateStr = e.deassignedDate || e.dateOfLeaving;
-          if (!dateStr) return false;
-          const d = new Date(dateStr);
-          return !isNaN(d.getTime()) && d.getFullYear() === parseInt(toYear) && (d.getMonth() + 1) === (monthIdx + 1);
-        });
+        // Show all assigned employees (active + any de-assigned in this month)
+        const emps = clraData.ix.employees;
         if (emps.length === 0) {
           doc.addPage(); addTitle("FORM XI", "[See rule 76]", "Service Certificate");
           y = addHdr();
           doc.setFont("times", "italic"); doc.setFontSize(10);
-          doc.text(`No employees de-assigned during ${monthFull} ${toYear}.`, pw / 2, y + 12, { align: "center" });
+          doc.text(`No employees assigned to this project.`, pw / 2, y + 12, { align: "center" });
         }
         for (let i = 0; i < emps.length; i += 2) {
           doc.addPage();
