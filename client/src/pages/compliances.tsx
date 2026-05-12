@@ -3784,15 +3784,27 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
             cy += Math.max(1, ls.length)*3.5 + 0.5;
           });
           doc.setDrawColor(80,80,80); doc.line(sx, cy, sx+slotW, cy); cy += 3;
+          // 10 columns must fit inside slotW ≈ 132mm; total fixed = 132mm, no "auto" overflow
           autoTbl(doc, {
             startY: cy,
-            head:[["Sr.\nNo.","From","To","Days\nWorked","Nature of\nWork","Rate of\nWage","Total Wages\nEarned (₹)","Deductions","Net Wages\nPaid (₹)","Remarks"]],
+            head:[["Sr.\nNo.","From","To","Days\nWrkd","Nature\nof Work","Rate\nof Wage","Total Wages\nEarned (Rs.)","Deductions","Net Wages\nPaid (Rs.)","Rmks"]],
             body:[[e.serialNo, fromD, toD, w?.payDays??"—", e.designation||"LABOUR", "Monthly",
               w ? w.totalEarnings.toLocaleString("en-IN") : "—",
-              w ? `PF:${w.pf||0} ESI:${w.esi||0} LWF:${w.lwf||0}` : "—",
+              w ? `PF:${w.pf||0}\nESI:${w.esi||0}\nLWF:${w.lwf||0}` : "—",
               w ? w.netSalary.toLocaleString("en-IN") : "—", ""]],
-            styles:{...TS, fontSize:7, minCellHeight:12}, headStyles:{...TH, fontSize:7},
-            columnStyles:{0:{cellWidth:9,halign:"center"},1:{cellWidth:16,halign:"center"},2:{cellWidth:16,halign:"center"},3:{cellWidth:11,halign:"center"},4:{cellWidth:18},5:{cellWidth:13,halign:"center"},6:{cellWidth:20,halign:"right"},7:{cellWidth:22},8:{cellWidth:20,halign:"right"},9:{cellWidth:"auto" as any}},
+            styles:{...TS, fontSize:6.5, minCellHeight:12}, headStyles:{...TH, fontSize:6.5},
+            columnStyles:{
+              0:{cellWidth:7,  halign:"center"},
+              1:{cellWidth:13, halign:"center"},
+              2:{cellWidth:13, halign:"center"},
+              3:{cellWidth:9,  halign:"center"},
+              4:{cellWidth:15},
+              5:{cellWidth:11, halign:"center"},
+              6:{cellWidth:18, halign:"right"},
+              7:{cellWidth:20},
+              8:{cellWidth:18, halign:"right"},
+              9:{cellWidth:8},
+            },
             margin:{left:sx, right:mr},
           });
           const fy = lastY()+6;
