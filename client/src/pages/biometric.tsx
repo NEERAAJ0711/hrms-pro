@@ -6,7 +6,7 @@ import {
   Clock, XCircle, Settings, Plus, Trash2, Signal, SignalLow, Download, Users,
   ShieldAlert, ShieldCheck, Pencil, KeyRound, Activity, UserCheck, FileUp,
   RotateCcw, ChevronDown, ChevronUp, User, CalendarDays, Timer, Wifi, WifiOff,
-  Building2, BadgeCheck, Link2, Zap
+  Building2, BadgeCheck, Link2, Zap, Search, ArrowRightLeft
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -99,6 +99,8 @@ export default function BiometricPage() {
   const [selectedCompany, setSelectedCompany] = useState<string>(isSuperAdmin ? "__all__" : (user?.companyId || ""));
   const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split("T")[0]);
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [searchQuery, setSearchQuery] = useState<string>("");
+  const [editingPunchTypeId, setEditingPunchTypeId] = useState<string | null>(null);
   const [pushDialogOpen, setPushDialogOpen] = useState(false);
   const [deviceDialogOpen, setDeviceDialogOpen] = useState(false);
   const [pushData, setPushData] = useState("");
@@ -223,6 +225,18 @@ export default function BiometricPage() {
   /* ── Helpers ──────────────────────────────────────────────────── */
   const getCompanyName = (id: string) => companies.find(c => c.id === id)?.companyName || id;
   const getEmployee = (id: string | null) => id ? employees.find(e => e.id === id) : null;
+
+  /* ── Client-side search filter ────────────────────────────────── */
+  const filteredLogs = searchQuery.trim()
+    ? logs.filter((log: any) => {
+        const q = searchQuery.toLowerCase();
+        const resolvedName = `${log.resolvedFirstName || ""} ${log.resolvedLastName || ""}`.trim().toLowerCase();
+        const deviceName  = (log.deviceName || "").toLowerCase();
+        const pin         = (log.deviceEmployeeId || "").toLowerCase();
+        const code        = (log.resolvedEmployeeCode || "").toLowerCase();
+        return resolvedName.includes(q) || deviceName.includes(q) || pin.includes(q) || code.includes(q);
+      })
+    : logs;
 
   const shiftDate = (delta: number) => {
     if (!selectedDate) return;
@@ -370,6 +384,20 @@ export default function BiometricPage() {
       toast({ title: "Device removed" });
     },
     onError: (err: any) => toast({ title: "Delete failed", description: err?.message, variant: "destructive" }),
+  });
+
+  const updatePunchTypeMutation = useMutation({
+    mutationFn: async ({ id, punchType }: { id: string; punchType: string }) => {
+      const res = await apiRequest("PATCH", `/api/biometric/logs/${id}/punch-type`, { punchType });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/biometric/logs"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/attendance"] });
+      toast({ title: "Punch type updated", description: "Attendance will be re-synced automatically." });
+      setEditingPunchTypeId(null);
+    },
+    onError: (err: any) => toast({ title: "Update failed", description: err?.message, variant: "destructive" }),
   });
 
   // Delete a user from the physical device (and local DB)
@@ -531,6 +559,27 @@ export default function BiometricPage() {
                 </SelectContent>
               </Select>
             </div>
+            <div className="min-w-[200px] flex-1">
+              <Label className="text-xs mb-1 block text-muted-foreground">Search</Label>
+              <div className="relative">
+                <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+                <Input
+                  value={searchQuery}
+                  onChange={e => setSearchQuery(e.target.value)}
+                  placeholder="Name, PIN, employee code…"
+                  className="h-8 pl-7 text-sm"
+                  data-testid="input-punch-log-search"
+                />
+              </div>
+            </div>
+            {searchQuery && (
+              <div className="flex items-end">
+                <button
+                  onClick={() => setSearchQuery("")}
+                  className="h-8 px-2.5 rounded border text-xs bg-background text-muted-foreground hover:bg-accent"
+                >Clear</button>
+              </div>
+            )}
           </div>
 
           {/* Table */}
@@ -540,11 +589,13 @@ export default function BiometricPage() {
                 <div className="flex items-center justify-center py-16 text-muted-foreground">
                   <RefreshCw className="h-5 w-5 animate-spin mr-2" /> Loading punch logs…
                 </div>
-              ) : logs.length === 0 ? (
+              ) : filteredLogs.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-16 gap-2 text-muted-foreground">
                   <Clock className="h-10 w-10 opacity-20" />
-                  <p className="font-medium">No punch records found</p>
-                  {selectedDate && (
+                  <p className="font-medium">{searchQuery ? "No results match your search" : "No punch records found"}</p>
+                  {searchQuery ? (
+                    <button onClick={() => setSearchQuery("")} className="text-sm text-blue-600 underline">Clear search</button>
+                  ) : selectedDate && (
                     <p className="text-sm">
                       Try{" "}
                       <button onClick={() => setSelectedDate("")} className="text-blue-600 underline">viewing all dates</button>
@@ -567,20 +618,17 @@ export default function BiometricPage() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {logs.map((log, idx) => {
+                      {filteredLogs.map((log, idx) => {
                         const r = log as any;
-                        // Name resolution priority:
-                        //   1. HR name from explicit employee map or auto-matched (server JOIN)
-                        //   2. Device-reported name (from USERINFO)
-                        //   3. Unmapped badge
                         const resolvedName = (r.resolvedFirstName || r.resolvedLastName)
                           ? `${r.resolvedFirstName || ""} ${r.resolvedLastName || ""}`.trim()
                           : null;
                         const resolvedCode = r.resolvedEmployeeCode || null;
                         const deviceName   = r.deviceName as string | null;
                         const displayName  = resolvedName || deviceName;
-                        // Matched by explicit map OR by biometricDeviceId/employeeCode auto-join
                         const isAutoMatched = !log.employeeId && !!r.resolvedEmployeeId;
+                        const isEditingType = editingPunchTypeId === log.id;
+                        const pt = (log.punchType || "unknown").toLowerCase();
                         return (
                           <TableRow key={log.id} className={log.missingPunch ? "bg-amber-50/50 dark:bg-amber-950/20" : ""}>
                             <TableCell className="pl-4 text-xs text-muted-foreground">{idx + 1}</TableCell>
@@ -611,7 +659,38 @@ export default function BiometricPage() {
                             <TableCell className="text-sm">{log.punchDate}</TableCell>
                             <TableCell className="font-mono text-sm font-medium">{log.punchTime}</TableCell>
                             <TableCell>
-                              <Badge variant="outline" className="text-xs capitalize">{log.punchType}</Badge>
+                              {isEditingType ? (
+                                <div className="flex items-center gap-1">
+                                  <button
+                                    onClick={() => updatePunchTypeMutation.mutate({ id: log.id, punchType: "in" })}
+                                    disabled={updatePunchTypeMutation.isPending}
+                                    className={`px-2 py-0.5 rounded text-xs font-medium border transition-colors ${pt === "in" ? "bg-green-100 text-green-800 border-green-300 dark:bg-green-900 dark:text-green-200" : "bg-background text-muted-foreground border-border hover:bg-green-50 hover:text-green-700"}`}
+                                  >In</button>
+                                  <button
+                                    onClick={() => updatePunchTypeMutation.mutate({ id: log.id, punchType: "out" })}
+                                    disabled={updatePunchTypeMutation.isPending}
+                                    className={`px-2 py-0.5 rounded text-xs font-medium border transition-colors ${pt === "out" ? "bg-red-100 text-red-800 border-red-300 dark:bg-red-900 dark:text-red-200" : "bg-background text-muted-foreground border-border hover:bg-red-50 hover:text-red-700"}`}
+                                  >Out</button>
+                                  <button
+                                    onClick={() => setEditingPunchTypeId(null)}
+                                    className="text-muted-foreground hover:text-foreground text-xs px-1"
+                                    title="Cancel"
+                                  >✕</button>
+                                </div>
+                              ) : (
+                                <div className="flex items-center gap-1 group">
+                                  <Badge
+                                    variant="outline"
+                                    className={`text-xs capitalize cursor-default ${pt === "in" ? "border-green-300 bg-green-50 text-green-800 dark:bg-green-950 dark:text-green-300" : pt === "out" ? "border-red-300 bg-red-50 text-red-800 dark:bg-red-950 dark:text-red-300" : ""}`}
+                                  >{log.punchType || "unknown"}</Badge>
+                                  <button
+                                    onClick={() => setEditingPunchTypeId(log.id)}
+                                    className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded hover:bg-muted"
+                                    title="Edit punch type"
+                                    data-testid={`button-edit-punchtype-${log.id}`}
+                                  ><ArrowRightLeft className="h-3 w-3 text-muted-foreground" /></button>
+                                </div>
+                              )}
                             </TableCell>
                             <TableCell>
                               {log.isProcessed ? (
@@ -628,6 +707,11 @@ export default function BiometricPage() {
                       })}
                     </TableBody>
                   </Table>
+                  {searchQuery && (
+                    <p className="text-center text-xs text-muted-foreground py-2 border-t">
+                      Showing {filteredLogs.length} of {logs.length} records
+                    </p>
+                  )}
                 </div>
               )}
             </CardContent>

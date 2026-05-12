@@ -2252,6 +2252,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Update punch type for a single log (manual correction for in/out mix-ups)
+  app.patch("/api/biometric/logs/:id/punch-type", requireAuth, requireRole("super_admin", "company_admin"), async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const { punchType } = req.body;
+      if (!["in", "out"].includes(punchType)) {
+        return res.status(400).json({ error: "punchType must be 'in' or 'out'" });
+      }
+      const user = req.user;
+      const companyClause = user.role !== "super_admin"
+        ? sql`AND company_id = ${user.companyId}`
+        : sql``;
+      const result = await db.execute(sql`
+        UPDATE biometric_punch_logs
+        SET punch_type   = ${punchType},
+            is_processed = false,
+            synced_at    = NULL
+        WHERE id = ${id}
+          ${companyClause}
+      `);
+      if ((result as any)?.rowCount === 0) {
+        return res.status(404).json({ error: "Log not found" });
+      }
+      // Trigger re-sync so attendance gets updated immediately
+      const logRow = await db.execute(sql`SELECT company_id FROM biometric_punch_logs WHERE id = ${id}`);
+      const cid = (logRow as any)?.rows?.[0]?.company_id;
+      if (cid) {
+        import("./biometric-attendance-sync")
+          .then(({ processBiometricAttendance }) => processBiometricAttendance(cid))
+          .catch(err => console.error("[patch-punch-type] re-sync failed:", err));
+      }
+      res.json({ success: true, punchType });
+    } catch (error: any) {
+      console.error("[biometric/logs/punch-type] error:", error);
+      res.status(500).json({ error: "Failed to update punch type" });
+    }
+  });
+
   // ===== Job Posting Routes =====
   app.get("/api/job-postings", requireAuth, async (req, res) => {
     try {
