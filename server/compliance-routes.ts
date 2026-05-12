@@ -1294,6 +1294,9 @@ export function registerComplianceRoutes(app: Express) {
                  COALESCE(cs.designation, e.designation, '') AS designation,
                  COALESCE(NULLIF(cs.basic_salary, 0), ss.basic_salary, 0)  AS setup_basic,
                  COALESCE(NULLIF(cs.gross_salary, 0), ss.gross_salary, 0)  AS setup_gross,
+                 cs.allowances      AS setup_allowances,
+                 cs.same_as_actual  AS setup_same_as_actual,
+                 ss.gross_salary    AS ss_gross,
                  COALESCE(cs.pf_type,    'na')  AS pf_type,
                  COALESCE(cs.esic_type,  'na')  AS esic_type,
                  COALESCE(cs.lwf_type,   'na')  AS lwf_type,
@@ -1311,6 +1314,9 @@ export function registerComplianceRoutes(app: Express) {
                  COALESCE(cs.designation, e.designation, '') AS designation,
                  COALESCE(NULLIF(cs.basic_salary, 0), ss.basic_salary, 0)  AS setup_basic,
                  COALESCE(NULLIF(cs.gross_salary, 0), ss.gross_salary, 0)  AS setup_gross,
+                 cs.allowances      AS setup_allowances,
+                 cs.same_as_actual  AS setup_same_as_actual,
+                 ss.gross_salary    AS ss_gross,
                  COALESCE(cs.pf_type,    'na')  AS pf_type,
                  COALESCE(cs.esic_type,  'na')  AS esic_type,
                  COALESCE(cs.lwf_type,   'na')  AS lwf_type,
@@ -1372,11 +1378,20 @@ export function registerComplianceRoutes(app: Express) {
 
         const setupBasic = Number(r.setup_basic || 0);
         const setupGross = Number(r.setup_gross || 0);
+        const ssGross    = Number(r.ss_gross || r.setup_gross || 0);
+
+        // Setup Allowances for Rate group: use explicitly configured compliance allowances
+        // when set (same logic as the compliance adjustment tab). Otherwise: Gross − Basic.
+        const hasCustomAllowances = r.setup_allowances != null && !r.setup_same_as_actual;
+        const setupHra = hasCustomAllowances
+          ? Number(r.setup_allowances)
+          : Math.max(0, ssGross - setupBasic);
+        const setupRateTotal = setupBasic + setupHra;
 
         // Pay days priority:
         //   1. adjusted_attendance (manual override in adjustment tab)
         //   2. original_attendance (calculated value shown in adjustment tab)
-        //   3. attendance table present_days
+        //   3. attendance table present_days (same as compliance tab logic)
         //   4. payroll pay_days / present_days
         const payDays = adj?.adjusted_attendance != null
           ? Number(adj.adjusted_attendance)
@@ -1384,18 +1399,17 @@ export function registerComplianceRoutes(app: Express) {
           ? Number(adj.original_attendance)
           : Number(att.present_days || p.pay_days || p.present_days || 0);
 
-        // Standard working days denominator for India compliance (Payment of Wages Act):
-        // daily wage = monthly wage / 26 (standard).  Use actual payroll working_days when
-        // available so months with 5 Sundays are handled correctly.
-        const wDays = Number(p.working_days) || 26;
+        // Denominator = calendar days in the month (matches compliance adjustment tab logic)
+        const wDays = monDays;
 
         // Bonus: "actual" = from payroll, otherwise 0
         const bonus = r.bonus_type === "actual" ? Number(p.bonus || 0) : 0;
 
-        // Compliance earnings — prorated by standard working days (India norm: ÷26)
-        let compGross = payDays > 0 ? Math.round(setupGross * payDays / wDays) : 0;
+        // Compliance earnings — prorated by calendar days in month (matches compliance tab)
+        // compGross = compBasic + compHra (from rate components, NOT from setupGross)
         let compBasic = payDays > 0 ? Math.round(setupBasic * payDays / wDays) : 0;
-        let compHra   = Math.max(0, compGross - compBasic);
+        let compHra   = payDays > 0 ? Math.round(setupHra   * payDays / wDays) : 0;
+        let compGross = compBasic + compHra;
 
         // Compliance adjustment overrides (highest priority)
         if (adj?.adjusted_gross_salary != null) {
@@ -1403,7 +1417,7 @@ export function registerComplianceRoutes(app: Express) {
           if (adj.adjusted_basic_salary != null) {
             compBasic = Number(adj.adjusted_basic_salary);
           } else {
-            compBasic = setupGross > 0 ? Math.round(compGross * setupBasic / setupGross) : 0;
+            compBasic = setupRateTotal > 0 ? Math.round(compGross * setupBasic / setupRateTotal) : 0;
           }
           compHra = Math.max(0, compGross - compBasic);
         }
@@ -1446,9 +1460,10 @@ export function registerComplianceRoutes(app: Express) {
           name:             r.full_name || "",
           fatherHusbandName: r.father_husband_name || "",
           designation:      r.designation || "",
-          monthlyRate:      setupGross,
+          monthlyRate:      setupRateTotal,   // Basic + Allowances (rate total, not gross)
           setupBasic:       setupBasic,
-          setupHra:         Math.max(0, setupGross - setupBasic),
+          setupHra:         setupHra,          // From cs.allowances when set, else gross-basic
+          setupRateTotal:   setupRateTotal,
           payDays,
           workingDays:      wDays,
           basicSalary:      compBasic,
