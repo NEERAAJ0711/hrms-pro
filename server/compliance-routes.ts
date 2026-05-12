@@ -1291,7 +1291,7 @@ export function registerComplianceRoutes(app: Express) {
         empRows = await db.execute(sql`
           SELECT e.id, e.first_name || ' ' || e.last_name AS full_name,
                  e.father_husband_name,
-                 COALESCE(cs.designation, e.designation, '') AS designation,
+                 COALESCE(cce.designation, cs.designation, e.designation, '') AS designation,
                  COALESCE(NULLIF(cs.basic_salary, 0), ss.basic_salary, 0)  AS setup_basic,
                  COALESCE(NULLIF(cs.gross_salary, 0), ss.gross_salary, 0)  AS setup_gross,
                  cs.allowances      AS setup_allowances,
@@ -1349,10 +1349,13 @@ export function registerComplianceRoutes(app: Express) {
           GROUP BY employee_id`);
         for (const a of attRows.rows as any[]) attMap[a.employee_id] = a;
 
-        // Payroll: used for "actual" deduction types + working_days denominator
+        // Payroll: used for deductions + days fallback
+        // Use COALESCE(pay_days, present_days, 0) same as compliance adjustment tab
         const payrollRows = await db.execute(sql`
           SELECT employee_id, bonus, pf_employee, esi, lwf_employee,
-                 professional_tax, tds, loan_deduction, pay_days, present_days, working_days
+                 professional_tax, tds, loan_deduction, working_days,
+                 COALESCE(pay_days, present_days, 0)  AS pay_days,
+                 COALESCE(present_days, pay_days, 0)  AS present_days
           FROM payroll
           WHERE company_id = ${targetCompanyId} AND year = ${parseInt(year)} AND month = ${monthStr}
             AND employee_id IN (${empInList})`);
@@ -1392,12 +1395,19 @@ export function registerComplianceRoutes(app: Express) {
         //   1. adjusted_attendance (manual override in adjustment tab)
         //   2. original_attendance (calculated value shown in adjustment tab)
         //   3. attendance table present_days (same as compliance tab logic)
-        //   4. payroll pay_days / present_days
-        const payDays = adj?.adjusted_attendance != null
-          ? Number(adj.adjusted_attendance)
-          : adj?.original_attendance != null
-          ? Number(adj.original_attendance)
-          : Number(att.present_days || p.pay_days || p.present_days || 0);
+        //   4. payroll COALESCE(pay_days, present_days, working_days)
+        const _adjAtt  = adj?.adjusted_attendance != null ? Number(adj.adjusted_attendance) : null;
+        const _origAtt = adj?.original_attendance  != null ? Number(adj.original_attendance) : null;
+        const _attDays = att.present_days != null ? Number(att.present_days) : null;
+        const _payDays = p.pay_days != null ? Number(p.pay_days) : null;
+        const _presDays = p.present_days != null ? Number(p.present_days) : null;
+        console.log(`[WR] emp=${r.full_name} adj_att=${_adjAtt} orig_att=${_origAtt} att_present=${_attDays} pay_days=${_payDays} present_days=${_presDays} working_days=${p.working_days}`);
+        const payDays = _adjAtt  != null ? _adjAtt
+                      : _origAtt != null ? _origAtt
+                      : _attDays != null ? _attDays
+                      : _payDays != null ? _payDays
+                      : _presDays != null ? _presDays
+                      : 0;
 
         // Denominator = calendar days in the month (matches compliance adjustment tab logic)
         const wDays = monDays;
