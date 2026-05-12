@@ -211,6 +211,7 @@ interface MusterRollData {
 interface WagesEmp {
   serialNo: number; name: string; fatherHusbandName: string;
   designation: string; payDays: number; workingDays: number; monthlyRate: number;
+  setupBasic: number; setupHra: number;
   basicSalary: number; hra: number; conveyance: number;
   medicalAllowance: number; specialAllowance: number;
   otherAllowances: number; bonus: number; totalEarnings: number;
@@ -3891,75 +3892,109 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
       addFooter(lastY() + 8);
 
       // ── Form XIII — Register of Wages ──────────────────────────────────────
-      doc.addPage(); addTitle("FORM XIII", "[See Rule 77 (1) (a) (ii)]", "Register of Wages");
+      // Column widths (22 cols, total = 269mm = landscape A4 usable):
+      // 8+32+10+20+9+6 | 13+11+10+12 | 13+11+10+9+13 | 9+9+7+9+11 | 16+21
+      doc.addPage(); addTitle("FORM XIII", "[See Rule 77 (1) (a) (i)]", "Register of Wages");
       y = addHdr([["For the month of", `${monthFull} ${toYear}`]]);
       {
-        const niP = (n: number | null | undefined) => (n && n !== 0) ? n.toLocaleString("en-IN") : "—";
-        const E_BG: [number,number,number] = [200, 230, 201]; // light green
-        const D_BG: [number,number,number] = [252, 228, 236]; // light pink
-        const thEarn = { ...TH, fillColor: E_BG };
+        const ni0 = (n: number | null | undefined) => (n != null && n !== 0) ? n.toLocaleString("en-IN") : "0";
+        const niD = (n: number | null | undefined) => (n != null && n !== 0) ? n.toLocaleString("en-IN") : "N.A.";
+        const E_BG: [number,number,number] = [204, 229, 255]; // light blue – Wage Rates
+        const A_BG: [number,number,number] = [200, 230, 201]; // light green – Wages Earned
+        const D_BG: [number,number,number] = [252, 228, 236]; // light pink – Deductions
+        const thRate = { ...TH, fillColor: E_BG };
+        const thEarn = { ...TH, fillColor: A_BG };
         const thDed  = { ...TH, fillColor: D_BG };
         autoTbl(doc, {
           startY: y,
           head: [
+            // ── Row 1: group headers ────────────────────────────────────────
             [
-              { content: "Sl.\nNo.",      rowSpan: 2, styles: { ...TH, cellWidth: 8,  halign: "center" } },
-              { content: "Name of\nWorkman", rowSpan: 2, styles: { ...TH, cellWidth: 40 } },
-              { content: "Designation",   rowSpan: 2, styles: { ...TH, cellWidth: 24 } },
-              { content: "Pay\nDays",     rowSpan: 2, styles: { ...TH, cellWidth: 10, halign: "center" } },
-              { content: "Earnings (Rs.)", colSpan: 4, styles: { ...thEarn, halign: "center" } },
-              { content: "Deductions (Rs.)", colSpan: 5, styles: { ...thDed, halign: "center" } },
-              { content: "Net\nSalary\n(Rs.)", rowSpan: 2, styles: { ...TH, cellWidth: 19, halign: "right" } },
-              { content: "Sign.",          rowSpan: 2, styles: { ...TH, cellWidth: 24 } },
+              { content: "Sl.\nNo.",                                   rowSpan: 2, styles: { ...TH,     cellWidth: 8,  halign:"center",  valign:"middle" } },
+              { content: "Name and Surname / Father's Name\nUAN No. / ESIC No.", rowSpan: 2, styles: { ...TH,     cellWidth: 32,             valign:"middle" } },
+              { content: "Sr.No.\nin\nRegister",                        rowSpan: 2, styles: { ...TH,     cellWidth: 10, halign:"center",  valign:"middle" } },
+              { content: "Designation /\nNature of Work",               rowSpan: 2, styles: { ...TH,     cellWidth: 20,                   valign:"middle" } },
+              { content: "No. of\nWorking\nDays",                        rowSpan: 2, styles: { ...TH,     cellWidth: 9,  halign:"center",  valign:"middle" } },
+              { content: "OT",                                           rowSpan: 2, styles: { ...TH,     cellWidth: 6,  halign:"center",  valign:"middle" } },
+              { content: "Amount of Wages Rate",                         colSpan: 4, styles: { ...thRate,              halign:"center"                  } },
+              { content: "Amount of Wages Earned",                       colSpan: 5, styles: { ...thEarn,              halign:"center"                  } },
+              { content: "Deductions",                                   colSpan: 5, styles: { ...thDed,               halign:"center"                  } },
+              { content: "Net\nAmount\nPaid",                            rowSpan: 2, styles: { ...TH,     cellWidth: 16, halign:"right",   valign:"middle" } },
+              { content: "Signature /\nThumb Impression\n& Initial",     rowSpan: 2, styles: { ...TH,     cellWidth: 21,                   valign:"middle" } },
             ],
+            // ── Row 2: sub-column headers ───────────────────────────────────
             [
-              { content: "Basic\n(Rs.)",        styles: { ...thEarn, cellWidth: 17, halign: "right" } },
-              { content: "Allowances\n(Rs.)",   styles: { ...thEarn, cellWidth: 18, halign: "right" } },
-              { content: "Bonus\n(Rs.)",        styles: { ...thEarn, cellWidth: 14, halign: "right" } },
-              { content: "Total\nEarnings\n(Rs.)", styles: { ...thEarn, cellWidth: 19, halign: "right", fontStyle: "bold" } },
-              { content: "PF\n(Rs.)",           styles: { ...thDed,  cellWidth: 14, halign: "right" } },
-              { content: "ESI\n(Rs.)",          styles: { ...thDed,  cellWidth: 14, halign: "right" } },
-              { content: "LWF\n(Rs.)",          styles: { ...thDed,  cellWidth: 12, halign: "right" } },
-              { content: "Loan\n(Rs.)",         styles: { ...thDed,  cellWidth: 14, halign: "right" } },
-              { content: "Total\nDed.\n(Rs.)",  styles: { ...thDed,  cellWidth: 16, halign: "right", fontStyle: "bold" } },
+              { content: "Basic\nWages",      styles: { ...thRate, cellWidth: 13, halign:"right" } },
+              { content: "House\nRent\nAllow.", styles: { ...thRate, cellWidth: 11, halign:"right" } },
+              { content: "Other\nAllow.",      styles: { ...thRate, cellWidth: 10, halign:"right" } },
+              { content: "TOTAL",              styles: { ...thRate, cellWidth: 12, halign:"right", fontStyle:"bold" } },
+              { content: "Basic\nWages",       styles: { ...thEarn, cellWidth: 13, halign:"right" } },
+              { content: "House\nRent\nAllow.",styles: { ...thEarn, cellWidth: 11, halign:"right" } },
+              { content: "Other\nAllow.",      styles: { ...thEarn, cellWidth: 10, halign:"right" } },
+              { content: "Over\nTime",         styles: { ...thEarn, cellWidth: 9,  halign:"right" } },
+              { content: "Total\n(Gross)",     styles: { ...thEarn, cellWidth: 13, halign:"right", fontStyle:"bold" } },
+              { content: "PF\nESIC",           styles: { ...thDed,  cellWidth: 9,  halign:"right" } },
+              { content: "LWF",                styles: { ...thDed,  cellWidth: 9,  halign:"right" } },
+              { content: "PT",                 styles: { ...thDed,  cellWidth: 7,  halign:"right" } },
+              { content: "TDS /\nOther",       styles: { ...thDed,  cellWidth: 9,  halign:"right" } },
+              { content: "Total\nDed.",        styles: { ...thDed,  cellWidth: 11, halign:"right", fontStyle:"bold" } },
             ],
           ],
           body: clraData.xiii.employees.map(e => {
-            const visibleDed = (e.pf || 0) + (e.esi || 0) + (e.lwf || 0) + (e.loanDeduction || 0);
-            const visibleNet = (e.totalEarnings || 0) - visibleDed;
+            const otherDed = (e.tds || 0) + (e.loanDeduction || 0) + (e.otherDeductions || 0);
+            const totalDed = (e.pf || 0) + (e.esi || 0) + (e.lwf || 0) + (e.pt || 0) + otherDed;
+            const netPay   = (e.totalEarnings || 0) - totalDed;
             return [
               e.serialNo,
-              e.name,
-              e.designation || "—",
-              e.payDays || "—",
-              niP(e.basicSalary),
-              niP(e.hra),
-              niP(e.bonus),
-              niP(e.totalEarnings),
-              niP(e.pf),
-              niP(e.esi),
-              niP(e.lwf),
-              niP(e.loanDeduction),
-              niP(visibleDed),
-              niP(visibleNet),
+              `${e.name}${e.fatherHusbandName ? "\nS/O " + e.fatherHusbandName : ""}`,
+              e.serialNo,
+              e.designation || "LABOUR",
+              e.payDays ?? "—",
+              "0",
+              // Wage Rates (monthly, not prorated)
+              (e.setupBasic || 0) > 0 ? (e.setupBasic || 0).toLocaleString("en-IN") : "—",
+              (e.setupHra   || 0) > 0 ? (e.setupHra   || 0).toLocaleString("en-IN") : "—",
+              "N.A.",
+              (e.monthlyRate || 0) > 0 ? (e.monthlyRate || 0).toLocaleString("en-IN") : "—",
+              // Wages Earned (prorated)
+              ni0(e.basicSalary),
+              ni0(e.hra),
+              "N.A.",
+              "0",
+              ni0(e.totalEarnings),
+              // Deductions
+              `${ni0(e.pf)}\n${ni0(e.esi)}`,
+              ni0(e.lwf),
+              ni0(e.pt),
+              niD(otherDed),
+              ni0(totalDed),
+              // Net
+              netPay > 0 ? netPay.toLocaleString("en-IN") : "0",
               "",
             ];
           }),
-          styles: { ...TS, fontSize: 7.5 },
+          styles: { ...TS, fontSize: 7, minCellHeight: 10 },
           headStyles: TH,
           columnStyles: {
             0:  { halign: "center" },
-            3:  { halign: "center" },
-            4:  { halign: "right" },
-            5:  { halign: "right" },
+            2:  { halign: "center" },
+            4:  { halign: "center" },
+            5:  { halign: "center" },
             6:  { halign: "right" },
-            7:  { halign: "right", fontStyle: "bold" },
+            7:  { halign: "right" },
             8:  { halign: "right" },
-            9:  { halign: "right" },
+            9:  { halign: "right", fontStyle: "bold" },
             10: { halign: "right" },
             11: { halign: "right" },
-            12: { halign: "right", fontStyle: "bold" },
-            13: { halign: "right", fontStyle: "bold" },
+            12: { halign: "right" },
+            13: { halign: "right" },
+            14: { halign: "right", fontStyle: "bold" },
+            15: { halign: "right" },
+            16: { halign: "right" },
+            17: { halign: "right" },
+            18: { halign: "right" },
+            19: { halign: "right", fontStyle: "bold" },
+            20: { halign: "right", fontStyle: "bold" },
           },
           margin: { left: M, right: M },
         });
@@ -4017,44 +4052,50 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
           doc.setFont("times","normal"); doc.setFontSize(8);
           doc.text(e.designation || "—", sx + doc.getTextWidth("Designation : "), cy);
           cy += 5;
+          // Wage slip table — columns sized to slotW (≈132mm)
+          // 14 + 22 + 14 + 14 + 22 + 26 + 20 = 132mm
           autoTbl(doc, {
             startY: cy,
             head:[[
-              "No. of Days\nWorked",
-              "Rate of Wages\n(Monthly)",
-              "No. of Units\n(Piece Rate)",
-              "OT Hours\n& OT Wages",
-              "Gross Wages\nPayable (Rs.)",
+              "No. of\ndays\nworked",
+              "Rate of\ndaily wages /\npiece rate",
+              "No. of\nunits worked\n(piece rate)",
+              "Dates on\nwhich OT\nworked",
+              "OT hours\nworked &\nOT wages",
+              "Gross\nwages\npayable",
               "Deductions\nif any",
-              "Net Amount\nPaid (Rs.)",
-              "Signature\nof Workman",
+              "Net\namount\npaid",
+              "Signature\nof the\nContractor",
             ]],
             body:[[
               String(e.payDays ?? "—"),
-              e.monthlyRate ? `Rs.${Number(e.monthlyRate).toLocaleString("en-IN")}` : "—",
+              e.monthlyRate ? `${Number(e.monthlyRate).toLocaleString("en-IN")}\n(Monthly)` : "—",
               "N.A.",
               "NIL",
-              e.totalEarnings ? `Rs.${Number(e.totalEarnings).toLocaleString("en-IN")}` : "—",
-              `PF   : Rs.${e.pf||0}\nESIC : Rs.${e.esi||0}\nLWF  : Rs.${e.lwf||0}`,
-              e.netSalary ? `Rs.${Number(e.netSalary).toLocaleString("en-IN")}` : "—",
+              "0",
+              e.totalEarnings ? Number(e.totalEarnings).toLocaleString("en-IN") : "—",
+              `PF   : ${e.pf||0}\nESIC : ${e.esi||0}\nLWF  : ${e.lwf||0}\nADJS : 0`,
+              e.netSalary ? Number(e.netSalary).toLocaleString("en-IN") : "—",
               "",
             ]],
-            styles:{...TS, fontSize:7.5, minCellHeight:18}, headStyles:{...TH, fontSize:7.5},
+            styles:{...TS, fontSize:7, minCellHeight:20}, headStyles:{...TH, fontSize:7},
             columnStyles:{
-              0:{cellWidth:16,halign:"center"},
-              1:{cellWidth:22,halign:"center"},
-              2:{cellWidth:16,halign:"center"},
-              3:{cellWidth:16,halign:"center"},
-              4:{cellWidth:20,halign:"right"},
-              5:{cellWidth:26},
-              6:{cellWidth:20,halign:"right"},
-              7:{cellWidth:"auto" as any},
+              0:{cellWidth:13,halign:"center"},
+              1:{cellWidth:20,halign:"center"},
+              2:{cellWidth:13,halign:"center"},
+              3:{cellWidth:14,halign:"center"},
+              4:{cellWidth:14,halign:"center"},
+              5:{cellWidth:18,halign:"right"},
+              6:{cellWidth:22},
+              7:{cellWidth:18,halign:"right"},
+              8:{cellWidth:"auto" as any},
             },
             margin:{left:sx, right:mr},
           });
           const fy = lastY()+6;
           doc.setFont("times","normal"); doc.setFontSize(7.5);
           doc.text(`Place : ${v(cl?.location_of_work)}`, sx, fy);
+          doc.text(`Date  : ${todayFmt}`, sx, fy + 4.5);
           doc.setFont("times","bold"); doc.text("Signature of the Contractor", sx+slotW, fy, {align:"right"});
         };
 

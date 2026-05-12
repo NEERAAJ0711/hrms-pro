@@ -1438,6 +1438,8 @@ export function registerComplianceRoutes(app: Express) {
           fatherHusbandName: r.father_husband_name || "",
           designation:      r.designation || "",
           monthlyRate:      setupGross,
+          setupBasic:       setupBasic,
+          setupHra:         Math.max(0, setupGross - setupBasic),
           payDays,
           workingDays:      wDays,
           basicSalary:      compBasic,
