@@ -1621,12 +1621,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (user.role !== "super_admin" && device.companyId !== user.companyId) {
         return res.status(403).json({ error: "Access denied. You can only edit devices that belong to your company." });
       }
-      const { name, code, deviceSerial, ipAddress, port, status, companyId, pushToken, allowedIpCidr, autoDeletePunches } = req.body || {};
+      const { name, code, deviceSerial, ipAddress, admsServerIp, port, status, companyId, pushToken, allowedIpCidr, autoDeletePunches, deviceModel } = req.body || {};
       const patch: Record<string, any> = {};
       if (name !== undefined) patch.name = name;
       if (code !== undefined) patch.code = code === "" ? null : String(code).trim();
       if (deviceSerial !== undefined) patch.deviceSerial = deviceSerial;
       if (ipAddress !== undefined) patch.ipAddress = ipAddress;
+      if (admsServerIp !== undefined) patch.admsServerIp = admsServerIp === "" ? null : admsServerIp;
       if (port !== undefined) patch.port = port == null || port === "" ? null : Number(port);
       if (status !== undefined) patch.status = status;
       // Only super_admin may move a device across companies (or to "shared").
@@ -1634,6 +1635,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (pushToken !== undefined) patch.pushToken = pushToken === "" ? null : pushToken;
       if (allowedIpCidr !== undefined) patch.allowedIpCidr = allowedIpCidr === "" ? null : allowedIpCidr;
       if (autoDeletePunches !== undefined) patch.autoDeletePunches = !!autoDeletePunches;
+      if (deviceModel !== undefined) patch.deviceModel = ["zkteco", "essl_airface"].includes(deviceModel) ? deviceModel : "zkteco";
 
       // SSRF guard: validate any new ipAddress/port the same way create does.
       const nextIp = patch.ipAddress !== undefined ? patch.ipAddress : device.ipAddress;
