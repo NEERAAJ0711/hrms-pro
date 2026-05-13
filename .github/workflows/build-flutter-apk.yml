@@ -54,7 +54,7 @@ jobs:
             2>&1 | tee /tmp/flutter-build.log
           BUILD_EXIT=${PIPESTATUS[0]}
           if [ $BUILD_EXIT -ne 0 ]; then
-            ERROR=$(grep -A5 'FAILURE\|Exception\|error:\|BUILD FAILED\|Caused by' /tmp/flutter-build.log | head -60 | tr '\n' '~')
+            ERROR=$(grep -B2 -A8 'What went wrong\|error:\|cannot find symbol\|Caused by\|BUILD FAILED' /tmp/flutter-build.log | head -80 | tr '\n' '~')
             echo "::error::GRADLE ERROR: $ERROR"
             exit 1
           fi
