@@ -97,7 +97,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
             ),
             const SizedBox(height: 8),
             Text(
-              'Enter the full URL of your HRMS server (e.g. your deployed Replit URL)',
+              'Enter the full URL of your HRMS server (e.g. https://tbjvisionconnect.com)',
               style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
             ),
           ],
