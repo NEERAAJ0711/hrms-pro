@@ -372,7 +372,7 @@ class _FaceCaptureScreenState extends State<FaceCaptureScreen>
               'Look straight at the camera',
               textAlign: TextAlign.center,
               style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.85),
+                color: Colors.white.withOpacity(0.85),
                 fontSize: 14,
                 fontWeight: FontWeight.w500,
               ),
@@ -421,7 +421,7 @@ class _OvalOverlayPainter extends CustomPainter {
       ..addOval(ovalRect)
       ..fillType = PathFillType.evenOdd;
 
-    canvas.drawPath(path, Paint()..color = Colors.black.withValues(alpha: 0.55));
+    canvas.drawPath(path, Paint()..color = Colors.black.withOpacity(0.55));
 
     // Oval border
     canvas.drawOval(
@@ -450,7 +450,7 @@ class _OvalOverlayPainter extends CustomPainter {
 
     // Corner guide marks inside oval
     final guidePaint = Paint()
-      ..color = ovalColor.withValues(alpha: 0.6)
+      ..color = ovalColor.withOpacity(0.6)
       ..style = PaintingStyle.stroke
       ..strokeWidth = 2;
 
