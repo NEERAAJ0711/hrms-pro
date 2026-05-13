@@ -98,19 +98,11 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           echo "$HOST_KEY" >> ~/.ssh/known_hosts
 
-          # Create version.json locally
-          python3 -c "
-          import json, sys
-          data = {
-            'version': '1.0.' + sys.argv[1],
-            'buildNumber': int(sys.argv[1]),
-            'downloadUrl': sys.argv[2],
-            'releaseNotes': 'Bug fixes and improvements',
-            'mandatory': False
-          }
-          print(json.dumps(data, indent=2))
-          " "$BUILD" "$DOWNLOAD_URL" > /tmp/version.json
+          # Create version.json locally (single-line printf avoids YAML indentation issues)
+          printf '{"version":"1.0.%s","buildNumber":%s,"downloadUrl":"%s","releaseNotes":"Bug fixes and improvements","mandatory":false}\n' \
+            "$BUILD" "$BUILD" "$DOWNLOAD_URL" > /tmp/version.json
 
+          echo "version.json contents:"
           cat /tmp/version.json
 
           # Create downloads dir on server
