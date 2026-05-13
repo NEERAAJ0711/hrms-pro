@@ -351,7 +351,7 @@ class _EmployeeRegistrationScreenState extends State<EmployeeRegistrationScreen>
         children: [
           CircleAvatar(
             radius: 38,
-            backgroundColor: Colors.white.withValues(alpha: 0.2),
+            backgroundColor: Colors.white.withOpacity(0.2),
             child: Text(
               _initials,
               style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.white),
@@ -365,12 +365,12 @@ class _EmployeeRegistrationScreenState extends State<EmployeeRegistrationScreen>
           const SizedBox(height: 4),
           Text(
             _empCodeCtrl.text.trim().isEmpty ? 'Employee Code: —' : 'Code: ${_empCodeCtrl.text.trim()}',
-            style: TextStyle(color: Colors.white.withValues(alpha: 0.8), fontSize: 13),
+            style: TextStyle(color: Colors.white.withOpacity(0.8), fontSize: 13),
           ),
           const SizedBox(height: 4),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-            decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.15), borderRadius: BorderRadius.circular(20)),
+            decoration: BoxDecoration(color: Colors.white.withOpacity(0.15), borderRadius: BorderRadius.circular(20)),
             child: Text(
               _employmentType.toUpperCase(),
               style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600, letterSpacing: 0.5),
@@ -388,7 +388,7 @@ class _EmployeeRegistrationScreenState extends State<EmployeeRegistrationScreen>
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
-        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.06), blurRadius: 8, offset: const Offset(0, 2))],
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 8, offset: const Offset(0, 2))],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -397,15 +397,15 @@ class _EmployeeRegistrationScreenState extends State<EmployeeRegistrationScreen>
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.07),
+              color: color.withOpacity(0.07),
               borderRadius: const BorderRadius.only(topLeft: Radius.circular(16), topRight: Radius.circular(16)),
-              border: Border(bottom: BorderSide(color: color.withValues(alpha: 0.12))),
+              border: Border(bottom: BorderSide(color: color.withOpacity(0.12))),
             ),
             child: Row(
               children: [
                 Container(
                   padding: const EdgeInsets.all(6),
-                  decoration: BoxDecoration(color: color.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(8)),
+                  decoration: BoxDecoration(color: color.withOpacity(0.12), borderRadius: BorderRadius.circular(8)),
                   child: Icon(icon, color: color, size: 18),
                 ),
                 const SizedBox(width: 10),
@@ -533,7 +533,7 @@ class _EmployeeRegistrationScreenState extends State<EmployeeRegistrationScreen>
       decoration: BoxDecoration(
         border: Border.all(color: Colors.grey.shade200),
         borderRadius: BorderRadius.circular(10),
-        color: value ? AppTheme.primaryColor.withValues(alpha: 0.04) : Colors.grey.shade50,
+        color: value ? AppTheme.primaryColor.withOpacity(0.04) : Colors.grey.shade50,
       ),
       child: Row(
         children: [
