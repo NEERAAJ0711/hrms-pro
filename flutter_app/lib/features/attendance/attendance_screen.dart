@@ -151,7 +151,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> with SingleTickerPr
               }
               if (perm == LocationPermission.deniedForever) throw Exception('Permission denied permanently. Enable in Settings.');
               position = await Geolocator.getCurrentPosition(
-                locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
+                desiredAccuracy: LocationAccuracy.high,
               ).timeout(const Duration(seconds: 25), onTimeout: () => throw Exception('GPS timed out. Please try again.'));
 
               // Check geo-fence — HARD BLOCK if outside radius
