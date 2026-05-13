@@ -3,6 +3,9 @@ allprojects {
         google()
         mavenCentral()
     }
+    // Legacy plugins (e.g. geolocator_android) reference flutter.compileSdkVersion
+    // in their android {} block. Provide the values here so they resolve correctly.
+    ext.flutter = [compileSdkVersion: 34, minSdkVersion: 21, targetSdkVersion: 34]
 }
 
 rootProject.buildDir = '../build'
@@ -11,17 +14,6 @@ subprojects {
 }
 subprojects {
     project.evaluationDependsOn(':app')
-}
-
-subprojects {
-    afterEvaluate { project ->
-        if (project.plugins.hasPlugin('com.android.library') ||
-            project.plugins.hasPlugin('com.android.application')) {
-            project.android {
-                compileSdk 34
-            }
-        }
-    }
 }
 
 tasks.register("clean", Delete) {
