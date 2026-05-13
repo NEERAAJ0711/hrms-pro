@@ -54,8 +54,8 @@ jobs:
             2>&1 | tee /tmp/flutter-build.log
           BUILD_EXIT=${PIPESTATUS[0]}
           if [ $BUILD_EXIT -ne 0 ]; then
-            ERROR=$(grep -B2 -A8 'What went wrong\|error:\|cannot find symbol\|Caused by\|BUILD FAILED' /tmp/flutter-build.log | head -80 | tr '\n' '~')
-            echo "::error::GRADLE ERROR: $ERROR"
+            ERROR=$(grep -B1 -A6 "What went wrong\|^[^ ]*\.dart:[0-9]\|Error:\|Unhandled exception\|Cannot find\|BUILD FAILED\|Caused by\|cannot find symbol" /tmp/flutter-build.log | head -100 | tr '\n' '~')
+            echo "::error::BUILD ERROR: $ERROR"
             exit 1
           fi
 
