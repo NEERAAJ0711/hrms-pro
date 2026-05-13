@@ -52,26 +52,10 @@ jobs:
           flutter build apk --release \
             --dart-define=BASE_URL=${{ secrets.HOSTINGER_APP_URL }} \
             2>&1 | tee /tmp/flutter-build.log
-          echo "EXIT_CODE=${PIPESTATUS[0]}" >> $GITHUB_ENV
-        continue-on-error: true
-
-      - name: Upload build log
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: flutter-build-log-${{ github.run_number }}
-          path: /tmp/flutter-build.log
-          retention-days: 7
-
-      - name: Check build result
-        run: |
-          echo "Build exit code: $EXIT_CODE"
-          if [ -f flutter_app/build/app/outputs/flutter-apk/app-release.apk ]; then
-            echo "✅ APK built successfully"
-            ls -lh flutter_app/build/app/outputs/flutter-apk/
-          else
-            echo "❌ APK not found. Last 50 lines of build log:"
-            tail -50 /tmp/flutter-build.log
+          BUILD_EXIT=${PIPESTATUS[0]}
+          if [ $BUILD_EXIT -ne 0 ]; then
+            ERROR=$(grep -A5 'FAILURE\|Exception\|error:\|BUILD FAILED\|Caused by' /tmp/flutter-build.log | head -60 | tr '\n' '~')
+            echo "::error::GRADLE ERROR: $ERROR"
             exit 1
           fi
 
