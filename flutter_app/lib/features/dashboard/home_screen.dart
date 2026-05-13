@@ -6,6 +6,7 @@ import '../../core/theme.dart';
 import '../dashboard/dashboard_screen.dart';
 import '../attendance/attendance_screen.dart';
 import '../attendance/monthly_attendance_screen.dart';
+import '../attendance/my_attendance_screen.dart';
 import '../leave/leave_screen.dart';
 import '../profile/profile_screen.dart';
 import '../jobs/jobs_screen.dart';
@@ -286,6 +287,7 @@ class _MoreScreen extends StatelessWidget {
 
     if (hasCompany) {
       items.add(_MenuItem(icon: Icons.person, title: 'My Profile', subtitle: 'Personal & financial details', color: AppTheme.primaryColor, onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ProfileScreen(showAppBar: true)))));
+      items.add(_MenuItem(icon: Icons.calendar_view_month, title: 'My Attendance', subtitle: 'My monthly attendance', color: const Color(0xFF0EA5E9), onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const MyAttendanceScreen()))));
       items.add(_MenuItem(icon: Icons.receipt_long, title: 'Pay Slips', subtitle: 'View & download payslips', color: AppTheme.accentColor, onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PayslipScreen()))));
       items.add(_MenuItem(icon: Icons.account_balance_wallet, title: 'Salary Structure', subtitle: 'View your salary breakup', color: const Color(0xFF9C27B0), onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SalaryStructureScreen()))));
       items.add(_MenuItem(icon: Icons.calendar_month, title: 'Holiday Calendar', subtitle: 'Company holiday list', color: AppTheme.warningColor, onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const HolidaysScreen()))));
