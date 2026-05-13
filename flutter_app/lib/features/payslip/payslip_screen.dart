@@ -128,7 +128,7 @@ class _PayslipScreenState extends State<PayslipScreen> {
                       pw.SizedBox(height: 4),
                       pw.Text(
                         'Pay Slip — ${p['month']} ${p['year']}',
-                        style: pw.TextStyle(font: font, fontSize: 11, color: PdfColors.white70),
+                        style: pw.TextStyle(font: font, fontSize: 11, color: PdfColors.white),
                       ),
                     ],
                   ),
