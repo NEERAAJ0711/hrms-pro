@@ -951,17 +951,34 @@ async function handlePostCdata(req: Request, res: Response) {
     }
     admsLog("IN", effectiveSn, `ATTLOG ${lineCount} lines stamp=${stamp}`, true);
 
-    const r = await processAttlog(device, body);
+    // Mark device online FIRST — before any DB write that might fail (e.g. a
+    // column that hasn't been added by the startup migration yet on first boot).
+    // This ensures the UI always shows the correct Online / Last-Connected time
+    // even if the punch-log insert fails for any transient reason.
+    await touchDevice(device.id, ip);
+    cacheDel(device.id);
+
+    let r = { inserted: 0, duplicates: 0, bad: 0, unmapped: 0, maxStamp: 0 };
+    try {
+      r = await processAttlog(device, body);
+    } catch (attlogErr: any) {
+      console.error(`[ADMS] processAttlog error SN="${effectiveSn}":`, attlogErr?.message ?? attlogErr);
+      admsLog("OUT", effectiveSn, `ATTLOG error: ${attlogErr?.message ?? String(attlogErr)}`, true);
+      // Respond OK so the device doesn't retry the same push forever.
+    }
+
     const stored = device.lastAttlogStamp ?? 0;
     const newStamp = r.maxStamp > stored ? r.maxStamp : stored;
     ackStamp = newStamp || stamp;
 
-    await touchDevice(device.id, ip, {
-      addTotal: r.inserted,
-      stamp: newStamp > 0 ? newStamp : undefined,
-    });
-    await storage.updateBiometricDevice(device.id, { lastSync: new Date().toISOString() } as any);
-    cacheDel(device.id);
+    if (r.inserted > 0 || newStamp > 0) {
+      await touchDevice(device.id, ip, {
+        addTotal: r.inserted,
+        stamp: newStamp > 0 ? newStamp : undefined,
+      });
+      await storage.updateBiometricDevice(device.id, { lastSync: new Date().toISOString() } as any);
+      cacheDel(device.id);
+    }
 
     // Auto-push new punches into the attendance table
     if (r.inserted > 0) {
