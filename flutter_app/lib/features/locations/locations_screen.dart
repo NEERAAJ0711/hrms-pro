@@ -128,7 +128,7 @@ class _LocationsScreenState extends State<LocationsScreen> {
           child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
             Container(
               width: 80, height: 80,
-              decoration: BoxDecoration(color: AppTheme.primaryColor.withValues(alpha: 0.08), shape: BoxShape.circle),
+              decoration: BoxDecoration(color: AppTheme.primaryColor.withOpacity(0.08), shape: BoxShape.circle),
               child: const Icon(Icons.location_off_outlined, size: 40, color: AppTheme.primaryColor),
             ),
             const SizedBox(height: 20),
@@ -181,7 +181,7 @@ class _LocationsScreenState extends State<LocationsScreen> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
-        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.06), blurRadius: 8, offset: const Offset(0, 2))],
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 8, offset: const Offset(0, 2))],
       ),
       child: Column(
         children: [
@@ -189,7 +189,7 @@ class _LocationsScreenState extends State<LocationsScreen> {
           Container(
             padding: const EdgeInsets.fromLTRB(16, 14, 12, 14),
             decoration: BoxDecoration(
-              color: isActive ? AppTheme.primaryColor.withValues(alpha: 0.04) : Colors.grey.shade50,
+              color: isActive ? AppTheme.primaryColor.withOpacity(0.04) : Colors.grey.shade50,
               borderRadius: const BorderRadius.only(topLeft: Radius.circular(16), topRight: Radius.circular(16)),
               border: Border(bottom: BorderSide(color: Colors.grey.shade100)),
             ),
@@ -222,7 +222,7 @@ class _LocationsScreenState extends State<LocationsScreen> {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                   decoration: BoxDecoration(
-                    color: isActive ? AppTheme.accentColor.withValues(alpha: 0.1) : Colors.grey.shade200,
+                    color: isActive ? AppTheme.accentColor.withOpacity(0.1) : Colors.grey.shade200,
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Text(
@@ -537,7 +537,7 @@ class _LocationFormScreenState extends State<_LocationFormScreen> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
-        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.06), blurRadius: 8, offset: const Offset(0, 2))],
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 8, offset: const Offset(0, 2))],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -545,12 +545,12 @@ class _LocationFormScreenState extends State<_LocationFormScreen> {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.07),
+              color: color.withOpacity(0.07),
               borderRadius: const BorderRadius.only(topLeft: Radius.circular(16), topRight: Radius.circular(16)),
-              border: Border(bottom: BorderSide(color: color.withValues(alpha: 0.12))),
+              border: Border(bottom: BorderSide(color: color.withOpacity(0.12))),
             ),
             child: Row(children: [
-              Container(padding: const EdgeInsets.all(6), decoration: BoxDecoration(color: color.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(8)),
+              Container(padding: const EdgeInsets.all(6), decoration: BoxDecoration(color: color.withOpacity(0.12), borderRadius: BorderRadius.circular(8)),
                   child: Icon(icon, color: color, size: 18)),
               const SizedBox(width: 10),
               Text(title, style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: color)),
