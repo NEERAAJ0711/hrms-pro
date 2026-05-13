@@ -4,6 +4,7 @@ import {
   UserCircle, 
   LayoutDashboard,
   Calendar,
+  CalendarDays,
   Clock,
   FileText,
   Settings,
@@ -52,6 +53,7 @@ const MODULE_ACCESS: Record<string, UserRole[]> = {
   users: ["super_admin", "company_admin"],
   employees: ["super_admin", "company_admin", "hr_admin", "manager"],
   attendance: ["super_admin", "company_admin", "hr_admin", "manager", "employee"],
+  my_attendance: ["employee"],
   leave: ["super_admin", "company_admin", "hr_admin", "manager", "employee"],
   loan_advances: ["super_admin", "company_admin", "hr_admin", "manager", "employee"],
   payroll: ["super_admin", "company_admin", "hr_admin"],
@@ -117,6 +119,12 @@ const hrModulesItems = [
     url: "/attendance",
     icon: Clock,
     module: "attendance",
+  },
+  {
+    title: "My Attendance",
+    url: "/my-attendance",
+    icon: CalendarDays,
+    module: "my_attendance",
   },
   {
     title: "Leave Management",

@@ -28,6 +28,7 @@ import BiometricDeviceUsersPage from "@/pages/biometric-device-users";
 import JobPostingsPage from "@/pages/job-postings";
 import JobApplicationsPage from "@/pages/job-applications";
 import MyProfilePage from "@/pages/my-profile";
+import MyAttendancePage from "@/pages/my-attendance";
 import ProfileRequestsPage from "@/pages/profile-requests";
 import CompliancesPage from "@/pages/compliances";
 import BillingPage from "@/pages/billing";
@@ -106,6 +107,7 @@ function ProtectedRouter() {
       <Route path="/employees/:id/edit" component={AddEmployee} />
       <Route path="/users" component={Users} />
       <Route path="/attendance" component={AttendancePage} />
+      <Route path="/my-attendance" component={MyAttendancePage} />
       <Route path="/leave" component={LeavePage} />
       <Route path="/loan-advances" component={LoanAdvancesPage} />
       <Route path="/payroll" component={PayrollPage} />
