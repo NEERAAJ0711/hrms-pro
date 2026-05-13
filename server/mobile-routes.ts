@@ -1561,4 +1561,20 @@ export function registerMobileRoutes(app: Express) {
   });
 
   app.use("/uploads", express.static(path.join(process.cwd(), "server/uploads")));
+
+  // ── Public: app version check (no auth — called before login) ─────────────
+  app.get("/api/mobile/app-version", async (_req: Request, res: Response) => {
+    try {
+      const fs = await import("fs");
+      const versionFile = path.join(process.cwd(), "uploads", "downloads", "version.json");
+      if (fs.existsSync(versionFile)) {
+        const data = JSON.parse(fs.readFileSync(versionFile, "utf-8"));
+        return res.json(data);
+      }
+      // Fallback if file not yet deployed
+      res.json({ version: "1.0.0", buildNumber: 1, downloadUrl: "", releaseNotes: "", mandatory: false });
+    } catch {
+      res.json({ version: "1.0.0", buildNumber: 1, downloadUrl: "", releaseNotes: "", mandatory: false });
+    }
+  });
 }
