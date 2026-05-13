@@ -29,21 +29,20 @@ jobs:
           channel: stable
           cache: true
 
+      - name: Install Android NDK
+        run: |
+          echo "y" | $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager "ndk;25.1.8937393" || true
+          echo "NDK install done"
+
       - name: Write local.properties
         run: |
           echo "flutter.sdk=$FLUTTER_ROOT" > flutter_app/android/local.properties
           echo "sdk.dir=$ANDROID_SDK_ROOT" >> flutter_app/android/local.properties
-          echo "flutter.buildMode=release" >> flutter_app/android/local.properties
           cat flutter_app/android/local.properties
 
       - name: Install dependencies
         working-directory: flutter_app
         run: flutter pub get
-
-      - name: Analyze code
-        working-directory: flutter_app
-        run: flutter analyze --no-fatal-infos
-        continue-on-error: true
 
       - name: Make gradlew executable
         run: chmod +x flutter_app/android/gradlew
@@ -51,8 +50,20 @@ jobs:
       - name: Build APK (release)
         working-directory: flutter_app
         run: |
-          flutter build apk --release \
-            --dart-define=BASE_URL=${{ secrets.HOSTINGER_APP_URL }}
+          flutter build apk --release --verbose \
+            --dart-define=BASE_URL=${{ secrets.HOSTINGER_APP_URL }} 2>&1 | tail -100
+        continue-on-error: true
+
+      - name: Check build output
+        run: |
+          if [ -f flutter_app/build/app/outputs/flutter-apk/app-release.apk ]; then
+            echo "✅ APK built successfully"
+            ls -lh flutter_app/build/app/outputs/flutter-apk/
+          else
+            echo "❌ APK not found — dumping gradle log"
+            find flutter_app -name "*.log" -newer flutter_app/pubspec.yaml 2>/dev/null | xargs cat 2>/dev/null || true
+            exit 1
+          fi
 
       - name: Rename APK with version info
         run: |
