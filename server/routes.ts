@@ -508,6 +508,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
     ALTER TABLE biometric_devices ADD COLUMN IF NOT EXISTS auto_delete_punches boolean NOT NULL DEFAULT false
   `).catch((err) => console.error("[migrations] add auto_delete_punches failed:", err));
 
+  // ESSL AirFace-Orcus support: track which machine model a device is.
+  // "zkteco" covers all ZKTeco devices; "essl_airface" = AirFace-Orcus series.
+  await db.execute(sql`
+    ALTER TABLE biometric_devices ADD COLUMN IF NOT EXISTS device_model text DEFAULT 'zkteco'
+  `).catch((err) => console.error("[migrations] add device_model failed:", err));
+
+  // Verify-mode: record HOW identity was confirmed on the device
+  // (face, fingerprint, card, password, palm) — populated by the ADMS engine.
+  await db.execute(sql`
+    ALTER TABLE biometric_punch_logs ADD COLUMN IF NOT EXISTS verify_mode text
+  `).catch((err) => console.error("[migrations] add verify_mode failed:", err));
+
+  // Face-count: number of face templates enrolled per user on an AirFace device
+  // (populated from FacePic= / FaceNum= fields in the USERINFO push).
+  await db.execute(sql`
+    ALTER TABLE biometric_device_users ADD COLUMN IF NOT EXISTS face_count integer DEFAULT 0
+  `).catch((err) => console.error("[migrations] add face_count failed:", err));
+
   // Mirror of migrations/011: persistent ADMS activity log — survives server
   // restarts, powers the live activity feed in the Biometric Integration UI.
   await db.execute(sql`
