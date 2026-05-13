@@ -245,6 +245,39 @@ function decodePunchType(raw: string): string {
 }
 
 /**
+ * Decode the verify-method field from an ATTLOG record.
+ *
+ * ZKTeco / ESSL ADMS verify codes:
+ *   0  = password
+ *   1  = fingerprint (some devices use 1 for finger)
+ *   2  = card / RFID
+ *   3  = fingerprint + password
+ *   4  = face (ESSL AirFace-Orcus, ZKTeco SpeedFace, etc.)
+ *   5  = fingerprint + face
+ *   6  = palm
+ *  10  = fingerprint + face combined
+ *  15  = face + fingerprint (AirFace multi-modal)
+ * 200  = face recognition (alternate code on some ESSL firmware)
+ * 201  = face recognition
+ */
+function decodeVerifyMode(raw: string): string {
+  switch ((raw || "").trim()) {
+    case "0":   return "password";
+    case "1":   return "fingerprint";
+    case "2":   return "card";
+    case "3":   return "fingerprint";
+    case "4":   return "face";
+    case "5":   return "face";
+    case "6":   return "palm";
+    case "10":  return "face";
+    case "15":  return "face";
+    case "200": return "face";
+    case "201": return "face";
+    default:    return "unknown";
+  }
+}
+
+/**
  * Parse a ZKTeco ATTLOG timestamp.
  * The x2008 stores times in the device's local timezone (assumed IST = UTC+05:30
  * unless an explicit offset is already present).
@@ -347,9 +380,10 @@ export async function processAttlog(
   const rows: any[] = [];
 
   for (const line of lines) {
-    // Standard format:  PIN\tYYYY-MM-DD HH:MM:SS\tstatus\tverify...
-    // Extended format:  PIN\tName\tYYYY-MM-DD HH:MM:SS\tstatus...
-    let pin = "", ts = "", status = "0";
+    // Standard format:  PIN\tYYYY-MM-DD HH:MM:SS\tStatus\tVerify\tWorkCode...
+    // Extended format:  PIN\tName\tYYYY-MM-DD HH:MM:SS\tStatus\tVerify...
+    // AirFace format:   PIN\tYYYY-MM-DD HH:MM:SS\tStatus\tVerify(200/201)\t...
+    let pin = "", ts = "", status = "0", verify = "";
     const parts = line.split("\t");
 
     if (parts.length >= 2) {
@@ -358,9 +392,11 @@ export async function processAttlog(
       if (field1IsDate) {
         ts     = parts[1].trim();
         status = (parts[2] ?? "0").trim();
+        verify = (parts[3] ?? "").trim();
       } else {
         ts     = (parts[2] ?? "").trim();
         status = (parts[3] ?? "0").trim();
+        verify = (parts[4] ?? "").trim();
       }
     } else {
       // Space-separated fallback
@@ -389,6 +425,7 @@ export async function processAttlog(
       punchTime:        parsed.time,
       punchDate:        parsed.date,
       punchType:        decodePunchType(status),
+      verifyMode:       verify ? decodeVerifyMode(verify) : null,
       deviceId:         device.id,
       isProcessed:      false,
       isDuplicate:      false,
@@ -484,23 +521,29 @@ export async function processUserRecords(
     console.log(`[ADMS]   OK  PIN=${pin} Name=${name ?? "(empty — device sent no name)"}`);
 
     try {
+      // AirFace-Orcus sends FacePic= (or Face= / FaceNum=) to indicate enrolled face count
+      const faceCount = parseInt(
+        rec.FacePic || rec.FaceNum || rec.Face || rec.FACEPIC || "0", 10
+      ) || 0;
+
       await db.execute(sql`
         INSERT INTO biometric_device_users
           (device_id, device_employee_id, name, privilege, card,
-           password_set, fingerprint_count, first_seen_at, last_seen_at)
+           password_set, fingerprint_count, face_count, first_seen_at, last_seen_at)
         VALUES (
           ${device.id}, ${pin},
           ${name},
           ${(rec.Pri  || rec.Privilege || "").trim() || null},
           ${(rec.Card || rec.CARD || "").trim() || null},
           ${!!(rec.Passwd || rec.Password || rec.PWD)},
-          0, ${now}, ${now}
+          0, ${faceCount}, ${now}, ${now}
         )
         ON CONFLICT (device_id, device_employee_id) DO UPDATE
           SET name         = COALESCE(EXCLUDED.name, biometric_device_users.name),
               privilege    = COALESCE(EXCLUDED.privilege, biometric_device_users.privilege),
               card         = COALESCE(EXCLUDED.card, biometric_device_users.card),
               password_set = EXCLUDED.password_set OR biometric_device_users.password_set,
+              face_count   = GREATEST(EXCLUDED.face_count, biometric_device_users.face_count),
               last_seen_at = EXCLUDED.last_seen_at
       `);
       out.upserted++;
@@ -940,6 +983,16 @@ async function handlePostCdata(req: Request, res: Response) {
 
     admsLog("OUT", effectiveSn,
       `ATTLOG ack ins=${r.inserted} dups=${r.duplicates} bad=${r.bad} stamp=${ackStamp}`, true);
+
+  } else if (table === "ATTPHOTO") {
+    // ESSL AirFace-Orcus and ZKTeco SpeedFace devices push face-capture JPEG snapshots
+    // alongside attendance records. We acknowledge them so the device clears its queue,
+    // but photos are NOT stored (privacy + storage reasons).
+    const byteCount = body.length;
+    const lineCount = body.split(/\r?\n/).filter((l) => l.trim()).length;
+    console.log(`[ADMS] POST ATTPHOTO SN="${effectiveSn}" ip=${ip} records=${lineCount} bytes=${byteCount} — ack only`);
+    admsLog("IN", effectiveSn, `ATTPHOTO ${lineCount} records ${byteCount}B — acknowledged`, true);
+    await touchDevice(device.id, ip);
 
   } else if (["OPERLOG", "USERINFO", "USER"].includes(table)) {
     const lineCount = body.split(/\r?\n/).filter((l) => l.trim()).length;
