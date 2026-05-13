@@ -91,7 +91,7 @@ class _GeoFenceScreenState extends State<GeoFenceScreen> with SingleTickerProvid
 
       _snack('Acquiring GPS signal…');
       final position = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
+        desiredAccuracy: LocationAccuracy.high,
       ).timeout(const Duration(seconds: 25), onTimeout: () => throw Exception('GPS timed out after 25 seconds.'));
 
       setState(() {
