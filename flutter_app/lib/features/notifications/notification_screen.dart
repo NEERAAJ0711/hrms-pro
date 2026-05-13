@@ -185,7 +185,7 @@ class _NotificationScreenState extends State<NotificationScreen> {
                               color: isRead ? Colors.white : Colors.blue[50],
                               borderRadius: BorderRadius.circular(12),
                               border: Border.all(color: isRead ? Colors.grey[200]! : Colors.blue[100]!),
-                              boxShadow: [BoxShadow(color: Colors.grey.withValues(alpha: 0.06), blurRadius: 4, offset: const Offset(0, 2))],
+                              boxShadow: [BoxShadow(color: Colors.grey.withOpacity(0.06), blurRadius: 4, offset: const Offset(0, 2))],
                             ),
                             child: Padding(
                               padding: const EdgeInsets.all(14),
@@ -194,9 +194,9 @@ class _NotificationScreenState extends State<NotificationScreen> {
                                   width: 42,
                                   height: 42,
                                   decoration: BoxDecoration(
-                                    color: color.withValues(alpha: 0.1),
+                                    color: color.withOpacity(0.1),
                                     borderRadius: BorderRadius.circular(10),
-                                    border: Border.all(color: color.withValues(alpha: 0.3)),
+                                    border: Border.all(color: color.withOpacity(0.3)),
                                   ),
                                   child: Center(child: Text(icon, style: const TextStyle(fontSize: 20))),
                                 ),
