@@ -368,7 +368,7 @@ class _PayslipScreenState extends State<PayslipScreen> {
             child: ListTile(
               leading: Container(
                 width: 48, height: 48,
-                decoration: BoxDecoration(color: AppTheme.primaryColor.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(10)),
+                decoration: BoxDecoration(color: AppTheme.primaryColor.withOpacity(0.1), borderRadius: BorderRadius.circular(10)),
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
@@ -495,7 +495,7 @@ class _PayslipScreenState extends State<PayslipScreen> {
 
           // ── Net Pay ──────────────────────────────────────────
           Card(
-            color: AppTheme.primaryColor.withValues(alpha: 0.05),
+            color: AppTheme.primaryColor.withOpacity(0.05),
             child: Padding(
               padding: const EdgeInsets.all(16),
               child: Row(
