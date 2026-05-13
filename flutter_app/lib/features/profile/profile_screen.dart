@@ -325,7 +325,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         Stack(alignment: Alignment.bottomRight, children: [
           CircleAvatar(
             radius: 42,
-            backgroundColor: Colors.white.withValues(alpha: 0.2),
+            backgroundColor: Colors.white.withOpacity(0.2),
             child: Text(_initials, style: const TextStyle(fontSize: 30, fontWeight: FontWeight.bold, color: Colors.white)),
           ),
           Container(
@@ -342,7 +342,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         if (_employee != null) ...[
           const SizedBox(height: 4),
           Text('${_employee!['designation'] ?? ''} • ${_employee!['department'] ?? ''}',
-              style: TextStyle(color: Colors.white.withValues(alpha: 0.85), fontSize: 13)),
+              style: TextStyle(color: Colors.white.withOpacity(0.85), fontSize: 13)),
         ],
         if (_currentSalCtrl.text.isNotEmpty || _expectedSalCtrl.text.isNotEmpty) ...[
           const SizedBox(height: 6),
@@ -369,7 +369,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Widget _infoBadge(IconData icon, String text) => Container(
     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-    decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.15), borderRadius: BorderRadius.circular(20)),
+    decoration: BoxDecoration(color: Colors.white.withOpacity(0.15), borderRadius: BorderRadius.circular(20)),
     child: Row(mainAxisSize: MainAxisSize.min, children: [
       Icon(icon, size: 13, color: Colors.white),
       const SizedBox(width: 5),
@@ -496,7 +496,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Container(
               width: 40, height: 40,
-              decoration: BoxDecoration(color: AppTheme.primaryColor.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(10)),
+              decoration: BoxDecoration(color: AppTheme.primaryColor.withOpacity(0.1), borderRadius: BorderRadius.circular(10)),
               child: const Icon(Icons.business, color: AppTheme.primaryColor, size: 20),
             ),
             const SizedBox(width: 12),
@@ -553,7 +553,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Widget _chip(IconData icon, String text, Color color) => Container(
     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-    decoration: BoxDecoration(color: color.withValues(alpha: 0.08), borderRadius: BorderRadius.circular(20)),
+    decoration: BoxDecoration(color: color.withOpacity(0.08), borderRadius: BorderRadius.circular(20)),
     child: Row(mainAxisSize: MainAxisSize.min, children: [
       Icon(icon, size: 11, color: color),
       const SizedBox(width: 4),
@@ -579,19 +579,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
   BoxDecoration _cardDeco() => BoxDecoration(
     color: Colors.white,
     borderRadius: BorderRadius.circular(16),
-    boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.06), blurRadius: 8, offset: const Offset(0, 2))],
+    boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 8, offset: const Offset(0, 2))],
   );
 
   Widget _sectionHeader(String title, IconData icon, Color color) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.07),
+        color: color.withOpacity(0.07),
         borderRadius: const BorderRadius.only(topLeft: Radius.circular(16), topRight: Radius.circular(16)),
-        border: Border(bottom: BorderSide(color: color.withValues(alpha: 0.12))),
+        border: Border(bottom: BorderSide(color: color.withOpacity(0.12))),
       ),
       child: Row(children: [
-        Container(padding: const EdgeInsets.all(6), decoration: BoxDecoration(color: color.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(8)), child: Icon(icon, color: color, size: 18)),
+        Container(padding: const EdgeInsets.all(6), decoration: BoxDecoration(color: color.withOpacity(0.12), borderRadius: BorderRadius.circular(8)), child: Icon(icon, color: color, size: 18)),
         const SizedBox(width: 10),
         Text(title, style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: color)),
       ]),
