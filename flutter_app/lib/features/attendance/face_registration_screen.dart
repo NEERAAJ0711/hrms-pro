@@ -243,7 +243,7 @@ class _FaceRegistrationScreenState extends State<FaceRegistrationScreen> {
               children: [
                 Container(
                   padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(color: AppTheme.primaryColor.withValues(alpha: 0.08), borderRadius: BorderRadius.circular(10), border: Border.all(color: AppTheme.primaryColor.withValues(alpha: 0.2))),
+                  decoration: BoxDecoration(color: AppTheme.primaryColor.withOpacity(0.08), borderRadius: BorderRadius.circular(10), border: Border.all(color: AppTheme.primaryColor.withOpacity(0.2))),
                   child: Row(children: [
                     Icon(Icons.face, color: AppTheme.primaryColor, size: 20),
                     const SizedBox(width: 10),
@@ -304,7 +304,7 @@ class _FaceRegistrationScreenState extends State<FaceRegistrationScreen> {
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: faceRegistered ? Colors.green.shade200 : Colors.grey.shade200),
-        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 6, offset: const Offset(0, 2))],
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 6, offset: const Offset(0, 2))],
       ),
       child: ListTile(
         contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
