@@ -79,7 +79,7 @@ jobs:
           path: artifacts/hrms-mobile-${{ github.run_number }}.apk
           retention-days: 30
 
-      - name: Deploy APK to server & update version.json
+      - name: Deploy APK and version.json to server
         env:
           SSH_KEY: ${{ secrets.HOSTINGER_SSH_KEY }}
           SSH_HOST: ${{ secrets.HOSTINGER_HOST }}
@@ -90,33 +90,41 @@ jobs:
         run: |
           BUILD=${{ github.run_number }}
           DOWNLOAD_URL="${APP_URL}/uploads/downloads/hrms-latest.apk"
+          PORT=${SSH_PORT:-22}
 
-          # Write SSH key
+          # Write SSH key and known hosts
           mkdir -p ~/.ssh
           echo "$SSH_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
           echo "$HOST_KEY" >> ~/.ssh/known_hosts
 
-          PORT=${SSH_PORT:-22}
+          # Create version.json locally
+          python3 -c "
+          import json, sys
+          data = {
+            'version': '1.0.' + sys.argv[1],
+            'buildNumber': int(sys.argv[1]),
+            'downloadUrl': sys.argv[2],
+            'releaseNotes': 'Bug fixes and improvements',
+            'mandatory': False
+          }
+          print(json.dumps(data, indent=2))
+          " "$BUILD" "$DOWNLOAD_URL" > /tmp/version.json
 
-          # Create downloads dir on server + copy APK
+          cat /tmp/version.json
+
+          # Create downloads dir on server
           ssh -i ~/.ssh/deploy_key -p "$PORT" "${SSH_USER}@${SSH_HOST}" \
             "mkdir -p ~/hrms-pro/uploads/downloads"
 
+          # Upload APK
           scp -i ~/.ssh/deploy_key -P "$PORT" \
-            artifacts/hrms-mobile-${BUILD}.apk \
+            "artifacts/hrms-mobile-${BUILD}.apk" \
             "${SSH_USER}@${SSH_HOST}:~/hrms-pro/uploads/downloads/hrms-latest.apk"
 
-          # Write version.json on server
-          ssh -i ~/.ssh/deploy_key -p "$PORT" "${SSH_USER}@${SSH_HOST}" \
-            "cat > ~/hrms-pro/uploads/downloads/version.json << 'VERSIONEOF'
-{
-  \"version\": \"1.0.${BUILD}\",
-  \"buildNumber\": ${BUILD},
-  \"downloadUrl\": \"${DOWNLOAD_URL}\",
-  \"releaseNotes\": \"Bug fixes and improvements\",
-  \"mandatory\": false
-}
-VERSIONEOF"
+          # Upload version.json
+          scp -i ~/.ssh/deploy_key -P "$PORT" \
+            /tmp/version.json \
+            "${SSH_USER}@${SSH_HOST}:~/hrms-pro/uploads/downloads/version.json"
 
-          echo "APK and version.json deployed to server"
+          echo "Deployed APK + version.json to server (build ${BUILD})"
