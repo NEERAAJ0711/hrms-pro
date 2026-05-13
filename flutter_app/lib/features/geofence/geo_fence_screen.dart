@@ -196,18 +196,18 @@ class _GeoFenceScreenState extends State<GeoFenceScreen> with SingleTickerProvid
   Widget _headerCard() => Container(
     padding: const EdgeInsets.all(16),
     decoration: BoxDecoration(
-      gradient: LinearGradient(colors: [AppTheme.primaryColor, AppTheme.primaryColor.withValues(alpha: 0.8)], begin: Alignment.topLeft, end: Alignment.bottomRight),
+      gradient: LinearGradient(colors: [AppTheme.primaryColor, AppTheme.primaryColor.withOpacity(0.8)], begin: Alignment.topLeft, end: Alignment.bottomRight),
       borderRadius: BorderRadius.circular(14),
-      boxShadow: [BoxShadow(color: AppTheme.primaryColor.withValues(alpha: 0.3), blurRadius: 10, offset: const Offset(0, 4))],
+      boxShadow: [BoxShadow(color: AppTheme.primaryColor.withOpacity(0.3), blurRadius: 10, offset: const Offset(0, 4))],
     ),
     child: Row(children: [
-      Container(padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.2), shape: BoxShape.circle),
+      Container(padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: Colors.white.withOpacity(0.2), shape: BoxShape.circle),
           child: const Icon(Icons.location_city, color: Colors.white, size: 28)),
       const SizedBox(width: 14),
       Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Text(_companyName.isNotEmpty ? _companyName : 'Office Geo-Fence', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
         const SizedBox(height: 2),
-        Text('Define office boundary for attendance tracking', style: TextStyle(color: Colors.white.withValues(alpha: 0.8), fontSize: 12)),
+        Text('Define office boundary for attendance tracking', style: TextStyle(color: Colors.white.withOpacity(0.8), fontSize: 12)),
       ])),
     ]),
   );
@@ -217,7 +217,7 @@ class _GeoFenceScreenState extends State<GeoFenceScreen> with SingleTickerProvid
     final hasLoc = _locationSet && _latCtrl.text.isNotEmpty && _lngCtrl.text.isNotEmpty;
     return Container(
       decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(14),
-          boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 8, offset: const Offset(0, 2))]),
+          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 8, offset: const Offset(0, 2))]),
       padding: const EdgeInsets.all(16),
       child: Column(children: [
         const Text('Geo-Fence Preview', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
@@ -357,7 +357,7 @@ class _GeoFenceScreenState extends State<GeoFenceScreen> with SingleTickerProvid
         Text('Radius', style: TextStyle(color: Colors.grey[600], fontSize: 13)),
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
-          decoration: BoxDecoration(color: AppTheme.primaryColor.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(20)),
+          decoration: BoxDecoration(color: AppTheme.primaryColor.withOpacity(0.1), borderRadius: BorderRadius.circular(20)),
           child: Text('${_radius.round()} m', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: AppTheme.primaryColor)),
         ),
       ]),
@@ -366,7 +366,7 @@ class _GeoFenceScreenState extends State<GeoFenceScreen> with SingleTickerProvid
         data: SliderTheme.of(context).copyWith(
           activeTrackColor: AppTheme.primaryColor,
           thumbColor: AppTheme.primaryColor,
-          overlayColor: AppTheme.primaryColor.withValues(alpha: 0.1),
+          overlayColor: AppTheme.primaryColor.withOpacity(0.1),
           inactiveTrackColor: Colors.grey[200],
           trackHeight: 5,
           thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 10),
@@ -441,7 +441,7 @@ class _GeoFenceScreenState extends State<GeoFenceScreen> with SingleTickerProvid
 
   Widget _toggle({required IconData icon, required Color iconColor, required String title, required String subtitle, required bool value, required ValueChanged<bool> onChanged}) {
     return Row(children: [
-      Container(padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: iconColor.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(8)),
+      Container(padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: iconColor.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
           child: Icon(icon, color: iconColor, size: 20)),
       const SizedBox(width: 12),
       Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -481,10 +481,10 @@ class _GeoFenceScreenState extends State<GeoFenceScreen> with SingleTickerProvid
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(14),
-          boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 8, offset: const Offset(0, 2))]),
+          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 8, offset: const Offset(0, 2))]),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
-          Container(padding: const EdgeInsets.all(6), decoration: BoxDecoration(color: iconColor.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(8)),
+          Container(padding: const EdgeInsets.all(6), decoration: BoxDecoration(color: iconColor.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
               child: Icon(icon, color: iconColor, size: 18)),
           const SizedBox(width: 10),
           Text(title, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
@@ -544,15 +544,15 @@ class _GeoFencePainter extends CustomPainter {
     // ── Pulse ring ─────────────────────────────────────────────────────────
     if (gpsEnabled) {
       canvas.drawCircle(Offset(cx, cy), fenceR * pulseScale,
-          Paint()..color = borderColor.withValues(alpha: 0.07)..style = PaintingStyle.fill);
+          Paint()..color = borderColor.withOpacity(0.07)..style = PaintingStyle.fill);
     }
 
     // ── Geo-fence fill ──────────────────────────────────────────────────────
     canvas.drawCircle(Offset(cx, cy), fenceR,
-        Paint()..color = borderColor.withValues(alpha: 0.07)..style = PaintingStyle.fill);
+        Paint()..color = borderColor.withOpacity(0.07)..style = PaintingStyle.fill);
 
     // ── Dashed border (manual) ──────────────────────────────────────────────
-    _drawDashedCircle(canvas, Offset(cx, cy), fenceR, borderColor.withValues(alpha: 0.7), 2, 10, 6);
+    _drawDashedCircle(canvas, Offset(cx, cy), fenceR, borderColor.withOpacity(0.7), 2, 10, 6);
 
     // ── Office pin background ──────────────────────────────────────────────
     canvas.drawCircle(Offset(cx, cy), 18, Paint()..color = Colors.white..style = PaintingStyle.fill);
