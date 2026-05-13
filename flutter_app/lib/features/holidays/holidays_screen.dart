@@ -80,7 +80,7 @@ class _HolidaysScreenState extends State<HolidaysScreen> {
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       decoration: BoxDecoration(
-        color: isToday ? AppTheme.primaryColor.withValues(alpha: 0.05) : Colors.white,
+        color: isToday ? AppTheme.primaryColor.withOpacity(0.05) : Colors.white,
         borderRadius: BorderRadius.circular(10),
         border: Border.all(color: isToday ? AppTheme.primaryColor : Colors.grey[200]!),
       ),
@@ -89,7 +89,7 @@ class _HolidaysScreenState extends State<HolidaysScreen> {
           width: 48,
           height: 48,
           decoration: BoxDecoration(
-            color: isPast ? Colors.grey[100] : typeColor.withValues(alpha: 0.1),
+            color: isPast ? Colors.grey[100] : typeColor.withOpacity(0.1),
             borderRadius: BorderRadius.circular(10),
           ),
           child: Column(
