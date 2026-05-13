@@ -247,7 +247,7 @@ class _JobsScreenState extends State<JobsScreen> with SingleTickerProviderStateM
                 Expanded(child: Text(app['jobTitle'] ?? 'Unknown Position', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15))),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-                  decoration: BoxDecoration(color: statusColor.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(12)),
+                  decoration: BoxDecoration(color: statusColor.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
                   child: Text(status.toString().replaceAll('_', ' ').toUpperCase(),
                       style: TextStyle(color: statusColor, fontSize: 11, fontWeight: FontWeight.w600)),
                 ),
@@ -262,7 +262,7 @@ class _JobsScreenState extends State<JobsScreen> with SingleTickerProviderStateM
               const SizedBox(height: 8),
               Container(
                 padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(color: AppTheme.primaryColor.withValues(alpha: 0.05), borderRadius: BorderRadius.circular(8)),
+                decoration: BoxDecoration(color: AppTheme.primaryColor.withOpacity(0.05), borderRadius: BorderRadius.circular(8)),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -282,7 +282,7 @@ class _JobsScreenState extends State<JobsScreen> with SingleTickerProviderStateM
               const SizedBox(height: 8),
               Container(
                 padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(color: AppTheme.accentColor.withValues(alpha: 0.05), borderRadius: BorderRadius.circular(8)),
+                decoration: BoxDecoration(color: AppTheme.accentColor.withOpacity(0.05), borderRadius: BorderRadius.circular(8)),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
