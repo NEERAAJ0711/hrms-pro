@@ -92,13 +92,13 @@ class _SuperAdminScreenState extends State<SuperAdminScreen> {
       decoration: BoxDecoration(
         gradient: LinearGradient(colors: [AppTheme.primaryColor, AppTheme.primaryDark], begin: Alignment.topLeft, end: Alignment.bottomRight),
         borderRadius: BorderRadius.circular(16),
-        boxShadow: [BoxShadow(color: AppTheme.primaryColor.withValues(alpha: 0.3), blurRadius: 12, offset: const Offset(0, 4))],
+        boxShadow: [BoxShadow(color: AppTheme.primaryColor.withOpacity(0.3), blurRadius: 12, offset: const Offset(0, 4))],
       ),
       padding: const EdgeInsets.all(20),
       child: Row(children: [
         CircleAvatar(
           radius: 28,
-          backgroundColor: Colors.white.withValues(alpha: 0.2),
+          backgroundColor: Colors.white.withOpacity(0.2),
           child: Text(
             '${user?.firstName.isNotEmpty == true ? user!.firstName[0] : 'S'}${user?.lastName.isNotEmpty == true ? user!.lastName[0] : 'A'}',
             style: const TextStyle(fontSize: 20, color: Colors.white, fontWeight: FontWeight.bold),
@@ -111,13 +111,13 @@ class _SuperAdminScreenState extends State<SuperAdminScreen> {
           Container(
             margin: const EdgeInsets.only(top: 6),
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-            decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.2), borderRadius: BorderRadius.circular(20)),
+            decoration: BoxDecoration(color: Colors.white.withOpacity(0.2), borderRadius: BorderRadius.circular(20)),
             child: const Text('SUPER ADMINISTRATOR', style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 0.5)),
           ),
         ])),
         Container(
           padding: const EdgeInsets.all(10),
-          decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.15), borderRadius: BorderRadius.circular(12)),
+          decoration: BoxDecoration(color: Colors.white.withOpacity(0.15), borderRadius: BorderRadius.circular(12)),
           child: const Icon(Icons.admin_panel_settings, color: Colors.white, size: 28),
         ),
       ]),
@@ -152,12 +152,12 @@ class _SuperAdminScreenState extends State<SuperAdminScreen> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withValues(alpha: 0.15)),
-        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 8, offset: const Offset(0, 2))],
+        border: Border.all(color: color.withOpacity(0.15)),
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 8, offset: const Offset(0, 2))],
       ),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisAlignment: MainAxisAlignment.center, children: [
         Row(children: [
-          Container(padding: const EdgeInsets.all(6), decoration: BoxDecoration(color: color.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(8)), child: Icon(icon, color: color, size: 18)),
+          Container(padding: const EdgeInsets.all(6), decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(8)), child: Icon(icon, color: color, size: 18)),
           const Spacer(),
           Text(value, style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: color)),
         ]),
@@ -196,9 +196,9 @@ class _SuperAdminScreenState extends State<SuperAdminScreen> {
     return GestureDetector(
       onTap: a.onTap,
       child: Container(
-        decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.grey.shade200), boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 6, offset: const Offset(0, 2))]),
+        decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.grey.shade200), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 6, offset: const Offset(0, 2))]),
         child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-          Container(padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: a.color.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(10)), child: Icon(a.icon, color: a.color, size: 22)),
+          Container(padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: a.color.withOpacity(0.1), borderRadius: BorderRadius.circular(10)), child: Icon(a.icon, color: a.color, size: 22)),
           const SizedBox(height: 6),
           Text(a.label, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600), textAlign: TextAlign.center, maxLines: 2),
         ]),
@@ -220,12 +220,12 @@ class _SuperAdminScreenState extends State<SuperAdminScreen> {
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: Colors.grey.shade200),
-        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 6)],
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 6)],
       ),
       child: Row(children: [
         Container(
           width: 44, height: 44,
-          decoration: BoxDecoration(color: AppTheme.primaryColor.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(10)),
+          decoration: BoxDecoration(color: AppTheme.primaryColor.withOpacity(0.1), borderRadius: BorderRadius.circular(10)),
           child: const Icon(Icons.business, color: AppTheme.primaryColor, size: 22),
         ),
         const SizedBox(width: 12),
@@ -236,7 +236,7 @@ class _SuperAdminScreenState extends State<SuperAdminScreen> {
         ])),
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-          decoration: BoxDecoration(color: AppTheme.accentColor.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(8)),
+          decoration: BoxDecoration(color: AppTheme.accentColor.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
           child: Text(c['status'] ?? 'active', style: TextStyle(fontSize: 11, color: AppTheme.accentColor, fontWeight: FontWeight.w600)),
         ),
       ]),
@@ -260,7 +260,7 @@ class _SuperAdminScreenState extends State<SuperAdminScreen> {
       child: Row(children: [
         CircleAvatar(
           radius: 20,
-          backgroundColor: AppTheme.accentColor.withValues(alpha: 0.15),
+          backgroundColor: AppTheme.accentColor.withOpacity(0.15),
           child: Text(name.isNotEmpty ? name[0].toUpperCase() : '?', style: const TextStyle(fontWeight: FontWeight.bold, color: AppTheme.accentColor)),
         ),
         const SizedBox(width: 12),
@@ -389,7 +389,7 @@ class _AllEmployeesScreenState extends State<_AllEmployeesScreen> {
                   child: Row(children: [
                     CircleAvatar(
                       radius: 22,
-                      backgroundColor: AppTheme.primaryColor.withValues(alpha: 0.12),
+                      backgroundColor: AppTheme.primaryColor.withOpacity(0.12),
                       child: Text(name.isNotEmpty ? name[0].toUpperCase() : '?', style: const TextStyle(fontWeight: FontWeight.bold, color: AppTheme.primaryColor)),
                     ),
                     const SizedBox(width: 12),
@@ -401,7 +401,7 @@ class _AllEmployeesScreenState extends State<_AllEmployeesScreen> {
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                       decoration: BoxDecoration(
-                        color: e['status'] == 'active' ? AppTheme.accentColor.withValues(alpha: 0.1) : Colors.red.shade50,
+                        color: e['status'] == 'active' ? AppTheme.accentColor.withOpacity(0.1) : Colors.red.shade50,
                         borderRadius: BorderRadius.circular(6),
                       ),
                       child: Text(
