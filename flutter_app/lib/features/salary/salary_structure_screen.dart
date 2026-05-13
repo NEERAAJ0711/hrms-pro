@@ -51,7 +51,7 @@ class _SalaryStructureScreenState extends State<SalaryStructureScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Card(
-                          color: AppTheme.primaryColor.withValues(alpha: 0.05),
+                          color: AppTheme.primaryColor.withOpacity(0.05),
                           child: Padding(
                             padding: const EdgeInsets.all(16),
                             child: Row(
@@ -116,7 +116,7 @@ class _SalaryStructureScreenState extends State<SalaryStructureScreen> {
                         const SizedBox(height: 16),
 
                         Card(
-                          color: AppTheme.accentColor.withValues(alpha: 0.05),
+                          color: AppTheme.accentColor.withOpacity(0.05),
                           child: Padding(
                             padding: const EdgeInsets.all(16),
                             child: Row(
