@@ -95,7 +95,7 @@ class _SignupScreenState extends State<SignupScreen> {
                   decoration: BoxDecoration(
                     color: Colors.white,
                     borderRadius: BorderRadius.circular(18),
-                    boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.25), blurRadius: 16, offset: const Offset(0, 6))],
+                    boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.25), blurRadius: 16, offset: const Offset(0, 6))],
                   ),
                   child: const Icon(Icons.business_center, size: 36, color: AppTheme.primaryColor),
                 ),
@@ -108,7 +108,7 @@ class _SignupScreenState extends State<SignupScreen> {
                   decoration: BoxDecoration(
                     color: Colors.white,
                     borderRadius: BorderRadius.circular(24),
-                    boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.2), blurRadius: 30, offset: const Offset(0, 10))],
+                    boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.2), blurRadius: 30, offset: const Offset(0, 10))],
                   ),
                   padding: const EdgeInsets.all(28),
                   child: Form(
@@ -117,7 +117,7 @@ class _SignupScreenState extends State<SignupScreen> {
                       Row(children: [
                         Container(
                           padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(color: AppTheme.primaryColor.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(10)),
+                          decoration: BoxDecoration(color: AppTheme.primaryColor.withOpacity(0.1), borderRadius: BorderRadius.circular(10)),
                           child: const Icon(Icons.person_add_alt_1, color: AppTheme.primaryColor, size: 20),
                         ),
                         const SizedBox(width: 12),
@@ -191,7 +191,7 @@ class _SignupScreenState extends State<SignupScreen> {
                             foregroundColor: Colors.white,
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                             elevation: 4,
-                            shadowColor: AppTheme.accentColor.withValues(alpha: 0.5),
+                            shadowColor: AppTheme.accentColor.withOpacity(0.5),
                           ),
                           child: _isLoading
                               ? const Row(mainAxisAlignment: MainAxisAlignment.center, children: [
