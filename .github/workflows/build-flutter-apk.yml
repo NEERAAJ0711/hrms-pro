@@ -39,6 +39,13 @@ jobs:
           echo "sdk.dir=$ANDROID_SDK_ROOT" >> flutter_app/android/local.properties
           cat flutter_app/android/local.properties
 
+      - name: Bump version in pubspec.yaml
+        run: |
+          BUILD=${{ github.run_number }}
+          sed -i "s/^version: .*/version: 1.0.${BUILD}+${BUILD}/" flutter_app/pubspec.yaml
+          echo "Version set to 1.0.${BUILD}+${BUILD}"
+          grep "^version:" flutter_app/pubspec.yaml
+
       - name: Install dependencies
         working-directory: flutter_app
         run: flutter pub get
@@ -71,3 +78,45 @@ jobs:
           name: hrms-mobile-apk-${{ github.run_number }}
           path: artifacts/hrms-mobile-${{ github.run_number }}.apk
           retention-days: 30
+
+      - name: Deploy APK to server & update version.json
+        env:
+          SSH_KEY: ${{ secrets.HOSTINGER_SSH_KEY }}
+          SSH_HOST: ${{ secrets.HOSTINGER_HOST }}
+          SSH_PORT: ${{ secrets.HOSTINGER_PORT }}
+          SSH_USER: ${{ secrets.HOSTINGER_USERNAME }}
+          HOST_KEY: ${{ secrets.HOSTINGER_HOST_KEY }}
+          APP_URL: ${{ secrets.HOSTINGER_APP_URL }}
+        run: |
+          BUILD=${{ github.run_number }}
+          DOWNLOAD_URL="${APP_URL}/uploads/downloads/hrms-latest.apk"
+
+          # Write SSH key
+          mkdir -p ~/.ssh
+          echo "$SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          echo "$HOST_KEY" >> ~/.ssh/known_hosts
+
+          PORT=${SSH_PORT:-22}
+
+          # Create downloads dir on server + copy APK
+          ssh -i ~/.ssh/deploy_key -p "$PORT" "${SSH_USER}@${SSH_HOST}" \
+            "mkdir -p ~/hrms-pro/uploads/downloads"
+
+          scp -i ~/.ssh/deploy_key -P "$PORT" \
+            artifacts/hrms-mobile-${BUILD}.apk \
+            "${SSH_USER}@${SSH_HOST}:~/hrms-pro/uploads/downloads/hrms-latest.apk"
+
+          # Write version.json on server
+          ssh -i ~/.ssh/deploy_key -p "$PORT" "${SSH_USER}@${SSH_HOST}" \
+            "cat > ~/hrms-pro/uploads/downloads/version.json << 'VERSIONEOF'
+{
+  \"version\": \"1.0.${BUILD}\",
+  \"buildNumber\": ${BUILD},
+  \"downloadUrl\": \"${DOWNLOAD_URL}\",
+  \"releaseNotes\": \"Bug fixes and improvements\",
+  \"mandatory\": false
+}
+VERSIONEOF"
+
+          echo "APK and version.json deployed to server"
