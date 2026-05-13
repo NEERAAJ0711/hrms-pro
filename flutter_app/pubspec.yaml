@@ -26,6 +26,8 @@ dependencies:
   flutter_svg: ^2.0.9
   pdf: ^3.10.8
   share_plus: ^9.0.0
+  package_info_plus: ^8.0.0
+  url_launcher: ^6.3.0
 
 dev_dependencies:
   flutter_test:
