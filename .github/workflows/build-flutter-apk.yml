@@ -40,11 +40,19 @@ jobs:
 
       - name: Build APK (release)
         working-directory: flutter_app
-        run: flutter build apk --release
+        run: |
+          flutter build apk --release \
+            --dart-define=BASE_URL=${{ secrets.HOSTINGER_APP_URL }}
+
+      - name: Rename APK with version info
+        run: |
+          mkdir -p artifacts
+          cp flutter_app/build/app/outputs/flutter-apk/app-release.apk \
+             artifacts/hrms-mobile-${{ github.run_number }}.apk
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: hrms-mobile-apk-${{ github.sha }}
-          path: flutter_app/build/app/outputs/flutter-apk/app-release.apk
+          name: hrms-mobile-apk-${{ github.run_number }}
+          path: artifacts/hrms-mobile-${{ github.run_number }}.apk
           retention-days: 30

@@ -9,7 +9,10 @@ class ApiClient {
 
   late Dio dio;
   final FlutterSecureStorage _storage = const FlutterSecureStorage();
-  String baseUrl = 'https://marpayrollnode.replit.app';
+  String baseUrl = const String.fromEnvironment(
+    'BASE_URL',
+    defaultValue: 'https://marpayrollnode.replit.app',
+  );
   bool _isRefreshing = false;
   final List<Function(String)> _refreshCallbacks = [];
   Function()? onAuthFailure;

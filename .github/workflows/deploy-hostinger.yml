@@ -23,10 +23,10 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v5
+        uses: actions/checkout@v4
 
       - name: Setup Node.js 20
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v4
         with:
           node-version: "20"
           cache: "npm"
@@ -45,7 +45,7 @@ jobs:
           test -f dist/public/index.html && echo "✅ Client bundle OK" || (echo "❌ Client bundle missing" && exit 1)
 
       - name: Upload build artifact
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v4
         with:
           name: dist-${{ github.sha }}
           path: dist/
@@ -59,10 +59,10 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v5
+        uses: actions/checkout@v4
 
       - name: Setup Node.js 20
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v4
         with:
           node-version: "20"
           cache: "npm"
@@ -76,7 +76,7 @@ jobs:
           NODE_ENV: production
 
       - name: Download build artifact
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v4
         with:
           name: dist-${{ github.sha }}
           path: dist/
@@ -106,9 +106,6 @@ jobs:
           KNOWN_HOSTS=~/.ssh/known_hosts
           : > "$KNOWN_HOSTS"
 
-          # Each line of the secret is one host key entry. Rewrite the host
-          # field so it matches both the bare host and the [host]:port form
-          # ssh uses for non-default ports.
           while IFS= read -r line; do
             [ -z "$line" ] && continue
             case "$line" in \#*) continue ;; esac
@@ -158,10 +155,6 @@ jobs:
         shell: bash
         run: |
           umask 077
-          # Use bash's built-in %q to produce shell-safe quoted assignments.
-          # printf "%q" handles arbitrary bytes — single quotes, double quotes,
-          # $, backticks, backslashes, spaces, and newlines (emitted as $'...')
-          # — so `. ENV_FILE` on the server is safe for any secret value.
           {
             printf 'DATABASE_URL=%q\n'   "$DATABASE_URL"
             printf 'SESSION_SECRET=%q\n' "$SESSION_SECRET"
@@ -170,11 +163,6 @@ jobs:
             printf 'BUILD_TIME=%q\n'     "${BUILD_TIME:-unknown}"
           } > deploy.env
 
-          # Round-trip sanity check: source the file in a clean subshell and
-          # confirm every value matches the original. This catches any quoting
-          # regression before we ship the payload to the server. Originals are
-          # captured into shell variables (not argv) so secrets never appear in
-          # the runner's process list.
           (
             ORIG_DATABASE_URL="$DATABASE_URL"
             ORIG_SESSION_SECRET="$SESSION_SECRET"
@@ -197,9 +185,6 @@ jobs:
 
       - name: Upload env payload to server
         run: |
-          # Pin host-key verification for the secret payload upload — the
-          # earlier ssh-keyscan step has populated ~/.ssh/known_hosts, so a
-          # MITM/host-impersonation cannot capture the encoded secrets.
           scp -i ~/.ssh/deploy_key \
               -P ${{ secrets.HOSTINGER_PORT || 22 }} \
               -o StrictHostKeyChecking=yes \
@@ -219,10 +204,6 @@ jobs:
 
             set -e
 
-            # Decode the base64-encoded env payload into a private temp file,
-            # source it into this shell, then wipe both the encoded payload and
-            # the decoded file. Secrets are never interpolated into argv, so
-            # unusual characters (quotes, $, backticks, newlines) are safe.
             ENV_FILE="$(mktemp)"
             chmod 600 "$ENV_FILE"
             trap 'rm -f "$ENV_PAYLOAD" "$ENV_FILE"' EXIT
@@ -279,9 +260,6 @@ jobs:
             echo "▶ Restarting app with PM2..."
             command -v pm2 || npm install -g pm2
 
-            # Detect the port the legacy 'payroll' PM2 process is bound to —
-            # that's the port nginx (CloudPanel) routes the public domain to.
-            # Our new app must listen on that exact port to receive traffic.
             LEGACY_PID=$(pm2 jlist 2>/dev/null | node -e "
               let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{
                 try{const a=JSON.parse(s);const p=a.find(x=>x.name==='payroll');
@@ -290,7 +268,6 @@ jobs:
 
             DETECTED_PORT=""
             if [ -n "$LEGACY_PID" ]; then
-              # Resolve all listen ports of the legacy process tree, prefer the lowest
               DETECTED_PORT=$(ss -tlnp 2>/dev/null | grep "pid=$LEGACY_PID" | \
                               grep -oE ':[0-9]+ ' | tr -d ' :' | sort -u | head -1)
               echo "▶ Detected legacy 'payroll' on PID=$LEGACY_PID, port=$DETECTED_PORT"
@@ -298,28 +275,22 @@ jobs:
               echo "▶ No legacy 'payroll' process found"
             fi
 
-            # Try detected port first, then any persisted port from previous
-            # successful deploys, then the known nginx target for this VPS (8080).
             PERSISTED_PORT=""
             if [ -f "$HOME/.hrms-pro.port" ]; then
               PERSISTED_PORT=$(cat "$HOME/.hrms-pro.port" 2>/dev/null | tr -dc '0-9')
             fi
             APP_PORT="${DETECTED_PORT:-${PERSISTED_PORT:-8080}}"
-            # Sanity check the candidate port before using it.
             case "$APP_PORT" in
               ''|*[!0-9]*)  echo "❌ Invalid APP_PORT='$APP_PORT' — refusing to deploy"; exit 1 ;;
             esac
             if [ "$APP_PORT" -lt 1 ] || [ "$APP_PORT" -gt 65535 ]; then
               echo "❌ APP_PORT=$APP_PORT out of range — refusing to deploy"; exit 1
             fi
-            echo "▶ Will run hrms-pro on port: $APP_PORT (detected=$DETECTED_PORT, persisted=$PERSISTED_PORT)"
+            echo "▶ Will run hrms-pro on port: $APP_PORT"
 
-            # Append PORT override to .env so the new process picks the right one
             sed -i '/^PORT=/d' "$APP_DIR/.env"
             echo "PORT=$APP_PORT" >> "$APP_DIR/.env"
 
-            # Stop both old processes — the legacy 'payroll' (so its port is freed)
-            # and any prior 'hrms-pro' instance — then start fresh.
             pm2 delete payroll 2>/dev/null || true
             pm2 delete hrms-pro 2>/dev/null || true
             sleep 2
@@ -327,7 +298,7 @@ jobs:
             PORT="$APP_PORT" pm2 start ecosystem.config.cjs --update-env
             pm2 save
 
-            echo "▶ Verifying server bundle was picked up..."
+            echo "▶ Verifying server is up..."
             sleep 4
             UP=0
             for i in 1 2 3 4 5 6 7 8 9 10; do
@@ -347,8 +318,6 @@ jobs:
               exit 1
             fi
 
-            # Only persist the port AFTER a successful health check, so a bad
-            # detection never gets locked in for future deploys.
             echo "$APP_PORT" > "$HOME/.hrms-pro.port"
 
             echo "▶ Cleaning old backups (keeping last 3)..."
