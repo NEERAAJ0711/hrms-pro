@@ -93,7 +93,7 @@ class _HomeScreenState extends State<HomeScreen> {
         title: Row(children: [
           Container(
             padding: const EdgeInsets.all(6),
-            decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.15), borderRadius: BorderRadius.circular(8)),
+            decoration: BoxDecoration(color: Colors.white.withOpacity(0.15), borderRadius: BorderRadius.circular(8)),
             child: const Icon(Icons.business_center, color: Colors.white, size: 20),
           ),
           const SizedBox(width: 10),
@@ -104,7 +104,7 @@ class _HomeScreenState extends State<HomeScreen> {
             Container(
               margin: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
-              decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.15), borderRadius: BorderRadius.circular(12)),
+              decoration: BoxDecoration(color: Colors.white.withOpacity(0.15), borderRadius: BorderRadius.circular(12)),
               child: Text(_roleBadge(role), style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600)),
             ),
           _NotificationBellButton(),
@@ -222,9 +222,9 @@ class _SuperAdminMoreScreen extends StatelessWidget {
           padding: const EdgeInsets.all(14),
           margin: const EdgeInsets.only(bottom: 20),
           decoration: BoxDecoration(
-            gradient: LinearGradient(colors: [AppTheme.primaryColor.withValues(alpha: 0.08), AppTheme.primaryColor.withValues(alpha: 0.03)]),
+            gradient: LinearGradient(colors: [AppTheme.primaryColor.withOpacity(0.08), AppTheme.primaryColor.withOpacity(0.03)]),
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: AppTheme.primaryColor.withValues(alpha: 0.15)),
+            border: Border.all(color: AppTheme.primaryColor.withOpacity(0.15)),
           ),
           child: Row(children: [
             Icon(Icons.admin_panel_settings, color: AppTheme.primaryColor, size: 28),
@@ -259,10 +259,10 @@ class _SuperAdminMoreScreen extends StatelessWidget {
             color: Colors.white,
             borderRadius: BorderRadius.circular(12),
             border: Border.all(color: Colors.grey[200]!),
-            boxShadow: [BoxShadow(color: Colors.grey.withValues(alpha: 0.08), blurRadius: 4, offset: const Offset(0, 2))],
+            boxShadow: [BoxShadow(color: Colors.grey.withOpacity(0.08), blurRadius: 4, offset: const Offset(0, 2))],
           ),
           child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-            Container(padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: item.color.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(10)), child: Icon(item.icon, color: item.color, size: 24)),
+            Container(padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: item.color.withOpacity(0.1), borderRadius: BorderRadius.circular(10)), child: Icon(item.icon, color: item.color, size: 24)),
             const SizedBox(height: 8),
             Text(item.title, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600), textAlign: TextAlign.center),
             Text(item.subtitle, style: TextStyle(fontSize: 9, color: Colors.grey[500]), textAlign: TextAlign.center, maxLines: 1, overflow: TextOverflow.ellipsis),
@@ -351,10 +351,10 @@ class _MoreScreen extends StatelessWidget {
           color: Colors.white,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(color: Colors.grey[200]!),
-          boxShadow: [BoxShadow(color: Colors.grey.withValues(alpha: 0.08), blurRadius: 4, offset: const Offset(0, 2))],
+          boxShadow: [BoxShadow(color: Colors.grey.withOpacity(0.08), blurRadius: 4, offset: const Offset(0, 2))],
         ),
         child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-          Container(padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: item.color.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(10)), child: Icon(item.icon, color: item.color, size: 24)),
+          Container(padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: item.color.withOpacity(0.1), borderRadius: BorderRadius.circular(10)), child: Icon(item.icon, color: item.color, size: 24)),
           const SizedBox(height: 8),
           Text(item.title, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600), textAlign: TextAlign.center),
           Text(item.subtitle, style: TextStyle(fontSize: 9, color: Colors.grey[500]), textAlign: TextAlign.center, maxLines: 1, overflow: TextOverflow.ellipsis),
