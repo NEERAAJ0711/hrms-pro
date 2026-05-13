@@ -87,7 +87,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
             TextField(
               controller: controller,
               decoration: InputDecoration(
-                hintText: 'https://your-server.replit.app',
+                hintText: 'https://tbjvisionconnect.com',
                 prefixIcon: const Icon(Icons.link, size: 18),
                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
                 contentPadding: const EdgeInsets.symmetric(vertical: 12, horizontal: 12),
