@@ -9,6 +9,7 @@ import 'package:intl/intl.dart';
 import '../../core/api_client.dart';
 import '../../core/theme.dart';
 import 'face_capture_screen.dart';
+import 'my_attendance_screen.dart';
 
 // ─── Step states ────────────────────────────────────────────────────────────
 enum PunchStepState { pending, running, done, failed }
@@ -483,13 +484,44 @@ class _AttendanceScreenState extends State<AttendanceScreen> with SingleTickerPr
     ]),
   );
 
+  // ── My Attendance banner ───────────────────────────────────────────────────
+  Widget _myAttendanceBanner() {
+    return GestureDetector(
+      onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const MyAttendanceScreen())),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 20),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(colors: [const Color(0xFF0EA5E9), const Color(0xFF0284C7)], begin: Alignment.centerLeft, end: Alignment.centerRight),
+          borderRadius: BorderRadius.circular(14),
+          boxShadow: [BoxShadow(color: const Color(0xFF0EA5E9).withOpacity(0.3), blurRadius: 10, offset: const Offset(0, 4))],
+        ),
+        child: Row(children: [
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(color: Colors.white.withOpacity(0.2), borderRadius: BorderRadius.circular(10)),
+            child: const Icon(Icons.calendar_view_month, color: Colors.white, size: 24),
+          ),
+          const SizedBox(width: 14),
+          const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('My Attendance', style: TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold)),
+            Text('View monthly summary, calendar & full log', style: TextStyle(color: Colors.white70, fontSize: 12)),
+          ])),
+          const Icon(Icons.arrow_forward_ios, color: Colors.white70, size: 16),
+        ]),
+      ),
+    );
+  }
+
   // ── History section ────────────────────────────────────────────────────────
   Widget _historySection() {
-    if (_history.isEmpty) return const SizedBox.shrink();
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      const Text('This Month', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-      const SizedBox(height: 10),
-      ..._history.take(15).map((e) => _historyRow(e as Map<String, dynamic>)).toList(),
+      _myAttendanceBanner(),
+      if (_history.isNotEmpty) ...[
+        const Text('This Month', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+        const SizedBox(height: 10),
+        ..._history.take(15).map((e) => _historyRow(e as Map<String, dynamic>)).toList(),
+      ],
     ]);
   }
 
