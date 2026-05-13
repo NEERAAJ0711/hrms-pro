@@ -95,6 +95,8 @@ const BULK_UPDATE_GROUPS: { group: string; fields: { label: string; hint?: strin
       { label: "PF Applicable", hint: "Yes / No" },
       { label: "ESI Applicable", hint: "Yes / No" },
       { label: "LWF Applicable", hint: "Yes / No" },
+      { label: "Bonus Applicable", hint: "Yes / No" },
+      { label: "Bonus Paid Monthly", hint: "Yes / No" },
     ],
   },
   {

@@ -1389,8 +1389,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     "Wage Grade": "__wageGrade__",       // resolved via name → ID
     "Contractor": "__contractor__",     // resolved via name → ID
     "Biometric Device ID": "biometricDeviceId",
+    "Bonus Applicable": "bonusApplicable",
+    "Bonus Paid Monthly": "bonusPaidMonthly",
   };
-  const BOOL_FIELDS = new Set(["pfApplicable", "esiApplicable", "lwfApplicable"]);
+  const BOOL_FIELDS = new Set(["pfApplicable", "esiApplicable", "lwfApplicable", "bonusApplicable", "bonusPaidMonthly"]);
   const DATE_FIELDS = new Set(["dateOfBirth", "dateOfJoining"]);
   // Fields that need name→ID resolution (not simple direct DB column writes)
   const NAME_LOOKUP_FIELDS = new Set(["__wageGrade__", "__contractor__"]);
