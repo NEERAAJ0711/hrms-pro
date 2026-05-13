@@ -52,3 +52,6 @@ ios/Runner.xcodeproj/xcuserdata/
 
 # Web
 /web/
+
+# Android local config — machine-specific, must not be committed
+android/local.properties
