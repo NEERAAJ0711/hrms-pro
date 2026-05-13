@@ -196,10 +196,6 @@ jobs:
           rm -f deploy.env
 
       - name: Upload env payload to server
-        env:
-          HOSTINGER_HOST: ${{ secrets.HOSTINGER_HOST }}
-          HOSTINGER_PORT: ${{ secrets.HOSTINGER_PORT }}
-          HOSTINGER_USERNAME: ${{ secrets.HOSTINGER_USERNAME }}
         run: |
           # Pin host-key verification for the secret payload upload — the
           # earlier ssh-keyscan step has populated ~/.ssh/known_hosts, so a
@@ -380,3 +376,4 @@ jobs:
           echo "❌ Deployment failed for commit ${{ github.sha }}"
           echo "Branch: ${{ github.ref_name }}"
           echo "Triggered by: ${{ github.actor }}"
+
