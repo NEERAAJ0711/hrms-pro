@@ -45,6 +45,9 @@ jobs:
         run: flutter analyze --no-fatal-infos
         continue-on-error: true
 
+      - name: Make gradlew executable
+        run: chmod +x flutter_app/android/gradlew
+
       - name: Build APK (release)
         working-directory: flutter_app
         run: |
