@@ -119,12 +119,12 @@ class _BirthdayScreenState extends State<BirthdayScreen> {
 
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
-      color: isToday ? AppTheme.primaryColor.withValues(alpha: 0.05) : null,
+      color: isToday ? AppTheme.primaryColor.withOpacity(0.05) : null,
       child: ListTile(
         leading: Container(
           width: 48, height: 48,
           decoration: BoxDecoration(
-            color: isToday ? AppTheme.warningColor.withValues(alpha: 0.2) : isPast ? Colors.grey[100] : AppTheme.primaryColor.withValues(alpha: 0.1),
+            color: isToday ? AppTheme.warningColor.withOpacity(0.2) : isPast ? Colors.grey[100] : AppTheme.primaryColor.withOpacity(0.1),
             borderRadius: BorderRadius.circular(10),
           ),
           child: Icon(Icons.cake, color: isToday ? AppTheme.warningColor : isPast ? Colors.grey : AppTheme.primaryColor, size: 24),
