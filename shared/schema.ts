@@ -633,6 +633,10 @@ export const biometricDevices = pgTable("biometric_devices", {
   // When true, server sends DATA CLEAR ATTLOG to the device after every
   // successful ATTLOG upload, keeping device memory free.
   autoDeletePunches: boolean("auto_delete_punches").notNull().default(false),
+  // Machine type — used to show correct setup guide and verify-mode labels in UI.
+  // "zkteco"        = ZKTeco fingerprint/card/face (x2008 or SpeedFace protocol)
+  // "essl_airface"  = ESSL AirFace-Orcus (face recognition, SpeedFace/newer protocol)
+  deviceModel: text("device_model").default("zkteco"),
 });
 
 export const insertBiometricDeviceSchema = createInsertSchema(biometricDevices).omit({ id: true });
@@ -655,6 +659,8 @@ export const biometricPunchLogs = pgTable("biometric_punch_logs", {
   missingPunch: boolean("missing_punch").default(false),
   syncedAt: text("synced_at"),
   createdAt: text("created_at"),
+  // How the identity was verified on the device: face, fingerprint, card, password, palm
+  verifyMode: text("verify_mode"),
 });
 
 export const insertBiometricPunchLogSchema = createInsertSchema(biometricPunchLogs).omit({ id: true });
@@ -673,6 +679,8 @@ export const biometricDeviceUsers = pgTable("biometric_device_users", {
   card: text("card"),
   passwordSet: boolean("password_set").default(false),
   fingerprintCount: integer("fingerprint_count").default(0),
+  // Face templates stored on device (ESSL AirFace-Orcus sends FacePic= in USERINFO)
+  faceCount: integer("face_count").default(0),
   firstSeenAt: text("first_seen_at"),
   lastSeenAt: text("last_seen_at"),
 });
