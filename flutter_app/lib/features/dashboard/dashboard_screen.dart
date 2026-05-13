@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../../core/api_client.dart';
 import '../../core/auth_provider.dart';
 import '../../core/theme.dart';
+import '../attendance/my_attendance_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -87,6 +88,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
             else ...[
               _buildStatusCards(),
               const SizedBox(height: 16),
+              _buildMyAttendanceCard(),
+              const SizedBox(height: 16),
               _buildTodayAttendance(),
             ],
           ],
@@ -132,6 +135,33 @@ class _DashboardScreenState extends State<DashboardScreen> {
             Text(value, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold), overflow: TextOverflow.ellipsis),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildMyAttendanceCard() {
+    return GestureDetector(
+      onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const MyAttendanceScreen())),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(colors: [Color(0xFF0EA5E9), Color(0xFF0284C7)], begin: Alignment.centerLeft, end: Alignment.centerRight),
+          borderRadius: BorderRadius.circular(14),
+          boxShadow: [BoxShadow(color: const Color(0xFF0EA5E9).withOpacity(0.3), blurRadius: 10, offset: const Offset(0, 4))],
+        ),
+        child: Row(children: [
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(color: Colors.white.withOpacity(0.2), borderRadius: BorderRadius.circular(10)),
+            child: const Icon(Icons.calendar_view_month, color: Colors.white, size: 24),
+          ),
+          const SizedBox(width: 14),
+          const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('My Attendance', style: TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold)),
+            Text('Monthly summary, calendar & full log', style: TextStyle(color: Colors.white70, fontSize: 12)),
+          ])),
+          const Icon(Icons.arrow_forward_ios, color: Colors.white70, size: 16),
+        ]),
       ),
     );
   }
