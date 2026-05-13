@@ -38,7 +38,7 @@ class MemberDetailScreen extends StatelessWidget {
                 children: [
                   CircleAvatar(
                     radius: 45,
-                    backgroundColor: Colors.white.withValues(alpha: 0.25),
+                    backgroundColor: Colors.white.withOpacity(0.25),
                     child: Text(initials, style: const TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.bold)),
                   ),
                   const SizedBox(height: 12),
@@ -50,7 +50,7 @@ class MemberDetailScreen extends StatelessWidget {
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
                       decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.2),
+                        color: Colors.white.withOpacity(0.2),
                         borderRadius: BorderRadius.circular(20),
                       ),
                       child: Text(emp['department'], style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w500)),
@@ -144,9 +144,9 @@ class MemberDetailScreen extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
-            color: color.withValues(alpha: 0.06),
+            color: color.withOpacity(0.06),
             borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: color.withValues(alpha: 0.2)),
+            border: Border.all(color: color.withOpacity(0.2)),
           ),
           child: Row(
             children: [
@@ -161,7 +161,7 @@ class MemberDetailScreen extends StatelessWidget {
                   ],
                 ),
               ),
-              Icon(Icons.copy, size: 16, color: color.withValues(alpha: 0.5)),
+              Icon(Icons.copy, size: 16, color: color.withOpacity(0.5)),
             ],
           ),
         ),
