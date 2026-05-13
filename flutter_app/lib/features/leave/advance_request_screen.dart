@@ -143,7 +143,7 @@ class _RequestListTab extends StatelessWidget {
               color: Colors.white,
               borderRadius: BorderRadius.circular(12),
               border: Border.all(color: Colors.grey[200]!),
-              boxShadow: [BoxShadow(color: Colors.grey.withValues(alpha: 0.07), blurRadius: 4, offset: const Offset(0, 2))],
+              boxShadow: [BoxShadow(color: Colors.grey.withOpacity(0.07), blurRadius: 4, offset: const Offset(0, 2))],
             ),
             child: Padding(
               padding: const EdgeInsets.all(16),
@@ -152,7 +152,7 @@ class _RequestListTab extends StatelessWidget {
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                     decoration: BoxDecoration(
-                      color: type == 'loan' ? const Color(0xFF6366F1).withValues(alpha: 0.1) : AppTheme.primaryColor.withValues(alpha: 0.1),
+                      color: type == 'loan' ? const Color(0xFF6366F1).withOpacity(0.1) : AppTheme.primaryColor.withOpacity(0.1),
                       borderRadius: BorderRadius.circular(6),
                     ),
                     child: Text(
@@ -168,7 +168,7 @@ class _RequestListTab extends StatelessWidget {
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                     decoration: BoxDecoration(
-                      color: _statusColor(status).withValues(alpha: 0.1),
+                      color: _statusColor(status).withOpacity(0.1),
                       borderRadius: BorderRadius.circular(6),
                     ),
                     child: Text(
@@ -297,7 +297,7 @@ class _NewRequestTabState extends State<_NewRequestTab> {
                     color: _type == 'advance' ? AppTheme.primaryColor : Colors.white,
                     borderRadius: BorderRadius.circular(10),
                     border: Border.all(color: _type == 'advance' ? AppTheme.primaryColor : Colors.grey[300]!),
-                    boxShadow: _type == 'advance' ? [BoxShadow(color: AppTheme.primaryColor.withValues(alpha: 0.3), blurRadius: 8, offset: const Offset(0, 3))] : [],
+                    boxShadow: _type == 'advance' ? [BoxShadow(color: AppTheme.primaryColor.withOpacity(0.3), blurRadius: 8, offset: const Offset(0, 3))] : [],
                   ),
                   child: Column(children: [
                     Icon(Icons.account_balance_wallet, color: _type == 'advance' ? Colors.white : Colors.grey[500], size: 26),
@@ -319,7 +319,7 @@ class _NewRequestTabState extends State<_NewRequestTab> {
                     color: _type == 'loan' ? const Color(0xFF6366F1) : Colors.white,
                     borderRadius: BorderRadius.circular(10),
                     border: Border.all(color: _type == 'loan' ? const Color(0xFF6366F1) : Colors.grey[300]!),
-                    boxShadow: _type == 'loan' ? [BoxShadow(color: const Color(0xFF6366F1).withValues(alpha: 0.3), blurRadius: 8, offset: const Offset(0, 3))] : [],
+                    boxShadow: _type == 'loan' ? [BoxShadow(color: const Color(0xFF6366F1).withOpacity(0.3), blurRadius: 8, offset: const Offset(0, 3))] : [],
                   ),
                   child: Column(children: [
                     Icon(Icons.monetization_on, color: _type == 'loan' ? Colors.white : Colors.grey[500], size: 26),
