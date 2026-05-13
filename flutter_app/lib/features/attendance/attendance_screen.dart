@@ -328,9 +328,9 @@ class _AttendanceScreenState extends State<AttendanceScreen> with SingleTickerPr
 
     return Container(
       decoration: BoxDecoration(
-        gradient: LinearGradient(colors: [AppTheme.primaryColor, AppTheme.primaryColor.withValues(alpha: 0.82)], begin: Alignment.topLeft, end: Alignment.bottomRight),
+        gradient: LinearGradient(colors: [AppTheme.primaryColor, AppTheme.primaryColor.withOpacity(0.82)], begin: Alignment.topLeft, end: Alignment.bottomRight),
         borderRadius: BorderRadius.circular(18),
-        boxShadow: [BoxShadow(color: AppTheme.primaryColor.withValues(alpha: 0.35), blurRadius: 14, offset: const Offset(0, 5))],
+        boxShadow: [BoxShadow(color: AppTheme.primaryColor.withOpacity(0.35), blurRadius: 14, offset: const Offset(0, 5))],
       ),
       padding: const EdgeInsets.all(20),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -338,7 +338,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> with SingleTickerPr
           Text(DateFormat('EEEE, dd MMM yyyy').format(DateTime.now()), style: const TextStyle(color: Colors.white70, fontSize: 13)),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-            decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.2), borderRadius: BorderRadius.circular(12)),
+            decoration: BoxDecoration(color: Colors.white.withOpacity(0.2), borderRadius: BorderRadius.circular(12)),
             child: Text(status.toString().replaceAll('_', ' ').toUpperCase(), style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w700)),
           ),
         ]),
@@ -364,7 +364,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> with SingleTickerPr
 
   Widget _timeBox(String label, String value, bool active) => Container(
     padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
-    decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.15), borderRadius: BorderRadius.circular(10)),
+    decoration: BoxDecoration(color: Colors.white.withOpacity(0.15), borderRadius: BorderRadius.circular(10)),
     child: Column(children: [
       Text(label, style: const TextStyle(color: Colors.white70, fontSize: 11)),
       const SizedBox(height: 4),
@@ -430,10 +430,10 @@ class _AttendanceScreenState extends State<AttendanceScreen> with SingleTickerPr
               height: 180,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                gradient: RadialGradient(colors: [color.withValues(alpha: 0.9), color]),
+                gradient: RadialGradient(colors: [color.withOpacity(0.9), color]),
                 boxShadow: [
-                  BoxShadow(color: color.withValues(alpha: 0.45), blurRadius: 30, spreadRadius: 4),
-                  BoxShadow(color: color.withValues(alpha: 0.2),  blurRadius: 60, spreadRadius: 10),
+                  BoxShadow(color: color.withOpacity(0.45), blurRadius: 30, spreadRadius: 4),
+                  BoxShadow(color: color.withOpacity(0.2),  blurRadius: 60, spreadRadius: 10),
                 ],
               ),
               child: _isPunching
@@ -461,7 +461,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> with SingleTickerPr
 
   Widget _reqChip(IconData icon, String label, Color color) => Container(
     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-    decoration: BoxDecoration(color: color.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(20)),
+    decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(20)),
     child: Row(mainAxisSize: MainAxisSize.min, children: [
       Icon(icon, size: 13, color: color),
       const SizedBox(width: 4),
@@ -506,7 +506,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> with SingleTickerPr
     return Container(
       margin: const EdgeInsets.only(bottom: 6),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(10), boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 4)]),
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(10), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 4)]),
       child: Row(children: [
         Container(width: 4, height: 36, decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(4))),
         const SizedBox(width: 12),
@@ -516,7 +516,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> with SingleTickerPr
         ])),
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-          decoration: BoxDecoration(color: color.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(8)),
+          decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
           child: Text(status.toUpperCase(), style: TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.w700)),
         ),
       ]),
