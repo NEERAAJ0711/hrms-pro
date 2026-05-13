@@ -6,7 +6,7 @@ import {
   Clock, XCircle, Settings, Plus, Trash2, Signal, SignalLow, Download, Users,
   ShieldAlert, ShieldCheck, Pencil, KeyRound, Activity, UserCheck, FileUp,
   RotateCcw, ChevronDown, ChevronUp, User, CalendarDays, Timer, Wifi, WifiOff,
-  Building2, BadgeCheck, Link2, Zap, Search, ArrowRightLeft, Lock
+  Building2, BadgeCheck, Link2, Zap, Search, ArrowRightLeft, Lock, Eye, CreditCard, KeySquare, Hand
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -59,6 +59,33 @@ function Avatar({
   );
 }
 
+/* ─── Verify mode icon ───────────────────────────────────────────── */
+function VerifyIcon({ mode }: { mode?: string | null }) {
+  if (!mode || mode === "unknown") return null;
+  if (mode === "face")        return <span title="Face recognition"><Eye         className="h-3.5 w-3.5 text-blue-500"   /></span>;
+  if (mode === "fingerprint") return <span title="Fingerprint">    <Fingerprint className="h-3.5 w-3.5 text-green-600"  /></span>;
+  if (mode === "card")        return <span title="Card / RFID">    <CreditCard  className="h-3.5 w-3.5 text-orange-500" /></span>;
+  if (mode === "palm")        return <span title="Palm">           <Hand        className="h-3.5 w-3.5 text-purple-500" /></span>;
+  if (mode === "password")    return <span title="Password">       <KeySquare   className="h-3.5 w-3.5 text-gray-400"   /></span>;
+  return null;
+}
+
+/* ─── Device model badge ─────────────────────────────────────────── */
+function DeviceModelBadge({ model }: { model?: string | null }) {
+  if (model === "essl_airface") {
+    return (
+      <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800">
+        <Eye className="h-2.5 w-2.5" /> AirFace
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-gray-50 text-gray-600 border border-gray-200 dark:bg-gray-900 dark:text-gray-400 dark:border-gray-700">
+      <Fingerprint className="h-2.5 w-2.5" /> ZKTeco
+    </span>
+  );
+}
+
 /* ─── Stat chip ──────────────────────────────────────────────────── */
 function StatChip({ icon: Icon, value, label, color }: { icon: any; value: number; label: string; color: string }) {
   return (
@@ -83,6 +110,7 @@ export default function BiometricPage() {
 
   const [admsMode, setAdmsMode] = useState<"domain" | "ip">("ip");
   const [setupExpanded, setSetupExpanded] = useState(false);
+  const [airfaceGuideExpanded, setAirfaceGuideExpanded] = useState(false);
 
   const { data: networkInfo, isLoading: networkLoading } = useQuery<{
     host: string; replitDevDomain: string | null; ip: string | null;
@@ -116,6 +144,9 @@ export default function BiometricPage() {
   const [deviceCompanyId, setDeviceCompanyId] = useState("");
   const [devicePushToken, setDevicePushToken] = useState("");
   const [deviceAllowedCidr, setDeviceAllowedCidr] = useState("");
+
+  const [deviceModel, setDeviceModel] = useState("zkteco");
+  const [editDeviceModel, setEditDeviceModel] = useState("zkteco");
 
   const [usersDialogDevice, setUsersDialogDevice] = useState<any | null>(null);
   const [deviceToDelete, setDeviceToDelete] = useState<any | null>(null);
@@ -152,6 +183,7 @@ export default function BiometricPage() {
     setEditPushToken(d.pushToken || "");
     setEditAllowedCidr(d.allowedIpCidr || "");
     setEditAutoDelete(!!d.autoDeletePunches);
+    setEditDeviceModel(d.deviceModel || "zkteco");
   };
 
   const autoDetectSourceIp = async (setter: (v: string) => void) => {
@@ -267,7 +299,7 @@ export default function BiometricPage() {
       setDeviceDialogOpen(false);
       setDeviceName(""); setDeviceCode(""); setDeviceSerial(""); setDeviceIp("");
       setDeviceServerIp(""); setDevicePort("8181"); setDeviceCompanyId("");
-      setDevicePushToken(""); setDeviceAllowedCidr("");
+      setDevicePushToken(""); setDeviceAllowedCidr(""); setDeviceModel("zkteco");
     },
     onError: (err: any) => toast({ title: "Failed to add device", description: err?.message, variant: "destructive" }),
   });
@@ -305,6 +337,7 @@ export default function BiometricPage() {
         port: editPort === "" ? null : Number(editPort), companyId: editCompanyId || null,
         pushToken: tokenTrim || null, allowedIpCidr: cidrTrim || null,
         autoDeletePunches: editAutoDelete,
+        deviceModel: editDeviceModel || "zkteco",
       },
     });
   };
@@ -436,6 +469,7 @@ export default function BiometricPage() {
       companyId: resolvedCompanyId, name: deviceName, code: deviceCode.trim() || null,
       deviceSerial, ipAddress: deviceIp, admsServerIp: deviceServerIp.trim() || null,
       port: parseInt(devicePort), pushToken: tokenTrim || null, allowedIpCidr: cidrTrim || null,
+      deviceModel: deviceModel || "zkteco",
     });
   };
 
@@ -463,7 +497,7 @@ export default function BiometricPage() {
           </div>
           <div>
             <h1 className="text-xl font-semibold tracking-tight">Biometric Integration</h1>
-            <p className="text-sm text-muted-foreground">Devices connect via ADMS — attendance is synced automatically</p>
+            <p className="text-sm text-muted-foreground">ZKTeco & ESSL AirFace-Orcus devices connect via ADMS — attendance synced automatically</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -613,6 +647,7 @@ export default function BiometricPage() {
                         <TableHead>Date</TableHead>
                         <TableHead>Time</TableHead>
                         <TableHead>Type</TableHead>
+                        <TableHead>Verify</TableHead>
                         <TableHead>Status</TableHead>
                         {isSuperAdmin && <TableHead>Company</TableHead>}
                       </TableRow>
@@ -660,6 +695,14 @@ export default function BiometricPage() {
                             <TableCell className="text-sm">{log.punchDate}</TableCell>
                             <TableCell className="font-mono text-sm font-medium">{log.punchTime}</TableCell>
                             <TableCell>
+                              <div className="flex items-center justify-center">
+                                <VerifyIcon mode={(log as any).verifyMode} />
+                                {!(log as any).verifyMode || (log as any).verifyMode === "unknown"
+                                  ? <span className="text-xs text-muted-foreground/40">—</span>
+                                  : null}
+                              </div>
+                            </TableCell>
+                            <TableCell>
                               {isEditingType ? (
                                 <div className="flex items-center gap-1">
                                   <button
@@ -685,7 +728,7 @@ export default function BiometricPage() {
                                     className={`text-xs capitalize cursor-default ${pt === "in" ? "border-green-300 bg-green-50 text-green-800 dark:bg-green-950 dark:text-green-300" : pt === "out" ? "border-red-300 bg-red-50 text-red-800 dark:bg-red-950 dark:text-red-300" : ""}`}
                                   >
                                     {log.punchType || "unknown"}
-                                    {isOverride && <Lock className="inline ml-1 h-2.5 w-2.5 opacity-60" title="Manually set" />}
+                                    {isOverride && <span title="Manually set"><Lock className="inline ml-1 h-2.5 w-2.5 opacity-60" /></span>}
                                   </Badge>
                                   <button
                                     onClick={() => setEditingPunchTypeId(log.id)}
@@ -805,6 +848,63 @@ export default function BiometricPage() {
             )}
           </Card>
 
+          {/* ESSL AirFace-Orcus Setup Guide — collapsible */}
+          <Card className="border-blue-300 dark:border-blue-700 shadow-sm">
+            <button
+              type="button"
+              className="w-full flex items-center justify-between px-4 py-3 text-sm font-medium text-blue-900 dark:text-blue-200 hover:bg-blue-50/50 dark:hover:bg-blue-950/50 rounded-t-lg transition-colors"
+              onClick={() => setAirfaceGuideExpanded(v => !v)}
+            >
+              <span className="flex items-center gap-2">
+                <Eye className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                ESSL AirFace-Orcus Device Configuration
+              </span>
+              {airfaceGuideExpanded ? <ChevronUp className="h-4 w-4 opacity-60" /> : <ChevronDown className="h-4 w-4 opacity-60" />}
+            </button>
+            {airfaceGuideExpanded && (
+              <CardContent className="text-sm border-t border-blue-100 dark:border-blue-900 pt-4 space-y-3">
+                <div className="rounded-lg border border-amber-300 bg-amber-50 dark:border-amber-700 dark:bg-amber-950 p-3 text-amber-800 dark:text-amber-200 text-xs">
+                  <strong>Important:</strong> ESSL AirFace-Orcus uses the same ADMS protocol as ZKTeco. Use <strong>HTTP only</strong> — HTTPS is NOT supported without certificate setup on the device.
+                </div>
+                <div className="rounded-lg border-2 border-blue-400 dark:border-blue-600 bg-blue-50 dark:bg-blue-950 p-3 space-y-2">
+                  <p className="text-xs font-semibold text-blue-800 dark:text-blue-200">Device Touchscreen → Menu → Communication → Cloud Server Settings</p>
+                  <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 text-xs font-mono bg-white dark:bg-blue-900 rounded-lg p-3 border border-blue-200 dark:border-blue-700">
+                    <span className="font-sans font-medium text-gray-600 dark:text-gray-400">Server Mode</span>
+                    <span className="font-bold text-blue-700 dark:text-blue-300">ADMS</span>
+                    <span className="font-sans font-medium text-gray-600 dark:text-gray-400">Enable Domain Name</span>
+                    {admsMode === "domain"
+                      ? <span className="font-bold text-green-700 dark:text-green-300">ON ✓</span>
+                      : <span className="font-bold text-orange-600 dark:text-orange-300">OFF</span>}
+                    <span className="font-sans font-medium text-gray-600 dark:text-gray-400">Server Address</span>
+                    <div className="flex items-center gap-1">
+                      <span className="font-bold text-blue-700 dark:text-blue-200 break-all select-all">
+                        {networkLoading ? <span className="opacity-50 italic">loading…</span> : admsMode === "ip" ? (admsIp ?? <span className="text-amber-600 italic">resolving…</span>) : admsHost}
+                      </span>
+                      <button className="text-[10px] text-blue-600 underline shrink-0" onClick={() => { navigator.clipboard.writeText(admsAddr); toast({ title: "Copied!" }); }}>copy</button>
+                    </div>
+                    <span className="font-sans font-medium text-gray-600 dark:text-gray-400">Server Port</span>
+                    <span className="font-bold text-blue-700 dark:text-blue-200">{admsPort}</span>
+                    <span className="font-sans font-medium text-gray-600 dark:text-gray-400">Enable HTTPS</span>
+                    <span className="font-bold text-red-600 dark:text-red-400">OFF 🚫</span>
+                    <span className="font-sans font-medium text-gray-600 dark:text-gray-400">Enable Proxy Server</span>
+                    <span className="font-bold text-red-600 dark:text-red-400">OFF 🚫</span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 text-xs">
+                  <span className="text-muted-foreground shrink-0">Full URL:</span>
+                  <code className="bg-white dark:bg-muted border rounded px-2 py-0.5 flex-1 break-all select-all text-[10px]">{admsUrl}</code>
+                  <button className="shrink-0 text-blue-600 underline" onClick={() => { navigator.clipboard.writeText(admsUrl); toast({ title: "Copied!" }); }}>Copy</button>
+                </div>
+                <div className="rounded-lg border border-green-300 bg-green-50 dark:border-green-700 dark:bg-green-950 p-3 text-green-800 dark:text-green-200 text-xs space-y-1">
+                  <p className="font-semibold">After connecting, you will see in the Comm Log:</p>
+                  <p>• <span className="font-mono">HANDSHAKE proto=SpeedFace</span> — device uses the newer push protocol</p>
+                  <p>• <span className="font-mono">ATTLOG</span> — face-verified punches with verify mode = <strong>face</strong></p>
+                  <p>• <span className="font-mono">ATTPHOTO</span> — face snapshots are acknowledged but not stored</p>
+                </div>
+              </CardContent>
+            )}
+          </Card>
+
           {/* Devices list */}
           <Card className="shadow-sm">
             <CardHeader className="flex flex-row items-center justify-between py-4 px-5">
@@ -856,7 +956,10 @@ export default function BiometricPage() {
                         <TableRow key={device.id}>
                           <TableCell className="pl-5">
                             <div className="space-y-0.5">
-                              <p className="font-medium text-sm">{device.name}</p>
+                              <div className="flex items-center gap-2">
+                                <p className="font-medium text-sm">{device.name}</p>
+                                <DeviceModelBadge model={device.deviceModel} />
+                              </div>
                               <div className="flex items-center gap-2">
                                 {device.code && <Badge variant="outline" className="text-[10px] font-mono px-1.5 py-0">{device.code}</Badge>}
                                 <span className="text-xs text-muted-foreground font-mono">{device.deviceSerial}</span>
@@ -1107,9 +1210,25 @@ export default function BiometricPage() {
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Add Biometric Machine</DialogTitle>
-            <DialogDescription>Link a new ZKTeco device to the HRMS system.</DialogDescription>
+            <DialogDescription>Link a ZKTeco or ESSL AirFace-Orcus device via ADMS protocol.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-1">
+            <div>
+              <Label>Machine Type <span className="text-red-500">*</span></Label>
+              <Select value={deviceModel} onValueChange={setDeviceModel}>
+                <SelectTrigger data-testid="select-device-model">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="zkteco">
+                    <span className="flex items-center gap-2"><Fingerprint className="h-3.5 w-3.5" /> ZKTeco (fingerprint / card / face)</span>
+                  </SelectItem>
+                  <SelectItem value="essl_airface">
+                    <span className="flex items-center gap-2"><Eye className="h-3.5 w-3.5" /> ESSL AirFace-Orcus (face recognition)</span>
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
             {isSuperAdmin && (
               <div>
                 <Label>Company <span className="text-red-500">*</span></Label>
@@ -1185,6 +1304,22 @@ export default function BiometricPage() {
             <DialogDescription>Update device settings. To rotate a leaked token, click Gen and save to the device.</DialogDescription>
           </DialogHeader>
           <div className="space-y-3 py-1">
+            <div>
+              <Label>Machine Type</Label>
+              <Select value={editDeviceModel} onValueChange={setEditDeviceModel}>
+                <SelectTrigger data-testid="select-edit-device-model">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="zkteco">
+                    <span className="flex items-center gap-2"><Fingerprint className="h-3.5 w-3.5" /> ZKTeco (fingerprint / card / face)</span>
+                  </SelectItem>
+                  <SelectItem value="essl_airface">
+                    <span className="flex items-center gap-2"><Eye className="h-3.5 w-3.5" /> ESSL AirFace-Orcus (face recognition)</span>
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
             {isSuperAdmin && (
               <div>
                 <Label>Company</Label>
