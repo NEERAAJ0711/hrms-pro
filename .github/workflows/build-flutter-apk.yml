@@ -32,7 +32,6 @@ jobs:
       - name: Install Android NDK
         run: |
           echo "y" | $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager "ndk;25.1.8937393" || true
-          echo "NDK install done"
 
       - name: Write local.properties
         run: |
@@ -50,18 +49,29 @@ jobs:
       - name: Build APK (release)
         working-directory: flutter_app
         run: |
-          flutter build apk --release --verbose \
-            --dart-define=BASE_URL=${{ secrets.HOSTINGER_APP_URL }} 2>&1 | tail -100
+          flutter build apk --release \
+            --dart-define=BASE_URL=${{ secrets.HOSTINGER_APP_URL }} \
+            2>&1 | tee /tmp/flutter-build.log
+          echo "EXIT_CODE=${PIPESTATUS[0]}" >> $GITHUB_ENV
         continue-on-error: true
 
-      - name: Check build output
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: flutter-build-log-${{ github.run_number }}
+          path: /tmp/flutter-build.log
+          retention-days: 7
+
+      - name: Check build result
         run: |
+          echo "Build exit code: $EXIT_CODE"
           if [ -f flutter_app/build/app/outputs/flutter-apk/app-release.apk ]; then
             echo "✅ APK built successfully"
             ls -lh flutter_app/build/app/outputs/flutter-apk/
           else
-            echo "❌ APK not found — dumping gradle log"
-            find flutter_app -name "*.log" -newer flutter_app/pubspec.yaml 2>/dev/null | xargs cat 2>/dev/null || true
+            echo "❌ APK not found. Last 50 lines of build log:"
+            tail -50 /tmp/flutter-build.log
             exit 1
           fi
 
