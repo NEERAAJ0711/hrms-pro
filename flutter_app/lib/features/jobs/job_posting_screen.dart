@@ -137,7 +137,7 @@ class _JobPostingManageScreenState extends State<JobPostingManageScreen> {
                 Expanded(child: Text(posting['title'] ?? '', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15))),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-                  decoration: BoxDecoration(color: statusColor.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(12)),
+                  decoration: BoxDecoration(color: statusColor.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
                   child: Text(status.toUpperCase(), style: TextStyle(color: statusColor, fontSize: 11, fontWeight: FontWeight.w600)),
                 ),
               ],
