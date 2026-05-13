@@ -3,9 +3,6 @@ allprojects {
         google()
         mavenCentral()
     }
-    // Legacy plugins (e.g. geolocator_android) reference flutter.compileSdkVersion
-    // in their android {} block. Provide the values here so they resolve correctly.
-    ext.flutter = [compileSdkVersion: 34, minSdkVersion: 21, targetSdkVersion: 34]
 }
 
 rootProject.buildDir = '../build'
@@ -14,6 +11,15 @@ subprojects {
 }
 subprojects {
     project.evaluationDependsOn(':app')
+}
+
+// Legacy Flutter plugins (e.g. geolocator_android) reference flutter.compileSdkVersion
+// in their android {} block. Provide the ext property only on plugin subprojects (not :app)
+// so the :app Flutter Gradle Plugin extension is not shadowed.
+subprojects {
+    if (project.name != 'app') {
+        project.ext.flutter = [compileSdkVersion: 34, minSdkVersion: 21, targetSdkVersion: 34]
+    }
 }
 
 tasks.register("clean", Delete) {
