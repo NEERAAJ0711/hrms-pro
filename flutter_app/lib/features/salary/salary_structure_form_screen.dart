@@ -233,7 +233,7 @@ class _SalaryStructureFormScreenState extends State<SalaryStructureFormScreen> {
                     const SizedBox(height: 12),
 
                     Card(
-                      color: AppTheme.primaryColor.withValues(alpha: 0.05),
+                      color: AppTheme.primaryColor.withOpacity(0.05),
                       child: Padding(
                         padding: const EdgeInsets.all(16),
                         child: Column(
