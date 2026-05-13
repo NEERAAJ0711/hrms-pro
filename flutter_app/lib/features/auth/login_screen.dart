@@ -72,7 +72,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
         title: Row(children: [
           Container(
             padding: const EdgeInsets.all(6),
-            decoration: BoxDecoration(color: AppTheme.primaryColor.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(8)),
+            decoration: BoxDecoration(color: AppTheme.primaryColor.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
             child: const Icon(Icons.dns_outlined, color: AppTheme.primaryColor, size: 20),
           ),
           const SizedBox(width: 10),
@@ -186,8 +186,8 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
               color: Colors.white,
               borderRadius: BorderRadius.circular(22),
               boxShadow: [
-                BoxShadow(color: Colors.black.withValues(alpha: 0.25), blurRadius: 20, offset: const Offset(0, 8)),
-                BoxShadow(color: Colors.white.withValues(alpha: 0.1), blurRadius: 6, offset: const Offset(0, -2)),
+                BoxShadow(color: Colors.black.withOpacity(0.25), blurRadius: 20, offset: const Offset(0, 8)),
+                BoxShadow(color: Colors.white.withOpacity(0.1), blurRadius: 6, offset: const Offset(0, -2)),
               ],
             ),
             child: const Icon(Icons.business_center, size: 48, color: AppTheme.primaryColor),
@@ -201,9 +201,9 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                 width: 28,
                 height: 28,
                 decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.2),
+                  color: Colors.white.withOpacity(0.2),
                   shape: BoxShape.circle,
-                  border: Border.all(color: Colors.white.withValues(alpha: 0.4), width: 1),
+                  border: Border.all(color: Colors.white.withOpacity(0.4), width: 1),
                 ),
                 child: const Icon(Icons.settings, color: Colors.white, size: 16),
               ),
@@ -216,7 +216,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
       const SizedBox(height: 6),
       Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-        decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.15), borderRadius: BorderRadius.circular(20)),
+        decoration: BoxDecoration(color: Colors.white.withOpacity(0.15), borderRadius: BorderRadius.circular(20)),
         child: const Text('Enterprise HR Management System', style: TextStyle(fontSize: 13, color: Colors.white70, letterSpacing: 0.3)),
       ),
     ]);
@@ -227,7 +227,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(24),
-        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.2), blurRadius: 30, offset: const Offset(0, 10))],
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.2), blurRadius: 30, offset: const Offset(0, 10))],
       ),
       padding: const EdgeInsets.all(28),
       child: Form(
@@ -236,7 +236,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
           Row(children: [
             Container(
               padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(color: AppTheme.primaryColor.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(10)),
+              decoration: BoxDecoration(color: AppTheme.primaryColor.withOpacity(0.1), borderRadius: BorderRadius.circular(10)),
               child: const Icon(Icons.login, color: AppTheme.primaryColor, size: 20),
             ),
             const SizedBox(width: 12),
@@ -267,7 +267,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                 foregroundColor: Colors.white,
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                 elevation: 4,
-                shadowColor: AppTheme.primaryColor.withValues(alpha: 0.5),
+                shadowColor: AppTheme.primaryColor.withOpacity(0.5),
               ),
               child: _isLoading
                   ? const Row(mainAxisAlignment: MainAxisAlignment.center, children: [
