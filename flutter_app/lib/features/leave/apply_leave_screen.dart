@@ -152,7 +152,7 @@ class _ApplyLeaveScreenState extends State<ApplyLeaveScreen> {
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                         decoration: BoxDecoration(
-                          color: AppTheme.primaryColor.withValues(alpha: 0.08),
+                          color: AppTheme.primaryColor.withOpacity(0.08),
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: Row(
