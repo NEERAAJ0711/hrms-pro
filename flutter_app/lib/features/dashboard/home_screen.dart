@@ -26,6 +26,7 @@ import '../geofence/geo_fence_screen.dart';
 import '../leave/advance_request_screen.dart';
 import '../notifications/notification_screen.dart';
 import '../locations/locations_screen.dart';
+import '../../core/update_service.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -36,6 +37,15 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   int _currentIndex = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    // Check for app update after first frame so context is ready
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) UpdateService.checkForUpdate(context);
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
