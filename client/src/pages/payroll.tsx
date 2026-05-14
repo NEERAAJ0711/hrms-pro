@@ -982,37 +982,25 @@ export default function PayrollPage() {
         const specialAllowance = Math.round((structure.specialAllowance || 0) * prorationFactor);
         const otherAllowances = Math.round(((structure.otherAllowances || 0) + (structure.medicalAllowance || 0)) * prorationFactor);
 
-        // Compute custom earning head amounts BEFORE totalEarnings so we can adjust it.
-        //
-        // - percentage heads: recompute fresh from prorated basic/gross each run.
-        //   If the structure was saved before this head existed (savedAmt = 0 while
-        //   freshAmt > 0), the difference is added to totalEarnings so the payslip
-        //   totals stay consistent.
-        // - fixed heads: prorate the saved per-employee amount (folded into grossSalary
-        //   when the structure was set up, so no further adjustment needed).
+        // Compute custom earning head display amounts for the payslip breakdown.
+        // grossSalary already includes ALL custom earning components (both fixed and
+        // percentage heads) as saved at structure-creation time. We simply prorate
+        // the saved amounts for display; we do NOT re-derive from current percentages
+        // because doing so can produce a negative "adjustment" that strips allowances
+        // from totalEarnings when a percentage head's formula has drifted from what
+        // was saved in the structure (e.g. percentage changed, or base changed).
+        // To update component amounts the salary structure must be re-saved.
         const savedCustom: Record<string, number> = (structure as any).customEarnings || {};
         const proratedCustomEarnings: Record<string, number> = {};
-        let customEarningsAdjustment = 0; // net ± vs. what's already in grossSalary
         for (const head of activeEarningHeads) {
-          let displayAmt = 0;
-          if (head.type === "percentage" && (head.percentage ?? 0) > 0) {
-            const base = head.calculationBase === "basic" ? basicSalary : grossSalary;
-            const freshAmt  = Math.round(base * (head.percentage ?? 0) / 100);
-            const savedAmt  = Math.round((savedCustom[head.id] || 0) * prorationFactor);
-            displayAmt = freshAmt;
-            // delta > 0 → head was missing from structure → add to earnings
-            // delta < 0 → saved amount was wrong (e.g. structure stale) → correct it
-            customEarningsAdjustment += freshAmt - savedAmt;
-          } else {
-            displayAmt = Math.round((savedCustom[head.id] || 0) * prorationFactor);
-            // fixed heads are already part of grossSalary — no adjustment needed
-          }
+          const displayAmt = Math.round((savedCustom[head.id] || 0) * prorationFactor);
           if (displayAmt > 0) {
             proratedCustomEarnings[head.id] = displayAmt;
           }
         }
 
-        const totalEarnings = grossSalary + monthlyBonus + otAmount + customEarningsAdjustment;
+        // totalEarnings = prorated gross (bakes in all components) + bonus + OT
+        const totalEarnings = grossSalary + monthlyBonus + otAmount;
 
         // Compute custom deduction head amounts (prorated)
         const savedCustomDed: Record<string, number> = (structure as any).customDeductions || {};
