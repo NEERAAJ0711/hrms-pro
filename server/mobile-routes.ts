@@ -210,13 +210,14 @@ export function registerMobileRoutes(app: Express) {
       const employee = allEmployees.find((e: any) => e.userId === user.id);
       if (!employee) return res.status(400).json({ error: "Employee record not found" });
 
-      const today = new Date().toISOString().split("T")[0];
+      const _istNow1 = new Date();
+      const today = _istNow1.toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
       const existingAttendance = await storage.getAttendanceByEmployeeAndDate(employee.id, today);
       if (existingAttendance && existingAttendance.clockIn) {
         return res.status(400).json({ error: "Already clocked in today" });
       }
 
-      const now = new Date().toLocaleTimeString("en-US", { hour12: false });
+      const now = _istNow1.toLocaleTimeString("en-GB", { timeZone: "Asia/Kolkata", hour12: false, hour: "2-digit", minute: "2-digit" });
       const { latitude, longitude, locationAccuracy, locationAddress } = req.body;
       const faceImagePath = req.file ? `/uploads/faces/${req.file.filename}` : null;
 
@@ -301,7 +302,8 @@ export function registerMobileRoutes(app: Express) {
       const employee = allEmployees.find((e: any) => e.userId === user.id);
       if (!employee) return res.status(400).json({ error: "Employee record not found" });
 
-      const today = new Date().toISOString().split("T")[0];
+      const _istNow2 = new Date();
+      const today = _istNow2.toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
       const existingAttendance = await storage.getAttendanceByEmployeeAndDate(employee.id, today);
       if (!existingAttendance || !existingAttendance.clockIn) {
         return res.status(400).json({ error: "You must clock in first" });
@@ -310,7 +312,7 @@ export function registerMobileRoutes(app: Express) {
         return res.status(400).json({ error: "Already clocked out today" });
       }
 
-      const now = new Date().toLocaleTimeString("en-US", { hour12: false });
+      const now = _istNow2.toLocaleTimeString("en-GB", { timeZone: "Asia/Kolkata", hour12: false, hour: "2-digit", minute: "2-digit" });
       const { latitude, longitude, locationAccuracy } = req.body;
       const faceImagePath = req.file ? `/uploads/faces/${req.file.filename}` : null;
 
@@ -339,7 +341,7 @@ export function registerMobileRoutes(app: Express) {
       const allEmployees = await storage.getEmployeesByCompany(user.companyId);
       const employee = allEmployees.find((e: any) => e.userId === user.id);
       if (!employee) return res.json(null);
-      const today = new Date().toISOString().split("T")[0];
+      const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
       const record = await storage.getAttendanceByEmployeeAndDate(employee.id, today);
       res.json(record || null);
     } catch (error) {
@@ -586,7 +588,7 @@ export function registerMobileRoutes(app: Express) {
         const employee = allEmployees.find((e: any) => e.userId === user.id);
         if (employee) {
           result.employee = { id: employee.id, employeeCode: employee.employeeCode, department: employee.department, designation: employee.designation };
-          const today = new Date().toISOString().split("T")[0];
+          const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
           result.todayAttendance = await storage.getAttendanceByEmployeeAndDate(employee.id, today);
           const leaveRequests = await storage.getLeaveRequestsByCompany(user.companyId);
           result.pendingLeaves = leaveRequests.filter((l: any) => l.employeeId === employee.id && l.status === "pending").length;
@@ -1344,9 +1346,13 @@ export function registerMobileRoutes(app: Express) {
       const employee = allEmployees.find((e: any) => e.userId === user.id);
       if (!employee) return res.status(400).json({ error: "Employee record not found" });
 
-      const today = new Date().toISOString().split("T")[0];
+      // Use IST (Asia/Kolkata = UTC+5:30) explicitly — the VPS runs in UTC so
+      // new Date().toISOString() would give the wrong date after 18:30 IST and
+      // the wrong time all day long.
+      const istNow  = new Date();
+      const today   = istNow.toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" }); // YYYY-MM-DD
       const existingAttendance = await storage.getAttendanceByEmployeeAndDate(employee.id, today);
-      const now = new Date().toLocaleTimeString("en-US", { hour12: false, hour: "2-digit", minute: "2-digit" });
+      const now     = istNow.toLocaleTimeString("en-GB", { timeZone: "Asia/Kolkata", hour12: false, hour: "2-digit", minute: "2-digit" });
       const { latitude, longitude, locationAccuracy, locationAddress } = req.body;
       const faceImagePath = req.file ? `/uploads/faces/${req.file.filename}` : null;
       const company = await storage.getCompany(user.companyId);
