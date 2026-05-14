@@ -6385,5 +6385,51 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ─── Mobile App Version Management (Super Admin) ──────────────────────────
+  const apkStorage = multer.diskStorage({
+    destination: (_req, _file, cb) => {
+      const dir = path.join(process.cwd(), "uploads", "downloads");
+      fs.mkdirSync(dir, { recursive: true });
+      cb(null, dir);
+    },
+    filename: (_req, _file, cb) => cb(null, "hrms-app-latest.apk"),
+  });
+  const apkUpload = multer({ storage: apkStorage, limits: { fileSize: 200 * 1024 * 1024 } });
+
+  app.get("/api/admin/app-version", requireAuth, requireRole("super_admin"), async (_req, res) => {
+    try {
+      const versionFile = path.join(process.cwd(), "uploads", "downloads", "version.json");
+      if (fs.existsSync(versionFile)) {
+        const data = JSON.parse(fs.readFileSync(versionFile, "utf-8"));
+        return res.json(data);
+      }
+      res.json({ version: "1.0.0", buildNumber: 1, downloadUrl: "", releaseNotes: "", mandatory: false });
+    } catch {
+      res.json({ version: "1.0.0", buildNumber: 1, downloadUrl: "", releaseNotes: "", mandatory: false });
+    }
+  });
+
+  app.post("/api/admin/app-version", requireAuth, requireRole("super_admin"), apkUpload.single("apk"), async (req: any, res) => {
+    try {
+      const { version, buildNumber, releaseNotes, mandatory, downloadUrl } = req.body;
+      const dir = path.join(process.cwd(), "uploads", "downloads");
+      fs.mkdirSync(dir, { recursive: true });
+      const apkUrl = req.file ? `/uploads/downloads/hrms-app-latest.apk` : (downloadUrl || "");
+      const versionData = {
+        version: version || "1.0.0",
+        buildNumber: parseInt(buildNumber) || 1,
+        downloadUrl: apkUrl,
+        releaseNotes: releaseNotes || "",
+        mandatory: mandatory === "true" || mandatory === true,
+        updatedAt: new Date().toISOString(),
+      };
+      fs.writeFileSync(path.join(dir, "version.json"), JSON.stringify(versionData, null, 2));
+      res.json(versionData);
+    } catch (error) {
+      console.error("App version update error:", error);
+      res.status(500).json({ error: "Failed to update app version" });
+    }
+  });
+
   return httpServer;
 }
