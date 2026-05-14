@@ -193,7 +193,7 @@ export function registerMobileRoutes(app: Express) {
       const user = (req as any).user;
       if (!user.companyId) return res.json(null);
       const allEmployees = await storage.getEmployeesByCompany(user.companyId);
-      const employee = allEmployees.find((e: any) => e.userId === user.id);
+      const employee = allEmployees.find((e: any) => String(e.userId) === String(user.id));
       if (!employee) return res.json(null);
       const experiences = await storage.getPreviousExperiencesByEmployee(employee.id);
       res.json({ ...employee, experiences });
@@ -207,7 +207,7 @@ export function registerMobileRoutes(app: Express) {
       const user = (req as any).user;
       if (!user.companyId) return res.status(400).json({ error: "You must be assigned to a company" });
       const allEmployees = await storage.getEmployeesByCompany(user.companyId);
-      const employee = allEmployees.find((e: any) => e.userId === user.id);
+      const employee = allEmployees.find((e: any) => String(e.userId) === String(user.id));
       if (!employee) return res.status(400).json({ error: "Employee record not found" });
 
       const _istNow1 = new Date();
@@ -299,7 +299,7 @@ export function registerMobileRoutes(app: Express) {
       const user = (req as any).user;
       if (!user.companyId) return res.status(400).json({ error: "You must be assigned to a company" });
       const allEmployees = await storage.getEmployeesByCompany(user.companyId);
-      const employee = allEmployees.find((e: any) => e.userId === user.id);
+      const employee = allEmployees.find((e: any) => String(e.userId) === String(user.id));
       if (!employee) return res.status(400).json({ error: "Employee record not found" });
 
       const _istNow2 = new Date();
@@ -339,7 +339,7 @@ export function registerMobileRoutes(app: Express) {
       const user = (req as any).user;
       if (!user.companyId) return res.json(null);
       const allEmployees = await storage.getEmployeesByCompany(user.companyId);
-      const employee = allEmployees.find((e: any) => e.userId === user.id);
+      const employee = allEmployees.find((e: any) => String(e.userId) === String(user.id));
       if (!employee) return res.json(null);
       const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
       const record = await storage.getAttendanceByEmployeeAndDate(employee.id, today);
@@ -354,7 +354,7 @@ export function registerMobileRoutes(app: Express) {
       const user = (req as any).user;
       if (!user.companyId) return res.json([]);
       const allEmployees = await storage.getEmployeesByCompany(user.companyId);
-      const employee = allEmployees.find((e: any) => e.userId === user.id);
+      const employee = allEmployees.find((e: any) => String(e.userId) === String(user.id));
       if (!employee) return res.json([]);
       const { month, year } = req.query;
       const records = await storage.getAttendanceByEmployee(employee.id);
@@ -387,7 +387,7 @@ export function registerMobileRoutes(app: Express) {
       const user = (req as any).user;
       if (!user.companyId) return res.json([]);
       const allEmployees = await storage.getEmployeesByCompany(user.companyId);
-      const employee = allEmployees.find((e: any) => e.userId === user.id);
+      const employee = allEmployees.find((e: any) => String(e.userId) === String(user.id));
       if (!employee) return res.json([]);
 
       const types = await storage.getLeaveTypesByCompany(user.companyId);
@@ -417,7 +417,7 @@ export function registerMobileRoutes(app: Express) {
       const user = (req as any).user;
       if (!user.companyId) return res.json([]);
       const allEmployees = await storage.getEmployeesByCompany(user.companyId);
-      const employee = allEmployees.find((e: any) => e.userId === user.id);
+      const employee = allEmployees.find((e: any) => String(e.userId) === String(user.id));
       if (!employee) return res.json([]);
       const requests = await storage.getLeaveRequestsByCompany(user.companyId);
       const myRequests = requests.filter((r: any) => r.employeeId === employee.id)
@@ -433,7 +433,7 @@ export function registerMobileRoutes(app: Express) {
       const user = (req as any).user;
       if (!user.companyId) return res.status(400).json({ error: "No company assigned" });
       const allEmployees = await storage.getEmployeesByCompany(user.companyId);
-      const employee = allEmployees.find((e: any) => e.userId === user.id);
+      const employee = allEmployees.find((e: any) => String(e.userId) === String(user.id));
       if (!employee) return res.status(400).json({ error: "Employee record not found" });
       const { leaveTypeId, startDate, endDate, reason } = req.body;
       if (!leaveTypeId || !startDate || !endDate) return res.status(400).json({ error: "Leave type, start date, and end date are required" });
@@ -451,7 +451,7 @@ export function registerMobileRoutes(app: Express) {
       const user = (req as any).user;
       if (!user.companyId) return res.json([]);
       const allEmployees = await storage.getEmployeesByCompany(user.companyId);
-      const employee = allEmployees.find((e: any) => e.userId === user.id);
+      const employee = allEmployees.find((e: any) => String(e.userId) === String(user.id));
       if (!employee) return res.json([]);
       const requests = await storage.getLeaveRequestsByCompany(user.companyId);
       const myRequests = requests.filter((r: any) => r.employeeId === employee.id);
@@ -466,7 +466,7 @@ export function registerMobileRoutes(app: Express) {
       const user = (req as any).user;
       if (!user.companyId) return res.status(400).json({ error: "No company assigned" });
       const allEmployees = await storage.getEmployeesByCompany(user.companyId);
-      const employee = allEmployees.find((e: any) => e.userId === user.id);
+      const employee = allEmployees.find((e: any) => String(e.userId) === String(user.id));
       if (!employee) return res.status(400).json({ error: "Employee record not found" });
 
       const { leaveTypeId, startDate, endDate, reason } = req.body;
@@ -585,7 +585,7 @@ export function registerMobileRoutes(app: Express) {
 
       if (user.companyId) {
         const allEmployees = await storage.getEmployeesByCompany(user.companyId);
-        const employee = allEmployees.find((e: any) => e.userId === user.id);
+        const employee = allEmployees.find((e: any) => String(e.userId) === String(user.id));
         if (employee) {
           result.employee = { id: employee.id, employeeCode: employee.employeeCode, department: employee.department, designation: employee.designation };
           const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
@@ -616,7 +616,7 @@ export function registerMobileRoutes(app: Express) {
 
       if (targetType === "employee" && user.companyId) {
         const allEmployees = await storage.getEmployeesByCompany(user.companyId);
-        const emp = allEmployees.find((e: any) => e.userId === user.id);
+        const emp = allEmployees.find((e: any) => String(e.userId) === String(user.id));
         if (emp) employeeId = emp.id;
       } else {
         const profile = await storage.getCandidateProfileByUserId(user.id);
@@ -737,7 +737,7 @@ export function registerMobileRoutes(app: Express) {
       const user = (req as any).user;
       if (!user.companyId) return res.json(null);
       const allEmployees = await storage.getEmployeesByCompany(user.companyId);
-      const employee = allEmployees.find((e: any) => e.userId === user.id);
+      const employee = allEmployees.find((e: any) => String(e.userId) === String(user.id));
       if (!employee) return res.json(null);
       const allStructures = await storage.getAllSalaryStructures();
       const myStructure = allStructures.find((s: any) => s.employeeId === employee.id && s.status === "active");
@@ -1325,7 +1325,7 @@ export function registerMobileRoutes(app: Express) {
       const user = (req as any).user;
       if (!user.companyId) return res.json({ faceRegistered: false });
       const allEmployees = await storage.getEmployeesByCompany(user.companyId);
-      const employee = allEmployees.find((e: any) => e.userId === user.id);
+      const employee = allEmployees.find((e: any) => String(e.userId) === String(user.id));
       if (!employee) return res.json({ faceRegistered: false });
       res.json({
         faceRegistered: !!employee.registeredFaceImage,
@@ -1343,7 +1343,7 @@ export function registerMobileRoutes(app: Express) {
       const user = (req as any).user;
       if (!user.companyId) return res.status(400).json({ error: "You must be assigned to a company" });
       const allEmployees = await storage.getEmployeesByCompany(user.companyId);
-      const employee = allEmployees.find((e: any) => e.userId === user.id);
+      const employee = allEmployees.find((e: any) => String(e.userId) === String(user.id));
       if (!employee) return res.status(400).json({ error: "Employee record not found" });
 
       // Use IST (Asia/Kolkata = UTC+5:30) explicitly — the VPS runs in UTC so
@@ -1455,7 +1455,7 @@ export function registerMobileRoutes(app: Express) {
       const user = (req as any).user;
       if (!user.companyId) return res.json([]);
       const allEmployees = await storage.getEmployeesByCompany(user.companyId);
-      const employee = allEmployees.find((e: any) => e.userId === user.id);
+      const employee = allEmployees.find((e: any) => String(e.userId) === String(user.id));
       if (!employee) return res.json([]);
       const records = await storage.getLoanAdvancesByEmployee(employee.id);
       res.json(records);
@@ -1469,7 +1469,7 @@ export function registerMobileRoutes(app: Express) {
       const user = (req as any).user;
       if (!user.companyId) return res.status(400).json({ error: "No company assigned" });
       const allEmployees = await storage.getEmployeesByCompany(user.companyId);
-      const employee = allEmployees.find((e: any) => e.userId === user.id);
+      const employee = allEmployees.find((e: any) => String(e.userId) === String(user.id));
       if (!employee) return res.status(400).json({ error: "Employee record not found" });
 
       const { type, amount, reason, installmentAmount } = req.body;
