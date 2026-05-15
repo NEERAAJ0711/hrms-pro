@@ -5815,6 +5815,64 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ===== Expense Routes =====
+  app.get("/api/expenses", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const isAdmin = ["super_admin", "company_admin", "hr_admin", "manager"].includes(user.role);
+      if (isAdmin) {
+        const rows = await storage.getExpensesByCompany(user.companyId || "");
+        return res.json(rows);
+      }
+      // employee — get own employee record first
+      const empRows = await storage.getEmployeesByCompany(user.companyId || "");
+      const myEmp = empRows.find((e: any) => String(e.userId) === String(user.id));
+      if (!myEmp) return res.json([]);
+      const rows = await storage.getExpensesByEmployee(myEmp.id);
+      res.json(rows);
+    } catch (err) {
+      res.status(500).json({ error: "Failed to fetch expenses" });
+    }
+  });
+
+  app.post("/api/expenses", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const isAdmin = ["super_admin", "company_admin", "hr_admin", "manager"].includes(user.role);
+      let employeeId = req.body.employeeId;
+      if (!isAdmin) {
+        const empRows = await storage.getEmployeesByCompany(user.companyId || "");
+        const myEmp = empRows.find((e: any) => String(e.userId) === String(user.id));
+        if (!myEmp) return res.status(400).json({ error: "No employee record linked" });
+        employeeId = myEmp.id;
+      }
+      const companyId = req.body.companyId || user.companyId;
+      const row = await storage.createExpense({ ...req.body, employeeId, companyId, status: "submitted" });
+      res.json(row);
+    } catch (err) {
+      res.status(500).json({ error: "Failed to create expense" });
+    }
+  });
+
+  app.patch("/api/expenses/:id", requireAuth, async (req, res) => {
+    try {
+      const row = await storage.updateExpense(req.params.id, req.body);
+      if (!row) return res.status(404).json({ error: "Not found" });
+      res.json(row);
+    } catch (err) {
+      res.status(500).json({ error: "Failed to update expense" });
+    }
+  });
+
+  app.delete("/api/expenses/:id", requireAuth, async (req, res) => {
+    try {
+      await storage.deleteExpense(req.params.id);
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: "Failed to delete expense" });
+    }
+  });
+
   // ===== Notification Routes =====
   app.get("/api/notifications", requireAuth, async (req, res) => {
     try {

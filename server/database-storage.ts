@@ -87,6 +87,7 @@ import {
   previousExperiences,
   loanAdvances,
   userPermissions,
+  expenses,
 } from "@shared/schema";
 import { eq, and, isNull, desc, sql, count, or } from "drizzle-orm";
 import { db } from "./db";
@@ -1062,6 +1063,28 @@ export class DatabaseStorage implements IStorage {
 
   async deleteLoanAdvance(id: string): Promise<boolean> {
     const result = await db.delete(loanAdvances).where(eq(loanAdvances.id, id)).returning();
+    return result.length > 0;
+  }
+
+  async getExpensesByCompany(companyId: string): Promise<any[]> {
+    return await db.select().from(expenses).where(eq(expenses.companyId, companyId)).orderBy(desc(expenses.createdAt));
+  }
+  async getExpensesByEmployee(employeeId: string): Promise<any[]> {
+    return await db.select().from(expenses).where(eq(expenses.employeeId, employeeId)).orderBy(desc(expenses.createdAt));
+  }
+  async createExpense(data: any): Promise<any> {
+    const id = randomUUID();
+    const now = new Date().toISOString();
+    const row = { ...data, id, createdAt: now };
+    const result = await db.insert(expenses).values(row).returning();
+    return result[0];
+  }
+  async updateExpense(id: string, data: any): Promise<any> {
+    const result = await db.update(expenses).set(data).where(eq(expenses.id, id)).returning();
+    return result[0];
+  }
+  async deleteExpense(id: string): Promise<boolean> {
+    const result = await db.delete(expenses).where(eq(expenses.id, id)).returning();
     return result.length > 0;
   }
 

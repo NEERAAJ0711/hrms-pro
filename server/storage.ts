@@ -302,6 +302,13 @@ export interface IStorage {
   // Attendance helpers
   getAttendanceByEmployeeAndDate(employeeId: string, date: string): Promise<Attendance | undefined>;
 
+  // Expenses
+  getExpensesByCompany(companyId: string): Promise<any[]>;
+  getExpensesByEmployee(employeeId: string): Promise<any[]>;
+  createExpense(data: any): Promise<any>;
+  updateExpense(id: string, data: any): Promise<any>;
+  deleteExpense(id: string): Promise<boolean>;
+
   // Audit log
   writeAuditLog(entry: { action: string; userId: string; userName: string; details: string }): Promise<void>;
 }
@@ -1719,6 +1726,30 @@ export class MemStorage implements IStorage {
   }
   async deleteLoanAdvance(id: string): Promise<boolean> {
     return this.loanAdvancesMap.delete(id);
+  }
+
+  private expensesMap: Map<string, any> = new Map();
+  async getExpensesByCompany(companyId: string): Promise<any[]> {
+    return Array.from(this.expensesMap.values()).filter(e => e.companyId === companyId);
+  }
+  async getExpensesByEmployee(employeeId: string): Promise<any[]> {
+    return Array.from(this.expensesMap.values()).filter(e => e.employeeId === employeeId);
+  }
+  async createExpense(data: any): Promise<any> {
+    const id = randomUUID();
+    const row = { ...data, id, createdAt: new Date().toISOString() };
+    this.expensesMap.set(id, row);
+    return row;
+  }
+  async updateExpense(id: string, data: any): Promise<any> {
+    const existing = this.expensesMap.get(id);
+    if (!existing) return undefined;
+    const updated = { ...existing, ...data };
+    this.expensesMap.set(id, updated);
+    return updated;
+  }
+  async deleteExpense(id: string): Promise<boolean> {
+    return this.expensesMap.delete(id);
   }
 
   async getUserPermissions(userId: string): Promise<UserPermission[]> {

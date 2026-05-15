@@ -133,7 +133,7 @@ const hrModulesItems = [
     module: "leave",
   },
   {
-    title: "Loan & Advance",
+    title: "Finance",
     url: "/loan-advances",
     icon: Wallet,
     module: "loan_advances",

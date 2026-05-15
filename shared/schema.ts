@@ -1017,3 +1017,29 @@ export const invoices = pgTable("invoices", {
 export const insertInvoiceSchema = createInsertSchema(invoices).omit({ id: true });
 export type InsertInvoice = z.infer<typeof insertInvoiceSchema>;
 export type Invoice = typeof invoices.$inferSelect;
+
+// ─── Expenses ─────────────────────────────────────────────────────────────────
+export const expenseCategories = ["travel", "food", "accommodation", "medical", "office_supplies", "client_entertainment", "other"] as const;
+export type ExpenseCategory = typeof expenseCategories[number];
+
+export const expenseStatuses = ["draft", "submitted", "approved", "rejected"] as const;
+export type ExpenseStatus = typeof expenseStatuses[number];
+
+export const expenses = pgTable("expenses", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  companyId: varchar("company_id", { length: 36 }).notNull(),
+  employeeId: varchar("employee_id", { length: 36 }).notNull(),
+  date: text("date").notNull(),
+  category: text("category").notNull().default("other"),
+  amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
+  description: text("description").notNull(),
+  receiptNote: text("receipt_note"),
+  status: text("status").notNull().default("submitted"),
+  approvedBy: varchar("approved_by", { length: 36 }),
+  approvedAt: text("approved_at"),
+  rejectionReason: text("rejection_reason"),
+  createdAt: text("created_at").notNull(),
+});
+export const insertExpenseSchema = createInsertSchema(expenses).omit({ id: true, approvedBy: true, approvedAt: true });
+export type InsertExpense = z.infer<typeof insertExpenseSchema>;
+export type Expense = typeof expenses.$inferSelect;
