@@ -455,6 +455,10 @@ export class DatabaseStorage implements IStorage {
     return result[0];
   }
 
+  async getSalaryStructuresByEmployee(employeeId: string): Promise<SalaryStructure[]> {
+    return await db.select().from(salaryStructures).where(eq(salaryStructures.employeeId, employeeId));
+  }
+
   async createSalaryStructure(salaryStructure: InsertSalaryStructure): Promise<SalaryStructure> {
     const id = randomUUID();
     const result = await db.insert(salaryStructures).values({ ...salaryStructure, id }).returning();

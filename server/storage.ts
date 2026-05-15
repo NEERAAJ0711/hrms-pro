@@ -128,6 +128,7 @@ export interface IStorage {
   // Salary Structures
   getSalaryStructure(id: string): Promise<SalaryStructure | undefined>;
   getSalaryStructureByEmployee(employeeId: string): Promise<SalaryStructure | undefined>;
+  getSalaryStructuresByEmployee(employeeId: string): Promise<SalaryStructure[]>;
   createSalaryStructure(salaryStructure: InsertSalaryStructure): Promise<SalaryStructure>;
   updateSalaryStructure(id: string, salaryStructure: Partial<InsertSalaryStructure>): Promise<SalaryStructure | undefined>;
   deleteSalaryStructure(id: string): Promise<boolean>;
@@ -806,6 +807,12 @@ export class MemStorage implements IStorage {
   async getSalaryStructureByEmployee(employeeId: string): Promise<SalaryStructure | undefined> {
     return Array.from(this.salaryStructuresMap.values()).find(
       (ss) => ss.employeeId === employeeId && ss.status === "active"
+    );
+  }
+
+  async getSalaryStructuresByEmployee(employeeId: string): Promise<SalaryStructure[]> {
+    return Array.from(this.salaryStructuresMap.values()).filter(
+      (ss) => ss.employeeId === employeeId
     );
   }
 

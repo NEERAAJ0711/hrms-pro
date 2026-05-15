@@ -4419,6 +4419,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/salary-structures", requireAuth, requireModuleAccess("payroll"), async (req, res) => {
     try {
       const data = insertSalaryStructureSchema.parse(req.body);
+      // Block duplicate: same employee + same effectiveFrom already exists
+      const existing = await storage.getSalaryStructuresByEmployee(data.employeeId);
+      const duplicate = existing.find(s => s.effectiveFrom === data.effectiveFrom);
+      if (duplicate) {
+        return res.status(400).json({
+          error: `A salary structure with effective date ${data.effectiveFrom} already exists for this employee. Please edit the existing structure or choose a different effective date.`,
+        });
+      }
       const structure = await storage.createSalaryStructure(data);
       res.status(201).json(structure);
     } catch (error: any) {
@@ -4437,12 +4445,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ error: "Access denied" });
       }
 
-      // ── Lock: block editing once payroll has been generated for this employee ──
+      // ── Lock: block editing only when a Paid payroll exists for this employee ──
+      // Draft/Processed payroll can be regenerated, so editing the structure is allowed.
       const allPayrollCheck = await storage.getAllPayroll();
-      const empPayrollCheck = allPayrollCheck.filter(p => p.employeeId === existing.employeeId);
-      if (empPayrollCheck.length > 0) {
+      const hasPaidPayroll = allPayrollCheck.some(p => p.employeeId === existing.employeeId && p.status === "paid");
+      if (hasPaidPayroll) {
         return res.status(400).json({
-          error: "Cannot edit this salary structure — payroll has already been generated for this employee. Create a new salary structure to apply future changes.",
+          error: "Cannot edit this salary structure — a finalised (Paid) payroll exists for this employee. Create a new salary structure with a later effective date to apply changes.",
         });
       }
       // ─────────────────────────────────────────────────────────────────────────
@@ -4462,12 +4471,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (user.role !== "super_admin" && existing.companyId !== user.companyId) {
         return res.status(403).json({ error: "Access denied" });
       }
-      // Block deletion once payroll has been generated for this employee
+      // Block deletion only when a Paid payroll exists for this employee
       const allPayrollDel = await storage.getAllPayroll();
-      const empPayrollDel = allPayrollDel.filter(p => p.employeeId === existing.employeeId);
-      if (empPayrollDel.length > 0) {
+      const hasPaidPayrollDel = allPayrollDel.some(p => p.employeeId === existing.employeeId && p.status === "paid");
+      if (hasPaidPayrollDel) {
         return res.status(400).json({
-          error: "Cannot delete this salary structure — payroll has already been generated for this employee.",
+          error: "Cannot delete this salary structure — a finalised (Paid) payroll exists for this employee.",
         });
       }
       console.log(`[AUDIT] SALARY_STRUCTURE_DELETE | user=${user.username || user.email} (id=${user.id}, role=${user.role}) | structureId=${existing.id} | employeeId=${existing.employeeId} | companyId=${existing.companyId} | basic=${existing.basicSalary} | gross=${existing.grossSalary} | at=${new Date().toISOString()} | ip=${req.ip}`);
