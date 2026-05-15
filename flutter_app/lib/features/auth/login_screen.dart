@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../../core/api_client.dart';
 import '../../core/auth_provider.dart';
 import '../../core/theme.dart';
+import '../../core/update_service.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -28,6 +29,10 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
     _fadeAnim = CurvedAnimation(parent: _animController, curve: Curves.easeOut);
     _slideAnim = Tween<Offset>(begin: const Offset(0, 0.2), end: Offset.zero).animate(CurvedAnimation(parent: _animController, curve: Curves.easeOut));
     _animController.forward();
+    // Check for mandatory app updates before the user even logs in
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) UpdateService.checkForUpdate(context);
+    });
   }
 
   @override

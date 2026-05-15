@@ -35,16 +35,31 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   int _currentIndex = 0;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     // Check for app update after first frame so context is ready
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) UpdateService.checkForUpdate(context);
     });
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Re-check for updates when the app comes back to the foreground
+    if (state == AppLifecycleState.resumed && mounted) {
+      UpdateService.checkForUpdate(context);
+    }
   }
 
   @override
