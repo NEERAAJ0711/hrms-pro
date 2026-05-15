@@ -309,6 +309,26 @@ export interface IStorage {
   updateExpense(id: string, data: any): Promise<any>;
   deleteExpense(id: string): Promise<boolean>;
 
+  // Leave Adjustments
+  getLeaveAdjustmentsByCompany(companyId: string): Promise<any[]>;
+  getLeaveAdjustmentsByEmployee(employeeId: string): Promise<any[]>;
+  createLeaveAdjustment(data: any): Promise<any>;
+  deleteLeaveAdjustment(id: string): Promise<boolean>;
+
+  // Comp-Off Applications
+  getCompOffByCompany(companyId: string): Promise<any[]>;
+  getCompOffByEmployee(employeeId: string): Promise<any[]>;
+  createCompOff(data: any): Promise<any>;
+  updateCompOff(id: string, data: any): Promise<any>;
+  deleteCompOff(id: string): Promise<boolean>;
+
+  // Outdoor Entries
+  getOutdoorEntriesByCompany(companyId: string): Promise<any[]>;
+  getOutdoorEntriesByEmployee(employeeId: string): Promise<any[]>;
+  createOutdoorEntry(data: any): Promise<any>;
+  updateOutdoorEntry(id: string, data: any): Promise<any>;
+  deleteOutdoorEntry(id: string): Promise<boolean>;
+
   // Audit log
   writeAuditLog(entry: { action: string; userId: string; userName: string; details: string }): Promise<void>;
 }
@@ -1750,6 +1770,71 @@ export class MemStorage implements IStorage {
   }
   async deleteExpense(id: string): Promise<boolean> {
     return this.expensesMap.delete(id);
+  }
+
+  private leaveAdjustmentsMap: Map<string, any> = new Map();
+  async getLeaveAdjustmentsByCompany(companyId: string): Promise<any[]> {
+    return Array.from(this.leaveAdjustmentsMap.values()).filter(e => e.companyId === companyId);
+  }
+  async getLeaveAdjustmentsByEmployee(employeeId: string): Promise<any[]> {
+    return Array.from(this.leaveAdjustmentsMap.values()).filter(e => e.employeeId === employeeId);
+  }
+  async createLeaveAdjustment(data: any): Promise<any> {
+    const id = randomUUID();
+    const row = { ...data, id, createdAt: new Date().toISOString() };
+    this.leaveAdjustmentsMap.set(id, row);
+    return row;
+  }
+  async deleteLeaveAdjustment(id: string): Promise<boolean> {
+    return this.leaveAdjustmentsMap.delete(id);
+  }
+
+  private compOffMap: Map<string, any> = new Map();
+  async getCompOffByCompany(companyId: string): Promise<any[]> {
+    return Array.from(this.compOffMap.values()).filter(e => e.companyId === companyId);
+  }
+  async getCompOffByEmployee(employeeId: string): Promise<any[]> {
+    return Array.from(this.compOffMap.values()).filter(e => e.employeeId === employeeId);
+  }
+  async createCompOff(data: any): Promise<any> {
+    const id = randomUUID();
+    const row = { ...data, id, createdAt: new Date().toISOString() };
+    this.compOffMap.set(id, row);
+    return row;
+  }
+  async updateCompOff(id: string, data: any): Promise<any> {
+    const existing = this.compOffMap.get(id);
+    if (!existing) return undefined;
+    const updated = { ...existing, ...data };
+    this.compOffMap.set(id, updated);
+    return updated;
+  }
+  async deleteCompOff(id: string): Promise<boolean> {
+    return this.compOffMap.delete(id);
+  }
+
+  private outdoorEntriesMap: Map<string, any> = new Map();
+  async getOutdoorEntriesByCompany(companyId: string): Promise<any[]> {
+    return Array.from(this.outdoorEntriesMap.values()).filter(e => e.companyId === companyId);
+  }
+  async getOutdoorEntriesByEmployee(employeeId: string): Promise<any[]> {
+    return Array.from(this.outdoorEntriesMap.values()).filter(e => e.employeeId === employeeId);
+  }
+  async createOutdoorEntry(data: any): Promise<any> {
+    const id = randomUUID();
+    const row = { ...data, id, createdAt: new Date().toISOString() };
+    this.outdoorEntriesMap.set(id, row);
+    return row;
+  }
+  async updateOutdoorEntry(id: string, data: any): Promise<any> {
+    const existing = this.outdoorEntriesMap.get(id);
+    if (!existing) return undefined;
+    const updated = { ...existing, ...data };
+    this.outdoorEntriesMap.set(id, updated);
+    return updated;
+  }
+  async deleteOutdoorEntry(id: string): Promise<boolean> {
+    return this.outdoorEntriesMap.delete(id);
   }
 
   async getUserPermissions(userId: string): Promise<UserPermission[]> {

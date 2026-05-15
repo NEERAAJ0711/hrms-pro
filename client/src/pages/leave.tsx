@@ -5,7 +5,7 @@ import { format, differenceInDays, parseISO, getYear } from "date-fns";
 import {
   Calendar, Plus, Check, X, Clock, FileText, Pencil, Trash2,
   Umbrella, TrendingUp, CheckCircle2, XCircle, RotateCcw,
-  Palmtree, Stethoscope, Baby, Briefcase,
+  Palmtree, Stethoscope, Baby, Briefcase, PlusCircle, Sliders, RefreshCw,
 } from "lucide-react";
 import { SearchableEmployeeSelect } from "@/components/searchable-employee-select";
 import { Button } from "@/components/ui/button";
@@ -97,6 +97,15 @@ export default function LeavePage() {
   const [selectedStatus, setSelectedStatus] = useState<string>("__all__");
   const [isLeaveTypeOpen, setIsLeaveTypeOpen] = useState(false);
   const [editingLeaveType, setEditingLeaveType] = useState<LeaveType | null>(null);
+  // Comp-Off state
+  const [compOffOpen, setCompOffOpen] = useState(false);
+  const [compOffForm, setCompOffForm] = useState({ workedDate: format(new Date(), "yyyy-MM-dd"), purpose: "" });
+  const [compOffRejectOpen, setCompOffRejectOpen] = useState(false);
+  const [selectedCompOff, setSelectedCompOff] = useState<any>(null);
+  const [compOffRejectReason, setCompOffRejectReason] = useState("");
+  // Leave Adjustment state
+  const [leaveAdjOpen, setLeaveAdjOpen] = useState(false);
+  const [leaveAdjForm, setLeaveAdjForm] = useState({ employeeId: "", leaveTypeId: "", adjustmentType: "credit", days: "", reason: "" });
 
   const { data: companies = [] } = useQuery<Company[]>({ queryKey: ["/api/companies"] });
   const { data: employees = [] } = useQuery<Employee[]>({ queryKey: ["/api/employees"], enabled: !isEmployee });
@@ -185,6 +194,35 @@ export default function LeavePage() {
     mutationFn: (data: LeaveTypeFormValues & { id: string }) => { const { id, ...rest } = data; return apiRequest("PATCH", `/api/leave-types/${id}`, rest); },
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/leave-types"] }); setIsLeaveTypeOpen(false); setEditingLeaveType(null); toast({ title: "Leave Type Updated" }); },
     onError: (error: Error) => toast({ title: "Error", description: error.message, variant: "destructive" }),
+  });
+
+  // ── Comp-Off queries & mutations ────────────────────────────────────────
+  const { data: compOffRecords = [] } = useQuery<any[]>({ queryKey: ["/api/comp-off"], staleTime: 0 });
+  const { data: leaveAdjRecords = [] } = useQuery<any[]>({ queryKey: ["/api/leave-adjustments"], staleTime: 0, enabled: !isEmployee });
+  const invalidateCompOff = () => queryClient.invalidateQueries({ queryKey: ["/api/comp-off"] });
+  const invalidateLeaveAdj = () => queryClient.invalidateQueries({ queryKey: ["/api/leave-adjustments"] });
+  const createCompOffMutation = useMutation({
+    mutationFn: (data: object) => apiRequest("POST", "/api/comp-off", data),
+    onSuccess: () => { invalidateCompOff(); setCompOffOpen(false); setCompOffForm({ workedDate: format(new Date(), "yyyy-MM-dd"), purpose: "" }); toast({ title: "Comp Off application submitted" }); },
+    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+  const approveCompOffMutation = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: object }) => apiRequest("PATCH", `/api/comp-off/${id}`, data),
+    onSuccess: () => { invalidateCompOff(); setCompOffRejectOpen(false); setCompOffRejectReason(""); toast({ title: "Updated" }); },
+    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+  const deleteCompOffMutation = useMutation({
+    mutationFn: (id: string) => apiRequest("DELETE", `/api/comp-off/${id}`),
+    onSuccess: () => { invalidateCompOff(); toast({ title: "Deleted" }); },
+  });
+  const createLeaveAdjMutation = useMutation({
+    mutationFn: (data: object) => apiRequest("POST", "/api/leave-adjustments", data),
+    onSuccess: () => { invalidateLeaveAdj(); setLeaveAdjOpen(false); setLeaveAdjForm({ employeeId: "", leaveTypeId: "", adjustmentType: "credit", days: "", reason: "" }); toast({ title: "Leave adjustment applied" }); },
+    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+  const deleteLeaveAdjMutation = useMutation({
+    mutationFn: (id: string) => apiRequest("DELETE", `/api/leave-adjustments/${id}`),
+    onSuccess: () => { invalidateLeaveAdj(); toast({ title: "Deleted" }); },
   });
 
   const deleteLeaveTypeMutation = useMutation({
@@ -501,6 +539,77 @@ export default function LeavePage() {
             </div>
           )}
         </div>
+
+        {/* ── My Comp Off Applications ── */}
+        <div>
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-xs font-semibold text-slate-400 uppercase tracking-widest">Comp Off Applications</p>
+            <Button size="sm" variant="outline" className="gap-2 h-8 text-xs" onClick={() => setCompOffOpen(true)} data-testid="button-apply-compoff">
+              <PlusCircle className="h-3.5 w-3.5" />Apply Comp Off
+            </Button>
+          </div>
+          {compOffRecords.filter((c: any) => c.employeeId === myEmployee?.id).length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 flex flex-col items-center justify-center py-10 gap-2 text-center">
+              <RefreshCw className="h-7 w-7 text-slate-300" />
+              <p className="text-sm text-slate-500 font-medium">No comp-off applications yet</p>
+              <p className="text-xs text-slate-400">Apply when you have worked on a holiday or weekend</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {compOffRecords.filter((c: any) => c.employeeId === myEmployee?.id).map((co: any) => {
+                const scfg = co.status === "approved" ? { bg: "bg-green-100", text: "text-green-700", border: "border-green-200", label: "Approved" }
+                  : co.status === "rejected" ? { bg: "bg-red-100", text: "text-red-700", border: "border-red-200", label: "Rejected" }
+                  : { bg: "bg-amber-100", text: "text-amber-700", border: "border-amber-200", label: "Pending" };
+                return (
+                  <div key={co.id} className="rounded-xl border border-slate-200 bg-white shadow-sm p-4 flex items-start gap-3" data-testid={`card-compoff-${co.id}`}>
+                    <div className="rounded-lg bg-primary/10 p-2"><RefreshCw className="h-4 w-4 text-primary" /></div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-semibold text-sm text-slate-800">{format(parseISO(co.workedDate), "d MMM yyyy")}</span>
+                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold border ${scfg.bg} ${scfg.text} ${scfg.border}`}>{scfg.label}</span>
+                      </div>
+                      <p className="text-xs text-slate-500 mt-1 truncate">{co.purpose}</p>
+                      {co.compensatoryDate && <p className="text-xs text-slate-400 mt-0.5">Comp day: {format(parseISO(co.compensatoryDate), "d MMM yyyy")}</p>}
+                      {co.rejectionReason && <p className="text-xs text-red-400 mt-0.5">Reason: {co.rejectionReason}</p>}
+                    </div>
+                    {co.status === "pending" && (
+                      <Button size="icon" variant="ghost" className="h-7 w-7 text-red-400 hover:bg-red-50 shrink-0" onClick={() => deleteCompOffMutation.mutate(co.id)}>
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Comp Off Apply Dialog */}
+        <Dialog open={compOffOpen} onOpenChange={setCompOffOpen}>
+          <DialogContent className="max-w-sm">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2"><RefreshCw className="h-5 w-5 text-primary" />Apply for Comp Off</DialogTitle>
+              <DialogDescription>Submit a comp-off request for a day you worked on a holiday or weekend</DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 py-2">
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">Date Worked <span className="text-red-500">*</span></label>
+                <Input type="date" value={compOffForm.workedDate} onChange={e => setCompOffForm(f => ({ ...f, workedDate: e.target.value }))} max={format(new Date(), "yyyy-MM-dd")} data-testid="input-worked-date" />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">Purpose / Reason <span className="text-red-500">*</span></label>
+                <Textarea placeholder="Why did you work on this day?" value={compOffForm.purpose} onChange={e => setCompOffForm(f => ({ ...f, purpose: e.target.value }))} rows={3} data-testid="input-compoff-purpose" />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setCompOffOpen(false)}>Cancel</Button>
+              <Button disabled={!compOffForm.workedDate || !compOffForm.purpose.trim() || createCompOffMutation.isPending} onClick={() => createCompOffMutation.mutate({ workedDate: compOffForm.workedDate, purpose: compOffForm.purpose })} data-testid="button-submit-compoff">
+                {createCompOffMutation.isPending ? "Submitting…" : "Submit"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
       </div>
     );
   }
@@ -543,6 +652,8 @@ export default function LeavePage() {
       <Tabs defaultValue="requests">
         <TabsList className="mb-4">
           <TabsTrigger value="requests" data-testid="tab-requests">Leave Requests</TabsTrigger>
+          <TabsTrigger value="comp_off" data-testid="tab-comp-off">Comp Off</TabsTrigger>
+          {isAdmin && <TabsTrigger value="leave_adjust" data-testid="tab-leave-adjust">Leave Adjust</TabsTrigger>}
           {isAdmin && <TabsTrigger value="types" data-testid="tab-types">Leave Types</TabsTrigger>}
         </TabsList>
 
@@ -613,6 +724,136 @@ export default function LeavePage() {
             </CardContent>
           </Card>
         </TabsContent>
+
+        {/* ══ COMP OFF TAB ══════════════════════════════════════════════════ */}
+        <TabsContent value="comp_off">
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between gap-4 flex-wrap">
+                <div><CardTitle className="flex items-center gap-2"><RefreshCw className="h-5 w-5 text-primary" />Comp Off Applications</CardTitle>
+                  <CardDescription>Manage compensatory off requests from employees</CardDescription>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {compOffRecords.length === 0 ? (
+                <div className="text-center py-12">
+                  <RefreshCw className="h-12 w-12 mx-auto text-muted-foreground mb-4 opacity-30" />
+                  <h3 className="text-lg font-medium mb-2">No comp-off applications</h3>
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="w-10 text-center">Sr.</TableHead>
+                      <TableHead>Employee</TableHead>
+                      <TableHead>Worked Date</TableHead>
+                      <TableHead>Purpose</TableHead>
+                      <TableHead>Comp Date</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {compOffRecords.map((co: any, idx: number) => {
+                      const emp = employees.find((e: any) => e.id === co.employeeId);
+                      const empName = emp ? `${emp.firstName} ${emp.lastName}` : co.employeeId;
+                      const scfg = co.status === "approved" ? "bg-green-100 text-green-700"
+                        : co.status === "rejected" ? "bg-red-100 text-red-700"
+                        : "bg-amber-100 text-amber-700";
+                      return (
+                        <TableRow key={co.id} data-testid={`row-compoff-${co.id}`}>
+                          <TableCell className="text-center text-muted-foreground text-sm">{idx + 1}</TableCell>
+                          <TableCell className="font-medium">{empName}</TableCell>
+                          <TableCell>{format(parseISO(co.workedDate), "d MMM yyyy")}</TableCell>
+                          <TableCell className="max-w-[180px] truncate text-sm text-muted-foreground">{co.purpose}</TableCell>
+                          <TableCell>{co.compensatoryDate ? format(parseISO(co.compensatoryDate), "d MMM yyyy") : <span className="text-muted-foreground">—</span>}</TableCell>
+                          <TableCell><Badge className={scfg}>{co.status.charAt(0).toUpperCase() + co.status.slice(1)}</Badge></TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-1">
+                              {co.status === "pending" && isAdmin && (
+                                <>
+                                  <Button size="sm" variant="outline" className="text-green-600 hover:text-green-700 h-7 px-2" onClick={() => approveCompOffMutation.mutate({ id: co.id, data: { status: "approved", approvedAt: new Date().toISOString() } })} disabled={approveCompOffMutation.isPending} data-testid={`button-approve-co-${co.id}`}><Check className="h-3.5 w-3.5" /></Button>
+                                  <Button size="sm" variant="outline" className="text-red-600 hover:text-red-700 h-7 px-2" onClick={() => { setSelectedCompOff(co); setCompOffRejectOpen(true); }} data-testid={`button-reject-co-${co.id}`}><X className="h-3.5 w-3.5" /></Button>
+                                </>
+                              )}
+                              <Button size="icon" variant="ghost" className="h-7 w-7 text-red-400 hover:bg-red-50" onClick={() => deleteCompOffMutation.mutate(co.id)}><Trash2 className="h-3.5 w-3.5" /></Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* ══ LEAVE ADJUSTMENT TAB ══════════════════════════════════════════ */}
+        {isAdmin && (
+          <TabsContent value="leave_adjust">
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between gap-4 flex-wrap">
+                  <div><CardTitle className="flex items-center gap-2"><Sliders className="h-5 w-5 text-primary" />Leave Adjustments</CardTitle>
+                    <CardDescription>Manually credit or debit employee leave balances</CardDescription>
+                  </div>
+                  <Button onClick={() => setLeaveAdjOpen(true)} className="gap-2" data-testid="button-add-leave-adj"><PlusCircle className="h-4 w-4" />Add Adjustment</Button>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {leaveAdjRecords.length === 0 ? (
+                  <div className="text-center py-12">
+                    <Sliders className="h-12 w-12 mx-auto text-muted-foreground mb-4 opacity-30" />
+                    <h3 className="text-lg font-medium mb-2">No adjustments yet</h3>
+                    <p className="text-muted-foreground text-sm">Use adjustments to credit or debit employee leave balances manually</p>
+                  </div>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="w-10 text-center">Sr.</TableHead>
+                        <TableHead>Employee</TableHead>
+                        <TableHead>Leave Type</TableHead>
+                        <TableHead>Type</TableHead>
+                        <TableHead>Days</TableHead>
+                        <TableHead>Reason</TableHead>
+                        <TableHead>Date</TableHead>
+                        <TableHead>Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {leaveAdjRecords.map((adj: any, idx: number) => {
+                        const emp = employees.find((e: any) => e.id === adj.employeeId);
+                        const empName = emp ? `${emp.firstName} ${emp.lastName}` : adj.employeeId;
+                        const lt = leaveTypes.find(t => t.id === adj.leaveTypeId);
+                        return (
+                          <TableRow key={adj.id} data-testid={`row-adj-${adj.id}`}>
+                            <TableCell className="text-center text-muted-foreground text-sm">{idx + 1}</TableCell>
+                            <TableCell className="font-medium">{empName}</TableCell>
+                            <TableCell>{lt?.name || adj.leaveTypeId}</TableCell>
+                            <TableCell>
+                              <Badge className={adj.adjustmentType === "credit" ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}>
+                                {adj.adjustmentType === "credit" ? "Credit" : "Debit"}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="font-semibold">{adj.days} day{Number(adj.days) !== 1 ? "s" : ""}</TableCell>
+                            <TableCell className="max-w-[200px] truncate text-sm text-muted-foreground">{adj.reason}</TableCell>
+                            <TableCell className="text-sm text-muted-foreground">{adj.createdAt ? format(parseISO(adj.createdAt), "d MMM yyyy") : "—"}</TableCell>
+                            <TableCell>
+                              <Button size="icon" variant="ghost" className="h-7 w-7 text-red-400 hover:bg-red-50" onClick={() => { if (confirm("Delete this adjustment?")) deleteLeaveAdjMutation.mutate(adj.id); }}><Trash2 className="h-3.5 w-3.5" /></Button>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+        )}
 
         {isAdmin && (
           <TabsContent value="types">
@@ -724,6 +965,76 @@ export default function LeavePage() {
           </Form>
         </DialogContent>
       </Dialog>
+
+      {/* Comp Off Reject Dialog */}
+      <Dialog open={compOffRejectOpen} onOpenChange={open => { setCompOffRejectOpen(open); if (!open) setCompOffRejectReason(""); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Reject Comp Off</DialogTitle>
+            <DialogDescription>Provide a reason for rejection</DialogDescription>
+          </DialogHeader>
+          <Textarea placeholder="Reason for rejection" value={compOffRejectReason} onChange={e => setCompOffRejectReason(e.target.value)} rows={3} data-testid="input-compoff-reject-reason" />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCompOffRejectOpen(false)}>Cancel</Button>
+            <Button variant="destructive" disabled={!compOffRejectReason.trim() || approveCompOffMutation.isPending} onClick={() => { if (selectedCompOff) approveCompOffMutation.mutate({ id: selectedCompOff.id, data: { status: "rejected", rejectionReason: compOffRejectReason } }); }}>Reject</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Leave Adjustment Dialog */}
+      <Dialog open={leaveAdjOpen} onOpenChange={setLeaveAdjOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2"><Sliders className="h-5 w-5 text-primary" />Leave Adjustment</DialogTitle>
+            <DialogDescription>Manually credit or debit an employee's leave balance</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Employee <span className="text-red-500">*</span></label>
+              <SearchableEmployeeSelect employees={employees as any[]} value={leaveAdjForm.employeeId} onValueChange={v => setLeaveAdjForm(f => ({ ...f, employeeId: v }))} placeholder="Select employee..." />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Leave Type <span className="text-red-500">*</span></label>
+              <Select value={leaveAdjForm.leaveTypeId} onValueChange={v => setLeaveAdjForm(f => ({ ...f, leaveTypeId: v }))}>
+                <SelectTrigger data-testid="select-leave-type-adj"><SelectValue placeholder="Select leave type" /></SelectTrigger>
+                <SelectContent>
+                  {leaveTypes.filter(lt => lt.status === "active").map(lt => (
+                    <SelectItem key={lt.id} value={lt.id}>{lt.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">Adjustment Type</label>
+                <Select value={leaveAdjForm.adjustmentType} onValueChange={v => setLeaveAdjForm(f => ({ ...f, adjustmentType: v }))}>
+                  <SelectTrigger data-testid="select-adj-type"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="credit">Credit (Add)</SelectItem>
+                    <SelectItem value="debit">Debit (Deduct)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">Days <span className="text-red-500">*</span></label>
+                <Input type="number" min="0.5" step="0.5" placeholder="e.g. 1" value={leaveAdjForm.days} onChange={e => setLeaveAdjForm(f => ({ ...f, days: e.target.value }))} data-testid="input-adj-days" />
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Reason <span className="text-red-500">*</span></label>
+              <Textarea placeholder="Reason for adjustment" value={leaveAdjForm.reason} onChange={e => setLeaveAdjForm(f => ({ ...f, reason: e.target.value }))} rows={2} data-testid="input-adj-reason" />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setLeaveAdjOpen(false)}>Cancel</Button>
+            <Button disabled={!leaveAdjForm.employeeId || !leaveAdjForm.leaveTypeId || !leaveAdjForm.days || !leaveAdjForm.reason.trim() || createLeaveAdjMutation.isPending}
+              onClick={() => createLeaveAdjMutation.mutate({ employeeId: leaveAdjForm.employeeId, leaveTypeId: leaveAdjForm.leaveTypeId, adjustmentType: leaveAdjForm.adjustmentType, days: leaveAdjForm.days, reason: leaveAdjForm.reason })} data-testid="button-submit-adj">
+              {createLeaveAdjMutation.isPending ? "Applying…" : "Apply Adjustment"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
     </div>
   );
 }

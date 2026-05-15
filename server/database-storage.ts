@@ -88,6 +88,9 @@ import {
   loanAdvances,
   userPermissions,
   expenses,
+  leaveAdjustments,
+  compOffApplications,
+  outdoorEntries,
 } from "@shared/schema";
 import { eq, and, isNull, desc, sql, count, or } from "drizzle-orm";
 import { db } from "./db";
@@ -1085,6 +1088,62 @@ export class DatabaseStorage implements IStorage {
   }
   async deleteExpense(id: string): Promise<boolean> {
     const result = await db.delete(expenses).where(eq(expenses.id, id)).returning();
+    return result.length > 0;
+  }
+
+  async getLeaveAdjustmentsByCompany(companyId: string): Promise<any[]> {
+    return await db.select().from(leaveAdjustments).where(eq(leaveAdjustments.companyId, companyId)).orderBy(desc(leaveAdjustments.createdAt));
+  }
+  async getLeaveAdjustmentsByEmployee(employeeId: string): Promise<any[]> {
+    return await db.select().from(leaveAdjustments).where(eq(leaveAdjustments.employeeId, employeeId)).orderBy(desc(leaveAdjustments.createdAt));
+  }
+  async createLeaveAdjustment(data: any): Promise<any> {
+    const row = { ...data, id: randomUUID(), createdAt: new Date().toISOString() };
+    const result = await db.insert(leaveAdjustments).values(row).returning();
+    return result[0];
+  }
+  async deleteLeaveAdjustment(id: string): Promise<boolean> {
+    const result = await db.delete(leaveAdjustments).where(eq(leaveAdjustments.id, id)).returning();
+    return result.length > 0;
+  }
+
+  async getCompOffByCompany(companyId: string): Promise<any[]> {
+    return await db.select().from(compOffApplications).where(eq(compOffApplications.companyId, companyId)).orderBy(desc(compOffApplications.createdAt));
+  }
+  async getCompOffByEmployee(employeeId: string): Promise<any[]> {
+    return await db.select().from(compOffApplications).where(eq(compOffApplications.employeeId, employeeId)).orderBy(desc(compOffApplications.createdAt));
+  }
+  async createCompOff(data: any): Promise<any> {
+    const row = { ...data, id: randomUUID(), createdAt: new Date().toISOString() };
+    const result = await db.insert(compOffApplications).values(row).returning();
+    return result[0];
+  }
+  async updateCompOff(id: string, data: any): Promise<any> {
+    const result = await db.update(compOffApplications).set(data).where(eq(compOffApplications.id, id)).returning();
+    return result[0];
+  }
+  async deleteCompOff(id: string): Promise<boolean> {
+    const result = await db.delete(compOffApplications).where(eq(compOffApplications.id, id)).returning();
+    return result.length > 0;
+  }
+
+  async getOutdoorEntriesByCompany(companyId: string): Promise<any[]> {
+    return await db.select().from(outdoorEntries).where(eq(outdoorEntries.companyId, companyId)).orderBy(desc(outdoorEntries.createdAt));
+  }
+  async getOutdoorEntriesByEmployee(employeeId: string): Promise<any[]> {
+    return await db.select().from(outdoorEntries).where(eq(outdoorEntries.employeeId, employeeId)).orderBy(desc(outdoorEntries.createdAt));
+  }
+  async createOutdoorEntry(data: any): Promise<any> {
+    const row = { ...data, id: randomUUID(), createdAt: new Date().toISOString() };
+    const result = await db.insert(outdoorEntries).values(row).returning();
+    return result[0];
+  }
+  async updateOutdoorEntry(id: string, data: any): Promise<any> {
+    const result = await db.update(outdoorEntries).set(data).where(eq(outdoorEntries.id, id)).returning();
+    return result[0];
+  }
+  async deleteOutdoorEntry(id: string): Promise<boolean> {
+    const result = await db.delete(outdoorEntries).where(eq(outdoorEntries.id, id)).returning();
     return result.length > 0;
   }
 

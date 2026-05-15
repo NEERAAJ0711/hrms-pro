@@ -1043,3 +1043,57 @@ export const expenses = pgTable("expenses", {
 export const insertExpenseSchema = createInsertSchema(expenses).omit({ id: true, approvedBy: true, approvedAt: true });
 export type InsertExpense = z.infer<typeof insertExpenseSchema>;
 export type Expense = typeof expenses.$inferSelect;
+
+// ─── Leave Adjustments ────────────────────────────────────────────────────────
+export const leaveAdjustments = pgTable("leave_adjustments", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  companyId: varchar("company_id", { length: 36 }).notNull(),
+  employeeId: varchar("employee_id", { length: 36 }).notNull(),
+  leaveTypeId: varchar("leave_type_id", { length: 36 }).notNull(),
+  adjustmentType: text("adjustment_type").notNull().default("credit"), // "credit" | "debit"
+  days: numeric("days", { precision: 6, scale: 1 }).notNull(),
+  reason: text("reason").notNull(),
+  adjustedBy: varchar("adjusted_by", { length: 36 }).notNull(),
+  createdAt: text("created_at").notNull(),
+});
+export const insertLeaveAdjustmentSchema = createInsertSchema(leaveAdjustments).omit({ id: true });
+export type InsertLeaveAdjustment = z.infer<typeof insertLeaveAdjustmentSchema>;
+export type LeaveAdjustment = typeof leaveAdjustments.$inferSelect;
+
+// ─── Comp-Off Applications ────────────────────────────────────────────────────
+export const compOffApplications = pgTable("comp_off_applications", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  companyId: varchar("company_id", { length: 36 }).notNull(),
+  employeeId: varchar("employee_id", { length: 36 }).notNull(),
+  workedDate: text("worked_date").notNull(),
+  purpose: text("purpose").notNull(),
+  compensatoryDate: text("compensatory_date"),
+  status: text("status").notNull().default("pending"), // "pending" | "approved" | "rejected"
+  approvedBy: varchar("approved_by", { length: 36 }),
+  approvedAt: text("approved_at"),
+  rejectionReason: text("rejection_reason"),
+  createdAt: text("created_at").notNull(),
+});
+export const insertCompOffSchema = createInsertSchema(compOffApplications).omit({ id: true, approvedBy: true, approvedAt: true });
+export type InsertCompOff = z.infer<typeof insertCompOffSchema>;
+export type CompOff = typeof compOffApplications.$inferSelect;
+
+// ─── Outdoor Duty Entries ─────────────────────────────────────────────────────
+export const outdoorEntries = pgTable("outdoor_entries", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  companyId: varchar("company_id", { length: 36 }).notNull(),
+  employeeId: varchar("employee_id", { length: 36 }).notNull(),
+  date: text("date").notNull(),
+  checkOutTime: text("check_out_time"),
+  checkInTime: text("check_in_time"),
+  purpose: text("purpose").notNull(),
+  location: text("location"),
+  status: text("status").notNull().default("pending"), // "pending" | "approved" | "rejected"
+  approvedBy: varchar("approved_by", { length: 36 }),
+  approvedAt: text("approved_at"),
+  rejectionReason: text("rejection_reason"),
+  createdAt: text("created_at").notNull(),
+});
+export const insertOutdoorEntrySchema = createInsertSchema(outdoorEntries).omit({ id: true, approvedBy: true, approvedAt: true });
+export type InsertOutdoorEntry = z.infer<typeof insertOutdoorEntrySchema>;
+export type OutdoorEntry = typeof outdoorEntries.$inferSelect;

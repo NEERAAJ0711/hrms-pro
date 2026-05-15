@@ -1,6 +1,8 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
+import { apiRequest } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 import {
   format, startOfMonth, endOfMonth, eachDayOfInterval,
   parseISO, subMonths, addMonths, isToday, isSameMonth,
@@ -9,13 +11,16 @@ import {
   ChevronLeft, ChevronRight, Clock, Calendar,
   CheckCircle2, XCircle, AlertCircle, Umbrella,
   Coffee, TrendingUp, Download, LogIn, LogOut, Timer, StickyNote,
+  MapPin, Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import * as XLSX from "xlsx";
 import type { Attendance, Employee, LeaveRequest, LeaveType, TimeOfficePolicy } from "@shared/schema";
 
@@ -90,6 +95,40 @@ export default function MyAttendancePage() {
   });
 
   const isLoading = empLoading || attLoading;
+
+  // ── Outdoor Entry state ───────────────────────────────────────────────────
+  const qc = useQueryClient();
+  const { toast } = useToast();
+  const [outdoorOpen, setOutdoorOpen] = useState(false);
+  const [outdoorForm, setOutdoorForm] = useState({ date: format(new Date(), "yyyy-MM-dd"), purpose: "", location: "", checkOutTime: "", checkInTime: "" });
+
+  const { data: outdoorEntries = [] } = useQuery<any[]>({
+    queryKey: ["/api/outdoor-entries"],
+    staleTime: 0,
+    queryFn: async () => {
+      const res = await fetch("/api/outdoor-entries", { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+  });
+
+  const createOutdoorMutation = useMutation({
+    mutationFn: (data: object) => apiRequest("POST", "/api/outdoor-entries", data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/outdoor-entries"] });
+      setOutdoorOpen(false);
+      setOutdoorForm({ date: format(new Date(), "yyyy-MM-dd"), purpose: "", location: "", checkOutTime: "", checkInTime: "" });
+      toast({ title: "Outdoor duty entry submitted" });
+    },
+    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const deleteOutdoorMutation = useMutation({
+    mutationFn: (id: string) => apiRequest("DELETE", `/api/outdoor-entries/${id}`),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["/api/outdoor-entries"] }); toast({ title: "Deleted" }); },
+  });
+
+  const monthOutdoorEntries = outdoorEntries.filter((e: any) => e.date.startsWith(monthStr));
 
   const dayNameMap: Record<number, string> = {
     0: "sunday", 1: "monday", 2: "tuesday", 3: "wednesday",
@@ -309,6 +348,10 @@ export default function MyAttendancePage() {
           <Button variant="outline" size="sm" onClick={handleDownload} data-testid="button-download-attendance">
             <Download className="h-4 w-4 mr-1.5" />
             Export
+          </Button>
+          <Button size="sm" className="gap-1.5" onClick={() => setOutdoorOpen(true)} data-testid="button-outdoor-duty">
+            <MapPin className="h-4 w-4" />
+            Outdoor Duty
           </Button>
         </div>
       </div>
@@ -555,6 +598,112 @@ export default function MyAttendancePage() {
           </CardContent>
         </Card>
       )}
+      {/* ── Outdoor Duty Section ────────────────────────────────────── */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base font-semibold flex items-center gap-2">
+            <MapPin className="h-4 w-4 text-primary" />
+            Outdoor Duty — {monthNames[selectedMonth]} {selectedYear}
+            <span className="ml-auto text-xs font-normal text-muted-foreground">{monthOutdoorEntries.length} {monthOutdoorEntries.length === 1 ? "entry" : "entries"}</span>
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="p-0">
+          {monthOutdoorEntries.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-10 gap-2 text-center">
+              <MapPin className="h-9 w-9 text-muted-foreground opacity-25" />
+              <p className="text-sm font-medium text-muted-foreground">No outdoor entries this month</p>
+              <p className="text-xs text-muted-foreground opacity-70">Tap "Outdoor Duty" to log a field visit or client meeting</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="pl-4">Date</TableHead>
+                    <TableHead>Purpose</TableHead>
+                    <TableHead>Location</TableHead>
+                    <TableHead>Out Time</TableHead>
+                    <TableHead>In Time</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead className="pr-4" />
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {monthOutdoorEntries.map((entry: any) => {
+                    const scfg = entry.status === "approved"
+                      ? { bg: "bg-green-100", text: "text-green-700", label: "Approved" }
+                      : entry.status === "rejected"
+                      ? { bg: "bg-red-100", text: "text-red-700", label: "Rejected" }
+                      : { bg: "bg-amber-100", text: "text-amber-700", label: "Pending" };
+                    return (
+                      <TableRow key={entry.id} data-testid={`row-outdoor-${entry.id}`}>
+                        <TableCell className="pl-4 font-medium text-sm">{format(parseISO(entry.date), "dd MMM yyyy")}</TableCell>
+                        <TableCell className="text-sm max-w-[180px] truncate">{entry.purpose}</TableCell>
+                        <TableCell className="text-sm text-muted-foreground">{entry.location || "—"}</TableCell>
+                        <TableCell className="font-mono text-sm">{entry.checkOutTime || "—"}</TableCell>
+                        <TableCell className="font-mono text-sm">{entry.checkInTime || "—"}</TableCell>
+                        <TableCell>
+                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold ${scfg.bg} ${scfg.text}`}>
+                            {scfg.label}
+                          </span>
+                        </TableCell>
+                        <TableCell className="pr-4">
+                          {entry.status === "pending" && (
+                            <Button size="icon" variant="ghost" className="h-7 w-7 text-red-400 hover:bg-red-50" onClick={() => deleteOutdoorMutation.mutate(entry.id)} data-testid={`button-del-outdoor-${entry.id}`}>
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Outdoor Duty Dialog */}
+      <Dialog open={outdoorOpen} onOpenChange={setOutdoorOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2"><MapPin className="h-5 w-5 text-primary" />Log Outdoor Duty</DialogTitle>
+            <DialogDescription>Submit a field visit, client meeting, or any outdoor duty for approval</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Date <span className="text-red-500">*</span></label>
+              <Input type="date" value={outdoorForm.date} max={format(new Date(), "yyyy-MM-dd")} onChange={e => setOutdoorForm(f => ({ ...f, date: e.target.value }))} data-testid="input-outdoor-date" />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Purpose <span className="text-red-500">*</span></label>
+              <Textarea placeholder="e.g. Client meeting at ABC Corp" value={outdoorForm.purpose} onChange={e => setOutdoorForm(f => ({ ...f, purpose: e.target.value }))} rows={2} data-testid="input-outdoor-purpose" />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Location</label>
+              <Input placeholder="e.g. Mumbai, Client office" value={outdoorForm.location} onChange={e => setOutdoorForm(f => ({ ...f, location: e.target.value }))} data-testid="input-outdoor-location" />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">Check-out Time</label>
+                <Input type="time" value={outdoorForm.checkOutTime} onChange={e => setOutdoorForm(f => ({ ...f, checkOutTime: e.target.value }))} data-testid="input-outdoor-checkout" />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">Check-in Time</label>
+                <Input type="time" value={outdoorForm.checkInTime} onChange={e => setOutdoorForm(f => ({ ...f, checkInTime: e.target.value }))} data-testid="input-outdoor-checkin" />
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOutdoorOpen(false)}>Cancel</Button>
+            <Button disabled={!outdoorForm.date || !outdoorForm.purpose.trim() || createOutdoorMutation.isPending} onClick={() => createOutdoorMutation.mutate({ date: outdoorForm.date, purpose: outdoorForm.purpose, location: outdoorForm.location || undefined, checkOutTime: outdoorForm.checkOutTime || undefined, checkInTime: outdoorForm.checkInTime || undefined })} data-testid="button-submit-outdoor">
+              {createOutdoorMutation.isPending ? "Submitting…" : "Submit"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* ── Day Detail Dialog ──────────────────────────────────────── */}
       {selectedDay && (() => {
         const { date, rec } = selectedDay;

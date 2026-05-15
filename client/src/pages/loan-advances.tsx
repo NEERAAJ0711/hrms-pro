@@ -126,6 +126,19 @@ export default function FinancePage() {
     staleTime: 0,
   });
 
+  const { data: payslipRecords = [], isLoading: payslipLoading } = useQuery<any[]>({
+    queryKey: ["/api/my-payslips"],
+    staleTime: 0,
+    retry: false,
+    queryFn: async () => {
+      const res = await fetch("/api/my-payslips", { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+  });
+
+  const [expandedPayslip, setExpandedPayslip] = useState<string | null>(null);
+
   const invalidateLoans = () => qc.invalidateQueries({ queryKey: ["/api/loan-advances"] });
   const invalidateExp   = () => qc.invalidateQueries({ queryKey: ["/api/expenses"] });
 
@@ -315,6 +328,11 @@ export default function FinancePage() {
             <TabsTrigger value="expenses" className="gap-2">
               <Receipt className="h-4 w-4" />Expenses
             </TabsTrigger>
+            {!isAdmin && (
+              <TabsTrigger value="payslips" className="gap-2">
+                <FileText className="h-4 w-4" />Payslips
+              </TabsTrigger>
+            )}
           </TabsList>
 
           {/* ══ LOAN & ADVANCE TAB ══════════════════════════════════════════ */}
@@ -585,6 +603,141 @@ export default function FinancePage() {
               </CardContent>
             </Card>
           </TabsContent>
+
+          {/* ══ PAYSLIPS TAB ═════════════════════════════════════════════════ */}
+          {!isAdmin && (
+            <TabsContent value="payslips" className="space-y-4 mt-2">
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <FileText className="h-5 w-5 text-primary" />
+                    My Payslips
+                  </CardTitle>
+                  <p className="text-sm text-muted-foreground">View your salary breakdown for each month</p>
+                </CardHeader>
+                <CardContent className="p-0">
+                  {payslipLoading ? (
+                    <div className="p-6 space-y-3">{Array(3).fill(0).map((_, i) => <Skeleton key={i} className="h-20 w-full rounded-xl" />)}</div>
+                  ) : payslipRecords.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-16 gap-3 text-center">
+                      <div className="rounded-full bg-slate-100 p-4"><FileText className="h-8 w-8 text-slate-300" /></div>
+                      <div>
+                        <p className="font-medium text-slate-600">No payslips yet</p>
+                        <p className="text-sm text-slate-400 mt-1">Your payslips will appear here once payroll is processed</p>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="divide-y">
+                      {payslipRecords
+                        .sort((a: any, b: any) => {
+                          const months = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+                          const ai = months.indexOf(a.month) + a.year * 12;
+                          const bi = months.indexOf(b.month) + b.year * 12;
+                          return bi - ai;
+                        })
+                        .map((slip: any) => {
+                          const isExpanded = expandedPayslip === slip.id;
+                          const gross = slip.totalEarnings || 0;
+                          const net = slip.netSalary || 0;
+                          const deductions = slip.totalDeductions || 0;
+                          const statusCfg: Record<string, { bg: string; text: string; label: string }> = {
+                            paid:      { bg: "bg-green-100",  text: "text-green-700",  label: "Paid" },
+                            processed: { bg: "bg-blue-100",   text: "text-blue-700",   label: "Processed" },
+                            draft:     { bg: "bg-slate-100",  text: "text-slate-700",  label: "Draft" },
+                          };
+                          const cfg = statusCfg[slip.status] || statusCfg.draft;
+                          const earningsRows = [
+                            { label: "Basic Salary",        value: slip.basicSalary },
+                            { label: "HRA",                 value: slip.hra },
+                            { label: "Conveyance",          value: slip.conveyance },
+                            { label: "Medical Allowance",   value: slip.medicalAllowance },
+                            { label: "Special Allowance",   value: slip.specialAllowance },
+                            { label: "Other Allowances",    value: slip.otherAllowances },
+                            { label: "Bonus",               value: slip.bonus },
+                            ...(slip.otAmount > 0 ? [{ label: "OT Amount", value: slip.otAmount }] : []),
+                          ].filter(r => r.value && r.value > 0);
+                          const deductionRows = [
+                            { label: "PF (Employee)",    value: slip.pfEmployee },
+                            { label: "VPF",              value: slip.vpfAmount },
+                            { label: "ESI",              value: slip.esi },
+                            { label: "Professional Tax", value: slip.professionalTax },
+                            { label: "LWF",              value: slip.lwfEmployee },
+                            { label: "TDS",              value: slip.tds },
+                            { label: "Loan Deduction",   value: slip.loanDeduction },
+                            { label: "Other Deductions", value: slip.otherDeductions },
+                          ].filter(r => r.value && r.value > 0);
+                          return (
+                            <div key={slip.id} className="p-5">
+                              <div className="flex items-center justify-between gap-4">
+                                <div>
+                                  <p className="font-semibold text-base text-slate-800">{slip.month} {slip.year}</p>
+                                  <p className="text-xs text-slate-500 mt-0.5">
+                                    {slip.payDays || slip.presentDays} pay days &nbsp;·&nbsp;
+                                    {slip.workingDays} working days
+                                  </p>
+                                </div>
+                                <div className="flex items-center gap-3">
+                                  <div className="text-right">
+                                    <p className="text-xs text-slate-400">Net Salary</p>
+                                    <p className="text-xl font-bold text-slate-800">₹{Number(net).toLocaleString("en-IN")}</p>
+                                  </div>
+                                  <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${cfg.bg} ${cfg.text}`}>{cfg.label}</span>
+                                  <Button size="sm" variant="ghost" className="h-8 w-8 p-0" onClick={() => setExpandedPayslip(isExpanded ? null : slip.id)}>
+                                    {isExpanded ? <X className="h-4 w-4" /> : <FileText className="h-4 w-4 text-primary" />}
+                                  </Button>
+                                </div>
+                              </div>
+                              {isExpanded && (
+                                <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                  {/* Earnings */}
+                                  <div className="rounded-xl border border-green-200 bg-green-50/50 overflow-hidden">
+                                    <div className="bg-green-100 px-4 py-2 flex items-center justify-between">
+                                      <p className="text-xs font-bold text-green-800 uppercase tracking-wider">Earnings</p>
+                                      <p className="text-sm font-bold text-green-700">₹{Number(gross).toLocaleString("en-IN")}</p>
+                                    </div>
+                                    <div className="p-3 space-y-1.5">
+                                      {earningsRows.map(r => (
+                                        <div key={r.label} className="flex justify-between text-xs">
+                                          <span className="text-slate-600">{r.label}</span>
+                                          <span className="font-medium text-slate-700">₹{Number(r.value).toLocaleString("en-IN")}</span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                  {/* Deductions */}
+                                  <div className="rounded-xl border border-red-200 bg-red-50/50 overflow-hidden">
+                                    <div className="bg-red-100 px-4 py-2 flex items-center justify-between">
+                                      <p className="text-xs font-bold text-red-800 uppercase tracking-wider">Deductions</p>
+                                      <p className="text-sm font-bold text-red-700">₹{Number(deductions).toLocaleString("en-IN")}</p>
+                                    </div>
+                                    <div className="p-3 space-y-1.5">
+                                      {deductionRows.length === 0 ? (
+                                        <p className="text-xs text-slate-400 text-center py-2">No deductions</p>
+                                      ) : deductionRows.map(r => (
+                                        <div key={r.label} className="flex justify-between text-xs">
+                                          <span className="text-slate-600">{r.label}</span>
+                                          <span className="font-medium text-slate-700">₹{Number(r.value).toLocaleString("en-IN")}</span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                  {/* Net */}
+                                  <div className="sm:col-span-2 rounded-xl border border-primary/20 bg-primary/5 px-4 py-3 flex items-center justify-between">
+                                    <p className="font-semibold text-primary">Net Salary</p>
+                                    <p className="text-xl font-bold text-primary">₹{Number(net).toLocaleString("en-IN")}</p>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </TabsContent>
+          )}
+
         </Tabs>
       </div>
 

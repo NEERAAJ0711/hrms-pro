@@ -5873,6 +5873,165 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ===== My Payslips (employee self-service) =====
+  app.get("/api/my-payslips", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const employee = await storage.getEmployeeByUserId(user.id);
+      if (!employee) return res.status(404).json({ error: "Employee record not found" });
+      const records = await storage.getPayrollByEmployee(employee.id);
+      res.json(records.filter((p: any) => p.status === "paid" || p.status === "processed"));
+    } catch (err) {
+      res.status(500).json({ error: "Failed to fetch payslips" });
+    }
+  });
+
+  // ===== Leave Adjustment Routes =====
+  app.get("/api/leave-adjustments", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const isAdmin = ["super_admin", "company_admin", "hr_admin"].includes(user.role);
+      if (isAdmin) {
+        const rows = await storage.getLeaveAdjustmentsByCompany(user.companyId || "");
+        return res.json(rows);
+      }
+      const employee = await storage.getEmployeeByUserId(user.id);
+      if (!employee) return res.json([]);
+      res.json(await storage.getLeaveAdjustmentsByEmployee(employee.id));
+    } catch (err) {
+      res.status(500).json({ error: "Failed to fetch leave adjustments" });
+    }
+  });
+
+  app.post("/api/leave-adjustments", requireAuth, requireRole("super_admin", "company_admin", "hr_admin"), async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const row = await storage.createLeaveAdjustment({ ...req.body, companyId: req.body.companyId || user.companyId, adjustedBy: String(user.id) });
+      res.json(row);
+    } catch (err) {
+      res.status(500).json({ error: "Failed to create leave adjustment" });
+    }
+  });
+
+  app.delete("/api/leave-adjustments/:id", requireAuth, requireRole("super_admin", "company_admin", "hr_admin"), async (req, res) => {
+    try {
+      await storage.deleteLeaveAdjustment(req.params.id);
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: "Failed to delete" });
+    }
+  });
+
+  // ===== Comp-Off Routes =====
+  app.get("/api/comp-off", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const isAdmin = ["super_admin", "company_admin", "hr_admin", "manager"].includes(user.role);
+      if (isAdmin) {
+        const rows = await storage.getCompOffByCompany(user.companyId || "");
+        return res.json(rows);
+      }
+      const employee = await storage.getEmployeeByUserId(user.id);
+      if (!employee) return res.json([]);
+      res.json(await storage.getCompOffByEmployee(employee.id));
+    } catch (err) {
+      res.status(500).json({ error: "Failed to fetch comp-off applications" });
+    }
+  });
+
+  app.post("/api/comp-off", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const isAdmin = ["super_admin", "company_admin", "hr_admin", "manager"].includes(user.role);
+      let employeeId = req.body.employeeId;
+      let companyId = req.body.companyId || user.companyId;
+      if (!isAdmin) {
+        const employee = await storage.getEmployeeByUserId(user.id);
+        if (!employee) return res.status(400).json({ error: "No employee record linked" });
+        employeeId = employee.id;
+        companyId = employee.companyId;
+      }
+      const row = await storage.createCompOff({ ...req.body, employeeId, companyId, status: "pending" });
+      res.json(row);
+    } catch (err) {
+      res.status(500).json({ error: "Failed to create comp-off" });
+    }
+  });
+
+  app.patch("/api/comp-off/:id", requireAuth, requireRole("super_admin", "company_admin", "hr_admin", "manager"), async (req, res) => {
+    try {
+      const row = await storage.updateCompOff(req.params.id, req.body);
+      if (!row) return res.status(404).json({ error: "Not found" });
+      res.json(row);
+    } catch (err) {
+      res.status(500).json({ error: "Failed to update comp-off" });
+    }
+  });
+
+  app.delete("/api/comp-off/:id", requireAuth, async (req, res) => {
+    try {
+      await storage.deleteCompOff(req.params.id);
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: "Failed to delete" });
+    }
+  });
+
+  // ===== Outdoor Entry Routes =====
+  app.get("/api/outdoor-entries", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const isAdmin = ["super_admin", "company_admin", "hr_admin", "manager"].includes(user.role);
+      if (isAdmin) {
+        const rows = await storage.getOutdoorEntriesByCompany(user.companyId || "");
+        return res.json(rows);
+      }
+      const employee = await storage.getEmployeeByUserId(user.id);
+      if (!employee) return res.json([]);
+      res.json(await storage.getOutdoorEntriesByEmployee(employee.id));
+    } catch (err) {
+      res.status(500).json({ error: "Failed to fetch outdoor entries" });
+    }
+  });
+
+  app.post("/api/outdoor-entries", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const isAdmin = ["super_admin", "company_admin", "hr_admin", "manager"].includes(user.role);
+      let employeeId = req.body.employeeId;
+      let companyId = req.body.companyId || user.companyId;
+      if (!isAdmin) {
+        const employee = await storage.getEmployeeByUserId(user.id);
+        if (!employee) return res.status(400).json({ error: "No employee record linked" });
+        employeeId = employee.id;
+        companyId = employee.companyId;
+      }
+      const row = await storage.createOutdoorEntry({ ...req.body, employeeId, companyId, status: "pending" });
+      res.json(row);
+    } catch (err) {
+      res.status(500).json({ error: "Failed to create outdoor entry" });
+    }
+  });
+
+  app.patch("/api/outdoor-entries/:id", requireAuth, requireRole("super_admin", "company_admin", "hr_admin", "manager"), async (req, res) => {
+    try {
+      const row = await storage.updateOutdoorEntry(req.params.id, req.body);
+      if (!row) return res.status(404).json({ error: "Not found" });
+      res.json(row);
+    } catch (err) {
+      res.status(500).json({ error: "Failed to update outdoor entry" });
+    }
+  });
+
+  app.delete("/api/outdoor-entries/:id", requireAuth, async (req, res) => {
+    try {
+      await storage.deleteOutdoorEntry(req.params.id);
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: "Failed to delete outdoor entry" });
+    }
+  });
+
   // ===== Notification Routes =====
   app.get("/api/notifications", requireAuth, async (req, res) => {
     try {
