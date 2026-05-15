@@ -1,10 +1,12 @@
 import { useState, useMemo } from "react";
 import { useParams, useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import * as XLSX from "xlsx";
 import {
   ArrowLeft, RefreshCw, Users, UserCheck, CreditCard, Link2,
   BadgeCheck, Pencil, Trash2, Search, Filter, SlidersHorizontal,
   AlertTriangle, CheckCircle, Clock, RotateCcw, Fingerprint, History,
+  Download,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -314,6 +316,28 @@ export default function BiometricDeviceUsersPage() {
 
   const cardOnly = allUsers.filter(u => !u.enrolled && !u.matched);
 
+  const downloadExcel = () => {
+    const rows = filtered.map(u => {
+      const hrName = u.matched ? `${u.firstName || ""} ${u.lastName || ""}`.trim() : "";
+      return {
+        "PIN": u.deviceEmployeeId,
+        "Device Name": u.deviceName || "",
+        "Type": u.enrolled ? "Face Enrolled" : "Card Punch",
+        "HR Employee Code": u.hrEmployeeCode || "",
+        "HR Name": hrName,
+        "Designation": u.designation || "",
+        "Mapping Status": u.matched ? "Mapped" : "Unmapped",
+        "Punch Count": u.punchCount ?? 0,
+        "Last Punch": u.lastSeenAt ? u.lastSeenAt.substring(0, 10) : "",
+      };
+    });
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Device Users");
+    const deviceName = device?.name ? device.name.replace(/[^a-zA-Z0-9_-]/g, "_") : "Device";
+    XLSX.writeFile(wb, `${deviceName}_Users.xlsx`);
+  };
+
   return (
     <div className="flex flex-col min-h-full bg-background">
 
@@ -361,6 +385,18 @@ export default function BiometricDeviceUsersPage() {
         >
           <RefreshCw className={`h-3.5 w-3.5 ${syncMutation.isPending ? "animate-spin" : ""}`} />
           {syncMutation.isPending ? "Syncing…" : "Sync Users"}
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          className="gap-1.5 shrink-0"
+          onClick={downloadExcel}
+          disabled={allUsers.length === 0}
+          data-testid="button-download-excel"
+          title="Download visible users as Excel"
+        >
+          <Download className="h-3.5 w-3.5" />
+          Excel
         </Button>
       </div>
 
