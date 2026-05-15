@@ -52,7 +52,7 @@ const MODULE_ACCESS: Record<string, UserRole[]> = {
   companies: ["super_admin", "company_admin"],
   users: ["super_admin", "company_admin"],
   employees: ["super_admin", "company_admin", "hr_admin", "manager"],
-  attendance: ["super_admin", "company_admin", "hr_admin", "manager", "employee"],
+  attendance: ["super_admin", "company_admin", "hr_admin", "manager"],
   my_attendance: ["employee"],
   leave: ["super_admin", "company_admin", "hr_admin", "manager", "employee"],
   loan_advances: ["super_admin", "company_admin", "hr_admin", "manager", "employee"],
