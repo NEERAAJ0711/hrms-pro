@@ -8,13 +8,14 @@ import {
 import {
   ChevronLeft, ChevronRight, Clock, Calendar,
   CheckCircle2, XCircle, AlertCircle, Umbrella,
-  Coffee, TrendingUp, Download,
+  Coffee, TrendingUp, Download, LogIn, LogOut, Timer, StickyNote,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import * as XLSX from "xlsx";
 import type { Attendance, Employee, LeaveRequest, LeaveType, TimeOfficePolicy } from "@shared/schema";
 
@@ -31,9 +32,24 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; 
 const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const monthNames = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 
+// Calculate working hours from HH:MM strings
+function calcWorkingHrs(clockIn?: string | null, clockOut?: string | null): string | null {
+  if (!clockIn || !clockOut) return null;
+  const parseMin = (t: string) => {
+    const parts = t.replace(/[AP]M/i, "").trim().split(":");
+    return parseInt(parts[0]) * 60 + parseInt(parts[1] || "0");
+  };
+  const diff = parseMin(clockOut) - parseMin(clockIn);
+  if (diff <= 0) return null;
+  const h = Math.floor(diff / 60);
+  const m = diff % 60;
+  return m > 0 ? `${h}h ${m}m` : `${h}h`;
+}
+
 export default function MyAttendancePage() {
   const { user } = useAuth();
   const [currentDate, setCurrentDate] = useState(new Date());
+  const [selectedDay, setSelectedDay] = useState<{ date: Date; rec: Attendance | undefined } | null>(null);
 
   const selectedYear  = currentDate.getFullYear();
   const selectedMonth = currentDate.getMonth();
@@ -351,14 +367,18 @@ export default function MyAttendancePage() {
                   const cfg = status ? STATUS_CONFIG[status] : null;
                   const rec = getRecord(day);
                   const todayMark = isToday(day);
+                  const workHrs = rec ? calcWorkingHrs(rec.clockIn, rec.clockOut) : null;
+                  const clickable = !!cfg;
 
                   return (
                     <div
                       key={idx}
+                      onClick={() => clickable && setSelectedDay({ date: day, rec })}
                       className={`
                         relative rounded-md p-1 min-h-[44px] flex flex-col items-center justify-center gap-0.5 border transition-all
                         ${cfg ? `${cfg.bg} border-transparent` : "border-border bg-background"}
                         ${todayMark ? "ring-2 ring-primary ring-offset-1" : ""}
+                        ${clickable ? "cursor-pointer hover:brightness-95 hover:shadow-sm" : ""}
                       `}
                       data-testid={`cal-day-${format(day, "dd")}`}
                     >
@@ -370,9 +390,11 @@ export default function MyAttendancePage() {
                           {cfg.label === "Miss Punch" ? "Miss" : cfg.label.split(" ")[0]}
                         </span>
                       )}
-                      {rec?.clockIn && (
+                      {workHrs ? (
+                        <span className="text-[8px] text-muted-foreground leading-tight font-mono">{workHrs}</span>
+                      ) : rec?.clockIn ? (
                         <span className="text-[8px] text-muted-foreground leading-tight">{rec.clockIn}</span>
-                      )}
+                      ) : null}
                     </div>
                   );
                 })}
@@ -533,6 +555,84 @@ export default function MyAttendancePage() {
           </CardContent>
         </Card>
       )}
+      {/* ── Day Detail Dialog ──────────────────────────────────────── */}
+      {selectedDay && (() => {
+        const { date, rec } = selectedDay;
+        const status = getDayStatus(date);
+        const cfg = status ? STATUS_CONFIG[status] : null;
+        const leaveLabel = getDayLeaveLabel(date);
+        const workHrs = calcWorkingHrs(rec?.clockIn, rec?.clockOut);
+        const otVal = rec ? parseOt((rec as any).otHours) : 0;
+        return (
+          <Dialog open onOpenChange={() => setSelectedDay(null)}>
+            <DialogContent className="max-w-sm">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2 text-base">
+                  <Calendar className="h-4 w-4 text-primary" />
+                  {format(date, "EEEE, dd MMMM yyyy")}
+                  {isToday(date) && <Badge variant="outline" className="text-[10px] py-0 px-1.5 text-primary border-primary ml-1">Today</Badge>}
+                </DialogTitle>
+              </DialogHeader>
+              <div className="space-y-3 pt-1">
+                {/* Status */}
+                {cfg && (
+                  <div className={`flex items-center gap-2 px-3 py-2 rounded-lg ${cfg.bg}`}>
+                    <span className={cfg.color}>{cfg.icon}</span>
+                    <span className={`font-semibold text-sm ${cfg.color}`}>{leaveLabel || cfg.label}</span>
+                  </div>
+                )}
+
+                {/* Times grid */}
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="rounded-lg border p-3 space-y-1">
+                    <div className="flex items-center gap-1.5 text-muted-foreground">
+                      <LogIn className="h-3.5 w-3.5 text-green-600" />
+                      <span className="text-xs">Clock In</span>
+                    </div>
+                    <p className="text-sm font-semibold font-mono">{rec?.clockIn || "—"}</p>
+                  </div>
+                  <div className="rounded-lg border p-3 space-y-1">
+                    <div className="flex items-center gap-1.5 text-muted-foreground">
+                      <LogOut className="h-3.5 w-3.5 text-red-500" />
+                      <span className="text-xs">Clock Out</span>
+                    </div>
+                    <p className="text-sm font-semibold font-mono">{rec?.clockOut || "—"}</p>
+                  </div>
+                </div>
+
+                {/* Working hrs + OT */}
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="rounded-lg border p-3 space-y-1">
+                    <div className="flex items-center gap-1.5 text-muted-foreground">
+                      <Timer className="h-3.5 w-3.5 text-primary" />
+                      <span className="text-xs">Working Hrs</span>
+                    </div>
+                    <p className="text-sm font-semibold">{workHrs || "—"}</p>
+                  </div>
+                  <div className="rounded-lg border p-3 space-y-1">
+                    <div className="flex items-center gap-1.5 text-muted-foreground">
+                      <Clock className="h-3.5 w-3.5 text-orange-500" />
+                      <span className="text-xs">OT Hours</span>
+                    </div>
+                    <p className="text-sm font-semibold">{otVal > 0 ? `${otVal.toFixed(1)} h` : "—"}</p>
+                  </div>
+                </div>
+
+                {/* Notes */}
+                {rec?.notes && (
+                  <div className="rounded-lg border p-3 space-y-1">
+                    <div className="flex items-center gap-1.5 text-muted-foreground">
+                      <StickyNote className="h-3.5 w-3.5" />
+                      <span className="text-xs">Notes</span>
+                    </div>
+                    <p className="text-sm text-foreground">{rec.notes}</p>
+                  </div>
+                )}
+              </div>
+            </DialogContent>
+          </Dialog>
+        );
+      })()}
     </div>
   );
 }

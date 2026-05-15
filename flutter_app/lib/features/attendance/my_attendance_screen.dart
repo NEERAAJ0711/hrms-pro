@@ -68,7 +68,6 @@ class _MyAttendanceScreenState extends State<MyAttendanceScreen> {
     return total;
   }
 
-  // Approximate pay days: present + half_day*0.5 + on_leave + holiday + weekend
   double _payDays() {
     double pd = 0;
     for (final r in _records) {
@@ -81,6 +80,24 @@ class _MyAttendanceScreenState extends State<MyAttendanceScreen> {
       }
     }
     return pd;
+  }
+
+  // ── working hours ─────────────────────────────────────────────────────────
+  String? _calcWorkingHrs(String? clockIn, String? clockOut) {
+    if (clockIn == null || clockOut == null) return null;
+    try {
+      final inParts = clockIn.replaceAll(RegExp(r'[APM ]', caseSensitive: false), '').split(':');
+      final outParts = clockOut.replaceAll(RegExp(r'[APM ]', caseSensitive: false), '').split(':');
+      final inMin = int.parse(inParts[0]) * 60 + int.parse(inParts.length > 1 ? inParts[1] : '0');
+      final outMin = int.parse(outParts[0]) * 60 + int.parse(outParts.length > 1 ? outParts[1] : '0');
+      final diff = outMin - inMin;
+      if (diff <= 0) return null;
+      final h = diff ~/ 60;
+      final m = diff % 60;
+      return m > 0 ? '${h}h ${m}m' : '${h}h';
+    } catch (_) {
+      return null;
+    }
   }
 
   // ── status helpers ─────────────────────────────────────────────────────────
@@ -128,6 +145,129 @@ class _MyAttendanceScreenState extends State<MyAttendanceScreen> {
       if (d != null) map[d.day] = r;
     }
     return map;
+  }
+
+  // ── day detail bottom sheet ────────────────────────────────────────────────
+  void _showDayDetail(BuildContext context, int day, dynamic rec) {
+    final status = rec?['status'] as String?;
+    final color = _statusColor(status);
+    final workHrs = _calcWorkingHrs(rec?['clockIn']?.toString(), rec?['clockOut']?.toString());
+    final otVal = double.tryParse(rec?['otHours']?.toString() ?? '') ?? 0;
+    final notes = rec?['notes']?.toString();
+
+    final date = DateTime(_year, _month, day);
+    const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    final dayName = days[date.weekday - 1];
+    final dateStr = '${day.toString().padLeft(2, '0')} ${_months[_month - 1]} $_year';
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (_) => Padding(
+        padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(width: 40, height: 4, margin: const EdgeInsets.only(bottom: 16),
+                decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2))),
+            ),
+            // Date header
+            Row(children: [
+              const Icon(Icons.calendar_today_outlined, size: 16, color: AppTheme.primaryColor),
+              const SizedBox(width: 8),
+              Text('$dayName, $dateStr',
+                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppTheme.textPrimary)),
+            ]),
+            const SizedBox(height: 16),
+            // Status chip
+            if (status != null)
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                decoration: BoxDecoration(color: color.withOpacity(0.12), borderRadius: BorderRadius.circular(10)),
+                child: Row(children: [
+                  Icon(_statusIcon(status), color: color, size: 18),
+                  const SizedBox(width: 8),
+                  Text(_statusFull(status), style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: color)),
+                ]),
+              ),
+            const SizedBox(height: 12),
+            // Time grid
+            Row(children: [
+              Expanded(child: _detailCard('Clock In', rec?['clockIn']?.toString() ?? '—',
+                Icons.login_outlined, const Color(0xFF22C55E))),
+              const SizedBox(width: 10),
+              Expanded(child: _detailCard('Clock Out', rec?['clockOut']?.toString() ?? '—',
+                Icons.logout_outlined, const Color(0xFFEF4444))),
+            ]),
+            const SizedBox(height: 10),
+            Row(children: [
+              Expanded(child: _detailCard('Working Hrs', workHrs ?? '—',
+                Icons.timer_outlined, AppTheme.primaryColor)),
+              const SizedBox(width: 10),
+              Expanded(child: _detailCard('OT Hours', otVal > 0 ? '${otVal.toStringAsFixed(1)}h' : '—',
+                Icons.more_time, const Color(0xFFF97316))),
+            ]),
+            if (notes != null && notes.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF8FAFC),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                ),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  const Row(children: [
+                    Icon(Icons.sticky_note_2_outlined, size: 14, color: AppTheme.textSecondary),
+                    SizedBox(width: 6),
+                    Text('Notes', style: TextStyle(fontSize: 11, color: AppTheme.textSecondary)),
+                  ]),
+                  const SizedBox(height: 4),
+                  Text(notes, style: const TextStyle(fontSize: 13, color: AppTheme.textPrimary)),
+                ]),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _detailCard(String label, String value, IconData icon, Color color) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.06),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: color.withOpacity(0.2)),
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          Icon(icon, size: 13, color: color),
+          const SizedBox(width: 5),
+          Text(label, style: TextStyle(fontSize: 10, color: color.withOpacity(0.8))),
+        ]),
+        const SizedBox(height: 4),
+        Text(value, style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: color)),
+      ]),
+    );
+  }
+
+  IconData _statusIcon(String? s) {
+    switch (s) {
+      case 'present':  return Icons.check_circle_outline;
+      case 'half_day': return Icons.timelapse;
+      case 'on_leave': return Icons.beach_access;
+      case 'holiday':  return Icons.celebration;
+      case 'weekend':  return Icons.weekend;
+      case 'absent':   return Icons.cancel_outlined;
+      default:         return Icons.help_outline;
+    }
   }
 
   // ── build ──────────────────────────────────────────────────────────────────
@@ -259,35 +399,58 @@ class _MyAttendanceScreenState extends State<MyAttendanceScreen> {
       ),
       padding: const EdgeInsets.all(12),
       child: Column(children: [
-        Row(children: dayNames.map((d) => Expanded(child: Center(child: Text(d, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppTheme.textSecondary))))).toList()),
+        Row(children: dayNames.map((d) => Expanded(child: Center(child: Text(d,
+          style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppTheme.textSecondary))))).toList()),
         const SizedBox(height: 8),
         GridView.builder(
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
           gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: 7,
-            childAspectRatio: 1,
+            childAspectRatio: 0.72,
             crossAxisSpacing: 3,
             mainAxisSpacing: 3,
           ),
           itemCount: firstWeekday + daysInMonth,
-          itemBuilder: (_, i) {
+          itemBuilder: (ctx, i) {
             if (i < firstWeekday) return const SizedBox();
             final day = i - firstWeekday + 1;
             final rec = byDay[day];
             final isToday = today.year == _year && today.month == _month && today.day == day;
             final color = rec != null ? _statusColor(rec['status']) : null;
-            return Container(
-              decoration: BoxDecoration(
-                color: color?.withOpacity(0.15) ?? Colors.transparent,
-                borderRadius: BorderRadius.circular(6),
-                border: isToday ? Border.all(color: AppTheme.primaryColor, width: 2) : null,
+            final workHrs = rec != null
+                ? _calcWorkingHrs(rec['clockIn']?.toString(), rec['clockOut']?.toString())
+                : null;
+
+            return GestureDetector(
+              onTap: rec != null || isToday ? () => _showDayDetail(ctx, day, rec) : null,
+              child: Container(
+                decoration: BoxDecoration(
+                  color: color?.withOpacity(0.15) ?? Colors.transparent,
+                  borderRadius: BorderRadius.circular(6),
+                  border: isToday
+                      ? Border.all(color: AppTheme.primaryColor, width: 2)
+                      : (rec != null ? Border.all(color: color!.withOpacity(0.3), width: 0.5) : null),
+                ),
+                child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                  Text('$day', style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: isToday ? FontWeight.bold : FontWeight.normal,
+                    color: isToday ? AppTheme.primaryColor : AppTheme.textPrimary,
+                  )),
+                  if (rec != null)
+                    Text(_statusLabel(rec['status']),
+                      style: TextStyle(fontSize: 7, fontWeight: FontWeight.bold, color: color)),
+                  if (workHrs != null)
+                    Text(workHrs,
+                      style: TextStyle(fontSize: 6.5, color: color?.withOpacity(0.8) ?? AppTheme.textSecondary),
+                      overflow: TextOverflow.ellipsis)
+                  else if (rec?['clockIn'] != null)
+                    Text(rec['clockIn'].toString(),
+                      style: const TextStyle(fontSize: 6.5, color: AppTheme.textSecondary),
+                      overflow: TextOverflow.ellipsis),
+                ]),
               ),
-              child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-                Text('$day', style: TextStyle(fontSize: 11, fontWeight: isToday ? FontWeight.bold : FontWeight.normal, color: isToday ? AppTheme.primaryColor : AppTheme.textPrimary)),
-                if (rec != null)
-                  Text(_statusLabel(rec['status']), style: TextStyle(fontSize: 8, fontWeight: FontWeight.bold, color: color)),
-              ]),
             );
           },
         ),
@@ -353,6 +516,7 @@ class _MyAttendanceScreenState extends State<MyAttendanceScreen> {
     final statusColor = _statusColor(r['status']);
     final today = DateTime.now();
     final isToday = date != null && date.year == today.year && date.month == today.month && date.day == today.day;
+    final workHrs = _calcWorkingHrs(r['clockIn']?.toString(), r['clockOut']?.toString());
 
     String dateStr = '-';
     String dayStr = '';
@@ -362,63 +526,80 @@ class _MyAttendanceScreenState extends State<MyAttendanceScreen> {
       dayStr = days[date.weekday - 1];
     }
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 6),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: isToday ? AppTheme.primaryColor.withOpacity(0.05) : Colors.white,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: isToday ? AppTheme.primaryColor.withOpacity(0.3) : const Color(0xFFE2E8F0)),
-      ),
-      child: Row(children: [
-        // Date block
-        SizedBox(
-          width: 48,
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(dateStr, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: isToday ? AppTheme.primaryColor : AppTheme.textPrimary)),
-            Text(dayStr, style: const TextStyle(fontSize: 10, color: AppTheme.textSecondary)),
-          ]),
+    return GestureDetector(
+      onTap: () {
+        if (date != null) _showDayDetail(context, date.day, r);
+      },
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: isToday ? AppTheme.primaryColor.withOpacity(0.05) : Colors.white,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: isToday ? AppTheme.primaryColor.withOpacity(0.3) : const Color(0xFFE2E8F0)),
         ),
-        const SizedBox(width: 8),
-        // Status badge
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-          decoration: BoxDecoration(color: statusColor.withOpacity(0.12), borderRadius: BorderRadius.circular(6)),
-          child: Text(_statusFull(r['status']), style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: statusColor)),
-        ),
-        const Spacer(),
-        // Times
-        if (r['clockIn'] != null || r['clockOut'] != null)
-          Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-            if (r['clockIn'] != null)
-              Row(mainAxisSize: MainAxisSize.min, children: [
-                const Icon(Icons.login, size: 11, color: Color(0xFF22C55E)),
-                const SizedBox(width: 3),
-                Text(_formatTime(r['clockIn']), style: const TextStyle(fontSize: 11, color: AppTheme.textPrimary)),
-              ]),
-            if (r['clockOut'] != null)
-              Row(mainAxisSize: MainAxisSize.min, children: [
-                const Icon(Icons.logout, size: 11, color: AppTheme.errorColor),
-                const SizedBox(width: 3),
-                Text(_formatTime(r['clockOut']), style: const TextStyle(fontSize: 11, color: AppTheme.textPrimary)),
-              ]),
-          ]),
-        // OT badge
-        if (r['otHours'] != null && (double.tryParse(r['otHours'].toString()) ?? 0) > 0) ...[
-          const SizedBox(width: 8),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-            decoration: BoxDecoration(color: const Color(0xFF0EA5E9).withOpacity(0.1), borderRadius: BorderRadius.circular(6)),
-            child: Text('OT ${r['otHours']}h', style: const TextStyle(fontSize: 10, color: Color(0xFF0EA5E9), fontWeight: FontWeight.w600)),
+        child: Row(children: [
+          // Date block
+          SizedBox(
+            width: 48,
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(dateStr, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600,
+                color: isToday ? AppTheme.primaryColor : AppTheme.textPrimary)),
+              Text(dayStr, style: const TextStyle(fontSize: 10, color: AppTheme.textSecondary)),
+            ]),
           ),
-        ],
-      ]),
+          const SizedBox(width: 8),
+          // Status badge
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+            decoration: BoxDecoration(color: statusColor.withOpacity(0.12), borderRadius: BorderRadius.circular(6)),
+            child: Text(_statusFull(r['status']),
+              style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: statusColor)),
+          ),
+          const Spacer(),
+          // Working hours (primary) + OT badge
+          Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+            if (workHrs != null)
+              Row(mainAxisSize: MainAxisSize.min, children: [
+                const Icon(Icons.timer_outlined, size: 11, color: AppTheme.primaryColor),
+                const SizedBox(width: 3),
+                Text(workHrs, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppTheme.primaryColor)),
+              ])
+            else if (r['clockIn'] != null || r['clockOut'] != null)
+              Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+                if (r['clockIn'] != null)
+                  Row(mainAxisSize: MainAxisSize.min, children: [
+                    const Icon(Icons.login, size: 11, color: Color(0xFF22C55E)),
+                    const SizedBox(width: 3),
+                    Text(_formatTime(r['clockIn']),
+                      style: const TextStyle(fontSize: 11, color: AppTheme.textPrimary)),
+                  ]),
+                if (r['clockOut'] != null)
+                  Row(mainAxisSize: MainAxisSize.min, children: [
+                    const Icon(Icons.logout, size: 11, color: AppTheme.errorColor),
+                    const SizedBox(width: 3),
+                    Text(_formatTime(r['clockOut']),
+                      style: const TextStyle(fontSize: 11, color: AppTheme.textPrimary)),
+                  ]),
+              ]),
+            if (r['otHours'] != null && (double.tryParse(r['otHours'].toString()) ?? 0) > 0)
+              Container(
+                margin: const EdgeInsets.only(top: 2),
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(color: const Color(0xFF0EA5E9).withOpacity(0.1), borderRadius: BorderRadius.circular(6)),
+                child: Text('OT ${r['otHours']}h',
+                  style: const TextStyle(fontSize: 9, color: Color(0xFF0EA5E9), fontWeight: FontWeight.w600)),
+              ),
+          ]),
+          const SizedBox(width: 6),
+          const Icon(Icons.chevron_right, size: 14, color: AppTheme.textSecondary),
+        ]),
+      ),
     );
   }
 
   String _formatTime(String? t) {
     if (t == null) return '-';
-    // Handle ISO datetime or plain time string
     if (t.contains('T')) {
       try {
         final dt = DateTime.parse(t).toLocal();
