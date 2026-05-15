@@ -1,3 +1,4 @@
+// HRMS Pro — API Routes
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
