@@ -6027,6 +6027,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = (req as any).user;
       const isAdmin = ["super_admin", "company_admin", "hr_admin", "manager"].includes(user.role);
       if (isAdmin) {
+        if (user.role === "super_admin" && !user.companyId) {
+          const rows = await storage.getAllCompOff();
+          return res.json(rows);
+        }
         const rows = await storage.getCompOffByCompany(user.companyId || "");
         return res.json(rows);
       }

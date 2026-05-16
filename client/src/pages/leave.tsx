@@ -93,6 +93,7 @@ export default function LeavePage() {
   const { user } = useAuth();
   const isSuperAdmin = user?.role === "super_admin";
   const isAdmin = user?.role === "super_admin" || user?.role === "company_admin";
+  const canApproveLeave = ["super_admin", "company_admin", "hr_admin", "manager"].includes(user?.role || "");
   const isEmployee = user?.role === "employee";
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [selectedStatus, setSelectedStatus] = useState<string>("__all__");
@@ -881,7 +882,7 @@ export default function LeavePage() {
                         <TableCell>{request.days}</TableCell>
                         <TableCell><Badge className={statusColors[request.status] || ""}>{request.status.charAt(0).toUpperCase() + request.status.slice(1)}</Badge></TableCell>
                         <TableCell>
-                          {isAdmin && request.status === "pending" && (
+                          {canApproveLeave && request.status === "pending" && (
                             <div className="flex items-center gap-2">
                               <Button size="sm" variant="outline" className="text-green-600 hover:text-green-700" onClick={() => approveMutation.mutate({ id: request.id, status: "approved" })} disabled={approveMutation.isPending} data-testid={`button-approve-${request.id}`}><Check className="h-4 w-4" /></Button>
                               <Button size="sm" variant="outline" className="text-red-600 hover:text-red-700" onClick={() => approveMutation.mutate({ id: request.id, status: "rejected" })} disabled={approveMutation.isPending} data-testid={`button-reject-${request.id}`}><X className="h-4 w-4" /></Button>
@@ -943,7 +944,7 @@ export default function LeavePage() {
                           <TableCell><Badge className={scfg}>{co.status.charAt(0).toUpperCase() + co.status.slice(1)}</Badge></TableCell>
                           <TableCell>
                             <div className="flex items-center gap-1">
-                              {co.status === "pending" && isAdmin && (
+                              {co.status === "pending" && canApproveLeave && (
                                 <>
                                   <Button size="sm" variant="outline" className="text-green-600 hover:text-green-700 h-7 px-2" onClick={() => approveCompOffMutation.mutate({ id: co.id, data: { status: "approved", approvedAt: new Date().toISOString() } })} disabled={approveCompOffMutation.isPending} data-testid={`button-approve-co-${co.id}`}><Check className="h-3.5 w-3.5" /></Button>
                                   <Button size="sm" variant="outline" className="text-red-600 hover:text-red-700 h-7 px-2" onClick={() => { setSelectedCompOff(co); setCompOffRejectOpen(true); }} data-testid={`button-reject-co-${co.id}`}><X className="h-3.5 w-3.5" /></Button>

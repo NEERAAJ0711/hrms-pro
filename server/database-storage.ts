@@ -1107,6 +1107,9 @@ export class DatabaseStorage implements IStorage {
     return result.length > 0;
   }
 
+  async getAllCompOff(): Promise<any[]> {
+    return await db.select().from(compOffApplications).orderBy(desc(compOffApplications.createdAt));
+  }
   async getCompOffByCompany(companyId: string): Promise<any[]> {
     return await db.select().from(compOffApplications).where(eq(compOffApplications.companyId, companyId)).orderBy(desc(compOffApplications.createdAt));
   }
