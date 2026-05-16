@@ -4015,7 +4015,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/leave-requests", requireAuth, async (req, res) => {
     try {
       const user = (req as any).user;
-      const data = insertLeaveRequestSchema.parse(req.body);
+      // Normalize before Zod parse: numeric columns expect string, frontend may send number
+      const body = { ...req.body, days: String(req.body.days ?? "1") };
+      const data = insertLeaveRequestSchema.parse(body);
       const request = await storage.createLeaveRequest(data);
       // Notify HR/admins about new leave request
       try {
@@ -4032,6 +4034,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       res.status(201).json(request);
     } catch (error) {
+      console.error("[leave-requests POST] error:", error);
       res.status(500).json({ error: "Failed to create leave request" });
     }
   });
