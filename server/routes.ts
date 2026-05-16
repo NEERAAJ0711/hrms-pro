@@ -5923,19 +5923,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ===== Comp-Off Routes =====
-  // Returns attendance dates eligible for comp-off, filtered by type.
+  // Returns attendance dates eligible for comp-off, purely from the attendance table.
   //
-  // "weekly_off"  → any Sat/Sun in the last 90 days where the employee has a
-  //                 punch record (biometric_punch_logs) OR an attendance row
-  //                 with status = "present" / "weekend".  We use punch logs as
-  //                 the primary source so this works even when payroll hasn't
-  //                 been generated yet (payroll generation is what normally
-  //                 creates "weekend" rows in the attendance table).
+  // "weekly_off"  → attendance rows with status = "weekend" in last 90 days
+  //                 (these are the employee's marked weekly-off days)
+  // "holiday"     → attendance rows with status = "holiday" in last 90 days
+  // "extra_shift" → attendance rows with status = "present" and otHours > 0
   //
-  // "holiday"     → any company holiday in the last 90 days where the employee
-  //                 has a punch record or a "holiday" / "present" attendance row.
-  //
-  // "extra_shift" → attendance rows with OT hours > 0 in the last 90 days.
+  // No biometric punch log lookup. No day-of-week filtering.
+  // Works for any weekly-off schedule (Sat/Sun, Sun-only, rotating shifts, etc.)
   app.get("/api/comp-off/qualifying-dates", requireAuth, async (req, res) => {
     try {
       const user = (req as any).user;
@@ -5946,89 +5942,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log(`[comp-off/qualifying-dates] employee=${employee?.id ?? "NOT FOUND"}`);
       if (!employee) return res.json([]);
 
-      // ── window ────────────────────────────────────────────────────────────
-      const today = new Date();
-      today.setHours(23, 59, 59, 999);
-      const cutoff = new Date();
-      cutoff.setDate(cutoff.getDate() - 90);
-      cutoff.setHours(0, 0, 0, 0);
+      // 90-day window (YYYY-MM-DD strings, safe for lexicographic comparison)
+      const pad = (n: number) => String(n).padStart(2, "0");
+      const fmt = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+      const todayStr  = fmt(new Date());
+      const cutoffD   = new Date(); cutoffD.setDate(cutoffD.getDate() - 90);
+      const cutoffStr = fmt(cutoffD);
 
-      const fmt = (d: Date) =>
-        `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-
-      const cutoffStr = fmt(cutoff);
-      const todayStr  = fmt(today);
-
-      // ── attendance rows in the window ─────────────────────────────────────
-      const allAtt = await storage.getAttendanceByEmployee(employee.id);
-      const attInWindow = allAtt.filter(r => r.date && r.date >= cutoffStr && r.date <= todayStr);
-      const attByDate = new Map(attInWindow.map(r => [r.date, r]));
-
-      console.log(`[comp-off/qualifying-dates] allAtt=${allAtt.length} inWindow=${attInWindow.length}`);
-
-      // ── biometric punch dates in the window ───────────────────────────────
-      // Raw SQL: one row per distinct date on which the employee punched in.
-      const punchRows = await db.execute(sql`
-        SELECT DISTINCT punch_date AS date
-        FROM   biometric_punch_logs
+      // Pull all attendance for this employee in the 90-day window via raw SQL
+      // (avoids loading thousands of rows for long-tenured employees)
+      const rows = await db.execute(sql`
+        SELECT date, status, ot_hours AS "otHours"
+        FROM   attendance
         WHERE  employee_id = ${employee.id}
-          AND  punch_date  >= ${cutoffStr}
-          AND  punch_date  <= ${todayStr}
-          AND  is_duplicate = false
+          AND  date >= ${cutoffStr}
+          AND  date <= ${todayStr}
+        ORDER  BY date DESC
       `);
-      const punchDates = new Set<string>((punchRows.rows as any[]).map((r: any) => r.date as string));
-      console.log(`[comp-off/qualifying-dates] punchDates=${punchDates.size}`);
+      const attRows = rows.rows as Array<{ date: string; status: string; otHours: string | null }>;
+      console.log(`[comp-off/qualifying-dates] attRows=${attRows.length} type=${type}`);
 
-      // ── company holidays ──────────────────────────────────────────────────
-      const holidays = await storage.getHolidaysByCompany(employee.companyId);
-      const holidaySet = new Set(holidays.map((h: any) => h.date as string));
-
-      // ── build eligible list ───────────────────────────────────────────────
-      let eligible: Array<{ date: string; status: string; otHours?: string | null }> = [];
-
+      // Filter by type
+      let eligible: typeof attRows;
       if (type === "weekly_off") {
-        // Walk every calendar day in the window; keep Saturdays and Sundays where
-        // ANY of the following is true:
-        //   a) employee has a biometric punch on that day (they definitely came in)
-        //   b) attendance status = "present" / "miss_punch" on a Sat/Sun
-        //   c) attendance status = "weekend" — this means payroll already marked it
-        //      as the employee's weekly-off; the comp-off claim is then verified by
-        //      the approving admin rather than by the system.
-        // Without (c), employees whose attendance was payroll-generated (which creates
-        // "weekend" rows) would never see any qualifying dates.
-        const d = new Date(cutoff);
-        while (d <= today) {
-          const dateStr = fmt(d);
-          const dow = d.getDay(); // 0=Sun 6=Sat
-          if (dow === 0 || dow === 6) {
-            const att = attByDate.get(dateStr);
-            const hadPunch     = punchDates.has(dateStr);
-            const presentInAtt = att?.status === "present" || att?.status === "miss_punch";
-            const weekendInAtt = att?.status === "weekend";
-            if (hadPunch || presentInAtt || weekendInAtt) {
-              eligible.push({ date: dateStr, status: att?.status ?? "present", otHours: att?.otHours });
-            }
-          }
-          d.setDate(d.getDate() + 1);
-        }
+        eligible = attRows.filter(r => r.status === "weekend");
       } else if (type === "holiday") {
-        // Keep holiday dates where the employee has a punch OR att row
-        for (const hDate of holidaySet) {
-          if (hDate < cutoffStr || hDate > todayStr) continue;
-          const att = attByDate.get(hDate);
-          const hadPunch = punchDates.has(hDate);
-          const presentInAtt = att?.status === "present" || att?.status === "miss_punch";
-          if (hadPunch || presentInAtt || att?.status === "holiday") {
-            eligible.push({ date: hDate, status: att?.status ?? "holiday", otHours: att?.otHours });
-          }
-        }
+        eligible = attRows.filter(r => r.status === "holiday");
       } else if (type === "extra_shift") {
-        // Attendance rows with measurable OT hours
-        for (const rec of attInWindow) {
-          if (rec.status === "present" && rec.otHours && parseFloat(rec.otHours) > 0) {
-            eligible.push({ date: rec.date, status: rec.status, otHours: rec.otHours });
-          }
-        }
+        eligible = attRows.filter(r => r.status === "present" && r.otHours && parseFloat(r.otHours) > 0);
+      } else {
+        eligible = [];
       }
 
       console.log(`[comp-off/qualifying-dates] eligible before dedup=${eligible.length}`);
@@ -6036,13 +5979,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Remove dates already applied for comp-off
       const existing = await storage.getCompOffByEmployee(employee.id);
       const usedDates = new Set(
-        existing.map((c: any) => c.workedDate ?? c.worked_date ?? null).filter(Boolean)
+        existing.map((c: any) => (c.workedDate ?? c.worked_date ?? null) as string | null).filter(Boolean)
       );
       eligible = eligible.filter(r => !usedDates.has(r.date));
 
-      console.log(`[comp-off/qualifying-dates] final=${eligible.length} used=${[...usedDates].join(",")}`);
-
-      res.json(eligible.sort((a, b) => b.date.localeCompare(a.date)));
+      console.log(`[comp-off/qualifying-dates] final=${eligible.length}`);
+      res.json(eligible);
     } catch (err) {
       console.error("[comp-off qualifying-dates]", err);
       res.status(500).json({ error: "Failed to fetch qualifying dates" });
