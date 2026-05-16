@@ -202,7 +202,7 @@ export default function LeavePage() {
   const { data: compOffRecords = [] } = useQuery<any[]>({ queryKey: ["/api/comp-off"], staleTime: 0 });
   const { data: qualifyingDates = [], isLoading: qualDatesLoading } = useQuery<any[]>({
     queryKey: ["/api/comp-off/qualifying-dates", compOffForm.workedType],
-    enabled: compOffOpen && isEmployee,
+    enabled: compOffOpen,
     staleTime: 0,
     queryFn: async () => {
       const res = await fetch(`/api/comp-off/qualifying-dates?type=${compOffForm.workedType}`, { credentials: "include" });
