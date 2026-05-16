@@ -5952,14 +5952,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Pull all attendance for this employee in the 90-day window via raw SQL
       // (avoids loading thousands of rows for long-tenured employees)
       const rows = await db.execute(sql`
-        SELECT date, status, ot_hours AS "otHours"
+        SELECT date, status, ot_hours AS "otHours", clock_in AS "clockIn"
         FROM   attendance
         WHERE  employee_id = ${employee.id}
           AND  date >= ${cutoffStr}
           AND  date <= ${todayStr}
         ORDER  BY date DESC
       `);
-      const attRows = rows.rows as Array<{ date: string; status: string; otHours: string | null }>;
+      const attRows = rows.rows as Array<{ date: string; status: string; otHours: string | null; clockIn: string | null }>;
       console.log(`[comp-off/qualifying-dates] attRows=${attRows.length} type=${type}`);
 
       // Company holidays for "holiday" type
@@ -5972,19 +5972,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Comp-off is only valid when the employee was genuinely present on a day
       // they were supposed to be off.
       let eligible: typeof attRows;
+
+      // Helper: did the employee actually punch in on this record?
+      // The biometric sync writes real times into clock_in but keeps status="weekend"
+      // or status="holiday" — it never overwrites those statuses to "present".
+      // So we check clock_in: if it exists and is NOT "00:00" / "00:00:00" / null,
+      // the employee genuinely came in that day.
+      const hadPunch = (r: typeof attRows[number]) =>
+        r.clockIn && r.clockIn !== "00:00" && r.clockIn !== "00:00:00";
+
       if (type === "weekly_off") {
-        // Present on a Saturday (6) or Sunday (0) = worked on their weekly off
+        // Worked on their weekly off = "present" on Sat/Sun
+        //                            OR "weekend" on Sat/Sun but has actual punch times
         eligible = attRows.filter(r => {
-          if (r.status !== "present") return false;
           const [y, m, d] = r.date.split("-").map(Number);
           const dow = new Date(y, m - 1, d).getDay();
-          return dow === 0 || dow === 6;
+          const isWeekend = dow === 0 || dow === 6;
+          if (!isWeekend) return false;
+          return r.status === "present" || (r.status === "weekend" && hadPunch(r));
         });
       } else if (type === "holiday") {
-        // Present on a company holiday = worked on a public holiday
-        eligible = attRows.filter(r => r.status === "present" && holidaySet.has(r.date));
+        // Worked on a public holiday = "present" on a holiday date
+        //                             OR "holiday" status but has actual punch times
+        eligible = attRows.filter(r =>
+          holidaySet.has(r.date) &&
+          (r.status === "present" || (r.status === "holiday" && hadPunch(r)))
+        );
       } else if (type === "extra_shift") {
-        // Present with measured OT hours = worked beyond shift hours
+        // Worked beyond shift hours = "present" with measured OT > 0
         eligible = attRows.filter(r => r.status === "present" && r.otHours && parseFloat(r.otHours) > 0);
       } else {
         eligible = [];
