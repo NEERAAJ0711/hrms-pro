@@ -5966,7 +5966,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           AND  date <= ${todayStr}
         ORDER  BY date DESC
       `);
-      const attRows = rows.rows as Array<{ date: string; status: string; otHours: string | null; clockIn: string | null }>;
+      const attRows = ((rows as any).rows ?? rows) as Array<{ date: string; status: string; otHours: string | null; clockIn: string | null }>;
       console.log(`[comp-off/qualifying-dates] attRows=${attRows.length} type=${type}`);
 
       // Company holidays for "holiday" type
