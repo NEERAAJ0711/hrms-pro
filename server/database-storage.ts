@@ -1114,9 +1114,18 @@ export class DatabaseStorage implements IStorage {
     return await db.select().from(compOffApplications).where(eq(compOffApplications.employeeId, employeeId)).orderBy(desc(compOffApplications.createdAt));
   }
   async createCompOff(data: any): Promise<any> {
-    const row = { ...data, id: randomUUID(), createdAt: new Date().toISOString() };
-    const result = await db.insert(compOffApplications).values(row).returning();
-    return result[0];
+    const id = randomUUID();
+    const createdAt = new Date().toISOString();
+    const result = await db.execute(sql`
+      INSERT INTO comp_off_applications
+        (id, company_id, employee_id, worked_date, worked_type, credited_days, purpose, status, created_at)
+      VALUES
+        (${id}, ${data.companyId}, ${data.employeeId}, ${data.workedDate},
+         ${data.workedType || 'weekly_off'}, ${String(data.creditedDays ?? '1')},
+         ${data.purpose || ''}, ${'pending'}, ${createdAt})
+      RETURNING *
+    `);
+    return (result as any).rows?.[0] ?? result[0];
   }
   async updateCompOff(id: string, data: any): Promise<any> {
     const result = await db.update(compOffApplications).set(data).where(eq(compOffApplications.id, id)).returning();

@@ -200,6 +200,16 @@ export default function LeavePage() {
 
   // ── Comp-Off queries & mutations ────────────────────────────────────────
   const { data: compOffRecords = [] } = useQuery<any[]>({ queryKey: ["/api/comp-off"], staleTime: 0 });
+  const { data: qualifyingDates = [], isLoading: qualDatesLoading } = useQuery<any[]>({
+    queryKey: ["/api/comp-off/qualifying-dates", compOffForm.workedType],
+    enabled: compOffOpen && isEmployee,
+    staleTime: 0,
+    queryFn: async () => {
+      const res = await fetch(`/api/comp-off/qualifying-dates?type=${compOffForm.workedType}`, { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+  });
   const { data: leaveAdjRecords = [] } = useQuery<any[]>({ queryKey: ["/api/leave-adjustments"], staleTime: 0, enabled: !isEmployee });
   const invalidateCompOff = () => queryClient.invalidateQueries({ queryKey: ["/api/comp-off"] });
   const invalidateLeaveAdj = () => queryClient.invalidateQueries({ queryKey: ["/api/leave-adjustments"] });
@@ -708,7 +718,7 @@ export default function LeavePage() {
                   ].map(opt => (
                     <button key={opt.value} type="button"
                       className={`flex-1 py-2 text-xs font-medium transition-colors ${compOffForm.workedType === opt.value ? "bg-primary text-white" : "bg-white text-slate-600 hover:bg-slate-50"}`}
-                      onClick={() => setCompOffForm(f => ({ ...f, workedType: opt.value }))}
+                      onClick={() => setCompOffForm(f => ({ ...f, workedType: opt.value, workedDate: "" }))}
                       data-testid={`btn-compoff-type-${opt.value}`}
                     >{opt.label}</button>
                   ))}
@@ -716,7 +726,25 @@ export default function LeavePage() {
               </div>
               <div className="space-y-1.5">
                 <label className="text-sm font-medium">Date Worked <span className="text-red-500">*</span></label>
-                <Input type="date" value={compOffForm.workedDate} onChange={e => setCompOffForm(f => ({ ...f, workedDate: e.target.value }))} max={format(new Date(), "yyyy-MM-dd")} data-testid="input-worked-date" />
+                {qualDatesLoading ? (
+                  <div className="h-10 rounded-md border border-slate-200 bg-slate-50 animate-pulse" />
+                ) : qualifyingDates.length === 0 ? (
+                  <div className="rounded-lg border border-dashed border-amber-300 bg-amber-50 px-3 py-2.5 text-xs text-amber-700">
+                    No qualifying dates found in the last 90 days for this type. Make sure attendance is marked for the day you worked.
+                  </div>
+                ) : (
+                  <Select value={compOffForm.workedDate} onValueChange={v => setCompOffForm(f => ({ ...f, workedDate: v }))} data-testid="select-worked-date">
+                    <SelectTrigger><SelectValue placeholder="Select date worked" /></SelectTrigger>
+                    <SelectContent>
+                      {qualifyingDates.map((rec: any) => (
+                        <SelectItem key={rec.date} value={rec.date}>
+                          {format(parseISO(rec.date), "EEE, d MMM yyyy")}
+                          {rec.otHours && parseFloat(rec.otHours) > 0 && <span className="ml-2 text-teal-600 text-xs">+{rec.otHours}h OT</span>}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
               </div>
               <div className="space-y-1.5">
                 <label className="text-sm font-medium">Duration</label>

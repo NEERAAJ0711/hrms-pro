@@ -5923,6 +5923,51 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ===== Comp-Off Routes =====
+  // Returns attendance dates eligible for comp-off, filtered by type
+  app.get("/api/comp-off/qualifying-dates", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const type = (req.query.type as string) || "weekly_off"; // weekly_off | holiday | extra_shift
+      const employee = await storage.getEmployeeByUserId(user.id);
+      if (!employee) return res.json([]);
+
+      const allAtt = await storage.getAttendanceByEmployee(employee.id);
+      const holidays = await storage.getHolidaysByCompany(employee.companyId);
+      const holidaySet = new Set(holidays.map((h: any) => h.date));
+
+      // Only last 90 days
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - 90);
+
+      let eligible: any[] = [];
+      for (const rec of allAtt) {
+        if (!rec.date) continue;
+        const d = new Date(rec.date);
+        if (d > new Date()) continue; // no future dates
+        if (d < cutoff) continue;
+        const dow = d.getDay(); // 0=Sun,6=Sat
+        if (type === "weekly_off") {
+          if (rec.status === "weekend" || dow === 0 || dow === 6) eligible.push(rec);
+        } else if (type === "holiday") {
+          if (rec.status === "holiday" || holidaySet.has(rec.date)) eligible.push(rec);
+        } else if (type === "extra_shift") {
+          // Present days with OT hours or any attendance on a day
+          if (rec.status === "present" && rec.otHours && parseFloat(rec.otHours) > 0) eligible.push(rec);
+        }
+      }
+
+      // Remove dates already applied for comp-off
+      const existing = await storage.getCompOffByEmployee(employee.id);
+      const usedDates = new Set(existing.map((c: any) => c.workedDate));
+      eligible = eligible.filter(r => !usedDates.has(r.date));
+
+      res.json(eligible.sort((a, b) => b.date.localeCompare(a.date)));
+    } catch (err) {
+      console.error("[comp-off qualifying-dates]", err);
+      res.status(500).json({ error: "Failed to fetch qualifying dates" });
+    }
+  });
+
   app.get("/api/comp-off", requireAuth, async (req, res) => {
     try {
       const user = (req as any).user;
@@ -5954,6 +5999,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const row = await storage.createCompOff({ ...req.body, employeeId, companyId, status: "pending" });
       res.json(row);
     } catch (err) {
+      console.error("[comp-off POST]", err);
       res.status(500).json({ error: "Failed to create comp-off" });
     }
   });
