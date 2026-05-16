@@ -5923,49 +5923,124 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ===== Comp-Off Routes =====
-  // Returns attendance dates eligible for comp-off, filtered by type
+  // Returns attendance dates eligible for comp-off, filtered by type.
+  //
+  // "weekly_off"  → any Sat/Sun in the last 90 days where the employee has a
+  //                 punch record (biometric_punch_logs) OR an attendance row
+  //                 with status = "present" / "weekend".  We use punch logs as
+  //                 the primary source so this works even when payroll hasn't
+  //                 been generated yet (payroll generation is what normally
+  //                 creates "weekend" rows in the attendance table).
+  //
+  // "holiday"     → any company holiday in the last 90 days where the employee
+  //                 has a punch record or a "holiday" / "present" attendance row.
+  //
+  // "extra_shift" → attendance rows with OT hours > 0 in the last 90 days.
   app.get("/api/comp-off/qualifying-dates", requireAuth, async (req, res) => {
     try {
       const user = (req as any).user;
-      const type = (req.query.type as string) || "weekly_off"; // weekly_off | holiday | extra_shift
-      const employee = await storage.getEmployeeByUserId(user.id);
+      const type = (req.query.type as string) || "weekly_off";
+      console.log(`[comp-off/qualifying-dates] user.id=${user.id} role=${user.role} type=${type}`);
+
+      const employee = await storage.getEmployeeByUserId(String(user.id));
+      console.log(`[comp-off/qualifying-dates] employee=${employee?.id ?? "NOT FOUND"}`);
       if (!employee) return res.json([]);
 
-      const allAtt = await storage.getAttendanceByEmployee(employee.id);
-      const holidays = await storage.getHolidaysByCompany(employee.companyId);
-      const holidaySet = new Set(holidays.map((h: any) => h.date));
-
-      // Only last 90 days — parse dates as local time to avoid UTC-offset day-of-week errors
+      // ── window ────────────────────────────────────────────────────────────
       const today = new Date();
       today.setHours(23, 59, 59, 999);
       const cutoff = new Date();
       cutoff.setDate(cutoff.getDate() - 90);
       cutoff.setHours(0, 0, 0, 0);
 
-      let eligible: any[] = [];
-      for (const rec of allAtt) {
-        if (!rec.date) continue;
-        // Parse "YYYY-MM-DD" as LOCAL date to get correct day-of-week in any timezone
-        const parts = rec.date.split("-").map(Number);
-        if (parts.length < 3) continue;
-        const d = new Date(parts[0], parts[1] - 1, parts[2]);
-        if (d > today) continue; // no future dates
-        if (d < cutoff) continue;
-        const dow = d.getDay(); // 0=Sun, 6=Sat — now correct in any timezone
-        if (type === "weekly_off") {
-          // Include: marked as weekend, OR day is Sunday/Saturday, OR employee was present on Sun/Sat
-          if (rec.status === "weekend" || rec.status === "present" && (dow === 0 || dow === 6)) eligible.push(rec);
-        } else if (type === "holiday") {
-          if (rec.status === "holiday" || holidaySet.has(rec.date)) eligible.push(rec);
-        } else if (type === "extra_shift") {
-          if (rec.status === "present" && rec.otHours && parseFloat(rec.otHours) > 0) eligible.push(rec);
+      const fmt = (d: Date) =>
+        `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+      const cutoffStr = fmt(cutoff);
+      const todayStr  = fmt(today);
+
+      // ── attendance rows in the window ─────────────────────────────────────
+      const allAtt = await storage.getAttendanceByEmployee(employee.id);
+      const attInWindow = allAtt.filter(r => r.date && r.date >= cutoffStr && r.date <= todayStr);
+      const attByDate = new Map(attInWindow.map(r => [r.date, r]));
+
+      console.log(`[comp-off/qualifying-dates] allAtt=${allAtt.length} inWindow=${attInWindow.length}`);
+
+      // ── biometric punch dates in the window ───────────────────────────────
+      // Raw SQL: one row per distinct date on which the employee punched in.
+      const punchRows = await db.execute(sql`
+        SELECT DISTINCT punch_date AS date
+        FROM   biometric_punch_logs
+        WHERE  employee_id = ${employee.id}
+          AND  punch_date  >= ${cutoffStr}
+          AND  punch_date  <= ${todayStr}
+          AND  is_duplicate = false
+      `);
+      const punchDates = new Set<string>((punchRows.rows as any[]).map((r: any) => r.date as string));
+      console.log(`[comp-off/qualifying-dates] punchDates=${punchDates.size}`);
+
+      // ── company holidays ──────────────────────────────────────────────────
+      const holidays = await storage.getHolidaysByCompany(employee.companyId);
+      const holidaySet = new Set(holidays.map((h: any) => h.date as string));
+
+      // ── build eligible list ───────────────────────────────────────────────
+      let eligible: Array<{ date: string; status: string; otHours?: string | null }> = [];
+
+      if (type === "weekly_off") {
+        // Walk every calendar day in the window; keep Saturdays and Sundays where
+        // ANY of the following is true:
+        //   a) employee has a biometric punch on that day (they definitely came in)
+        //   b) attendance status = "present" / "miss_punch" on a Sat/Sun
+        //   c) attendance status = "weekend" — this means payroll already marked it
+        //      as the employee's weekly-off; the comp-off claim is then verified by
+        //      the approving admin rather than by the system.
+        // Without (c), employees whose attendance was payroll-generated (which creates
+        // "weekend" rows) would never see any qualifying dates.
+        const d = new Date(cutoff);
+        while (d <= today) {
+          const dateStr = fmt(d);
+          const dow = d.getDay(); // 0=Sun 6=Sat
+          if (dow === 0 || dow === 6) {
+            const att = attByDate.get(dateStr);
+            const hadPunch     = punchDates.has(dateStr);
+            const presentInAtt = att?.status === "present" || att?.status === "miss_punch";
+            const weekendInAtt = att?.status === "weekend";
+            if (hadPunch || presentInAtt || weekendInAtt) {
+              eligible.push({ date: dateStr, status: att?.status ?? "present", otHours: att?.otHours });
+            }
+          }
+          d.setDate(d.getDate() + 1);
+        }
+      } else if (type === "holiday") {
+        // Keep holiday dates where the employee has a punch OR att row
+        for (const hDate of holidaySet) {
+          if (hDate < cutoffStr || hDate > todayStr) continue;
+          const att = attByDate.get(hDate);
+          const hadPunch = punchDates.has(hDate);
+          const presentInAtt = att?.status === "present" || att?.status === "miss_punch";
+          if (hadPunch || presentInAtt || att?.status === "holiday") {
+            eligible.push({ date: hDate, status: att?.status ?? "holiday", otHours: att?.otHours });
+          }
+        }
+      } else if (type === "extra_shift") {
+        // Attendance rows with measurable OT hours
+        for (const rec of attInWindow) {
+          if (rec.status === "present" && rec.otHours && parseFloat(rec.otHours) > 0) {
+            eligible.push({ date: rec.date, status: rec.status, otHours: rec.otHours });
+          }
         }
       }
 
+      console.log(`[comp-off/qualifying-dates] eligible before dedup=${eligible.length}`);
+
       // Remove dates already applied for comp-off
       const existing = await storage.getCompOffByEmployee(employee.id);
-      const usedDates = new Set(existing.map((c: any) => c.workedDate));
+      const usedDates = new Set(
+        existing.map((c: any) => c.workedDate ?? c.worked_date ?? null).filter(Boolean)
+      );
       eligible = eligible.filter(r => !usedDates.has(r.date));
+
+      console.log(`[comp-off/qualifying-dates] final=${eligible.length} used=${[...usedDates].join(",")}`);
 
       res.json(eligible.sort((a, b) => b.date.localeCompare(a.date)));
     } catch (err) {

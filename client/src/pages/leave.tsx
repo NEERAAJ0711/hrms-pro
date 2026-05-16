@@ -206,8 +206,13 @@ export default function LeavePage() {
     staleTime: 0,
     queryFn: async () => {
       const res = await fetch(`/api/comp-off/qualifying-dates?type=${compOffForm.workedType}`, { credentials: "include" });
-      if (!res.ok) return [];
-      return res.json();
+      if (!res.ok) {
+        console.error("[qualifying-dates] HTTP", res.status, await res.text().catch(() => ""));
+        return [];
+      }
+      const data = await res.json();
+      console.log("[qualifying-dates] returned", data.length, "dates for type", compOffForm.workedType);
+      return data;
     },
   });
   const { data: leaveAdjRecords = [] } = useQuery<any[]>({ queryKey: ["/api/leave-adjustments"], staleTime: 0, enabled: !isEmployee });
