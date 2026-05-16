@@ -5962,13 +5962,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const attRows = rows.rows as Array<{ date: string; status: string; otHours: string | null }>;
       console.log(`[comp-off/qualifying-dates] attRows=${attRows.length} type=${type}`);
 
-      // Filter by type
+      // Company holidays for "holiday" type
+      const holidays = await storage.getHolidaysByCompany(employee.companyId);
+      const holidaySet = new Set(holidays.map((h: any) => h.date as string));
+
+      // Filter by type — only "present" attendance qualifies.
+      // "weekend"/"holiday" status means the employee was OFF that day; those
+      // should NOT appear because the employee didn't actually work.
+      // Comp-off is only valid when the employee was genuinely present on a day
+      // they were supposed to be off.
       let eligible: typeof attRows;
       if (type === "weekly_off") {
-        eligible = attRows.filter(r => r.status === "weekend");
+        // Present on a Saturday (6) or Sunday (0) = worked on their weekly off
+        eligible = attRows.filter(r => {
+          if (r.status !== "present") return false;
+          const [y, m, d] = r.date.split("-").map(Number);
+          const dow = new Date(y, m - 1, d).getDay();
+          return dow === 0 || dow === 6;
+        });
       } else if (type === "holiday") {
-        eligible = attRows.filter(r => r.status === "holiday");
+        // Present on a company holiday = worked on a public holiday
+        eligible = attRows.filter(r => r.status === "present" && holidaySet.has(r.date));
       } else if (type === "extra_shift") {
+        // Present with measured OT hours = worked beyond shift hours
         eligible = attRows.filter(r => r.status === "present" && r.otHours && parseFloat(r.otHours) > 0);
       } else {
         eligible = [];
