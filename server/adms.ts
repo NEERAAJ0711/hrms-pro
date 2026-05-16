@@ -794,7 +794,11 @@ async function handleGetCdata(req: Request, res: Response) {
     `HANDSHAKE proto=${isNewFirmware ? "SpeedFace" : "x2008"} stamp=${stamp}`, true);
 
   if (isNewFirmware) {
-    // SpeedFace-V5L / newer firmware — responds with ServerVersion block
+    // SpeedFace-V5L / ESSL AirFace-Orcus (newer firmware with pushver param)
+    // TransTables MUST include "AttLog" — without it ESSL AirFace will only push
+    // user records and silently skip attendance data.
+    // UserInfoStamp=0 forces the device to re-upload all enrolled users on connect.
+    const isAirFace = device.deviceModel === "essl_airface";
     const body = [
       "ServerVersion=2.4.1",
       "ServerName=ADMS",
@@ -802,16 +806,18 @@ async function handleGetCdata(req: Request, res: Response) {
       `ATTLOGStamp=${stamp}`,
       "OPERLOGStamp=9999999999",
       "ATTPHOTOStamp=0",
+      isAirFace ? "UserInfoStamp=0" : null,  // ESSL AirFace: trigger user-info push
       "ErrorDelay=30",
       "RequestDelay=10",
       `TransTimes=${times}`,
       "TransInterval=1",
-      "TransTables=User Transaction",
+      // Semicolon-delimited; AttLog is required for attendance data to be pushed
+      "TransTables=User;AttLog;Transaction",
       "Realtime=1",
       "TimeoutSec=30",
-      "Encrypt=None",
+      "Encrypt=0",
       "",
-    ].join(CRLF);
+    ].filter((l) => l !== null).join(CRLF);
     return res.type("text/plain").send(body);
   }
 

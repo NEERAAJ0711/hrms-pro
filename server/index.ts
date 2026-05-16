@@ -6,7 +6,7 @@ import connectPgSimple from "connect-pg-simple";
 import pg from "pg";
 import { registerRoutes } from "./routes";
 import { setupBiometricSync } from "./biometric-sync";
-import { startAdmsServer } from "./adms";
+import { startAdmsServer, registerAdmsRoutes } from "./adms";
 import { startBiometricAttendanceSync } from "./biometric-attendance-sync";
 import { serveStatic } from "./static";
 import { createServer } from "http";
@@ -55,6 +55,12 @@ app.use("/iclock", admsTextParser);
 app.use("/cdata", admsTextParser);
 app.use("/getrequest", admsTextParser);
 app.use("/devicecmd", admsTextParser);
+
+// Register ADMS routes on the main app as well as the dedicated port-8181 server.
+// This is critical for deployments behind a reverse proxy (Nginx, Cloudflare, etc.)
+// where only the main port is forwarded — devices can then reach /iclock/cdata
+// through the standard HTTPS port without needing direct access to port 8181.
+registerAdmsRoutes(app);
 
 app.use(
   express.json({
