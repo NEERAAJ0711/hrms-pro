@@ -246,7 +246,10 @@ export default function LeavePage() {
     return employee ? `[${employee.employeeCode}] ${employee.firstName} ${employee.lastName}` : "Unknown";
   };
 
-  const getLeaveTypeName = (id: string) => leaveTypes.find(lt => lt.id === id)?.name || "Unknown";
+  const getLeaveTypeName = (id: string) => {
+    if (id === "COMP_OFF") return "Comp Off";
+    return leaveTypes.find(lt => lt.id === id)?.name || "Unknown";
+  };
 
   const pendingCount  = leaveRequests.filter(r => r.status === "pending").length;
   const approvedCount = leaveRequests.filter(r => r.status === "approved").length;
@@ -257,6 +260,15 @@ export default function LeavePage() {
     leaveRequests
       .filter(r => r.leaveTypeId === typeId && r.status === "approved" && getYear(parseISO(r.startDate)) === thisYear)
       .reduce((s, r) => s + (r.days || 0), 0);
+
+  // ── Comp-off balance ─────────────────────────────────────────────────────
+  const myCompOffCredited = (compOffRecords as any[])
+    .filter((c: any) => c.employeeId === myEmployee?.id && c.status === "approved")
+    .reduce((sum: number, c: any) => sum + Number(c.creditedDays || 1), 0);
+  const myCompOffUsed = leaveRequests
+    .filter(r => r.leaveTypeId === "COMP_OFF" && (r.status === "approved" || r.status === "pending"))
+    .reduce((s, r) => s + (r.days || 0), 0);
+  const availableCompOff = Math.max(0, myCompOffCredited - myCompOffUsed);
 
   // ── Apply Leave Dialog ─────────────────────────────────────────────────────
   const ApplyLeaveDialog = (
@@ -316,6 +328,13 @@ export default function LeavePage() {
                   <FormControl><SelectTrigger data-testid="select-leave-type"><SelectValue placeholder="Select leave type" /></SelectTrigger></FormControl>
                   <SelectContent>
                     {leaveTypes.map(lt => <SelectItem key={lt.id} value={lt.id}>{lt.name} ({lt.code}) · {lt.daysPerYear} days/yr</SelectItem>)}
+                    {myCompOffCredited > 0 && (
+                      <SelectItem value="COMP_OFF">
+                        <span className="flex items-center gap-2">
+                          Comp Off · <span className="text-teal-600 font-semibold">{availableCompOff} day{availableCompOff !== 1 ? "s" : ""} available</span>
+                        </span>
+                      </SelectItem>
+                    )}
                   </SelectContent>
                 </Select>
                 <FormMessage />
@@ -461,6 +480,31 @@ export default function LeavePage() {
                   </div>
                 );
               })}
+              {/* Comp Off balance card — only shown if employee has credits */}
+              {myCompOffCredited > 0 && (() => {
+                const usedPct = myCompOffCredited > 0 ? Math.min(100, Math.round((myCompOffUsed / myCompOffCredited) * 100)) : 0;
+                return (
+                  <div className="rounded-2xl border border-teal-200 bg-teal-50 p-4 space-y-3" data-testid="card-balance-COMP_OFF">
+                    <div className="flex items-start justify-between">
+                      <div className="rounded-lg p-2 bg-teal-100">
+                        <span className="text-teal-600"><RefreshCw className="h-4 w-4" /></span>
+                      </div>
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-teal-50 text-teal-600 border border-teal-200">CO</span>
+                    </div>
+                    <div>
+                      <p className="text-xs font-semibold truncate text-teal-600">Comp Off</p>
+                      <div className="flex items-baseline gap-1 mt-0.5">
+                        <span className="text-2xl font-extrabold text-teal-600">{availableCompOff}</span>
+                        <span className="text-xs text-slate-400 font-medium">/ {myCompOffCredited} days</span>
+                      </div>
+                    </div>
+                    <div className="h-1.5 rounded-full bg-white/70 border border-white">
+                      <div className="h-full rounded-full bg-teal-400 transition-all" style={{ width: `${usedPct}%` }} />
+                    </div>
+                    <p className="text-[10px] text-slate-400">{myCompOffUsed} used · {usedPct}% consumed</p>
+                  </div>
+                );
+              })()}
             </div>
           </div>
         )}
