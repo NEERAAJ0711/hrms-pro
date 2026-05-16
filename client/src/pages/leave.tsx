@@ -34,7 +34,8 @@ const leaveRequestSchema = z.object({
   leaveTypeId: z.string().min(1, "Leave type is required"),
   startDate: z.string().min(1, "Start date is required"),
   endDate: z.string().min(1, "End date is required"),
-  days: z.coerce.number().min(1, "Days must be at least 1"),
+  days: z.coerce.number().min(0.5, "Days must be at least 0.5"),
+  dayType: z.string().default("full_day"),
   reason: z.string().optional(),
   createdAt: z.string(),
 });
@@ -99,7 +100,7 @@ export default function LeavePage() {
   const [editingLeaveType, setEditingLeaveType] = useState<LeaveType | null>(null);
   // Comp-Off state
   const [compOffOpen, setCompOffOpen] = useState(false);
-  const [compOffForm, setCompOffForm] = useState({ workedDate: format(new Date(), "yyyy-MM-dd"), purpose: "" });
+  const [compOffForm, setCompOffForm] = useState({ workedDate: format(new Date(), "yyyy-MM-dd"), workedType: "weekly_off", creditedDays: "1", purpose: "" });
   const [compOffRejectOpen, setCompOffRejectOpen] = useState(false);
   const [selectedCompOff, setSelectedCompOff] = useState<any>(null);
   const [compOffRejectReason, setCompOffRejectReason] = useState("");
@@ -134,6 +135,7 @@ export default function LeavePage() {
       startDate: format(new Date(), "yyyy-MM-dd"),
       endDate: format(new Date(), "yyyy-MM-dd"),
       days: 1,
+      dayType: "full_day",
       reason: "",
       createdAt: new Date().toISOString(),
     },
@@ -152,7 +154,7 @@ export default function LeavePage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/leave-requests"] });
       setIsCreateOpen(false);
-      form.reset({ employeeId: myEmployee?.id || "", companyId: user?.companyId || "", leaveTypeId: "", startDate: format(new Date(), "yyyy-MM-dd"), endDate: format(new Date(), "yyyy-MM-dd"), days: 1, reason: "", createdAt: new Date().toISOString() });
+      form.reset({ employeeId: myEmployee?.id || "", companyId: user?.companyId || "", leaveTypeId: "", startDate: format(new Date(), "yyyy-MM-dd"), endDate: format(new Date(), "yyyy-MM-dd"), days: 1, dayType: "full_day", reason: "", createdAt: new Date().toISOString() });
       toast({ title: "Leave Request Submitted", description: "Your request has been sent for approval." });
     },
     onError: (error: Error) => toast({ title: "Error", description: error.message, variant: "destructive" }),
@@ -203,7 +205,7 @@ export default function LeavePage() {
   const invalidateLeaveAdj = () => queryClient.invalidateQueries({ queryKey: ["/api/leave-adjustments"] });
   const createCompOffMutation = useMutation({
     mutationFn: (data: object) => apiRequest("POST", "/api/comp-off", data),
-    onSuccess: () => { invalidateCompOff(); setCompOffOpen(false); setCompOffForm({ workedDate: format(new Date(), "yyyy-MM-dd"), purpose: "" }); toast({ title: "Comp Off application submitted" }); },
+    onSuccess: () => { invalidateCompOff(); setCompOffOpen(false); setCompOffForm({ workedDate: format(new Date(), "yyyy-MM-dd"), workedType: "weekly_off", creditedDays: "1", purpose: "" }); toast({ title: "Comp Off application submitted" }); },
     onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
   const approveCompOffMutation = useMutation({
@@ -340,18 +342,60 @@ export default function LeavePage() {
                 <FormMessage />
               </FormItem>
             )} />
+            {/* Day Type toggle */}
+            <FormField control={form.control} name="dayType" render={({ field }) => (
+              <FormItem>
+                <FormLabel>Day Type</FormLabel>
+                <FormControl>
+                  <div className="flex rounded-lg border border-slate-200 overflow-hidden">
+                    {[
+                      { value: "full_day",     label: "Full Day" },
+                      { value: "first_half",   label: "First Half" },
+                      { value: "second_half",  label: "Second Half" },
+                    ].map(opt => (
+                      <button key={opt.value} type="button"
+                        className={`flex-1 py-2 text-sm font-medium transition-colors ${field.value === opt.value ? "bg-primary text-white" : "bg-white text-slate-600 hover:bg-slate-50"}`}
+                        onClick={() => {
+                          field.onChange(opt.value);
+                          if (opt.value !== "full_day") {
+                            const sd = form.getValues("startDate");
+                            form.setValue("endDate", sd);
+                            form.setValue("days", 0.5);
+                          } else {
+                            const sd = form.getValues("startDate");
+                            const ed = form.getValues("endDate");
+                            form.setValue("days", calculateDays(sd, ed));
+                          }
+                        }}
+                        data-testid={`btn-day-type-${opt.value}`}
+                      >{opt.label}</button>
+                    ))}
+                  </div>
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )} />
+
             <div className="grid grid-cols-2 gap-4">
               <FormField control={form.control} name="startDate" render={({ field }) => (
                 <FormItem>
                   <FormLabel>Start Date</FormLabel>
-                  <FormControl><Input type="date" {...field} onChange={e => { field.onChange(e); form.setValue("days", calculateDays(e.target.value, form.getValues("endDate"))); }} data-testid="input-leave-start" /></FormControl>
+                  <FormControl><Input type="date" {...field} onChange={e => {
+                    field.onChange(e);
+                    const dt = form.getValues("dayType");
+                    if (dt !== "full_day") { form.setValue("endDate", e.target.value); form.setValue("days", 0.5); }
+                    else { form.setValue("days", calculateDays(e.target.value, form.getValues("endDate"))); }
+                  }} data-testid="input-leave-start" /></FormControl>
                   <FormMessage />
                 </FormItem>
               )} />
               <FormField control={form.control} name="endDate" render={({ field }) => (
                 <FormItem>
                   <FormLabel>End Date</FormLabel>
-                  <FormControl><Input type="date" {...field} onChange={e => { field.onChange(e); form.setValue("days", calculateDays(form.getValues("startDate"), e.target.value)); }} data-testid="input-leave-end" /></FormControl>
+                  <FormControl><Input type="date" {...field}
+                    disabled={form.watch("dayType") !== "full_day"}
+                    onChange={e => { field.onChange(e); form.setValue("days", calculateDays(form.getValues("startDate"), e.target.value)); }}
+                    data-testid="input-leave-end" /></FormControl>
                   <FormMessage />
                 </FormItem>
               )} />
@@ -362,7 +406,12 @@ export default function LeavePage() {
                 <FormControl>
                   <div className="flex items-center gap-3">
                     <Input type="number" {...field} readOnly className="w-24" data-testid="input-leave-days" />
-                    <span className="text-sm text-slate-500">working day{field.value !== 1 ? "s" : ""}</span>
+                    <span className="text-sm text-slate-500">working day{Number(field.value) !== 1 ? "s" : ""}</span>
+                    {form.watch("dayType") !== "full_day" && (
+                      <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-medium">
+                        {form.watch("dayType") === "first_half" ? "First Half" : "Second Half"}
+                      </span>
+                    )}
                   </div>
                 </FormControl>
                 <FormMessage />
@@ -566,7 +615,12 @@ export default function LeavePage() {
                         </div>
                         <p className="text-xs text-slate-500 mt-1">
                           {req.startDate === req.endDate ? startFmt : `${startFmt} — ${endFmt}`}
-                          <span className="ml-2 font-semibold text-slate-700">{req.days} day{req.days !== 1 ? "s" : ""}</span>
+                          <span className="ml-2 font-semibold text-slate-700">{req.days} day{Number(req.days) !== 1 ? "s" : ""}</span>
+                          {(req as any).dayType && (req as any).dayType !== "full_day" && (
+                            <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-100 text-amber-700">
+                              {(req as any).dayType === "first_half" ? "First Half" : "Second Half"}
+                            </span>
+                          )}
                         </p>
                         {req.reason && <p className="text-xs text-slate-400 mt-1 truncate italic">"{req.reason}"</p>}
                       </div>
@@ -611,8 +665,16 @@ export default function LeavePage() {
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-semibold text-sm text-slate-800">{format(parseISO(co.workedDate), "d MMM yyyy")}</span>
                         <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold border ${scfg.bg} ${scfg.text} ${scfg.border}`}>{scfg.label}</span>
+                        {co.workedType && (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-600 border border-slate-200">
+                            {co.workedType === "weekly_off" ? "Weekly Off" : co.workedType === "holiday" ? "Holiday" : "Extra Shift"}
+                          </span>
+                        )}
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-teal-50 text-teal-700 border border-teal-200">
+                          {Number(co.creditedDays || 1) === 0.5 ? "½ Day" : "Full Day"} · {co.creditedDays || 1}
+                        </span>
                       </div>
-                      <p className="text-xs text-slate-500 mt-1 truncate">{co.purpose}</p>
+                      {co.purpose && <p className="text-xs text-slate-500 mt-1 truncate">{co.purpose}</p>}
                       {co.compensatoryDate && <p className="text-xs text-slate-400 mt-0.5">Comp day: {format(parseISO(co.compensatoryDate), "d MMM yyyy")}</p>}
                       {co.rejectionReason && <p className="text-xs text-red-400 mt-0.5">Reason: {co.rejectionReason}</p>}
                     </div>
@@ -633,21 +695,54 @@ export default function LeavePage() {
           <DialogContent className="max-w-sm">
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2"><RefreshCw className="h-5 w-5 text-primary" />Apply for Comp Off</DialogTitle>
-              <DialogDescription>Submit a comp-off request for a day you worked on a holiday or weekend</DialogDescription>
+              <DialogDescription>Only valid for extra work on weekly off, holidays or beyond shift hours</DialogDescription>
             </DialogHeader>
             <div className="space-y-4 py-2">
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">Type of Extra Work <span className="text-red-500">*</span></label>
+                <div className="flex rounded-lg border border-slate-200 overflow-hidden">
+                  {[
+                    { value: "weekly_off",  label: "Weekly Off" },
+                    { value: "holiday",     label: "Holiday" },
+                    { value: "extra_shift", label: "Extra Shift" },
+                  ].map(opt => (
+                    <button key={opt.value} type="button"
+                      className={`flex-1 py-2 text-xs font-medium transition-colors ${compOffForm.workedType === opt.value ? "bg-primary text-white" : "bg-white text-slate-600 hover:bg-slate-50"}`}
+                      onClick={() => setCompOffForm(f => ({ ...f, workedType: opt.value }))}
+                      data-testid={`btn-compoff-type-${opt.value}`}
+                    >{opt.label}</button>
+                  ))}
+                </div>
+              </div>
               <div className="space-y-1.5">
                 <label className="text-sm font-medium">Date Worked <span className="text-red-500">*</span></label>
                 <Input type="date" value={compOffForm.workedDate} onChange={e => setCompOffForm(f => ({ ...f, workedDate: e.target.value }))} max={format(new Date(), "yyyy-MM-dd")} data-testid="input-worked-date" />
               </div>
               <div className="space-y-1.5">
-                <label className="text-sm font-medium">Purpose / Reason <span className="text-red-500">*</span></label>
-                <Textarea placeholder="Why did you work on this day?" value={compOffForm.purpose} onChange={e => setCompOffForm(f => ({ ...f, purpose: e.target.value }))} rows={3} data-testid="input-compoff-purpose" />
+                <label className="text-sm font-medium">Duration</label>
+                <div className="flex rounded-lg border border-slate-200 overflow-hidden">
+                  {[
+                    { value: "1",   label: "Full Day (1)" },
+                    { value: "0.5", label: "Half Day (0.5)" },
+                  ].map(opt => (
+                    <button key={opt.value} type="button"
+                      className={`flex-1 py-2 text-sm font-medium transition-colors ${compOffForm.creditedDays === opt.value ? "bg-primary text-white" : "bg-white text-slate-600 hover:bg-slate-50"}`}
+                      onClick={() => setCompOffForm(f => ({ ...f, creditedDays: opt.value }))}
+                      data-testid={`btn-compoff-duration-${opt.value}`}
+                    >{opt.label}</button>
+                  ))}
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">Notes <span className="text-slate-400 font-normal">(optional)</span></label>
+                <Textarea placeholder="e.g. Worked for year-end audit, client escalation…" value={compOffForm.purpose} onChange={e => setCompOffForm(f => ({ ...f, purpose: e.target.value }))} rows={2} data-testid="input-compoff-purpose" />
               </div>
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setCompOffOpen(false)}>Cancel</Button>
-              <Button disabled={!compOffForm.workedDate || !compOffForm.purpose.trim() || createCompOffMutation.isPending} onClick={() => createCompOffMutation.mutate({ workedDate: compOffForm.workedDate, purpose: compOffForm.purpose })} data-testid="button-submit-compoff">
+              <Button disabled={!compOffForm.workedDate || createCompOffMutation.isPending}
+                onClick={() => createCompOffMutation.mutate({ workedDate: compOffForm.workedDate, workedType: compOffForm.workedType, creditedDays: compOffForm.creditedDays, purpose: compOffForm.purpose || `Worked on ${compOffForm.workedType === "weekly_off" ? "weekly off" : compOffForm.workedType === "holiday" ? "holiday" : "extra shift"}` })}
+                data-testid="button-submit-compoff">
                 {createCompOffMutation.isPending ? "Submitting…" : "Submit"}
               </Button>
             </DialogFooter>

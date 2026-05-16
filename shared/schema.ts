@@ -411,7 +411,8 @@ export const leaveRequests = pgTable("leave_requests", {
   leaveTypeId: varchar("leave_type_id", { length: 36 }).notNull(),
   startDate: text("start_date").notNull(),
   endDate: text("end_date").notNull(),
-  days: integer("days").notNull(),
+  days: numeric("days", { precision: 4, scale: 1 }).notNull(),
+  dayType: text("day_type").notNull().default("full_day"),
   reason: text("reason"),
   status: text("status").notNull().default("pending"),
   approvedBy: varchar("approved_by", { length: 36 }),
@@ -1066,6 +1067,8 @@ export const compOffApplications = pgTable("comp_off_applications", {
   companyId: varchar("company_id", { length: 36 }).notNull(),
   employeeId: varchar("employee_id", { length: 36 }).notNull(),
   workedDate: text("worked_date").notNull(),
+  workedType: text("worked_type").notNull().default("weekly_off"), // "weekly_off" | "holiday" | "extra_shift"
+  creditedDays: numeric("credited_days", { precision: 4, scale: 1 }).notNull().default("1"),
   purpose: text("purpose").notNull(),
   compensatoryDate: text("compensatory_date"),
   status: text("status").notNull().default("pending"), // "pending" | "approved" | "rejected"
