@@ -539,8 +539,8 @@ export default function LeavePage() {
                   </div>
                 );
               })}
-              {/* Comp Off balance card — only shown if employee has credits */}
-              {myCompOffCredited > 0 && (() => {
+              {/* Comp Off balance card — always shown for employees */}
+              {(() => {
                 const usedPct = myCompOffCredited > 0 ? Math.min(100, Math.round((myCompOffUsed / myCompOffCredited) * 100)) : 0;
                 return (
                   <div className="rounded-2xl border border-teal-200 bg-teal-50 p-4 space-y-3" data-testid="card-balance-COMP_OFF">
