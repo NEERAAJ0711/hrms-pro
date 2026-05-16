@@ -5935,23 +5935,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const holidays = await storage.getHolidaysByCompany(employee.companyId);
       const holidaySet = new Set(holidays.map((h: any) => h.date));
 
-      // Only last 90 days
+      // Only last 90 days — parse dates as local time to avoid UTC-offset day-of-week errors
+      const today = new Date();
+      today.setHours(23, 59, 59, 999);
       const cutoff = new Date();
       cutoff.setDate(cutoff.getDate() - 90);
+      cutoff.setHours(0, 0, 0, 0);
 
       let eligible: any[] = [];
       for (const rec of allAtt) {
         if (!rec.date) continue;
-        const d = new Date(rec.date);
-        if (d > new Date()) continue; // no future dates
+        // Parse "YYYY-MM-DD" as LOCAL date to get correct day-of-week in any timezone
+        const parts = rec.date.split("-").map(Number);
+        if (parts.length < 3) continue;
+        const d = new Date(parts[0], parts[1] - 1, parts[2]);
+        if (d > today) continue; // no future dates
         if (d < cutoff) continue;
-        const dow = d.getDay(); // 0=Sun,6=Sat
+        const dow = d.getDay(); // 0=Sun, 6=Sat — now correct in any timezone
         if (type === "weekly_off") {
-          if (rec.status === "weekend" || dow === 0 || dow === 6) eligible.push(rec);
+          // Include: marked as weekend, OR day is Sunday/Saturday, OR employee was present on Sun/Sat
+          if (rec.status === "weekend" || rec.status === "present" && (dow === 0 || dow === 6)) eligible.push(rec);
         } else if (type === "holiday") {
           if (rec.status === "holiday" || holidaySet.has(rec.date)) eligible.push(rec);
         } else if (type === "extra_shift") {
-          // Present days with OT hours or any attendance on a day
           if (rec.status === "present" && rec.otHours && parseFloat(rec.otHours) > 0) eligible.push(rec);
         }
       }
