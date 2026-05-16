@@ -4017,8 +4017,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = (req as any).user;
       // Normalize before Zod parse: numeric columns expect string, frontend may send number
       const body = { ...req.body, days: String(req.body.days ?? "1") };
-      const data = insertLeaveRequestSchema.parse(body);
-      const request = await storage.createLeaveRequest(data);
+      const parsed = insertLeaveRequestSchema.safeParse(body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Validation failed", issues: parsed.error.issues });
+      }
+      const request = await storage.createLeaveRequest(parsed.data);
       // Notify HR/admins about new leave request
       try {
         const hrIds = await getHrAdminIds(user.companyId, user.id);
@@ -4033,9 +4036,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.error("[Notification] leave submission notify failed:", err);
       }
       res.status(201).json(request);
-    } catch (error) {
-      console.error("[leave-requests POST] error:", error);
-      res.status(500).json({ error: "Failed to create leave request" });
+    } catch (error: any) {
+      const msg = error?.message || String(error);
+      const issues = error?.issues ? JSON.stringify(error.issues) : undefined;
+      res.status(500).json({ error: "Failed to create leave request", detail: msg, issues });
     }
   });
 
