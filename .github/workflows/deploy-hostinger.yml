@@ -274,12 +274,23 @@ jobs:
               done
             fi
             if [ -n "$WEBROOT" ]; then
-              rsync -a --delete "$APP_DIR/dist/public/" "$WEBROOT/"
-              echo "✅ Frontend files synced to $WEBROOT"
-              ls -la "$WEBROOT/assets/" 2>/dev/null | tail -5 || true
+              if rsync -a --delete "$APP_DIR/dist/public/" "$WEBROOT/" 2>/tmp/rsync-err; then
+                echo "✅ Frontend files synced to $WEBROOT"
+                ls -la "$WEBROOT/assets/" 2>/dev/null | tail -5 || true
+              else
+                echo "⚠️  rsync to $WEBROOT failed (permission denied?)."
+                cat /tmp/rsync-err || true
+                echo "   Fix: SSH into VPS and run:"
+                echo "     sudo chown -R \$(whoami):\$(whoami) $WEBROOT"
+                echo "   Then re-run this deploy."
+                echo "   OR reconfigure nginx to proxy_pass all traffic to Express."
+              fi
             else
-              echo "⚠️  Could not find nginx web root — set NGINX_WEBROOT secret to fix."
-              echo "   Static files will be served by Express (port $APP_PORT) only."
+              echo "⚠️  Could not find nginx web root — set NGINX_WEBROOT secret to the"
+              echo "   directory nginx serves static files from (e.g. /var/www/html)."
+              echo "   Fix: SSH into VPS, find your site root, then either:"
+              echo "     sudo chown -R \$(whoami):\$(whoami) /path/to/webroot"
+              echo "   OR reconfigure nginx to proxy_pass all requests to Express."
             fi
 
             echo "▶ Writing .env file..."
