@@ -360,14 +360,67 @@ jobs:
       - name: Verify deployment
         run: |
           sleep 10
-          RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" \
-            --max-time 30 \
-            http://${{ secrets.HOSTINGER_HOST }}/api/auth/me || echo "000")
-          echo "Health check HTTP status: $RESPONSE"
-          if [ "$RESPONSE" = "401" ] || [ "$RESPONSE" = "200" ]; then
-            echo "✅ App is responding correctly"
+          HOST="${{ secrets.HOSTINGER_HOST }}"
+          EXPECTED_COMMIT="${{ github.sha }}"
+
+          echo "▶ Checking public URL for live commit..."
+          VER_JSON=""
+          for SCHEME in https http; do
+            VER_JSON=$(curl -sfL \
+              --max-time 30 \
+              -H "Cache-Control: no-cache, no-store" \
+              -H "Pragma: no-cache" \
+              "$SCHEME://$HOST/api/version" 2>/dev/null || echo "")
+            if [ -n "$VER_JSON" ]; then
+              echo "  Reached via $SCHEME"
+              break
+            fi
+          done
+
+          if [ -n "$VER_JSON" ]; then
+            LIVE_COMMIT=$(echo "$VER_JSON" | node -e "
+              let s=''; process.stdin.on('data',d=>s+=d).on('end',()=>{
+                try { console.log(JSON.parse(s).commit || 'unknown'); }
+                catch(e) { console.log('parse-error'); }
+              });")
+            echo "  Expected commit : $EXPECTED_COMMIT"
+            echo "  Live commit     : $LIVE_COMMIT"
+            if [ "$LIVE_COMMIT" = "$EXPECTED_COMMIT" ]; then
+              echo "✅ Public URL is serving the correct commit — deployment confirmed!"
+            else
+              echo "⚠️  Public URL is serving commit $LIVE_COMMIT"
+              echo "   Expected $EXPECTED_COMMIT"
+              echo "   Possible causes:"
+              echo "   1. A CDN/nginx proxy cache is serving a stale response."
+              echo "      Fix: purge the CDN cache or add 'proxy_cache_bypass \$http_pragma;' to nginx."
+              echo "   2. nginx is routing to a different port than PM2 is listening on."
+              echo "      Fix: confirm the proxy_pass port in CloudPanel matches the PM2 port."
+              echo "   3. The old process is still bound to nginx's port."
+              echo "      Fix: SSH in and run: pm2 list  then verify the port."
+            fi
           else
-            echo "⚠️  Unexpected response: $RESPONSE — check server logs"
+            echo "⚠️  Could not reach $HOST/api/version on http or https."
+            echo "   nginx may not be routing to the correct PM2 port."
+            echo "   SSH into the server and run: pm2 list"
+            echo "   Then confirm nginx proxy_pass matches the PM2 port."
+          fi
+
+          echo ""
+          echo "▶ Fallback status check on /api/auth/me..."
+          RESPONSE=$(curl -sL -o /dev/null -w "%{http_code}" \
+            --max-time 30 \
+            -H "Cache-Control: no-cache" \
+            "https://$HOST/api/auth/me" 2>/dev/null \
+            || curl -sL -o /dev/null -w "%{http_code}" \
+            --max-time 30 \
+            -H "Cache-Control: no-cache" \
+            "http://$HOST/api/auth/me" 2>/dev/null \
+            || echo "000")
+          echo "  Auth endpoint HTTP status: $RESPONSE"
+          if [ "$RESPONSE" = "401" ] || [ "$RESPONSE" = "200" ]; then
+            echo "✅ App is responding to requests"
+          else
+            echo "⚠️  Unexpected status $RESPONSE — nginx routing may need attention"
           fi
 
       - name: Notify on failure
