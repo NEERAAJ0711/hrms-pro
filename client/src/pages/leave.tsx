@@ -6,6 +6,7 @@ import {
   Calendar, Plus, Check, X, Clock, FileText, Pencil, Trash2,
   Umbrella, TrendingUp, CheckCircle2, XCircle, RotateCcw,
   Palmtree, Stethoscope, Baby, Briefcase, PlusCircle, Sliders, RefreshCw,
+  History, ArrowUpCircle, ArrowDownCircle, Wallet,
 } from "lucide-react";
 import { SearchableEmployeeSelect } from "@/components/searchable-employee-select";
 import { Button } from "@/components/ui/button";
@@ -108,6 +109,8 @@ export default function LeavePage() {
   // Leave Adjustment state
   const [leaveAdjOpen, setLeaveAdjOpen] = useState(false);
   const [leaveAdjForm, setLeaveAdjForm] = useState({ employeeId: "", leaveTypeId: "", adjustmentType: "credit", days: "", reason: "" });
+  // Leave Balance Card ledger state
+  const [ledgerCard, setLedgerCard] = useState<{ id: string; name: string; code: string; total: number; isCompOff?: boolean } | null>(null);
 
   const { data: companies = [] } = useQuery<Company[]>({ queryKey: ["/api/companies"] });
   const { data: employees = [] } = useQuery<Employee[]>({ queryKey: ["/api/employees"], enabled: !isEmployee });
@@ -216,7 +219,7 @@ export default function LeavePage() {
       return data;
     },
   });
-  const { data: leaveAdjRecords = [] } = useQuery<any[]>({ queryKey: ["/api/leave-adjustments"], staleTime: 0, enabled: !isEmployee });
+  const { data: leaveAdjRecords = [] } = useQuery<any[]>({ queryKey: ["/api/leave-adjustments"], staleTime: 0 });
   const invalidateCompOff = () => queryClient.invalidateQueries({ queryKey: ["/api/comp-off"] });
   const invalidateLeaveAdj = () => queryClient.invalidateQueries({ queryKey: ["/api/leave-adjustments"] });
   const createCompOffMutation = useMutation({
@@ -277,7 +280,7 @@ export default function LeavePage() {
   const usedDays = (typeId: string) =>
     leaveRequests
       .filter(r => r.leaveTypeId === typeId && r.status === "approved" && getYear(parseISO(r.startDate)) === thisYear)
-      .reduce((s, r) => s + (r.days || 0), 0);
+      .reduce((s, r) => s + Number(r.days || 0), 0);
 
   // ── Comp-off balance ─────────────────────────────────────────────────────
   const myCompOffCredited = (compOffRecords as any[])
@@ -285,7 +288,7 @@ export default function LeavePage() {
     .reduce((sum: number, c: any) => sum + Number(c.creditedDays || 1), 0);
   const myCompOffUsed = leaveRequests
     .filter(r => r.leaveTypeId === "COMP_OFF" && (r.status === "approved" || r.status === "pending"))
-    .reduce((s, r) => s + (r.days || 0), 0);
+    .reduce((s, r) => s + Number(r.days || 0), 0);
   const availableCompOff = Math.max(0, myCompOffCredited - myCompOffUsed);
 
   // ── Apply Leave Dialog ─────────────────────────────────────────────────────
@@ -524,12 +527,21 @@ export default function LeavePage() {
                 const remain = Math.max(0, total - used);
                 const pct    = total > 0 ? Math.min(100, Math.round((used / total) * 100)) : 0;
                 return (
-                  <div key={lt.id} className={`rounded-2xl border ${palette.ring} ${palette.bg} p-4 space-y-3`} data-testid={`card-balance-${lt.code}`}>
+                  <button
+                    key={lt.id}
+                    type="button"
+                    onClick={() => setLedgerCard({ id: lt.id, name: lt.name, code: lt.code, total: lt.daysPerYear })}
+                    className={`rounded-2xl border ${palette.ring} ${palette.bg} p-4 space-y-3 text-left w-full cursor-pointer hover:shadow-md hover:scale-[1.02] transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-primary`}
+                    data-testid={`card-balance-${lt.code}`}
+                  >
                     <div className="flex items-start justify-between">
                       <div className={`rounded-lg p-2 ${palette.icon_bg}`}>
                         <span className={palette.text}>{leaveTypeIcon(lt.name)}</span>
                       </div>
-                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${palette.bg} ${palette.text} border ${palette.ring}`}>{lt.code}</span>
+                      <div className="flex items-center gap-1.5">
+                        <History className="h-3 w-3 text-slate-300" />
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${palette.bg} ${palette.text} border ${palette.ring}`}>{lt.code}</span>
+                      </div>
                     </div>
                     <div>
                       <p className={`text-xs font-semibold truncate ${palette.text}`}>{lt.name}</p>
@@ -542,19 +554,27 @@ export default function LeavePage() {
                       <div className={`h-full rounded-full ${palette.bar} transition-all`} style={{ width: `${pct}%` }} />
                     </div>
                     <p className="text-[10px] text-slate-400">{used} used · {pct}% consumed</p>
-                  </div>
+                  </button>
                 );
               })}
               {/* Comp Off balance card — always shown for employees */}
               {(() => {
                 const usedPct = myCompOffCredited > 0 ? Math.min(100, Math.round((myCompOffUsed / myCompOffCredited) * 100)) : 0;
                 return (
-                  <div className="rounded-2xl border border-teal-200 bg-teal-50 p-4 space-y-3" data-testid="card-balance-COMP_OFF">
+                  <button
+                    type="button"
+                    onClick={() => setLedgerCard({ id: "COMP_OFF", name: "Comp Off", code: "CO", total: myCompOffCredited, isCompOff: true })}
+                    className="rounded-2xl border border-teal-200 bg-teal-50 p-4 space-y-3 text-left w-full cursor-pointer hover:shadow-md hover:scale-[1.02] transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-teal-400"
+                    data-testid="card-balance-COMP_OFF"
+                  >
                     <div className="flex items-start justify-between">
                       <div className="rounded-lg p-2 bg-teal-100">
                         <span className="text-teal-600"><RefreshCw className="h-4 w-4" /></span>
                       </div>
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-teal-50 text-teal-600 border border-teal-200">CO</span>
+                      <div className="flex items-center gap-1.5">
+                        <History className="h-3 w-3 text-slate-300" />
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-teal-50 text-teal-600 border border-teal-200">CO</span>
+                      </div>
                     </div>
                     <div>
                       <p className="text-xs font-semibold truncate text-teal-600">Comp Off</p>
@@ -567,7 +587,7 @@ export default function LeavePage() {
                       <div className="h-full rounded-full bg-teal-400 transition-all" style={{ width: `${usedPct}%` }} />
                     </div>
                     <p className="text-[10px] text-slate-400">{myCompOffUsed} used · {usedPct}% consumed</p>
-                  </div>
+                  </button>
                 );
               })()}
             </div>
@@ -782,6 +802,156 @@ export default function LeavePage() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+
+        {/* ── Leave Ledger Dialog ── */}
+        {ledgerCard && (() => {
+          // Build ledger entries
+          type LedgerEntry = { date: string; description: string; credit: number; debit: number; balance: number; };
+          const entries: Omit<LedgerEntry, "balance">[] = [];
+
+          if (ledgerCard.isCompOff) {
+            // Credits: approved comp-off applications
+            (compOffRecords as any[])
+              .filter((c: any) => c.employeeId === myEmployee?.id && c.status === "approved")
+              .forEach((c: any) => {
+                entries.push({ date: c.workedDate, description: `Comp Off Earned (${c.workedType === "weekly_off" ? "Weekly Off" : c.workedType === "holiday" ? "Holiday" : "Extra Shift"})`, credit: Number(c.creditedDays || 1), debit: 0 });
+              });
+            // Debits: used comp-off leave requests
+            leaveRequests
+              .filter(r => r.leaveTypeId === "COMP_OFF" && (r.status === "approved" || r.status === "pending"))
+              .forEach(r => {
+                entries.push({ date: r.startDate, description: `Leave Used${r.reason ? ` — ${r.reason}` : ""}`, credit: 0, debit: Number(r.days || 0) });
+              });
+          } else {
+            // Opening credit: annual allocation
+            entries.push({ date: `${thisYear}-01-01`, description: `Annual Credit — ${thisYear}`, credit: ledgerCard.total, debit: 0 });
+            // Manual adjustments
+            (leaveAdjRecords as any[])
+              .filter((a: any) => a.leaveTypeId === ledgerCard.id)
+              .forEach((a: any) => {
+                const d = Number(a.days || 0);
+                entries.push({ date: a.createdAt ? a.createdAt.slice(0, 10) : `${thisYear}-01-01`, description: `Manual ${a.adjustmentType === "credit" ? "Credit" : "Debit"}${a.reason ? ` — ${a.reason}` : ""}`, credit: a.adjustmentType === "credit" ? d : 0, debit: a.adjustmentType === "debit" ? d : 0 });
+              });
+            // Leave requests as debits
+            leaveRequests
+              .filter(r => r.leaveTypeId === ledgerCard.id && r.status === "approved")
+              .forEach(r => {
+                entries.push({ date: r.startDate, description: `Leave Used${r.reason ? ` — ${r.reason}` : ""}`, credit: 0, debit: Number(r.days || 0) });
+              });
+          }
+
+          // Sort by date ascending and compute running balance
+          entries.sort((a, b) => a.date.localeCompare(b.date));
+          let running = 0;
+          const ledger: LedgerEntry[] = entries.map(e => {
+            running += e.credit - e.debit;
+            return { ...e, balance: running };
+          });
+
+          const totalCredit = ledger.reduce((s, e) => s + e.credit, 0);
+          const totalDebit  = ledger.reduce((s, e) => s + e.debit, 0);
+          const finalBal    = totalCredit - totalDebit;
+
+          return (
+            <Dialog open={!!ledgerCard} onOpenChange={open => { if (!open) setLedgerCard(null); }}>
+              <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col">
+                <DialogHeader>
+                  <DialogTitle className="flex items-center gap-2">
+                    <History className="h-5 w-5 text-primary" />
+                    {ledgerCard.name} — Leave Ledger
+                  </DialogTitle>
+                  <DialogDescription>Credits, debits and running balance for {ledgerCard.name} ({ledgerCard.code})</DialogDescription>
+                </DialogHeader>
+
+                {/* Summary pills */}
+                <div className="grid grid-cols-3 gap-3 py-2">
+                  <div className="rounded-xl border border-green-200 bg-green-50 p-3 text-center">
+                    <div className="flex items-center justify-center gap-1.5 mb-1">
+                      <ArrowUpCircle className="h-4 w-4 text-green-600" />
+                      <span className="text-xs font-semibold text-green-700">Total Credits</span>
+                    </div>
+                    <p className="text-2xl font-extrabold text-green-700">{totalCredit}</p>
+                    <p className="text-[10px] text-green-500">days</p>
+                  </div>
+                  <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-center">
+                    <div className="flex items-center justify-center gap-1.5 mb-1">
+                      <ArrowDownCircle className="h-4 w-4 text-red-500" />
+                      <span className="text-xs font-semibold text-red-600">Total Debits</span>
+                    </div>
+                    <p className="text-2xl font-extrabold text-red-600">{totalDebit}</p>
+                    <p className="text-[10px] text-red-400">days</p>
+                  </div>
+                  <div className="rounded-xl border border-primary/20 bg-primary/5 p-3 text-center">
+                    <div className="flex items-center justify-center gap-1.5 mb-1">
+                      <Wallet className="h-4 w-4 text-primary" />
+                      <span className="text-xs font-semibold text-primary">Balance</span>
+                    </div>
+                    <p className="text-2xl font-extrabold text-primary">{finalBal}</p>
+                    <p className="text-[10px] text-primary/60">days</p>
+                  </div>
+                </div>
+
+                {/* Ledger table */}
+                <div className="overflow-y-auto flex-1 rounded-xl border border-slate-200">
+                  {ledger.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-16 gap-3 text-center">
+                      <History className="h-8 w-8 text-slate-300" />
+                      <p className="font-semibold text-slate-500">No transactions yet</p>
+                      <p className="text-xs text-slate-400">Leave activity will appear here once recorded</p>
+                    </div>
+                  ) : (
+                    <table className="w-full text-sm">
+                      <thead className="sticky top-0 bg-slate-50 border-b border-slate-200">
+                        <tr>
+                          <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500">Date</th>
+                          <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500">Description</th>
+                          <th className="text-right px-4 py-2.5 text-xs font-semibold text-green-600">Credit</th>
+                          <th className="text-right px-4 py-2.5 text-xs font-semibold text-red-500">Debit</th>
+                          <th className="text-right px-4 py-2.5 text-xs font-semibold text-primary">Balance</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {ledger.map((entry, idx) => (
+                          <tr key={idx} className="border-b border-slate-100 last:border-0 hover:bg-slate-50/60 transition-colors">
+                            <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">
+                              {format(parseISO(entry.date), "d MMM yyyy")}
+                            </td>
+                            <td className="px-4 py-3 text-sm text-slate-700 max-w-[220px]">
+                              <span className="truncate block">{entry.description}</span>
+                            </td>
+                            <td className="px-4 py-3 text-right">
+                              {entry.credit > 0 ? (
+                                <span className="inline-flex items-center gap-1 font-semibold text-green-600">
+                                  <ArrowUpCircle className="h-3.5 w-3.5" />{entry.credit}
+                                </span>
+                              ) : <span className="text-slate-300">—</span>}
+                            </td>
+                            <td className="px-4 py-3 text-right">
+                              {entry.debit > 0 ? (
+                                <span className="inline-flex items-center gap-1 font-semibold text-red-500">
+                                  <ArrowDownCircle className="h-3.5 w-3.5" />{entry.debit}
+                                </span>
+                              ) : <span className="text-slate-300">—</span>}
+                            </td>
+                            <td className="px-4 py-3 text-right">
+                              <span className={`font-bold text-sm ${entry.balance >= 0 ? "text-primary" : "text-red-600"}`}>
+                                {entry.balance}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setLedgerCard(null)} data-testid="button-close-ledger">Close</Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          );
+        })()}
 
       </div>
     );
