@@ -7,6 +7,10 @@ on:
       - 'flutter_app/**'
   workflow_dispatch:
 
+concurrency:
+  group: flutter-apk-build
+  cancel-in-progress: false
+
 jobs:
   build-apk:
     name: Build Android APK
@@ -14,7 +18,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Java 17
         uses: actions/setup-java@v4
@@ -73,50 +77,94 @@ jobs:
              artifacts/hrms-mobile-${{ github.run_number }}.apk
 
       - name: Upload APK artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: hrms-mobile-apk-${{ github.run_number }}
           path: artifacts/hrms-mobile-${{ github.run_number }}.apk
           retention-days: 30
 
+      - name: Setup SSH key
+        env:
+          HOSTINGER_HOST_KEY: ${{ secrets.HOSTINGER_HOST_KEY }}
+          HOSTINGER_HOST: ${{ secrets.HOSTINGER_HOST }}
+          HOSTINGER_PORT: ${{ secrets.HOSTINGER_PORT }}
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          echo "${{ secrets.HOSTINGER_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+
+          if [ -z "$HOSTINGER_HOST_KEY" ]; then
+            echo "❌ HOSTINGER_HOST_KEY secret is not set. Aborting to avoid MITM risk."
+            exit 1
+          fi
+
+          PORT="${HOSTINGER_PORT:-22}"
+          KNOWN_HOSTS=~/.ssh/known_hosts
+          : > "$KNOWN_HOSTS"
+
+          while IFS= read -r line; do
+            [ -z "$line" ] && continue
+            case "$line" in \#*) continue ;; esac
+            rest=$(echo "$line" | awk '{ $1=""; sub(/^ /,""); print }')
+            if [ "$PORT" = "22" ]; then
+              printf '%s %s\n' "$HOSTINGER_HOST" "$rest" >> "$KNOWN_HOSTS"
+            else
+              printf '[%s]:%s %s\n' "$HOSTINGER_HOST" "$PORT" "$rest" >> "$KNOWN_HOSTS"
+            fi
+          done <<< "$HOSTINGER_HOST_KEY"
+
+          chmod 600 "$KNOWN_HOSTS"
+
+          if ! [ -s "$KNOWN_HOSTS" ]; then
+            echo "❌ HOSTINGER_HOST_KEY did not yield any usable known_hosts entries."
+            exit 1
+          fi
+          echo "✅ Pinned $(wc -l < "$KNOWN_HOSTS") host key entry(ies) for $HOSTINGER_HOST:$PORT"
+
       - name: Deploy APK and version.json to server
         env:
-          SSH_KEY: ${{ secrets.HOSTINGER_SSH_KEY }}
-          SSH_HOST: ${{ secrets.HOSTINGER_HOST }}
-          SSH_PORT: ${{ secrets.HOSTINGER_PORT }}
-          SSH_USER: ${{ secrets.HOSTINGER_USERNAME }}
-          HOST_KEY: ${{ secrets.HOSTINGER_HOST_KEY }}
           APP_URL: ${{ secrets.HOSTINGER_APP_URL }}
+          HOSTINGER_PORT: ${{ secrets.HOSTINGER_PORT }}
+          HOSTINGER_USERNAME: ${{ secrets.HOSTINGER_USERNAME }}
+          HOSTINGER_HOST: ${{ secrets.HOSTINGER_HOST }}
         run: |
           BUILD=${{ github.run_number }}
+          PORT="${HOSTINGER_PORT:-22}"
           DOWNLOAD_URL="${APP_URL}/uploads/downloads/hrms-latest.apk"
-          PORT=${SSH_PORT:-22}
 
-          # Write SSH key and known hosts
-          mkdir -p ~/.ssh
-          echo "$SSH_KEY" > ~/.ssh/deploy_key
-          chmod 600 ~/.ssh/deploy_key
-          echo "$HOST_KEY" >> ~/.ssh/known_hosts
-
-          # Create version.json locally (single-line printf avoids YAML indentation issues)
           printf '{"version":"1.0.%s","buildNumber":%s,"downloadUrl":"%s","releaseNotes":"Bug fixes and improvements","mandatory":false}\n' \
             "$BUILD" "$BUILD" "$DOWNLOAD_URL" > /tmp/version.json
 
           echo "version.json contents:"
           cat /tmp/version.json
 
-          # Create downloads dir on server
-          ssh -i ~/.ssh/deploy_key -p "$PORT" "${SSH_USER}@${SSH_HOST}" \
-            "mkdir -p ~/hrms-pro/uploads/downloads"
+          ssh -i ~/.ssh/deploy_key \
+              -p "$PORT" \
+              -o StrictHostKeyChecking=yes \
+              -o UserKnownHostsFile=~/.ssh/known_hosts \
+              "${HOSTINGER_USERNAME}@${HOSTINGER_HOST}" \
+              "mkdir -p ~/hrms-pro/uploads/downloads"
 
-          # Upload APK
-          scp -i ~/.ssh/deploy_key -P "$PORT" \
-            "artifacts/hrms-mobile-${BUILD}.apk" \
-            "${SSH_USER}@${SSH_HOST}:~/hrms-pro/uploads/downloads/hrms-latest.apk"
+          scp -i ~/.ssh/deploy_key \
+              -P "$PORT" \
+              -o StrictHostKeyChecking=yes \
+              -o UserKnownHostsFile=~/.ssh/known_hosts \
+              "artifacts/hrms-mobile-${BUILD}.apk" \
+              "${HOSTINGER_USERNAME}@${HOSTINGER_HOST}:~/hrms-pro/uploads/downloads/hrms-latest.apk"
 
-          # Upload version.json
-          scp -i ~/.ssh/deploy_key -P "$PORT" \
-            /tmp/version.json \
-            "${SSH_USER}@${SSH_HOST}:~/hrms-pro/uploads/downloads/version.json"
+          scp -i ~/.ssh/deploy_key \
+              -P "$PORT" \
+              -o StrictHostKeyChecking=yes \
+              -o UserKnownHostsFile=~/.ssh/known_hosts \
+              /tmp/version.json \
+              "${HOSTINGER_USERNAME}@${HOSTINGER_HOST}:~/hrms-pro/uploads/downloads/version.json"
 
-          echo "Deployed APK + version.json to server (build ${BUILD})"
+          echo "✅ APK and version.json deployed to server (build ${BUILD})"
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "❌ Flutter APK build/deploy failed for commit ${{ github.sha }}"
+          echo "Branch: ${{ github.ref_name }}"
+          echo "Triggered by: ${{ github.actor }}"

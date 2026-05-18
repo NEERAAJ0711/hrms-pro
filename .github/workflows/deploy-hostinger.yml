@@ -67,19 +67,16 @@ jobs:
           node-version: "20"
           cache: "npm"
 
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Build for production
-        run: npm run build
-        env:
-          NODE_ENV: production
-
       - name: Download build artifact
         uses: actions/download-artifact@v5
         with:
           name: dist-${{ github.sha }}
           path: dist/
+
+      - name: Verify downloaded artifacts
+        run: |
+          test -f dist/index.cjs        && echo "✅ Server bundle OK" || (echo "❌ Server bundle missing" && exit 1)
+          test -f dist/public/index.html && echo "✅ Client bundle OK" || (echo "❌ Client bundle missing" && exit 1)
 
       - name: Setup SSH key
         env:
@@ -152,7 +149,7 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           GIT_COMMIT: ${{ github.sha }}
-          BUILD_TIME: ${{ github.event.head_commit.timestamp }}
+          BUILD_TIME: ${{ github.event.head_commit.timestamp || github.event.created_at }}
           SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
           JWT_SECRET: ${{ secrets.JWT_SECRET }}
         shell: bash
