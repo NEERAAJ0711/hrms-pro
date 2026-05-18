@@ -945,8 +945,24 @@ export default function LeavePage() {
                   )}
                 </div>
 
-                <DialogFooter>
+                <DialogFooter className="flex-col-reverse sm:flex-row gap-2">
                   <Button variant="outline" onClick={() => setLedgerCard(null)} data-testid="button-close-ledger">Close</Button>
+                  <Button
+                    className="gap-2"
+                    onClick={() => {
+                      if (!ledgerCard.isCompOff) {
+                        form.setValue("leaveTypeId", ledgerCard.id);
+                      } else {
+                        form.setValue("leaveTypeId", "COMP_OFF");
+                      }
+                      setLedgerCard(null);
+                      setIsCreateOpen(true);
+                    }}
+                    data-testid="button-ledger-apply-leave"
+                  >
+                    <Plus className="h-4 w-4" />
+                    Apply {ledgerCard.name}
+                  </Button>
                 </DialogFooter>
               </DialogContent>
             </Dialog>
