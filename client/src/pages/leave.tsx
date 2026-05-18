@@ -361,6 +361,60 @@ export default function LeavePage() {
                 <FormMessage />
               </FormItem>
             )} />
+
+            {/* ── Balance summary banner (employee only, shown once a type is selected) ── */}
+            {isEmployee && (() => {
+              const selectedId = form.watch("leaveTypeId");
+              if (!selectedId) return null;
+
+              let remaining: number, used: number, total: number, name: string, isLow: boolean;
+
+              if (selectedId === "COMP_OFF") {
+                remaining = availableCompOff;
+                used      = myCompOffUsed;
+                total     = myCompOffCredited;
+                name      = "Comp Off";
+              } else {
+                const lt = leaveTypes.find(l => l.id === selectedId);
+                if (!lt) return null;
+                used      = usedDays(selectedId);
+                total     = lt.daysPerYear;
+                remaining = Math.max(0, total - used);
+                name      = lt.name;
+              }
+
+              isLow = total > 0 && remaining <= Math.ceil(total * 0.25);
+              const pct = total > 0 ? Math.min(100, Math.round((used / total) * 100)) : 0;
+
+              const scheme = remaining === 0
+                ? { wrap: "border-red-200 bg-red-50", bar: "bg-red-400", balColor: "text-red-600", label: "bg-red-100 text-red-700 border-red-200", labelText: "No balance" }
+                : isLow
+                ? { wrap: "border-amber-200 bg-amber-50", bar: "bg-amber-400", balColor: "text-amber-600", label: "bg-amber-100 text-amber-700 border-amber-200", labelText: "Low balance" }
+                : { wrap: "border-green-200 bg-green-50", bar: "bg-green-400", balColor: "text-green-700", label: "bg-green-100 text-green-700 border-green-200", labelText: "Available" };
+
+              return (
+                <div className={`rounded-xl border ${scheme.wrap} px-4 py-3 space-y-2`} data-testid="leave-balance-summary">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-slate-600">{name} Balance</span>
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${scheme.label}`}>{scheme.labelText}</span>
+                  </div>
+                  <div className="flex items-end justify-between gap-4">
+                    <div>
+                      <span className={`text-3xl font-extrabold leading-none ${scheme.balColor}`}>{remaining}</span>
+                      <span className="text-xs text-slate-400 ml-1">/ {total} days</span>
+                    </div>
+                    <div className="text-right text-xs text-slate-400 space-y-0.5">
+                      <p><span className="font-medium text-slate-600">{used}</span> used</p>
+                      <p><span className="font-medium text-slate-600">{pct}%</span> consumed</p>
+                    </div>
+                  </div>
+                  <div className="h-1.5 rounded-full bg-white/80 border border-white">
+                    <div className={`h-full rounded-full ${scheme.bar} transition-all duration-300`} style={{ width: `${pct}%` }} />
+                  </div>
+                </div>
+              );
+            })()}
+
             {/* Day Type toggle */}
             <FormField control={form.control} name="dayType" render={({ field }) => (
               <FormItem>
