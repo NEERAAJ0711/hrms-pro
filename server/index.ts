@@ -11,26 +11,26 @@ import { startBiometricAttendanceSync } from "./biometric-attendance-sync";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 
-// Load .env into process.env if DATABASE_URL is missing.
-// Handles manual PM2 restarts where the shell didn't source .env first.
-if (!process.env.DATABASE_URL) {
-  try {
-    const raw = readFileSync(join(process.cwd(), ".env"), "utf8");
-    for (const line of raw.split(/\r?\n/)) {
-      const eq = line.indexOf("=");
-      if (eq < 1) continue;
-      const key = line.slice(0, eq).trim();
-      if (!/^[A-Z_][A-Z0-9_]*$/.test(key)) continue;
-      if (process.env[key]) continue;
-      let val = line.slice(eq + 1).trim();
-      if ((val.startsWith('"') && val.endsWith('"')) ||
-          (val.startsWith("'") && val.endsWith("'"))) {
-        val = val.slice(1, -1);
-      }
-      process.env[key] = val;
+// Always load .env from disk, merging into process.env without overwriting
+// vars already set by PM2's --update-env or the shell. This ensures
+// GIT_COMMIT and BUILD_TIME are always available regardless of how PM2
+// passes (or doesn't pass) those variables to the process.
+try {
+  const raw = readFileSync(join(process.cwd(), ".env"), "utf8");
+  for (const line of raw.split(/\r?\n/)) {
+    const eq = line.indexOf("=");
+    if (eq < 1) continue;
+    const key = line.slice(0, eq).trim();
+    if (!/^[A-Z_][A-Z0-9_]*$/.test(key)) continue;
+    if (process.env[key]) continue;
+    let val = line.slice(eq + 1).trim();
+    if ((val.startsWith('"') && val.endsWith('"')) ||
+        (val.startsWith("'") && val.endsWith("'"))) {
+      val = val.slice(1, -1);
     }
-  } catch { /* no .env file, continue */ }
-}
+    process.env[key] = val;
+  }
+} catch { /* no .env file — dev environment or first boot, continue */ }
 
 const app = express();
 const httpServer = createServer(app);
