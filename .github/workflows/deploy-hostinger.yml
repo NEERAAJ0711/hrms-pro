@@ -212,7 +212,7 @@ jobs:
               -o StrictHostKeyChecking=yes \
               -o UserKnownHostsFile=~/.ssh/known_hosts \
               ${{ secrets.HOSTINGER_USERNAME }}@${{ secrets.HOSTINGER_HOST }} \
-              "DEPLOY_TAR='/tmp/hrms-deploy-${{ github.run_id }}.tar.gz' ENV_PAYLOAD='/tmp/hrms-deploy-env-${{ github.run_id }}.b64' bash -s" << 'ENDSSH'
+              "DEPLOY_TAR='/tmp/hrms-deploy-${{ github.run_id }}.tar.gz' ENV_PAYLOAD='/tmp/hrms-deploy-env-${{ github.run_id }}.b64' NGINX_WEBROOT='${{ secrets.NGINX_WEBROOT }}' bash -s" << 'ENDSSH'
 
             set -e
 
@@ -252,6 +252,35 @@ jobs:
             echo "▶ Extracting new build from $DEPLOY_TAR..."
             tar -xzf "$DEPLOY_TAR" -C "$APP_DIR"
             rm -f "$DEPLOY_TAR"
+
+            echo "▶ Syncing frontend files to nginx web root..."
+            # CloudPanel serves static files directly from htdocs — Express only
+            # handles /api/* via proxy_pass. We must also update the web root so
+            # nginx serves the new index.html and JS/CSS bundles.
+            WEBROOT="${NGINX_WEBROOT:-}"
+            if [ -z "$WEBROOT" ]; then
+              # Try common CloudPanel locations for this domain
+              for candidate in \
+                "$HOME/htdocs/tbjvisionconnect.com" \
+                "$HOME/htdocs/tbjvisionconnect.com/public" \
+                "$HOME/public_html" \
+                "/var/www/tbjvisionconnect.com/public_html" \
+                "/var/www/html"; do
+                if [ -d "$candidate" ]; then
+                  WEBROOT="$candidate"
+                  echo "  Auto-detected web root: $WEBROOT"
+                  break
+                fi
+              done
+            fi
+            if [ -n "$WEBROOT" ]; then
+              rsync -a --delete "$APP_DIR/dist/public/" "$WEBROOT/"
+              echo "✅ Frontend files synced to $WEBROOT"
+              ls -la "$WEBROOT/assets/" 2>/dev/null | tail -5 || true
+            else
+              echo "⚠️  Could not find nginx web root — set NGINX_WEBROOT secret to fix."
+              echo "   Static files will be served by Express (port $APP_PORT) only."
+            fi
 
             echo "▶ Writing .env file..."
             {
