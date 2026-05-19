@@ -29,6 +29,7 @@ import {
   attendance,
   employees,
   timeOfficePolicies,
+  compOffApplications,
 } from "../shared/schema";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -326,6 +327,18 @@ async function backfillPlaceholderWeekendAttendance(): Promise<void> {
         WHERE  id = ${row.id}
       `);
 
+      // Record this (employee, date) pair so the comp-off / OT recompute
+      // sweep can target exactly the rows we just corrected. ON CONFLICT
+      // keeps the original healed_at timestamp on re-runs.
+      await db.execute(sql`
+        INSERT INTO placeholder_backfill_heals
+          (employee_id, worked_date, company_id, healed_at)
+        VALUES
+          (${row.employee_id}, ${row.date}, ${row.company_id},
+           to_char(NOW(), 'YYYY-MM-DD"T"HH24:MI:SS'))
+        ON CONFLICT (employee_id, worked_date) DO NOTHING
+      `);
+
       healed++;
       console.log(
         `[BioAttSync] Placeholder backfilled: emp ${row.employee_id} ${row.date} ` +
@@ -338,6 +351,206 @@ async function backfillPlaceholderWeekendAttendance(): Promise<void> {
     }
   } catch (err) {
     console.error("[BioAttSync] backfillPlaceholderWeekendAttendance failed:", err);
+  }
+}
+
+// ─── Comp-off / OT recompute for backfilled weekend/holiday rows ─────────────
+
+const COMP_OFF_REOPEN_MARKER = "[auto-reopened: weekend/holiday punches restored]";
+
+/**
+ * After the placeholder weekend/holiday backfill restores real biometric punch
+ * times to historical attendance rows, downstream comp-off eligibility and OT
+ * values may have been computed against the old "00:00" data and silently
+ * rejected. This sweep:
+ *
+ *   1. Finds past biometric attendance rows whose calendar date is either the
+ *      employee's weekly-off day or a company holiday and which now carry a
+ *      real (non-placeholder) clock-in.
+ *   2. Recomputes ot_hours using the same formula used for newly-arriving
+ *      biometric entries — only writes when the value actually changes.
+ *   3. For each (employeeId, workedDate) of those rows, reopens any comp-off
+ *      applications that were previously REJECTED so a manager can re-evaluate
+ *      them against the now-correct attendance data.
+ *
+ * Idempotent: ot_hours updates are skipped when already correct; comp-off
+ * applications carry a marker in rejection_reason so a re-rejection by the
+ * manager is not undone again on the next run.
+ */
+async function recomputeCompOffForBackfilledDates(): Promise<void> {
+  try {
+    // 1. Pull ONLY the attendance rows that the placeholder backfill actually
+    //    corrected and have not yet been recomputed. The join against
+    //    placeholder_backfill_heals scopes us strictly to (employee, date)
+    //    pairs healed from "00:00" placeholders — never to rows that always
+    //    had real punches.
+    const candRows = await db.execute<{
+      id: string;
+      employee_id: string;
+      company_id: string;
+      date: string;
+      status: string;
+      clock_in: string | null;
+      clock_out: string | null;
+      work_hours: string | null;
+      ot_hours: string | null;
+    }>(sql`
+      SELECT a.id, a.employee_id, a.company_id, a.date, a.status,
+             a.clock_in, a.clock_out, a.work_hours, a.ot_hours
+      FROM   placeholder_backfill_heals h
+      JOIN   attendance a
+        ON   a.employee_id = h.employee_id
+       AND   a.company_id  = h.company_id
+       AND   a.date        = h.worked_date
+      WHERE  h.comp_off_recomputed_at IS NULL
+        AND  a.clock_in_method = 'biometric'
+        AND  a.clock_in IS NOT NULL
+        AND  a.clock_in NOT IN ('00:00', '00:00:00', '')
+    `);
+    if (!candRows.rows.length) return;
+
+    // 2. Load employee policies (used only to compute OT cleanly per row).
+    //    Every (employee, date) returned above is a healed weekend/holiday by
+    //    construction — the placeholder backfill only records pairs whose
+    //    status was 'weekend' or 'holiday'. We therefore do NOT re-filter by
+    //    current weekly-off / holiday master data, which can drift from
+    //    historical reality and would risk skipping legitimately-healed rows.
+    const empIds = Array.from(new Set(candRows.rows.map(r => r.employee_id)));
+    const empRows = await db
+      .select({
+        id: employees.id,
+        timeOfficePolicyId: employees.timeOfficePolicyId,
+      })
+      .from(employees)
+      .where(inArray(employees.id, empIds));
+    const empMap = new Map(empRows.map(e => [e.id, e]));
+
+    const policyIds = Array.from(
+      new Set(empRows.map(e => e.timeOfficePolicyId).filter(Boolean))
+    ) as string[];
+    const policyMap = new Map<string, any>();
+    if (policyIds.length) {
+      const pols = await db
+        .select()
+        .from(timeOfficePolicies)
+        .where(inArray(timeOfficePolicies.id, policyIds));
+      for (const p of pols) policyMap.set(p.id, p);
+    }
+
+    // 3. Recompute OT on every healed row using the same formula as new
+    //    biometric entries. Idempotent — only writes when the value differs.
+    let otFixed = 0;
+    for (const row of candRows.rows) {
+      const emp = empMap.get(row.employee_id);
+      const policy = emp?.timeOfficePolicyId ? policyMap.get(emp.timeOfficePolicyId) : null;
+
+      const dutyStart = policy?.dutyStartTime ?? "09:00";
+      const dutyEnd   = policy?.dutyEndTime   ?? "18:00";
+      const normalDutyMins = calcNormalDutyMinutes(dutyStart, dutyEnd);
+
+      let expectedOt: string | null = null;
+      if (row.clock_in && row.clock_out) {
+        const workMin   = calcWorkMinutes(row.clock_in, row.clock_out);
+        const cappedMin = Math.min(workMin, MAX_WORK_HOURS * 60);
+        if (normalDutyMins > 0 && cappedMin > normalDutyMins) {
+          expectedOt = fromMinutes(cappedMin - normalDutyMins);
+        }
+      }
+
+      const currentOt = (row.ot_hours ?? "").trim();
+      const desired   = expectedOt ?? "";
+      if (currentOt !== desired) {
+        await db.execute(sql`
+          UPDATE attendance
+          SET    ot_hours = ${expectedOt}
+          WHERE  id = ${row.id}
+        `);
+        otFixed++;
+      }
+    }
+
+    // 4. Reopen previously-rejected comp-off applications for healed
+    //    (employee, company, date) triples — match includes companyId so
+    //    legacy rows from a different company context are never touched.
+    //    Skips dates that already have an approved/pending application to
+    //    avoid creating duplicate pending claims for the same date.
+    //    Idempotent via COMP_OFF_REOPEN_MARKER in rejection_reason.
+    const healedKeys = new Set(
+      candRows.rows.map(r => `${r.employee_id}|${r.company_id}|${r.date}`)
+    );
+    let reopened = 0;
+
+    const allApps = await db
+      .select({
+        id: compOffApplications.id,
+        employeeId: compOffApplications.employeeId,
+        companyId: compOffApplications.companyId,
+        workedDate: compOffApplications.workedDate,
+        status: compOffApplications.status,
+        rejectionReason: compOffApplications.rejectionReason,
+      })
+      .from(compOffApplications)
+      .where(inArray(compOffApplications.employeeId, empIds));
+
+    // Build set of (emp|company|date) that already have a non-rejected app.
+    const liveKeys = new Set<string>();
+    for (const app of allApps) {
+      if ((app.status || "").toLowerCase() !== "rejected") {
+        liveKeys.add(`${app.employeeId}|${app.companyId}|${app.workedDate}`);
+      }
+    }
+
+    for (const app of allApps) {
+      if ((app.status || "").toLowerCase() !== "rejected") continue;
+      const key = `${app.employeeId}|${app.companyId}|${app.workedDate}`;
+      if (!healedKeys.has(key)) continue;
+      if (liveKeys.has(key)) continue; // already an approved/pending app for this date
+      if ((app.rejectionReason || "").includes(COMP_OFF_REOPEN_MARKER)) continue;
+
+      const newReason = app.rejectionReason
+        ? `${app.rejectionReason} ${COMP_OFF_REOPEN_MARKER}`
+        : COMP_OFF_REOPEN_MARKER;
+
+      await db
+        .update(compOffApplications)
+        .set({
+          status: "pending",
+          approvedBy: null,
+          approvedAt: null,
+          rejectionReason: newReason,
+        })
+        .where(eq(compOffApplications.id, app.id));
+
+      // Treat the just-reopened app as a live row so any other rejected
+      // duplicates for the same date in this run are also skipped.
+      liveKeys.add(key);
+
+      reopened++;
+      console.log(
+        `[BioAttSync] Comp-off reopened: emp ${app.employeeId} ${app.workedDate} ` +
+        `(was rejected — punches restored)`
+      );
+    }
+
+    // 5. Stamp comp_off_recomputed_at on every healed pair we just processed
+    //    so subsequent sweeps skip them entirely. One-shot per healed pair —
+    //    a later manager re-rejection will not be auto-reopened again.
+    for (const row of candRows.rows) {
+      await db.execute(sql`
+        UPDATE placeholder_backfill_heals
+        SET    comp_off_recomputed_at = to_char(NOW(), 'YYYY-MM-DD"T"HH24:MI:SS')
+        WHERE  employee_id = ${row.employee_id}
+          AND  worked_date = ${row.date}
+          AND  comp_off_recomputed_at IS NULL
+      `);
+    }
+
+    console.log(
+      `[BioAttSync] Weekend/holiday comp-off recompute: pairs processed=${candRows.rows.length}, ` +
+      `ot_hours fixed=${otFixed}, comp_off reopened=${reopened}`
+    );
+  } catch (err) {
+    console.error("[BioAttSync] recomputeCompOffForBackfilledDates failed:", err);
   }
 }
 
@@ -1057,8 +1270,18 @@ export function startBiometricAttendanceSync() {
   setTimeout(() => backfillBiometricOtHours(false).catch(console.error), 8_000);
 
   // Placeholder weekend/holiday backfill at startup — fixes old 00:00 rows
-  // where biometric punches exist. Idempotent (no-op once cleaned up).
-  setTimeout(() => backfillPlaceholderWeekendAttendance().catch(console.error), 10_000);
+  // where biometric punches exist. Then, in the SAME async chain, re-evaluate
+  // comp-off eligibility and OT for the dates the backfill just healed. This
+  // sequencing guarantees recompute sees every healed pair, with no race
+  // against the fixed staggered timers. Both steps are idempotent.
+  setTimeout(async () => {
+    try {
+      await backfillPlaceholderWeekendAttendance();
+      await recomputeCompOffForBackfilledDates();
+    } catch (err) {
+      console.error("[BioAttSync] startup heal+recompute chain failed:", err);
+    }
+  }, 10_000);
 
   // Heal any existing night-shift cross-day miss_punch records at startup
   setTimeout(() => healNightShiftCrossDay().catch(console.error), 12_000);
@@ -1066,11 +1289,16 @@ export function startBiometricAttendanceSync() {
   // Run once immediately on startup (catches any backlog + applies miss-punch rule)
   setTimeout(() => processBiometricAttendance().catch(console.error), 5_000);
 
-  // Every regular sweep: process new punches, heal night-shift, then fill OT
+  // Every regular sweep: process new punches, heal night-shift, fill OT, and
+  // run the placeholder-backfill recompute as a safety net so any
+  // `placeholder_backfill_heals` rows that were missed at startup (or inserted
+  // by a later run of the backfill itself) get re-evaluated without needing a
+  // service restart. The recompute is a cheap no-op when nothing is pending.
   const runSweep = async () => {
     await processBiometricAttendance().catch(console.error);
     await healNightShiftCrossDay().catch(console.error);
     await backfillBiometricOtHours(true).catch(console.error); // last 7 days only
+    await recomputeCompOffForBackfilledDates().catch(console.error);
   };
 
   _sweepTimer = setInterval(() => runSweep(), SWEEP_MS);

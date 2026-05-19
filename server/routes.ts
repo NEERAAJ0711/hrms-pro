@@ -542,6 +542,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
     CREATE INDEX IF NOT EXISTS adms_activity_log_sn_idx ON adms_activity_log (device_sn, id DESC)
   `).catch(() => {});
 
+  // Tracking table for rows healed by the placeholder weekend/holiday backfill.
+  // Drives the comp-off / OT recompute sweep so it only acts on (employee, date)
+  // pairs that were actually corrected from "00:00" placeholder data — never on
+  // rows that always had real punches.
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS placeholder_backfill_heals (
+      employee_id              VARCHAR(36) NOT NULL,
+      worked_date              TEXT        NOT NULL,
+      company_id               VARCHAR(36) NOT NULL,
+      healed_at                TEXT        NOT NULL,
+      comp_off_recomputed_at   TEXT,
+      PRIMARY KEY (employee_id, worked_date)
+    )
+  `).catch((err) => console.error("[migrations] create placeholder_backfill_heals failed:", err));
+
   // Trial columns for companies (free trial — 3 days for all companies)
   await db.execute(sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS trial_start_date TEXT`).catch(() => {});
   await db.execute(sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS trial_days INTEGER NOT NULL DEFAULT 3`).catch(() => {});
