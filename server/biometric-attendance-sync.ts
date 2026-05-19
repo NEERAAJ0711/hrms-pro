@@ -686,8 +686,26 @@ export async function processBiometricAttendance(
           updates.status         = mergedStatus;
           updates.clockOutMethod = mergedOut ? "biometric" : null;
         } else {
-          // Non-biometric record: only fill in missing clockOut
-          if (!existing.clockOut && clockOut) {
+          // Non-biometric record. Two cases:
+          //  (a) Placeholder row from quick-entry weekend/holiday with
+          //      clockIn="00:00" and clockOut="00:00" — treat as effectively
+          //      empty and overwrite with the real punch times so the row
+          //      reflects that the employee actually worked.
+          //  (b) Otherwise (manager-entered real times): only fill in a
+          //      missing clockOut, never disturb a non-zero clockIn.
+          const isPlaceholder =
+            existing.clockIn === "00:00" &&
+            (existing.clockOut === "00:00" || !existing.clockOut);
+
+          if (isPlaceholder && clockIn) {
+            updates.clockIn         = clockIn;
+            updates.clockOut        = clockOut ?? null;
+            updates.workHours       = workHours ?? null;
+            updates.otHours         = otHours ?? null;
+            updates.status          = status;
+            updates.clockInMethod   = "biometric";
+            updates.clockOutMethod  = clockOut ? "biometric" : null;
+          } else if (!existing.clockOut && clockOut) {
             updates.clockOut        = clockOut;
             updates.workHours       = workHours ?? null;
             updates.otHours         = otHours ?? null;
