@@ -212,6 +212,135 @@ async function backfillBiometricOtHours(recentOnly = false): Promise<void> {
   }
 }
 
+// ─── Placeholder 00:00 weekend/holiday backfill ───────────────────────────────
+
+/**
+ * One-time / idempotent backfill for attendance rows that were created with
+ * placeholder "00:00" clock-in/out times on weekend or holiday dates (the old
+ * biometric sync behaviour). For each such row that has biometric punch logs
+ * on file for the same employee+date, overwrite the placeholder times with
+ * the actual first / last punch and recompute work_hours, ot_hours and status.
+ *
+ * Idempotent: once a row's clock_in is no longer "00:00" it is no longer
+ * matched by the placeholder filter, so subsequent runs are no-ops.
+ */
+async function backfillPlaceholderWeekendAttendance(): Promise<void> {
+  try {
+    const placeholderRows = await db.execute<{
+      id: string;
+      employee_id: string;
+      company_id: string;
+      date: string;
+      status: string;
+    }>(sql`
+      SELECT id, employee_id, company_id, date, status
+      FROM   attendance
+      WHERE  clock_in = '00:00'
+        AND  (clock_out = '00:00' OR clock_out IS NULL)
+        AND  date < to_char(CURRENT_DATE, 'YYYY-MM-DD')
+        AND  status IN ('weekend', 'holiday')
+    `);
+
+    if (!placeholderRows.rows.length) return;
+
+    const empIds = Array.from(new Set(placeholderRows.rows.map(r => r.employee_id)));
+    const empRows = await db
+      .select({
+        id: employees.id,
+        companyId: employees.companyId,
+        timeOfficePolicyId: employees.timeOfficePolicyId,
+      })
+      .from(employees)
+      .where(inArray(employees.id, empIds));
+
+    const policyIds = Array.from(
+      new Set(empRows.map(e => e.timeOfficePolicyId).filter(Boolean))
+    ) as string[];
+    const policyMap = new Map<string, any>();
+    if (policyIds.length) {
+      const pols = await db
+        .select()
+        .from(timeOfficePolicies)
+        .where(inArray(timeOfficePolicies.id, policyIds));
+      for (const p of pols) policyMap.set(p.id, p);
+    }
+    const empMap = new Map(empRows.map(e => [e.id, e]));
+
+    let healed = 0;
+    for (const row of placeholderRows.rows) {
+      const logRows = await db.execute<{ punch_time: string }>(sql`
+        SELECT punch_time
+        FROM   biometric_punch_logs
+        WHERE  employee_id = ${row.employee_id}
+          AND  company_id  = ${row.company_id}
+          AND  punch_date  = ${row.date}
+          AND  punch_time  IS NOT NULL
+        ORDER  BY punch_time ASC
+      `);
+
+      if (!logRows.rows.length) continue;
+
+      const times = logRows.rows.map(r => r.punch_time).filter(Boolean);
+      const sorted = [...new Set(times)].sort(
+        (a, b) => toMinutes(a) - toMinutes(b)
+      );
+      const clockIn  = sorted[0];
+      const clockOut = sorted.length > 1 ? sorted[sorted.length - 1] : null;
+      if (!clockIn || clockIn === "00:00") continue;
+
+      const emp = empMap.get(row.employee_id);
+      const policy = emp?.timeOfficePolicyId
+        ? policyMap.get(emp.timeOfficePolicyId)
+        : null;
+      const fullDayMinHours = policy?.fullDayMinHours ?? 8;
+      const halfDayMinHours = policy?.halfDayMinHours ?? 4;
+      const dutyStart = policy?.dutyStartTime ?? "09:00";
+      const dutyEnd   = policy?.dutyEndTime   ?? "18:00";
+      const normalDutyMins = calcNormalDutyMinutes(dutyStart, dutyEnd);
+
+      let workHours: string | null = null;
+      let otHours:   string | null = null;
+      let newStatus = "present";
+
+      if (clockOut) {
+        const workMin   = calcWorkMinutes(clockIn, clockOut);
+        const cappedMin = Math.min(workMin, MAX_WORK_HOURS * 60);
+        workHours = fromMinutes(Math.max(0, cappedMin));
+        if (workMin >= fullDayMinHours * 60)        newStatus = "present";
+        else if (workMin >= halfDayMinHours * 60)   newStatus = "half_day";
+        else                                         newStatus = "present";
+        if (normalDutyMins > 0 && cappedMin > normalDutyMins) {
+          otHours = fromMinutes(cappedMin - normalDutyMins);
+        }
+      }
+
+      await db.execute(sql`
+        UPDATE attendance
+        SET    clock_in         = ${clockIn},
+               clock_out        = ${clockOut},
+               work_hours       = ${workHours},
+               ot_hours         = ${otHours},
+               status           = ${newStatus},
+               clock_in_method  = 'biometric',
+               clock_out_method = ${clockOut ? "biometric" : null}
+        WHERE  id = ${row.id}
+      `);
+
+      healed++;
+      console.log(
+        `[BioAttSync] Placeholder backfilled: emp ${row.employee_id} ${row.date} ` +
+        `(${row.status}) → in=${clockIn} out=${clockOut ?? "—"}`
+      );
+    }
+
+    if (healed) {
+      console.log(`[BioAttSync] Placeholder weekend/holiday backfill: fixed ${healed} record(s)`);
+    }
+  } catch (err) {
+    console.error("[BioAttSync] backfillPlaceholderWeekendAttendance failed:", err);
+  }
+}
+
 // ─── Punch-type auto-classifier ───────────────────────────────────────────────
 
 /**
@@ -926,6 +1055,10 @@ export function startBiometricAttendanceSync() {
 
   // Full OT backfill at startup — fixes ALL historical records with missing OT
   setTimeout(() => backfillBiometricOtHours(false).catch(console.error), 8_000);
+
+  // Placeholder weekend/holiday backfill at startup — fixes old 00:00 rows
+  // where biometric punches exist. Idempotent (no-op once cleaned up).
+  setTimeout(() => backfillPlaceholderWeekendAttendance().catch(console.error), 10_000);
 
   // Heal any existing night-shift cross-day miss_punch records at startup
   setTimeout(() => healNightShiftCrossDay().catch(console.error), 12_000);
