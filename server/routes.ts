@@ -5932,13 +5932,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ===== Comp-Off Routes =====
   // Returns attendance dates eligible for comp-off, purely from the attendance table.
   //
-  // "weekly_off"  → attendance rows with status = "weekend" in last 90 days
-  //                 (these are the employee's marked weekly-off days)
-  // "holiday"     → attendance rows with status = "holiday" in last 90 days
+  // "weekly_off"  → any attendance with a real punch on the employee's weekly-off day
+  //                 (per their time-office policy), OR any row stored as status="weekend"
+  // "holiday"     → any attendance with a real punch on a company holiday date,
+  //                 OR any row stored as status="holiday"
   // "extra_shift" → attendance rows with status = "present" and otHours > 0
   //
-  // No biometric punch log lookup. No day-of-week filtering.
-  // Works for any weekly-off schedule (Sat/Sun, Sun-only, rotating shifts, etc.)
+  // We deliberately accept multiple status values ("weekend"/"week_off"/"weekly_off",
+  // "holiday"/"hol", "present", "half_day") because different code paths (quick entry,
+  // biometric sync, manual edit) historically use different conventions.
   app.get("/api/comp-off/qualifying-dates", requireAuth, async (req, res) => {
     try {
       const user = (req as any).user;
@@ -5957,67 +5959,98 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const cutoffStr = fmt(cutoffD);
 
       // Pull all attendance for this employee in the 90-day window via raw SQL
-      // (avoids loading thousands of rows for long-tenured employees)
       const rows = await db.execute(sql`
-        SELECT date, status, ot_hours AS "otHours", clock_in AS "clockIn"
+        SELECT date, status, ot_hours AS "otHours",
+               clock_in AS "clockIn", clock_out AS "clockOut"
         FROM   attendance
         WHERE  employee_id = ${employee.id}
           AND  date >= ${cutoffStr}
           AND  date <= ${todayStr}
         ORDER  BY date DESC
       `);
-      const attRows = ((rows as any).rows ?? rows) as Array<{ date: string; status: string; otHours: string | null; clockIn: string | null }>;
+      const attRows = ((rows as any).rows ?? rows) as Array<{
+        date: string; status: string; otHours: string | null;
+        clockIn: string | null; clockOut: string | null;
+      }>;
       console.log(`[comp-off/qualifying-dates] attRows=${attRows.length} type=${type}`);
 
       // Company holidays for "holiday" type
       const holidays = await storage.getHolidaysByCompany(employee.companyId);
       const holidaySet = new Set(holidays.map((h: any) => h.date as string));
 
-      // Filter by type — only "present" attendance qualifies.
-      // "weekend"/"holiday" status means the employee was OFF that day; those
-      // should NOT appear because the employee didn't actually work.
-      // Comp-off is only valid when the employee was genuinely present on a day
-      // they were supposed to be off.
+      // Employee's weekly-off schedule (lowercase day names: "sunday", "saturday", etc.)
+      let weeklyOffDays: Set<string> = new Set(["sunday"]); // safe default
+      if (employee.timeOfficePolicyId) {
+        const policy = await storage.getTimeOfficePolicy(employee.timeOfficePolicyId);
+        if (policy) {
+          weeklyOffDays = new Set();
+          if (policy.weeklyOff1) weeklyOffDays.add(String(policy.weeklyOff1).toLowerCase());
+          if (policy.weeklyOff2) weeklyOffDays.add(String(policy.weeklyOff2).toLowerCase());
+        }
+      }
+      const dayName = (dateStr: string) => {
+        const [y, m, d] = dateStr.split("-").map(Number);
+        return ["sunday","monday","tuesday","wednesday","thursday","friday","saturday"][new Date(y, m - 1, d).getDay()];
+      };
+
+      // A "real punch" = clockIn or clockOut is set and is not the zero-time placeholder
+      const isRealTime = (t: string | null) =>
+        !!t && t !== "00:00" && t !== "00:00:00" && t !== "0:00";
+      const hadPunch = (r: typeof attRows[number]) =>
+        isRealTime(r.clockIn) || isRealTime(r.clockOut);
+
+      // Normalize the many ways "weekend" and "holiday" statuses are spelled
+      const isWeekendStatus = (s: string) =>
+        ["weekend", "week_off", "weekly_off", "wo"].includes((s || "").toLowerCase());
+      const isHolidayStatus = (s: string) =>
+        ["holiday", "hol", "public_holiday"].includes((s || "").toLowerCase());
+      const isPresentStatus = (s: string) =>
+        ["present", "half_day", "miss_punch"].includes((s || "").toLowerCase());
+
       let eligible: typeof attRows;
 
-      // Helper: did the employee actually punch in on this record?
-      // The biometric sync writes real times into clock_in but keeps status="weekend"
-      // or status="holiday" — it never overwrites those statuses to "present".
-      // So we check clock_in: if it exists and is NOT "00:00" / "00:00:00" / null,
-      // the employee genuinely came in that day.
-      const hadPunch = (r: typeof attRows[number]) =>
-        r.clockIn && r.clockIn !== "00:00" && r.clockIn !== "00:00:00";
-
       if (type === "weekly_off") {
-        // Worked on their weekly off = "present" on Sat/Sun
-        //                            OR "weekend" on Sat/Sun but has actual punch times
         eligible = attRows.filter(r => {
-          const [y, m, d] = r.date.split("-").map(Number);
-          const dow = new Date(y, m - 1, d).getDay();
-          const isWeekend = dow === 0 || dow === 6;
-          if (!isWeekend) return false;
-          return r.status === "present" || (r.status === "weekend" && hadPunch(r));
+          // Case A: row explicitly marked as weekly-off in DB → qualifies as long as
+          //         we have any signal the employee actually came in (real punch OR OT)
+          if (isWeekendStatus(r.status)) {
+            return hadPunch(r) || (r.otHours ? parseFloat(r.otHours) > 0 : false);
+          }
+          // Case B: row marked "present"/"half_day" but the calendar day IS the
+          //         employee's policy weekly off → they worked on their off day
+          if (isPresentStatus(r.status) && weeklyOffDays.has(dayName(r.date))) {
+            return true;
+          }
+          return false;
         });
       } else if (type === "holiday") {
-        // Worked on a public holiday = "present" on a holiday date
-        //                             OR "holiday" status but has actual punch times
-        eligible = attRows.filter(r =>
-          holidaySet.has(r.date) &&
-          (r.status === "present" || (r.status === "holiday" && hadPunch(r)))
-        );
+        eligible = attRows.filter(r => {
+          if (isHolidayStatus(r.status)) {
+            return hadPunch(r) || (r.otHours ? parseFloat(r.otHours) > 0 : false);
+          }
+          if (isPresentStatus(r.status) && holidaySet.has(r.date)) {
+            return true;
+          }
+          return false;
+        });
       } else if (type === "extra_shift") {
-        // Worked beyond shift hours = "present" with measured OT > 0
-        eligible = attRows.filter(r => r.status === "present" && r.otHours && parseFloat(r.otHours) > 0);
+        eligible = attRows.filter(r =>
+          isPresentStatus(r.status) && r.otHours && parseFloat(r.otHours) > 0
+        );
       } else {
         eligible = [];
       }
 
       console.log(`[comp-off/qualifying-dates] eligible before dedup=${eligible.length}`);
 
-      // Remove dates already applied for comp-off
+      // Remove dates that already have a non-rejected comp-off application.
+      // Rejected applications should NOT block re-applying for the same date.
       const existing = await storage.getCompOffByEmployee(employee.id);
       const usedDates = new Set(
-        existing.map((c: any) => (c.workedDate ?? c.worked_date ?? null) as string | null).filter(Boolean)
+        existing
+          .filter((c: any) => (c.status ?? "").toLowerCase() !== "rejected")
+          .map((c: any) => (c.workedDate ?? c.worked_date ?? null) as string | null)
+          .filter(Boolean)
       );
       eligible = eligible.filter(r => !usedDates.has(r.date));
 
