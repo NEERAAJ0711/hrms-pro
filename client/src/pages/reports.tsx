@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { loadHindiFont, registerHindiFont, loadHindiFontForCanvas, addHindiText, HI, EN } from "@/lib/hindiFont";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
@@ -417,12 +417,41 @@ export default function ReportsPage() {
 
   const effectiveCompany = selectedCompany === "__all__" ? "" : selectedCompany;
 
-  // Base employees for a company (used to build dropdown options)
-  const baseEmployees = employees.filter(e => effectiveCompany ? e.companyId === effectiveCompany : true);
   const uniqSorted = <T extends string>(arr: T[]) => [...new Set(arr)].filter(Boolean).sort();
-  const globalDepts  = uniqSorted(baseEmployees.map(e => e.department  || ""));
-  const globalDesigs = uniqSorted(baseEmployees.map(e => e.designation || ""));
-  const globalLocs   = uniqSorted(baseEmployees.map(e => e.location    || ""));
+
+  // Faceted cascading filter — each dropdown's options reflect employees that
+  // pass ALL OTHER currently-active filters. This means changing Company
+  // narrows Dept/Designation/Location/Contractor to only values that exist in
+  // that company; picking Dept further narrows Designation/Location; and so
+  // on. Prevents the "dead-end empty list" caused by stale selections.
+  const passesExcept = (e: any, except: "company" | "dept" | "desig" | "loc" | "cont") => {
+    if (except !== "company" && effectiveCompany && e.companyId      !== effectiveCompany) return false;
+    if (except !== "dept"    && dwDept           && e.department     !== dwDept)            return false;
+    if (except !== "desig"   && dwDesig          && e.designation    !== dwDesig)           return false;
+    if (except !== "loc"     && dwLoc            && e.location       !== dwLoc)             return false;
+    if (except !== "cont"    && dwCont           && (e as any).contractorMasterId !== dwCont) return false;
+    return true;
+  };
+
+  const globalDepts  = uniqSorted(employees.filter(e => passesExcept(e, "dept")).map(e  => e.department  || ""));
+  const globalDesigs = uniqSorted(employees.filter(e => passesExcept(e, "desig")).map(e => e.designation || ""));
+  const globalLocs   = uniqSorted(employees.filter(e => passesExcept(e, "loc")).map(e   => e.location    || ""));
+  const globalContractorIdSet = new Set(
+    employees.filter(e => passesExcept(e, "cont")).map(e => (e as any).contractorMasterId).filter(Boolean)
+  );
+  const globalContractors = contractorMastersList.filter(c => globalContractorIdSet.has(c.id));
+
+  // Auto-reset filter values that became invalid because of an upstream
+  // selection change (e.g. user picks Company B but old "IT" dept doesn't
+  // exist there). Resetting to "" is safer than silently producing an empty
+  // employee list and a "no data" toast.
+  useEffect(() => { if (dwDept   && !globalDepts.includes(dwDept))                          setDwDept("");   }, [dwDept,   globalDepts.join("|")]);
+  useEffect(() => { if (dwDesig  && !globalDesigs.includes(dwDesig))                        setDwDesig("");  }, [dwDesig,  globalDesigs.join("|")]);
+  useEffect(() => { if (dwLoc    && !globalLocs.includes(dwLoc))                            setDwLoc("");    }, [dwLoc,    globalLocs.join("|")]);
+  useEffect(() => { if (dwCont   && !globalContractors.some(c => c.id === dwCont))          setDwCont("");   }, [dwCont,   globalContractors.map(c => c.id).join("|")]);
+
+  // baseEmployees retained for any downstream code that reads it (company-scope only)
+  const baseEmployees = employees.filter(e => effectiveCompany ? e.companyId === effectiveCompany : true);
 
   // Global filtered employees — used by every report generation function
   const filteredEmployees = baseEmployees.filter(e => {
@@ -6146,7 +6175,7 @@ export default function ReportsPage() {
                         <SelectTrigger className="h-8 w-40 text-xs" data-testid="filter-dw-cont"><SelectValue placeholder="All Contractors" /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="__all__">All Contractors</SelectItem>
-                          {contractorMastersList.map(c => <SelectItem key={c.id} value={c.id}>{c.contractorName}</SelectItem>)}
+                          {globalContractors.map(c => <SelectItem key={c.id} value={c.id}>{c.contractorName}</SelectItem>)}
                         </SelectContent>
                       </Select>
                     </div>
