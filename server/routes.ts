@@ -3728,8 +3728,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
           clockOut = `${String(Math.floor(outTotalMin / 60)).padStart(2, "0")}:${String(outTotalMin % 60).padStart(2, "0")}`;
           workHrs  = "04:00";
         } else if (status === "weekend" || status === "holiday") {
-          clockIn  = "00:00";
-          clockOut = "00:00";
+          // Leave clockIn/clockOut as NULL — these are not real punches.
+          // If the employee actually worked, biometric sync will fill in
+          // the real times later.
+          clockIn  = null;
+          clockOut = null;
           workHrs  = "00:00";
         }
 
