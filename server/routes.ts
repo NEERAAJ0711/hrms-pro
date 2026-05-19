@@ -7,7 +7,7 @@ import { registerComplianceRoutes } from "./compliance-routes";
 import { createNotification, createNotificationForMany } from "./notifications";
 import { addSSEClient, removeSSEClient } from "./sse";
 import { db } from "./db";
-import { notifications, profileUpdateRequests, users as usersTable } from "../shared/schema";
+import { notifications, profileUpdateRequests, users as usersTable, contractorEmployees as contractorEmployeesTable } from "../shared/schema";
 import { eq, and, desc, sql, inArray } from "drizzle-orm";
 import { 
   insertUserSchema, 
@@ -282,6 +282,74 @@ async function resolveAllowedLocationNames(user: any): Promise<Set<string> | nul
   } catch {
     return new Set(); // fail-closed
   }
+}
+
+/**
+ * Returns the set of employee IDs (in the user's company) the user is allowed
+ * to see, considering both contractor and location access restrictions.
+ *
+ * An employee is included when BOTH hold:
+ *   • Contractor OK: no contractor restriction, OR the employee's
+ *     `contractorMasterId` is in `user.accessContractors`, OR the employee is
+ *     tagged via the Settings → Tag Employees screen to a company-contractor
+ *     whose contractor company's name matches one of the allowed
+ *     contractor-master names.
+ *   • Location OK: no location restriction, OR the employee's `location`
+ *     matches one of the allowed master-location names.
+ *
+ * Returns `null` when the user has no restriction at all (caller should skip
+ * filtering). Returns an empty Set on safety failures so callers fail closed.
+ */
+async function getAllowedEmployeeIdsForUser(user: any): Promise<Set<string> | null> {
+  const allowedContractors: string[] | null = user.accessContractors;
+  const allowedLocationNames = await resolveAllowedLocationNames(user);
+  const hasContractorRestriction = !!(allowedContractors && allowedContractors.length > 0);
+  const hasLocationRestriction = allowedLocationNames !== null;
+  if (!hasContractorRestriction && !hasLocationRestriction) return null;
+  if (!user.companyId) return new Set();
+
+  const companyEmployees = await storage.getEmployeesByCompany(user.companyId);
+
+  // Build the set of employee IDs tagged to any contractor matching the
+  // user's accessContractors via Settings → Tag Employees.
+  const taggedEmployeeIds = new Set<string>();
+  if (hasContractorRestriction) {
+    try {
+      const cms = await storage.getContractorMastersByCompany(user.companyId);
+      const allowedNames = new Set(
+        cms
+          .filter((c: any) => allowedContractors!.includes(c.id))
+          .map((c: any) => (c.contractorName || "").trim().toLowerCase())
+      );
+      if (allowedNames.size > 0) {
+        const ccRows = await storage.getCompanyContractors(user.companyId);
+        const matchedCcIds = ccRows
+          .filter((cc: any) => allowedNames.has(((cc as any).contractorName || "").trim().toLowerCase()))
+          .map((cc: any) => cc.id);
+        if (matchedCcIds.length > 0) {
+          // Single batched query instead of N per-contractor fetches
+          const taggedRows = await db
+            .select({ employeeId: contractorEmployeesTable.employeeId })
+            .from(contractorEmployeesTable)
+            .where(inArray(contractorEmployeesTable.companyContractorId, matchedCcIds));
+          for (const t of taggedRows) taggedEmployeeIds.add(t.employeeId);
+        }
+      }
+    } catch (err) {
+      console.error("[getAllowedEmployeeIdsForUser] tag lookup failed:", err);
+    }
+  }
+
+  const ids = new Set<string>();
+  for (const e of companyEmployees as any[]) {
+    const contractorOk = !hasContractorRestriction
+      || (e.contractorMasterId && allowedContractors!.includes(e.contractorMasterId))
+      || taggedEmployeeIds.has(e.id);
+    const locationOk = !hasLocationRestriction
+      || (e.location && allowedLocationNames!.has(e.location));
+    if (contractorOk && locationOk) ids.add(e.id);
+  }
+  return ids;
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -1141,19 +1209,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         employees = await storage.getAllEmployees();
       } else if (user.companyId) {
         employees = await storage.getEmployeesByCompany(user.companyId);
-        // Enforce contractor access restriction
-        const allowedContractors: string[] | null = user.accessContractors;
-        if (allowedContractors && allowedContractors.length > 0) {
-          employees = employees.filter((e: any) =>
-            e.contractorMasterId && allowedContractors.includes(e.contractorMasterId)
-          );
-        }
-        // Enforce location access restriction
-        const allowedLocationNames = await resolveAllowedLocationNames(user);
-        if (allowedLocationNames !== null) {
-          employees = employees.filter((e: any) =>
-            e.location && allowedLocationNames.has(e.location)
-          );
+        const allowedEmployeeIds = await getAllowedEmployeeIdsForUser(user);
+        if (allowedEmployeeIds !== null) {
+          employees = employees.filter((e: any) => allowedEmployeeIds.has(e.id));
         }
       } else {
         employees = [];
@@ -3459,21 +3517,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           records = (await storage.getAllAttendance()).filter((a: any) => a.companyId === user.companyId);
         }
         // Enforce contractor + location access restriction
-        const allowedContractors: string[] | null = user.accessContractors;
-        const allowedLocationNames = await resolveAllowedLocationNames(user);
-        if ((allowedContractors && allowedContractors.length > 0) || allowedLocationNames !== null) {
-          const companyEmployees = await storage.getEmployeesByCompany(user.companyId);
-          const allowedEmployeeIds = new Set(
-            companyEmployees
-              .filter((e: any) => {
-                const contractorOk = (!allowedContractors || allowedContractors.length === 0)
-                  || (e.contractorMasterId && allowedContractors.includes(e.contractorMasterId));
-                const locationOk = allowedLocationNames === null
-                  || (e.location && allowedLocationNames.has(e.location));
-                return contractorOk && locationOk;
-              })
-              .map((e: any) => e.id)
-          );
+        const allowedEmployeeIds = await getAllowedEmployeeIdsForUser(user);
+        if (allowedEmployeeIds !== null) {
           records = records.filter((r: any) => allowedEmployeeIds.has(r.employeeId));
         }
       } else {
@@ -4004,21 +4049,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       } else if (user.companyId) {
         requests = await storage.getLeaveRequestsByCompany(user.companyId);
         // Enforce contractor + location access restriction
-        const allowedContractors: string[] | null = user.accessContractors;
-        const allowedLocationNames = await resolveAllowedLocationNames(user);
-        if ((allowedContractors && allowedContractors.length > 0) || allowedLocationNames !== null) {
-          const companyEmployees = await storage.getEmployeesByCompany(user.companyId);
-          const allowedEmployeeIds = new Set(
-            companyEmployees
-              .filter((e: any) => {
-                const contractorOk = (!allowedContractors || allowedContractors.length === 0)
-                  || (e.contractorMasterId && allowedContractors.includes(e.contractorMasterId));
-                const locationOk = allowedLocationNames === null
-                  || (e.location && allowedLocationNames.has(e.location));
-                return contractorOk && locationOk;
-              })
-              .map((e: any) => e.id)
-          );
+        const allowedEmployeeIds = await getAllowedEmployeeIdsForUser(user);
+        if (allowedEmployeeIds !== null) {
           requests = requests.filter((r: any) => allowedEmployeeIds.has(r.employeeId));
         }
       } else {
@@ -4306,21 +4338,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       } else if (user.companyId) {
         structures = (await storage.getAllSalaryStructures()).filter(s => s.companyId === user.companyId);
         // Enforce contractor + location access restriction
-        const allowedContractors: string[] | null = user.accessContractors;
-        const allowedLocationNames = await resolveAllowedLocationNames(user);
-        if ((allowedContractors && allowedContractors.length > 0) || allowedLocationNames !== null) {
-          const companyEmployees = await storage.getEmployeesByCompany(user.companyId);
-          const allowedEmployeeIds = new Set(
-            companyEmployees
-              .filter((e: any) => {
-                const contractorOk = (!allowedContractors || allowedContractors.length === 0)
-                  || (e.contractorMasterId && allowedContractors.includes(e.contractorMasterId));
-                const locationOk = allowedLocationNames === null
-                  || (e.location && allowedLocationNames.has(e.location));
-                return contractorOk && locationOk;
-              })
-              .map((e: any) => e.id)
-          );
+        const allowedEmployeeIds = await getAllowedEmployeeIdsForUser(user);
+        if (allowedEmployeeIds !== null) {
           structures = structures.filter((s: any) => allowedEmployeeIds.has(s.employeeId));
         }
       } else {
@@ -4534,21 +4553,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           records = (await storage.getAllPayroll()).filter(p => p.companyId === user.companyId);
         }
         // Enforce contractor + location access restriction
-        const allowedContractors: string[] | null = user.accessContractors;
-        const allowedLocationNames = await resolveAllowedLocationNames(user);
-        if ((allowedContractors && allowedContractors.length > 0) || allowedLocationNames !== null) {
-          const companyEmployees = await storage.getEmployeesByCompany(user.companyId);
-          const allowedEmployeeIds = new Set(
-            companyEmployees
-              .filter((e: any) => {
-                const contractorOk = (!allowedContractors || allowedContractors.length === 0)
-                  || (e.contractorMasterId && allowedContractors.includes(e.contractorMasterId));
-                const locationOk = allowedLocationNames === null
-                  || (e.location && allowedLocationNames.has(e.location));
-                return contractorOk && locationOk;
-              })
-              .map((e: any) => e.id)
-          );
+        const allowedEmployeeIds = await getAllowedEmployeeIdsForUser(user);
+        if (allowedEmployeeIds !== null) {
           records = records.filter((p: any) => allowedEmployeeIds.has(p.employeeId));
         }
       } else {
@@ -5558,21 +5564,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (!user.companyId) return res.json([]);
         records = await storage.getLoanAdvancesByCompany(user.companyId);
         // Enforce contractor + location access restriction
-        const allowedContractors: string[] | null = user.accessContractors;
-        const allowedLocationNames = await resolveAllowedLocationNames(user);
-        if ((allowedContractors && allowedContractors.length > 0) || allowedLocationNames !== null) {
-          const companyEmployees = await storage.getEmployeesByCompany(user.companyId);
-          const allowedEmployeeIds = new Set(
-            companyEmployees
-              .filter((e: any) => {
-                const contractorOk = (!allowedContractors || allowedContractors.length === 0)
-                  || (e.contractorMasterId && allowedContractors.includes(e.contractorMasterId));
-                const locationOk = allowedLocationNames === null
-                  || (e.location && allowedLocationNames.has(e.location));
-                return contractorOk && locationOk;
-              })
-              .map((e: any) => e.id)
-          );
+        const allowedEmployeeIds = await getAllowedEmployeeIdsForUser(user);
+        if (allowedEmployeeIds !== null) {
           records = records.filter((r: any) => allowedEmployeeIds.has(r.employeeId));
         }
       } else {

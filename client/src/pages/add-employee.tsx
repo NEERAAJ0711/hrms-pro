@@ -433,7 +433,17 @@ export default function AddEmployee() {
   const filteredLocations = masterLocations.filter(l => l.companyId === effectiveCompanyId);
   const filteredPolicies = timeOfficePolicies.filter(p => p.companyId === effectiveCompanyId && p.status === "active");
   const filteredWageGrades = wageGrades.filter(g => g.companyId === effectiveCompanyId && g.status === "active");
-  const filteredContractors = contractorMasters.filter(c => c.companyId === effectiveCompanyId && c.status === "active");
+  // Restrict contractor dropdown to the user's tagged contractors (when set).
+  // Super admins and users without an accessContractors restriction see all.
+  const userAccessContractors = (user as any)?.accessContractors as string[] | null | undefined;
+  const hasContractorAccessRestriction = !isSuperAdmin
+    && Array.isArray(userAccessContractors)
+    && userAccessContractors.length > 0;
+  const filteredContractors = contractorMasters.filter(c =>
+    c.companyId === effectiveCompanyId
+    && c.status === "active"
+    && (!hasContractorAccessRestriction || userAccessContractors!.includes(c.id))
+  );
 
   const autoCreateSalaryStructure = async (emp: any) => {
     if (!emp?.id || !emp?.wageGradeId) return;
