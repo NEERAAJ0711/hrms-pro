@@ -243,14 +243,30 @@ export default function AttendancePage() {
   const monthEndDate = endOfMonth(parseISO(monthStartStr));
   const monthEndStr = format(monthEndDate, "yyyy-MM-dd");
 
+  // Normalize any common date input (Date, YYYY-MM-DD, DD-MM-YYYY, DD/MM/YYYY)
+  // to YYYY-MM-DD. Returns "" if unparseable so the date filter doesn't
+  // accidentally drop employees whose date was stored in a non-ISO format.
+  const toIsoDate = (val: any): string => {
+    if (!val) return "";
+    if (val instanceof Date && !isNaN(val.getTime())) {
+      return format(val, "yyyy-MM-dd");
+    }
+    const s = String(val).trim();
+    if (!s) return "";
+    if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+    const m = s.match(/^(\d{2})[-/](\d{2})[-/](\d{4})$/);
+    if (m) return `${m[3]}-${m[2]}-${m[1]}`;
+    return "";
+  };
+
   const attBaseEmployees: Employee[] = attFilterType === "c" ? attContractorEmployees : employees;
   const filteredEmployees = (selectedCompany === "__all__"
     ? attBaseEmployees
     : attBaseEmployees.filter(e => e.companyId === selectedCompany)
   ).filter(e => {
     if (attIsContractorView && !attTaggedIds.has(e.id)) return false;
-    const joined = (e as any).dateOfJoining;
-    const exited = (e as any).exitDate;
+    const joined = toIsoDate((e as any).dateOfJoining);
+    const exited = toIsoDate((e as any).exitDate);
     if (joined && joined > monthEndStr) return false;
     if (exited && exited < monthStartStr) return false;
     return true;
