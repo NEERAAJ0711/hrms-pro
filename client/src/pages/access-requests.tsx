@@ -11,7 +11,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { ShieldCheck, Check, X, Plus, Loader2, Lock } from "lucide-react";
+import { ShieldCheck, Check, X, Plus, Loader2, Lock, RotateCcw } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import type { User } from "@shared/schema";
 
@@ -41,6 +41,7 @@ export default function AccessRequestsPage() {
 
   const [decision, setDecision] = useState<{ id: string; action: "approve" | "deny" } | null>(null);
   const [note, setNote] = useState("");
+  const [revokeTarget, setRevokeTarget] = useState<{ userId: string; module: string } | null>(null);
 
   // Direct grant
   const [grantUserId, setGrantUserId] = useState("");
@@ -84,6 +85,24 @@ export default function AccessRequestsPage() {
     onError: (err: any) => toast({ title: "Failed", description: err?.message || "Could not grant access", variant: "destructive" }),
   });
 
+  const revoke = useMutation({
+    mutationFn: async () => {
+      if (!revokeTarget) return;
+      const res = await apiRequest("POST", "/api/module-access-grants", {
+        userId: revokeTarget.userId,
+        module: revokeTarget.module,
+        canAccess: false,
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Access revoked", description: "The user has been notified." });
+      queryClient.invalidateQueries({ queryKey: ["/api/module-access-requests"] });
+      setRevokeTarget(null);
+    },
+    onError: (err: any) => toast({ title: "Failed", description: err?.message || "Could not revoke access", variant: "destructive" }),
+  });
+
   if (!isAdmin) {
     return (
       <div className="container mx-auto p-6">
@@ -125,7 +144,23 @@ export default function AccessRequestsPage() {
           </div>
         </TableCell>
       ) : (
-        <TableCell className="text-sm text-muted-foreground">{r.decisionNote || "—"}</TableCell>
+        <>
+          <TableCell className="text-sm text-muted-foreground">{r.decisionNote || "—"}</TableCell>
+          <TableCell className="text-right">
+            {r.status === "approved" ? (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setRevokeTarget({ userId: r.userId, module: r.module })}
+                data-testid={`button-revoke-${r.id}`}
+              >
+                <RotateCcw className="h-4 w-4 mr-1" /> Revoke
+              </Button>
+            ) : (
+              <span className="text-xs text-muted-foreground">—</span>
+            )}
+          </TableCell>
+        </>
       )}
     </TableRow>
   );
@@ -226,6 +261,7 @@ export default function AccessRequestsPage() {
                       <TableHead>Requested</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead>Note</TableHead>
+                      <TableHead className="text-right">Action</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>{decided.map(r => renderRow(r, false))}</TableBody>
@@ -253,6 +289,31 @@ export default function AccessRequestsPage() {
             >
               {decide.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
               Confirm
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!revokeTarget} onOpenChange={(o) => { if (!o) setRevokeTarget(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Revoke module access?</DialogTitle>
+            <DialogDescription>
+              {revokeTarget ? (
+                <>This will remove access to <b>{moduleLabel(revokeTarget.module)}</b> for <b>{userName(revokeTarget.userId)}</b>. The user will be notified and will need to request access again.</>
+              ) : null}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRevokeTarget(null)} disabled={revoke.isPending}>Cancel</Button>
+            <Button
+              variant="destructive"
+              onClick={() => revoke.mutate()}
+              disabled={revoke.isPending}
+              data-testid="button-confirm-revoke"
+            >
+              {revoke.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
+              Revoke access
             </Button>
           </DialogFooter>
         </DialogContent>
