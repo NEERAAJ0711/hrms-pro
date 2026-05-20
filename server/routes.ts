@@ -4983,8 +4983,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
             const label = req.body.status === "paid" ? "Salary Credited" : "Payslip Ready";
             const msg = req.body.status === "paid"
               ? `Your salary for ${existing.month} ${existing.year} has been credited. ₹${Number((updated as any).netPay || (updated as any).netSalary || 0).toLocaleString("en-IN")}`
-              : `Your payslip for ${existing.month} ${existing.year} has been generated. Please check the Payroll section.`;
-            await createNotification({ userId: empUserId, companyId: existing.companyId, type: "payroll_" + req.body.status, title: label, message: msg, link: "/payroll" });
+              : `Your payslip for ${existing.month} ${existing.year} has been generated. You can view it under Loan & Advances.`;
+            // Send employees to their self-service page (which hosts the
+            // payslips section), not the admin-only /payroll module.
+            await createNotification({ userId: empUserId, companyId: existing.companyId, type: "payroll_" + req.body.status, title: label, message: msg, link: "/loan-advances" });
           }
         } catch (err) {
           console.error("[Notification] payroll notify failed:", err);
