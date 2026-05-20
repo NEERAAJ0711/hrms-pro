@@ -130,13 +130,13 @@ const hrModulesItems = [
     module: "my_attendance",
   },
   {
-    title: "My Leave",
+    title: "Leave",
     url: "/leave",
     icon: Calendar,
     module: "leave",
   },
   {
-    title: "My Finance",
+    title: "Loan & Advances",
     url: "/loan-advances",
     icon: Wallet,
     module: "loan_advances",
@@ -172,7 +172,7 @@ const hrModulesItems = [
     module: "job_postings",
   },
   {
-    title: "My Job",
+    title: "Job Applications",
     url: "/job-applications",
     icon: ClipboardList,
     module: "job_applications",
