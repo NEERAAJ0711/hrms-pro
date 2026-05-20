@@ -1398,6 +1398,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
         user.id,
         target.companyId,
       );
+      // Reflect the action on the request history so the History tab shows
+      // an accurate status (Approved → Revoked) instead of leaving stale
+      // "Approved" rows after revocation.
+      if (!canAccess) {
+        try {
+          await db.execute(sql`
+            UPDATE module_access_requests
+               SET status = 'revoked',
+                   decided_by = ${user.id},
+                   decided_at = ${new Date().toISOString()}
+             WHERE user_id = ${targetUserId}
+               AND module = ${module}
+               AND status = 'approved'
+          `);
+        } catch (reqErr) {
+          console.error("[module-access] failed to mark request revoked:", reqErr);
+        }
+      }
       try {
         await createNotification({
           userId: targetUserId,

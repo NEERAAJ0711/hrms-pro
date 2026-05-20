@@ -27,6 +27,7 @@ const MODULES = [
 const statusBadge = (s: string) => {
   if (s === "approved") return <Badge className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">Approved</Badge>;
   if (s === "denied")   return <Badge className="bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200">Denied</Badge>;
+  if (s === "revoked")  return <Badge className="bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200">Revoked</Badge>;
   return <Badge variant="outline">Pending</Badge>;
 };
 
