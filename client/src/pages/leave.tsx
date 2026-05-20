@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
+import { useCan } from "@/hooks/use-can";
 import { format, differenceInDays, parseISO, getYear } from "date-fns";
 import {
   Calendar, Plus, Check, X, Clock, FileText, Pencil, Trash2,
@@ -92,6 +93,7 @@ const statusColors: Record<string, string> = {
 export default function LeavePage() {
   const { toast } = useToast();
   const { user } = useAuth();
+  const { can } = useCan();
   const isSuperAdmin = user?.role === "super_admin";
   const isAdmin = user?.role === "super_admin" || user?.role === "company_admin";
   const canApproveLeave = ["super_admin", "company_admin", "hr_admin", "manager"].includes(user?.role || "");
@@ -294,7 +296,7 @@ export default function LeavePage() {
   // ── Apply Leave Dialog ─────────────────────────────────────────────────────
   const ApplyLeaveDialog = (
     <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
-      {!isEmployee && (
+      {!isEmployee && can("leave", "apply") && (
         <DialogTrigger asChild>
           <Button data-testid="button-create-leave">
             <Plus className="h-4 w-4 mr-2" />Apply Leave
@@ -541,10 +543,12 @@ export default function LeavePage() {
                 </p>
               </div>
             </div>
-            <Button className="gap-2 shrink-0" onClick={() => setIsCreateOpen(true)} data-testid="button-create-leave">
-              <Plus className="h-4 w-4" />
-              Apply for Leave
-            </Button>
+            {can("leave", "apply") && (
+              <Button className="gap-2 shrink-0" onClick={() => setIsCreateOpen(true)} data-testid="button-create-leave">
+                <Plus className="h-4 w-4" />
+                Apply for Leave
+              </Button>
+            )}
           </div>
 
           {/* Quick stats row */}
@@ -732,9 +736,11 @@ export default function LeavePage() {
         <div>
           <div className="flex items-center justify-between mb-3">
             <p className="text-xs font-semibold text-slate-400 uppercase tracking-widest">Comp Off Applications</p>
-            <Button size="sm" variant="outline" className="gap-2 h-8 text-xs" onClick={() => setCompOffOpen(true)} data-testid="button-apply-compoff">
-              <PlusCircle className="h-3.5 w-3.5" />Apply Comp Off
-            </Button>
+            {can("leave", "apply") && (
+              <Button size="sm" variant="outline" className="gap-2 h-8 text-xs" onClick={() => setCompOffOpen(true)} data-testid="button-apply-compoff">
+                <PlusCircle className="h-3.5 w-3.5" />Apply Comp Off
+              </Button>
+            )}
           </div>
           {compOffRecords.filter((c: any) => c.employeeId === myEmployee?.id).length === 0 ? (
             <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 flex flex-col items-center justify-center py-10 gap-2 text-center">
@@ -1212,7 +1218,9 @@ export default function LeavePage() {
                   <div><CardTitle className="flex items-center gap-2"><Sliders className="h-5 w-5 text-primary" />Leave Adjustments</CardTitle>
                     <CardDescription>Manually credit or debit employee leave balances</CardDescription>
                   </div>
-                  <Button onClick={() => setLeaveAdjOpen(true)} className="gap-2" data-testid="button-add-leave-adj"><PlusCircle className="h-4 w-4" />Add Adjustment</Button>
+                  {can("leave", "configure") && (
+                    <Button onClick={() => setLeaveAdjOpen(true)} className="gap-2" data-testid="button-add-leave-adj"><PlusCircle className="h-4 w-4" />Add Adjustment</Button>
+                  )}
                 </div>
               </CardHeader>
               <CardContent>

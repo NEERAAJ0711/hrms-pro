@@ -1149,7 +1149,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/users", requireAuth, requireModuleAccess("users"), async (req, res) => {
+  app.post("/api/users", requireAuth, requireAction("users", "create"), async (req, res) => {
     try {
       const user = (req as any).user;
       const data = insertUserSchema.parse(req.body);
@@ -1174,7 +1174,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/users/:id", requireAuth, requireModuleAccess("users"), async (req, res) => {
+  app.patch("/api/users/:id", requireAuth, requireAction("users", "edit"), async (req, res) => {
     try {
       const user = (req as any).user;
       const targetUser = await storage.getUser(req.params.id);
@@ -1199,7 +1199,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/users/:id", requireAuth, requireModuleAccess("users"), async (req, res) => {
+  app.delete("/api/users/:id", requireAuth, requireAction("users", "delete"), async (req, res) => {
     try {
       const user = (req as any).user;
       const targetUser = await storage.getUser(req.params.id);
@@ -4164,7 +4164,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/attendance/:id", requireAuth, requireRole("super_admin", "company_admin", "hr_admin"), async (req, res) => {
+  app.patch("/api/attendance/:id", requireAuth, requireAction("attendance", "edit"), async (req, res) => {
     try {
       const user = (req as any).user;
       const existing = await storage.getAttendance(req.params.id);
@@ -4226,7 +4226,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Company admins can add the missing punch for biometric miss_punch records
-  app.post("/api/attendance/:id/missed-log", requireAuth, requireRole("super_admin", "company_admin", "hr_admin"), async (req, res) => {
+  app.post("/api/attendance/:id/missed-log", requireAuth, requireAction("attendance", "edit"), async (req, res) => {
     try {
       const user = (req as any).user;
       const existing = await storage.getAttendance(req.params.id);
@@ -4312,7 +4312,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/attendance/:id", requireAuth, requireRole("super_admin", "company_admin", "hr_admin"), async (req, res) => {
+  app.delete("/api/attendance/:id", requireAuth, requireAction("attendance", "edit"), async (req, res) => {
     try {
       const user = (req as any).user;
       const existing = await storage.getAttendance(req.params.id);
@@ -4347,7 +4347,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/leave-types", requireAuth, requireRole("super_admin", "company_admin", "hr_admin"), async (req, res) => {
+  app.post("/api/leave-types", requireAuth, requireAction("leave", "configure"), async (req, res) => {
     try {
       const data = insertLeaveTypeSchema.parse(req.body);
       const leaveType = await storage.createLeaveType(data);
@@ -4357,7 +4357,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/leave-types/:id", requireAuth, requireRole("super_admin", "company_admin", "hr_admin"), async (req, res) => {
+  app.patch("/api/leave-types/:id", requireAuth, requireAction("leave", "configure"), async (req, res) => {
     try {
       const updated = await storage.updateLeaveType(req.params.id, req.body);
       if (!updated) return res.status(404).json({ error: "Leave type not found" });
@@ -4367,7 +4367,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/leave-types/:id", requireAuth, requireRole("super_admin", "company_admin", "hr_admin"), async (req, res) => {
+  app.delete("/api/leave-types/:id", requireAuth, requireAction("leave", "configure"), async (req, res) => {
     try {
       const success = await storage.deleteLeaveType(req.params.id);
       if (!success) return res.status(404).json({ error: "Leave type not found" });
@@ -4552,7 +4552,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.send(buffer);
   });
 
-  app.post("/api/salary-structures/bulk-upload", requireAuth, requireModuleAccess("payroll"), upload.single("file"), async (req, res) => {
+  app.post("/api/salary-structures/bulk-upload", requireAuth, requireAction("payroll", "bulk_upload"), upload.single("file"), async (req, res) => {
     try {
       const user = (req as any).user;
       const file = (req as any).file;
@@ -4806,7 +4806,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/salary-structures", requireAuth, requireModuleAccess("payroll"), async (req, res) => {
+  app.post("/api/salary-structures", requireAuth, requireAction("payroll", "process"), async (req, res) => {
     try {
       const data = insertSalaryStructureSchema.parse(req.body);
       // Block duplicate: same employee + same effectiveFrom already exists
@@ -4912,7 +4912,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/payroll", requireAuth, requireModuleAccess("payroll"), async (req, res) => {
+  app.post("/api/payroll", requireAuth, requireAction("payroll", "process"), async (req, res) => {
     try {
       const data = insertPayrollSchema.parse(req.body);
 
@@ -5158,7 +5158,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/settings", requireAuth, requireModuleAccess("settings"), async (req, res) => {
+  app.post("/api/settings", requireAuth, requireAction("settings", "edit"), async (req, res) => {
     try {
       const data = insertSettingSchema.parse(req.body);
       const existing = await storage.getSettingByKey(data.companyId || null, data.key);
@@ -5242,7 +5242,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/master-departments", requireAuth, async (req, res) => {
+  app.post("/api/master-departments", requireAuth, requireAction("masters", "edit"), async (req, res) => {
     try {
       const data = insertMasterDepartmentSchema.parse(req.body);
       const dept = await storage.createMasterDepartment(data);
@@ -5252,7 +5252,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/master-departments/:id", requireAuth, async (req, res) => {
+  app.patch("/api/master-departments/:id", requireAuth, requireAction("masters", "edit"), async (req, res) => {
     try {
       const updated = await storage.updateMasterDepartment(req.params.id, req.body);
       if (!updated) return res.status(404).json({ error: "Department not found" });
@@ -5262,7 +5262,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/master-departments/:id", requireAuth, async (req, res) => {
+  app.delete("/api/master-departments/:id", requireAuth, requireAction("masters", "edit"), async (req, res) => {
     try {
       const success = await storage.deleteMasterDepartment(req.params.id);
       if (!success) return res.status(404).json({ error: "Department not found" });
@@ -5292,7 +5292,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/master-designations", requireAuth, async (req, res) => {
+  app.post("/api/master-designations", requireAuth, requireAction("masters", "edit"), async (req, res) => {
     try {
       const data = insertMasterDesignationSchema.parse(req.body);
       const desg = await storage.createMasterDesignation(data);
@@ -5302,7 +5302,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/master-designations/:id", requireAuth, async (req, res) => {
+  app.patch("/api/master-designations/:id", requireAuth, requireAction("masters", "edit"), async (req, res) => {
     try {
       const updated = await storage.updateMasterDesignation(req.params.id, req.body);
       if (!updated) return res.status(404).json({ error: "Designation not found" });
@@ -5312,7 +5312,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/master-designations/:id", requireAuth, async (req, res) => {
+  app.delete("/api/master-designations/:id", requireAuth, requireAction("masters", "edit"), async (req, res) => {
     try {
       const success = await storage.deleteMasterDesignation(req.params.id);
       if (!success) return res.status(404).json({ error: "Designation not found" });
@@ -5350,7 +5350,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/wage-grades", requireAuth, requireModuleAccess("masters"), async (req, res) => {
+  app.post("/api/wage-grades", requireAuth, requireAction("masters", "edit"), async (req, res) => {
     try {
       const user = (req as any).user;
       const data = insertWageGradeSchema.parse(req.body);
@@ -5406,7 +5406,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/wage-grades/:id", requireAuth, requireModuleAccess("masters"), async (req, res) => {
+  app.patch("/api/wage-grades/:id", requireAuth, requireAction("masters", "edit"), async (req, res) => {
     try {
       const user = (req as any).user;
       const existing = await storage.getWageGrade(req.params.id);
@@ -5430,7 +5430,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/wage-grades/:id", requireAuth, requireModuleAccess("masters"), async (req, res) => {
+  app.delete("/api/wage-grades/:id", requireAuth, requireAction("masters", "edit"), async (req, res) => {
     try {
       const user = (req as any).user;
       const existing = await storage.getWageGrade(req.params.id);
@@ -5466,7 +5466,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/master-locations", requireAuth, async (req, res) => {
+  app.post("/api/master-locations", requireAuth, requireAction("masters", "edit"), async (req, res) => {
     try {
       const data = insertMasterLocationSchema.parse(req.body);
       const loc = await storage.createMasterLocation(data);
@@ -5476,7 +5476,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/master-locations/:id", requireAuth, async (req, res) => {
+  app.patch("/api/master-locations/:id", requireAuth, requireAction("masters", "edit"), async (req, res) => {
     try {
       const updated = await storage.updateMasterLocation(req.params.id, req.body);
       if (!updated) return res.status(404).json({ error: "Location not found" });
@@ -5486,7 +5486,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/master-locations/:id", requireAuth, async (req, res) => {
+  app.delete("/api/master-locations/:id", requireAuth, requireAction("masters", "edit"), async (req, res) => {
     try {
       const success = await storage.deleteMasterLocation(req.params.id);
       if (!success) return res.status(404).json({ error: "Location not found" });
@@ -6269,7 +6269,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/leave-adjustments", requireAuth, requireRole("super_admin", "company_admin", "hr_admin"), async (req, res) => {
+  app.post("/api/leave-adjustments", requireAuth, requireAction("leave", "configure"), async (req, res) => {
     try {
       const user = (req as any).user;
       const row = await storage.createLeaveAdjustment({ ...req.body, companyId: req.body.companyId || user.companyId, adjustedBy: String(user.id) });
@@ -6279,7 +6279,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/leave-adjustments/:id", requireAuth, requireRole("super_admin", "company_admin", "hr_admin"), async (req, res) => {
+  app.delete("/api/leave-adjustments/:id", requireAuth, requireAction("leave", "configure"), async (req, res) => {
     try {
       await storage.deleteLeaveAdjustment(req.params.id);
       res.json({ success: true });
@@ -6620,7 +6620,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/contractor-masters", requireAuth, async (req, res) => {
+  app.post("/api/contractor-masters", requireAuth, requireAction("masters", "edit"), async (req, res) => {
     try {
       const data = insertContractorMasterSchema.parse(req.body);
       const record = await storage.createContractorMaster(data);
@@ -6630,7 +6630,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/contractor-masters/:id", requireAuth, async (req, res) => {
+  app.patch("/api/contractor-masters/:id", requireAuth, requireAction("masters", "edit"), async (req, res) => {
     try {
       const updated = await storage.updateContractorMaster(req.params.id, req.body);
       if (!updated) return res.status(404).json({ error: "Contractor master not found" });
@@ -6640,7 +6640,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/contractor-masters/:id", requireAuth, async (req, res) => {
+  app.delete("/api/contractor-masters/:id", requireAuth, requireAction("masters", "edit"), async (req, res) => {
     try {
       const success = await storage.deleteContractorMaster(req.params.id);
       if (!success) return res.status(404).json({ error: "Contractor master not found" });

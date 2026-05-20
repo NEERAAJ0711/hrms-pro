@@ -3,6 +3,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { useSort, sortData } from "@/lib/use-sort";
 import { SortableHead } from "@/components/sortable-head";
 import { useAuth } from "@/lib/auth";
+import { useCan } from "@/hooks/use-can";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -455,6 +456,7 @@ function UsersTableSkeleton() {
 
 export default function Users() {
   const { user: currentUser } = useAuth();
+  const { can } = useCan();
   const [searchQuery, setSearchQuery] = useState("");
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
@@ -641,12 +643,14 @@ export default function Users() {
           <p className="text-muted-foreground">Manage system access and roles</p>
         </div>
         <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
+          {can("users", "create") && (
           <DialogTrigger asChild>
             <Button data-testid="button-create-user">
               <Plus className="h-4 w-4 mr-2" />
               Add User
             </Button>
           </DialogTrigger>
+          )}
           <DialogContent className="sm:max-w-[580px] max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>Create User</DialogTitle>
@@ -698,7 +702,7 @@ export default function Users() {
               <p className="text-muted-foreground mb-4">
                 {searchQuery ? "Try adjusting your search" : "Get started by adding your first user"}
               </p>
-              {!searchQuery && (
+              {!searchQuery && can("users", "create") && (
                 <Button onClick={() => setIsCreateOpen(true)} data-testid="button-add-first-user">
                   <Plus className="h-4 w-4 mr-2" />
                   Add User

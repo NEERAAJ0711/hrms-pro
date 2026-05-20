@@ -3,6 +3,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { useSort, sortData } from "@/lib/use-sort";
 import { SortableHead } from "@/components/sortable-head";
 import { useAuth } from "@/lib/auth";
+import { useCan } from "@/hooks/use-can";
 import { format } from "date-fns";
 import { DollarSign, Plus, FileText, Users, Calculator, Download, Building2, Edit, Trash2, CheckCircle, Upload, FileSpreadsheet, Loader2, Eye, AlertTriangle, ShieldCheck, Search, Lock } from "lucide-react";
 import { SearchableEmployeeSelect } from "@/components/searchable-employee-select";
@@ -117,6 +118,7 @@ function PayrollEditForm({ payroll, onSubmit, isPending }: { payroll: Payroll; o
 export default function PayrollPage() {
   const { toast } = useToast();
   const { user } = useAuth();
+  const { can } = useCan();
   const isSuperAdmin = user?.role === "super_admin";
   const isAdmin = ["super_admin", "company_admin", "hr_admin", "manager"].includes(user?.role || "");
   const [isCreateOpen, setIsCreateOpen] = useState(false);
@@ -1194,12 +1196,14 @@ export default function PayrollPage() {
             Bulk Upload
           </Button>
           <Dialog open={isCreateOpen} onOpenChange={handleStructureDialogClose}>
+            {can("payroll", "process") && (
             <DialogTrigger asChild>
               <Button data-testid="button-create-structure">
                 <Plus className="h-4 w-4 mr-2" />
                 Add Salary Structure
               </Button>
             </DialogTrigger>
+            )}
           <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>{editingStructureId ? "Edit Salary Structure" : "Create Salary Structure"}</DialogTitle>
@@ -1790,6 +1794,7 @@ export default function PayrollPage() {
                       : isMonthIncomplete
                         ? `${selectedMonth} ${selectedYear} is not yet complete — payroll can only be generated after the month ends`
                         : "";
+                    if (!can("payroll", "process")) return null;
                     return (
                       <Button
                         onClick={() => generatePayrollMutation.mutate(selectedCompany)}
@@ -1829,6 +1834,7 @@ export default function PayrollPage() {
                 {selectedPayrollIds.size > 0 && (
                   <div className="flex items-center gap-2 bg-muted px-3 py-1.5 rounded-md">
                     <span className="text-sm font-medium">{selectedPayrollIds.size} selected</span>
+                    {can("payroll", "mark_paid") && (
                     <Button
                       size="sm"
                       variant="outline"
@@ -1840,6 +1846,8 @@ export default function PayrollPage() {
                       <CheckCircle className="h-3.5 w-3.5 mr-1" />
                       Finalize
                     </Button>
+                    )}
+                    {can("payroll", "process") && (
                     <Button
                       size="sm"
                       variant="outline"
@@ -1850,6 +1858,7 @@ export default function PayrollPage() {
                       <Trash2 className="h-3.5 w-3.5 mr-1" />
                       Delete
                     </Button>
+                    )}
                     <Button
                       size="sm"
                       variant="ghost"

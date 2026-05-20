@@ -15,6 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth";
+import { useCan } from "@/hooks/use-can";
 import type { Company, Setting, MasterDepartment, MasterDesignation, MasterLocation, EarningHead, DeductionHead, StatutorySettings, TimeOfficePolicy, Holiday, WageGrade, ContractorMaster } from "@shared/schema";
 import { Textarea } from "@/components/ui/textarea";
 
@@ -40,6 +41,7 @@ interface SettingFormData {
 export default function SettingsPage() {
   const { toast } = useToast();
   const { user } = useAuth();
+  const { can } = useCan();
   const [selectedCompany, setSelectedCompany] = useState<string>(
     user?.role === "super_admin" ? "__global__" : (user?.companyId || "__global__")
   );
@@ -636,10 +638,12 @@ function DepartmentsManager({ companyId }: { companyId: string }) {
             </CardTitle>
             <CardDescription>Manage company departments</CardDescription>
           </div>
+          {can("masters", "edit") && (
           <Button onClick={() => { resetForm(); setDialogOpen(true); }} data-testid="button-add-department">
             <Plus className="h-4 w-4 mr-2" />
             Add Department
           </Button>
+          )}
         </div>
       </CardHeader>
       <CardContent>
@@ -799,10 +803,12 @@ function DesignationsManager({ companyId }: { companyId: string }) {
             </CardTitle>
             <CardDescription>Manage job titles and designations</CardDescription>
           </div>
+          {can("masters", "edit") && (
           <Button onClick={() => { resetForm(); setDialogOpen(true); }} data-testid="button-add-designation">
             <Plus className="h-4 w-4 mr-2" />
             Add Designation
           </Button>
+          )}
         </div>
       </CardHeader>
       <CardContent>
@@ -1035,10 +1041,12 @@ function LocationsManager({ companyId }: { companyId: string }) {
             </CardTitle>
             <CardDescription>Manage office locations and branches</CardDescription>
           </div>
+          {can("masters", "edit") && (
           <Button onClick={() => { resetForm(); setDialogOpen(true); }} data-testid="button-add-location">
             <Plus className="h-4 w-4 mr-2" />
             Add Location
           </Button>
+          )}
         </div>
       </CardHeader>
       <CardContent>
@@ -1267,10 +1275,12 @@ function EarningHeadsManager({ companyId }: { companyId: string }) {
             </CardTitle>
             <CardDescription>Manage salary earning components</CardDescription>
           </div>
+          {can("settings", "edit") && (
           <Button onClick={() => { resetForm(); setDialogOpen(true); }} data-testid="button-add-earning-head">
             <Plus className="h-4 w-4 mr-2" />
             Add Earning Head
           </Button>
+          )}
         </div>
       </CardHeader>
       <CardContent>
@@ -1480,10 +1490,12 @@ function DeductionHeadsManager({ companyId }: { companyId: string }) {
             </CardTitle>
             <CardDescription>Manage salary deduction components</CardDescription>
           </div>
+          {can("settings", "edit") && (
           <Button onClick={() => { resetForm(); setDialogOpen(true); }} data-testid="button-add-deduction-head">
             <Plus className="h-4 w-4 mr-2" />
             Add Deduction Head
           </Button>
+          )}
         </div>
       </CardHeader>
       <CardContent>
@@ -2537,6 +2549,7 @@ const emptyHolidayForm: HolidayFormData = {
 function HolidayCalendarTab({ companyId, selectedCompany, userRole }: { companyId: string; selectedCompany: string; userRole?: string }) {
   const { toast } = useToast();
   const { user } = useAuth();
+  const { can } = useCan();
   const isSuperAdmin = userRole === "super_admin";
 
   const [selectedYear, setSelectedYear] = useState<string>(new Date().getFullYear().toString());
@@ -2966,9 +2979,11 @@ function WageGradesManager({ companyId }: { companyId: string }) {
           <CardDescription>Define minimum-wage grades for this company</CardDescription>
         </div>
         <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) resetForm(); }}>
+          {can("masters", "edit") && (
           <Button onClick={() => { resetForm(); setDialogOpen(true); }} data-testid="button-add-wage-grade">
             <Plus className="h-4 w-4 mr-2" /> Add
           </Button>
+          )}
           <DialogContent>
             <DialogHeader>
               <DialogTitle>{editingItem ? "Edit Wage Entry" : "Add Wage Entry"}</DialogTitle>
@@ -3162,10 +3177,12 @@ function ContractorMastersManager({ companyId }: { companyId: string }) {
             </CardTitle>
             <CardDescription>Manage contractor details, service charges and applicable compliances</CardDescription>
           </div>
+          {can("masters", "edit") && (
           <Button onClick={() => { resetForm(); setDialogOpen(true); }} data-testid="button-add-contractor-master">
             <Plus className="h-4 w-4 mr-2" />
             Add Contractor
           </Button>
+          )}
         </div>
       </CardHeader>
       <CardContent>

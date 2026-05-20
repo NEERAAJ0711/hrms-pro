@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
+import { useCan } from "@/hooks/use-can";
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, parseISO } from "date-fns";
 import { Calendar, Clock, Plus, CheckCircle, XCircle, AlertCircle, Users, Zap, Eye, Pencil, Trash2, Download, Search, Lock, FileClock, RefreshCw } from "lucide-react";
 import * as XLSX from "xlsx";
@@ -58,6 +59,7 @@ const statusLabels: Record<string, string> = {
 export default function AttendancePage() {
   const { toast } = useToast();
   const { user } = useAuth();
+  const { can } = useCan();
   const isSuperAdmin = user?.role === "super_admin";
   const isAdmin = ["super_admin", "company_admin", "hr_admin"].includes(user?.role || "");
   const isEmployee = user?.role === "employee";
