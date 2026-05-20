@@ -1180,11 +1180,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = (req as any).user;
       const targetUser = await storage.getUser(req.params.id);
       if (!targetUser) return res.status(404).json({ error: "User not found" });
-      if (user.role !== "super_admin" && user.role !== "company_admin") {
-        return res.status(403).json({ error: "Access denied" });
-      }
-      if (user.role === "company_admin" && targetUser.companyId !== user.companyId) {
-        return res.status(403).json({ error: "Access denied" });
+      // A user can always read their own permission overrides (needed by the
+      // sidebar to render modules an admin has granted them). Otherwise the
+      // caller must be Super Admin or Company Admin of the same company.
+      const isSelf = user.id === req.params.id;
+      if (!isSelf) {
+        if (user.role !== "super_admin" && user.role !== "company_admin") {
+          return res.status(403).json({ error: "Access denied" });
+        }
+        if (user.role === "company_admin" && targetUser.companyId !== user.companyId) {
+          return res.status(403).json({ error: "Access denied" });
+        }
       }
       const permissions = await storage.getUserPermissions(req.params.id);
       res.json(permissions);

@@ -232,6 +232,7 @@ export function AppSidebar() {
     },
     enabled: !!user?.id && !isPrivileged,
     staleTime: 30_000,
+    refetchOnWindowFocus: true,
   });
 
   const permOverrides: Record<string, boolean> = {};
