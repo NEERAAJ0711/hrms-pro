@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -14,6 +15,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { ShieldCheck, Check, X, Plus, Loader2, Lock, RotateCcw } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import type { User } from "@shared/schema";
+import { MODULE_ACTIONS, actionLabel } from "@shared/permissions";
 
 const MODULES = [
   { value: "employees",   label: "Employees" },
@@ -35,6 +37,20 @@ const statusBadge = (s: string) => {
   return <Badge variant="outline">Pending</Badge>;
 };
 
+const renderActionsCell = (r: any) => {
+  const acts: string[] = Array.isArray(r.actions) ? r.actions : [];
+  if (acts.length === 0) {
+    return <Badge variant="outline" className="text-xs">Full module</Badge>;
+  }
+  return (
+    <div className="flex flex-wrap gap-1">
+      {acts.map(a => (
+        <Badge key={a} variant="secondary" className="text-[10px] font-normal">{actionLabel(r.module, a)}</Badge>
+      ))}
+    </div>
+  );
+};
+
 export default function AccessRequestsPage() {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -42,11 +58,24 @@ export default function AccessRequestsPage() {
 
   const [decision, setDecision] = useState<{ id: string; action: "approve" | "deny" } | null>(null);
   const [note, setNote] = useState("");
-  const [revokeTarget, setRevokeTarget] = useState<{ userId: string; module: string } | null>(null);
+  const [revokeTarget, setRevokeTarget] = useState<{ userId: string; module: string; actions: string[] } | null>(null);
 
   // Direct grant
   const [grantUserId, setGrantUserId] = useState("");
   const [grantModule, setGrantModule] = useState("");
+  const [grantSelectAll, setGrantSelectAll] = useState(true);
+  const [grantActions, setGrantActions] = useState<string[]>([]);
+
+  const grantActionDefs = grantModule ? MODULE_ACTIONS[grantModule] || [] : [];
+
+  const onGrantModuleChange = (m: string) => {
+    setGrantModule(m);
+    setGrantSelectAll(true);
+    setGrantActions([]);
+  };
+  const toggleGrantAction = (a: string, checked: boolean) => {
+    setGrantActions(prev => checked ? Array.from(new Set([...prev, a])) : prev.filter(x => x !== a));
+  };
 
   const { data: requests = [], isLoading } = useQuery<any[]>({
     queryKey: ["/api/module-access-requests"],
@@ -75,13 +104,17 @@ export default function AccessRequestsPage() {
 
   const grant = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/module-access-grants", { userId: grantUserId, module: grantModule, canAccess: true });
+      const payload: any = { userId: grantUserId, module: grantModule, canAccess: true };
+      if (!grantSelectAll && grantActions.length > 0) payload.actions = grantActions;
+      const res = await apiRequest("POST", "/api/module-access-grants", payload);
       return res.json();
     },
     onSuccess: () => {
       toast({ title: "Access granted", description: "The user has been notified." });
       setGrantUserId("");
       setGrantModule("");
+      setGrantActions([]);
+      setGrantSelectAll(true);
     },
     onError: (err: any) => toast({ title: "Failed", description: err?.message || "Could not grant access", variant: "destructive" }),
   });
@@ -89,11 +122,13 @@ export default function AccessRequestsPage() {
   const revoke = useMutation({
     mutationFn: async () => {
       if (!revokeTarget) return;
-      const res = await apiRequest("POST", "/api/module-access-grants", {
+      const payload: any = {
         userId: revokeTarget.userId,
         module: revokeTarget.module,
         canAccess: false,
-      });
+      };
+      if (revokeTarget.actions && revokeTarget.actions.length > 0) payload.actions = revokeTarget.actions;
+      const res = await apiRequest("POST", "/api/module-access-grants", payload);
       return res.json();
     },
     onSuccess: () => {
@@ -130,6 +165,7 @@ export default function AccessRequestsPage() {
     <TableRow key={r.id} data-testid={`row-request-${r.id}`}>
       <TableCell className="font-medium">{userName(r.userId)}</TableCell>
       <TableCell>{moduleLabel(r.module)}</TableCell>
+      <TableCell>{renderActionsCell(r)}</TableCell>
       <TableCell className="text-sm text-muted-foreground max-w-[260px] truncate">{r.reason || "—"}</TableCell>
       <TableCell className="text-sm text-muted-foreground">{r.createdAt ? format(new Date(r.createdAt), "dd MMM yyyy, HH:mm") : "—"}</TableCell>
       <TableCell>{statusBadge(r.status)}</TableCell>
@@ -152,7 +188,11 @@ export default function AccessRequestsPage() {
               <Button
                 size="sm"
                 variant="outline"
-                onClick={() => setRevokeTarget({ userId: r.userId, module: r.module })}
+                onClick={() => setRevokeTarget({
+                  userId: r.userId,
+                  module: r.module,
+                  actions: Array.isArray(r.actions) ? r.actions : [],
+                })}
                 data-testid={`button-revoke-${r.id}`}
               >
                 <RotateCcw className="h-4 w-4 mr-1" /> Revoke
@@ -181,9 +221,9 @@ export default function AccessRequestsPage() {
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Grant access directly</CardTitle>
-          <CardDescription>Skip the request flow and give a user access immediately.</CardDescription>
+          <CardDescription>Skip the request flow and give a user access immediately. Pick specific actions or grant the full module.</CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
           <div className="grid gap-3 md:grid-cols-[1fr_1fr_auto] md:items-end">
             <div className="space-y-1">
               <label className="text-xs font-medium text-muted-foreground">User</label>
@@ -198,7 +238,7 @@ export default function AccessRequestsPage() {
             </div>
             <div className="space-y-1">
               <label className="text-xs font-medium text-muted-foreground">Module</label>
-              <Select value={grantModule} onValueChange={setGrantModule}>
+              <Select value={grantModule} onValueChange={onGrantModuleChange}>
                 <SelectTrigger data-testid="select-grant-module"><SelectValue placeholder="Choose a module" /></SelectTrigger>
                 <SelectContent>
                   {MODULES.map(m => <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}
@@ -207,13 +247,49 @@ export default function AccessRequestsPage() {
             </div>
             <Button
               onClick={() => grant.mutate()}
-              disabled={!grantUserId || !grantModule || grant.isPending}
+              disabled={!grantUserId || !grantModule || (!grantSelectAll && grantActions.length === 0) || grant.isPending}
               data-testid="button-grant"
             >
               {grant.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Plus className="h-4 w-4 mr-2" />}
               Grant Access
             </Button>
           </div>
+
+          {grantModule && grantActionDefs.length > 0 && (
+            <div className="rounded-lg border bg-muted/30 p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium">Functionalities</p>
+                  <p className="text-xs text-muted-foreground">Pick the actions to grant, or Select All for the whole module.</p>
+                </div>
+                <label className="flex items-center gap-2 text-sm font-medium cursor-pointer">
+                  <Checkbox
+                    checked={grantSelectAll}
+                    onCheckedChange={(v) => {
+                      const next = v === true;
+                      setGrantSelectAll(next);
+                      if (next) setGrantActions([]);
+                    }}
+                    data-testid="checkbox-grant-select-all"
+                  />
+                  Select All
+                </label>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+                {grantActionDefs.map(a => (
+                  <label key={a.value} className={`flex items-center gap-2 text-sm rounded-md border px-3 py-2 cursor-pointer ${grantSelectAll ? "opacity-60" : "hover:bg-accent"}`}>
+                    <Checkbox
+                      checked={grantSelectAll || grantActions.includes(a.value)}
+                      disabled={grantSelectAll}
+                      onCheckedChange={(v) => toggleGrantAction(a.value, v === true)}
+                      data-testid={`checkbox-grant-action-${a.value}`}
+                    />
+                    {a.label}
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -235,6 +311,7 @@ export default function AccessRequestsPage() {
                     <TableRow>
                       <TableHead>User</TableHead>
                       <TableHead>Module</TableHead>
+                      <TableHead>Functionalities</TableHead>
                       <TableHead>Reason</TableHead>
                       <TableHead>Requested</TableHead>
                       <TableHead>Status</TableHead>
@@ -258,6 +335,7 @@ export default function AccessRequestsPage() {
                     <TableRow>
                       <TableHead>User</TableHead>
                       <TableHead>Module</TableHead>
+                      <TableHead>Functionalities</TableHead>
                       <TableHead>Reason</TableHead>
                       <TableHead>Requested</TableHead>
                       <TableHead>Status</TableHead>
@@ -298,10 +376,26 @@ export default function AccessRequestsPage() {
       <Dialog open={!!revokeTarget} onOpenChange={(o) => { if (!o) setRevokeTarget(null); }}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Revoke module access?</DialogTitle>
+            <DialogTitle>Revoke access?</DialogTitle>
             <DialogDescription>
               {revokeTarget ? (
-                <>This will remove access to <b>{moduleLabel(revokeTarget.module)}</b> for <b>{userName(revokeTarget.userId)}</b>. The user will be notified and will need to request access again.</>
+                <>
+                  This will remove{" "}
+                  {revokeTarget.actions.length > 0 ? (
+                    <>access to{" "}
+                      {revokeTarget.actions.map((a, i) => (
+                        <span key={a}>
+                          {i > 0 ? ", " : ""}
+                          <b>{actionLabel(revokeTarget.module, a)}</b>
+                        </span>
+                      ))}{" "}
+                      in <b>{moduleLabel(revokeTarget.module)}</b>
+                    </>
+                  ) : (
+                    <>all access to <b>{moduleLabel(revokeTarget.module)}</b></>
+                  )}{" "}
+                  for <b>{userName(revokeTarget.userId)}</b>. The user will be notified and can request access again.
+                </>
               ) : null}
             </DialogDescription>
           </DialogHeader>

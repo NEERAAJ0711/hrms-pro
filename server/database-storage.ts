@@ -1042,13 +1042,14 @@ export class DatabaseStorage implements IStorage {
     return result;
   }
 
-  async createModuleAccessRequest(data: { userId: string; companyId: string | null; module: string; reason?: string | null }): Promise<ModuleAccessRequest> {
+  async createModuleAccessRequest(data: { userId: string; companyId: string | null; module: string; actions?: string[] | null; reason?: string | null }): Promise<ModuleAccessRequest> {
     const id = randomUUID();
     const row = {
       id,
       userId: data.userId,
       companyId: data.companyId,
       module: data.module,
+      actions: data.actions && data.actions.length > 0 ? data.actions : null,
       status: "pending",
       reason: data.reason ?? null,
       decisionNote: null,
@@ -1076,7 +1077,7 @@ export class DatabaseStorage implements IStorage {
     return await q.orderBy(desc(moduleAccessRequests.createdAt));
   }
 
-  async decideModuleAccessRequest(id: string, status: "approved" | "denied", decidedBy: string, decisionNote?: string | null): Promise<ModuleAccessRequest | undefined> {
+  async decideModuleAccessRequest(id: string, status: "approved" | "denied" | "revoked", decidedBy: string, decisionNote?: string | null): Promise<ModuleAccessRequest | undefined> {
     const result = await db.update(moduleAccessRequests)
       .set({ status, decidedBy, decidedAt: new Date().toISOString(), decisionNote: decisionNote ?? null })
       .where(eq(moduleAccessRequests.id, id))

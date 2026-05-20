@@ -882,7 +882,10 @@ export const moduleAccessRequests = pgTable("module_access_requests", {
   userId: varchar("user_id", { length: 36 }).notNull(),
   companyId: varchar("company_id", { length: 36 }),
   module: text("module").notNull(),
-  status: text("status").notNull().default("pending"), // pending | approved | denied
+  // Specific actions requested within the module (e.g. ["create","edit"]).
+  // NULL / empty array = full-module ("Select All") request.
+  actions: text("actions").array(),
+  status: text("status").notNull().default("pending"), // pending | approved | denied | revoked
   reason: text("reason"),                              // user-supplied justification
   decisionNote: text("decision_note"),                 // admin's note on approve/deny
   decidedBy: varchar("decided_by", { length: 36 }),

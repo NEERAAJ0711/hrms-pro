@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -7,10 +7,12 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Send, Loader2, ShieldQuestion } from "lucide-react";
 import { useAuth } from "@/lib/auth";
+import { MODULE_ACTIONS, actionLabel } from "@shared/permissions";
 
 const MODULES = [
   { value: "employees",   label: "Employees" },
@@ -36,6 +38,20 @@ export default function MyAccessRequestsPage() {
   const { toast } = useToast();
   const [module, setModule] = useState("");
   const [reason, setReason] = useState("");
+  const [selectAll, setSelectAll] = useState(true);
+  const [pickedActions, setPickedActions] = useState<string[]>([]);
+
+  const actionDefs = useMemo(() => (module ? MODULE_ACTIONS[module] || [] : []), [module]);
+
+  const toggleAction = (a: string, checked: boolean) => {
+    setPickedActions(prev => checked ? Array.from(new Set([...prev, a])) : prev.filter(x => x !== a));
+  };
+
+  const onModuleChange = (m: string) => {
+    setModule(m);
+    setSelectAll(true);
+    setPickedActions([]);
+  };
 
   const { data: requests = [], isLoading } = useQuery<any[]>({
     queryKey: ["/api/module-access-requests/mine"],
@@ -44,16 +60,34 @@ export default function MyAccessRequestsPage() {
 
   const create = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/module-access-requests", { module, reason });
+      const payload: any = { module, reason };
+      if (!selectAll && pickedActions.length > 0) payload.actions = pickedActions;
+      const res = await apiRequest("POST", "/api/module-access-requests", payload);
       return res.json();
     },
     onSuccess: () => {
       toast({ title: "Request sent", description: "Your administrator will review it shortly." });
       queryClient.invalidateQueries({ queryKey: ["/api/module-access-requests/mine"] });
-      setModule(""); setReason("");
+      setModule(""); setReason(""); setPickedActions([]); setSelectAll(true);
     },
     onError: (err: any) => toast({ title: "Could not send", description: err?.message || "Failed", variant: "destructive" }),
   });
+
+  const canSend = !!module && (selectAll || pickedActions.length > 0) && !create.isPending;
+
+  const renderActionsCell = (r: any) => {
+    const acts: string[] = Array.isArray(r.actions) ? r.actions : [];
+    if (acts.length === 0) {
+      return <Badge variant="outline" className="text-xs">Full module</Badge>;
+    }
+    return (
+      <div className="flex flex-wrap gap-1">
+        {acts.map(a => (
+          <Badge key={a} variant="secondary" className="text-[10px] font-normal">{actionLabel(r.module, a)}</Badge>
+        ))}
+      </div>
+    );
+  };
 
   return (
     <div className="container mx-auto p-6 space-y-6">
@@ -70,13 +104,13 @@ export default function MyAccessRequestsPage() {
       <Card>
         <CardHeader>
           <CardTitle className="text-base">New request</CardTitle>
-          <CardDescription>Pick a module and add an optional reason.</CardDescription>
+          <CardDescription>Pick a module, choose specific actions (or Select All), and add an optional reason.</CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
           <div className="grid gap-3 md:grid-cols-[260px_1fr_auto] md:items-end">
             <div className="space-y-1">
               <label className="text-xs font-medium text-muted-foreground">Module</label>
-              <Select value={module} onValueChange={setModule}>
+              <Select value={module} onValueChange={onModuleChange}>
                 <SelectTrigger data-testid="select-request-module"><SelectValue placeholder="Choose a module" /></SelectTrigger>
                 <SelectContent>
                   {MODULES.map(m => <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}
@@ -96,13 +130,49 @@ export default function MyAccessRequestsPage() {
             </div>
             <Button
               onClick={() => create.mutate()}
-              disabled={!module || create.isPending}
+              disabled={!canSend}
               data-testid="button-send-request"
             >
               {create.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Send className="h-4 w-4 mr-2" />}
               Send
             </Button>
           </div>
+
+          {module && actionDefs.length > 0 && (
+            <div className="rounded-lg border bg-muted/30 p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium">Functionalities</p>
+                  <p className="text-xs text-muted-foreground">Pick the specific actions you need, or use Select All for full module access.</p>
+                </div>
+                <label className="flex items-center gap-2 text-sm font-medium cursor-pointer" data-testid="label-select-all">
+                  <Checkbox
+                    checked={selectAll}
+                    onCheckedChange={(v) => {
+                      const next = v === true;
+                      setSelectAll(next);
+                      if (next) setPickedActions([]);
+                    }}
+                    data-testid="checkbox-select-all"
+                  />
+                  Select All
+                </label>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+                {actionDefs.map(a => (
+                  <label key={a.value} className={`flex items-center gap-2 text-sm rounded-md border px-3 py-2 cursor-pointer ${selectAll ? "opacity-60" : "hover:bg-accent"}`}>
+                    <Checkbox
+                      checked={selectAll || pickedActions.includes(a.value)}
+                      disabled={selectAll}
+                      onCheckedChange={(v) => toggleAction(a.value, v === true)}
+                      data-testid={`checkbox-action-${a.value}`}
+                    />
+                    {a.label}
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -121,6 +191,7 @@ export default function MyAccessRequestsPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Module</TableHead>
+                  <TableHead>Functionalities</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Requested</TableHead>
                   <TableHead>Decision</TableHead>
@@ -131,6 +202,7 @@ export default function MyAccessRequestsPage() {
                 {requests.map(r => (
                   <TableRow key={r.id} data-testid={`row-request-${r.id}`}>
                     <TableCell className="font-medium">{MODULES.find(m => m.value === r.module)?.label || r.module}</TableCell>
+                    <TableCell>{renderActionsCell(r)}</TableCell>
                     <TableCell>{statusBadge(r.status)}</TableCell>
                     <TableCell className="text-sm text-muted-foreground">{r.createdAt ? format(new Date(r.createdAt), "dd MMM yyyy, HH:mm") : "—"}</TableCell>
                     <TableCell className="text-sm text-muted-foreground">{r.decidedAt ? format(new Date(r.decidedAt), "dd MMM yyyy, HH:mm") : "—"}</TableCell>

@@ -293,10 +293,10 @@ export interface IStorage {
   setUserPermissions(userId: string, permissions: { module: string; canAccess: boolean }[], grantedBy: string, companyId: string | null): Promise<UserPermission[]>;
 
   // Module Access Requests
-  createModuleAccessRequest(data: { userId: string; companyId: string | null; module: string; reason?: string | null }): Promise<ModuleAccessRequest>;
+  createModuleAccessRequest(data: { userId: string; companyId: string | null; module: string; actions?: string[] | null; reason?: string | null }): Promise<ModuleAccessRequest>;
   getModuleAccessRequest(id: string): Promise<ModuleAccessRequest | undefined>;
   listModuleAccessRequests(filters: { companyId?: string; userId?: string; status?: string }): Promise<ModuleAccessRequest[]>;
-  decideModuleAccessRequest(id: string, status: "approved" | "denied", decidedBy: string, decisionNote?: string | null): Promise<ModuleAccessRequest | undefined>;
+  decideModuleAccessRequest(id: string, status: "approved" | "denied" | "revoked", decidedBy: string, decisionNote?: string | null): Promise<ModuleAccessRequest | undefined>;
   findPendingModuleAccessRequest(userId: string, module: string): Promise<ModuleAccessRequest | undefined>;
 
   // Loan & Advances
@@ -1874,13 +1874,14 @@ export class MemStorage implements IStorage {
 
   private moduleAccessRequestsMap: Map<string, ModuleAccessRequest> = new Map();
 
-  async createModuleAccessRequest(data: { userId: string; companyId: string | null; module: string; reason?: string | null }): Promise<ModuleAccessRequest> {
+  async createModuleAccessRequest(data: { userId: string; companyId: string | null; module: string; actions?: string[] | null; reason?: string | null }): Promise<ModuleAccessRequest> {
     const id = randomUUID();
     const row: ModuleAccessRequest = {
       id,
       userId: data.userId,
       companyId: data.companyId,
       module: data.module,
+      actions: data.actions && data.actions.length > 0 ? data.actions : null,
       status: "pending",
       reason: data.reason ?? null,
       decisionNote: null,
@@ -1904,7 +1905,7 @@ export class MemStorage implements IStorage {
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
 
-  async decideModuleAccessRequest(id: string, status: "approved" | "denied", decidedBy: string, decisionNote?: string | null): Promise<ModuleAccessRequest | undefined> {
+  async decideModuleAccessRequest(id: string, status: "approved" | "denied" | "revoked", decidedBy: string, decisionNote?: string | null): Promise<ModuleAccessRequest | undefined> {
     const existing = this.moduleAccessRequestsMap.get(id);
     if (!existing) return undefined;
     const updated: ModuleAccessRequest = {

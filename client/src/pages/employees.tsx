@@ -62,6 +62,7 @@ import {
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useLocation } from "wouter";
 import { useAuth } from "@/lib/auth";
+import { useCan } from "@/hooks/use-can";
 import { Checkbox } from "@/components/ui/checkbox";
 import type { Employee, Company, TimeOfficePolicy, ContractorEmployee, ContractorMaster } from "@shared/schema";
 
@@ -158,6 +159,7 @@ export default function Employees() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const { user } = useAuth();
+  const { can } = useCan();
   const isSuperAdmin = user?.role === "super_admin";
   const [selectedCompany, setSelectedCompany] = useState<string>(
     isSuperAdmin ? "__all__" : (user?.companyId || "")
@@ -661,6 +663,7 @@ export default function Employees() {
           <p className="text-muted-foreground">Manage your workforce</p>
         </div>
         <div className="flex gap-2">
+          {can("employees", "bulk_upload") && (
           <Button
             variant="outline"
             onClick={() => { setBulkUploadOpen(true); setBulkResult(null); }}
@@ -670,6 +673,8 @@ export default function Employees() {
             <Upload className="h-4 w-4 mr-2" />
             Bulk Upload
           </Button>
+          )}
+          {can("employees", "edit") && (
           <Button
             variant="outline"
             onClick={() => { setBulkUpdateOpen(true); setBulkUpdateResult(null); setBulkUpdateFields(new Set()); }}
@@ -680,6 +685,8 @@ export default function Employees() {
             <FileSpreadsheet className="h-4 w-4 mr-2" />
             Bulk Update
           </Button>
+          )}
+          {can("employees", "create") && (
           <Button 
             onClick={openAadhaarDialog}
             data-testid="button-add-employee" 
@@ -688,6 +695,7 @@ export default function Employees() {
             <Plus className="h-4 w-4 mr-2" />
             Add Employee
           </Button>
+          )}
         </div>
       </div>
 
@@ -774,7 +782,7 @@ export default function Employees() {
               <p className="text-muted-foreground mb-4">
                 {searchQuery ? "Try adjusting your search" : "Get started by adding your first employee"}
               </p>
-              {!searchQuery && companies.length > 0 && (
+              {!searchQuery && companies.length > 0 && can("employees", "create") && (
                 <Button onClick={openAadhaarDialog} data-testid="button-add-first-employee">
                   <Plus className="h-4 w-4 mr-2" />
                   Add Employee
@@ -844,6 +852,7 @@ export default function Employees() {
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-1">
+                          {can("employees", "edit") && (
                           <Button
                             variant="ghost"
                             size="icon"
@@ -852,6 +861,7 @@ export default function Employees() {
                           >
                             <Edit className="h-4 w-4" />
                           </Button>
+                          )}
                           {employee.status === "active" ? (
                             <Button
                               variant="ghost"
@@ -902,6 +912,7 @@ export default function Employees() {
                           >
                             <KeyRound className="h-4 w-4" />
                           </Button>
+                          {can("employees", "delete") && (
                           <Button
                             variant="ghost"
                             size="icon"
@@ -913,6 +924,7 @@ export default function Employees() {
                           >
                             <Trash2 className="h-4 w-4 text-destructive" />
                           </Button>
+                          )}
                         </div>
                       </TableCell>
                     </TableRow>

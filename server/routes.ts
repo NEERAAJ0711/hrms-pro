@@ -189,33 +189,60 @@ const MODULE_ACCESS: Record<string, string[]> = {
   masters: ["super_admin", "company_admin", "hr_admin"],
 };
 
+// Internal helper used by both requireModuleAccess and requireAction.
+// Semantics (must mirror client/src/hooks/use-can.ts):
+//   - super_admin always passes
+//   - explicit module-level allow → true
+//   - explicit action-level allow → true (when action provided)
+//   - explicit module-level deny  → false
+//   - explicit action-level deny  → false (when action provided)
+//   - otherwise fall back to MODULE_ACCESS role table
+async function userHasAccess(
+  user: any,
+  module: string,
+  action?: string,
+): Promise<boolean> {
+  if (!user) return false;
+  if (user.role === "super_admin") return true;
+  let userPerms: { module: string; canAccess: boolean }[] = [];
+  try {
+    userPerms = await storage.getUserPermissions(user.id);
+  } catch (_) { /* fall through to role check */ }
+  const moduleOverride = userPerms.find(p => p.module === module);
+  const actionOverride = action
+    ? userPerms.find(p => p.module === `${module}:${action}`)
+    : undefined;
+  // Deny-first: an explicit module-level revoke blocks every action regardless
+  // of any stale action-level grants. An explicit action-level revoke blocks
+  // just that action.
+  if (moduleOverride?.canAccess === false) return false;
+  if (actionOverride?.canAccess === false) return false;
+  // Then explicit allows.
+  if (moduleOverride?.canAccess === true) return true;
+  if (actionOverride?.canAccess === true) return true;
+  return (MODULE_ACCESS[module] || []).includes(user.role);
+}
+
 const requireModuleAccess = (module: string) => {
   return async (req: Request, res: Response, next: NextFunction) => {
     const user = (req as any).user;
-    if (!user) {
-      return res.status(401).json({ error: "Authentication required" });
-    }
+    if (!user) return res.status(401).json({ error: "Authentication required" });
+    const ok = await userHasAccess(user, module);
+    if (!ok) return res.status(403).json({ error: `Access denied. You do not have access to the ${module} module.` });
+    next();
+  };
+};
 
-    // super_admin always has full access — skip all checks
-    if (user.role === "super_admin") return next();
-
-    // Check user-specific permission overrides first
-    try {
-      const userPerms = await storage.getUserPermissions(user.id);
-      const override = userPerms.find(p => p.module === module);
-      if (override) {
-        if (override.canAccess) return next();
-        return res.status(403).json({ error: `Access denied. You do not have access to the ${module} module.` });
-      }
-    } catch (_) { /* if DB fails, fall through to role check */ }
-
-    // Fall back to role-based access
-    const allowedRoles = MODULE_ACCESS[module] || [];
-    if (allowedRoles.includes(user.role)) {
-      return next();
-    }
-    
-    res.status(403).json({ error: `Access denied. You do not have access to the ${module} module.` });
+// Like requireModuleAccess but checks a specific action within the module
+// (e.g. requireAction("employees", "create")). A full-module grant satisfies
+// any action; an action-level grant satisfies only that action.
+const requireAction = (module: string, action: string) => {
+  return async (req: Request, res: Response, next: NextFunction) => {
+    const user = (req as any).user;
+    if (!user) return res.status(401).json({ error: "Authentication required" });
+    const ok = await userHasAccess(user, module, action);
+    if (!ok) return res.status(403).json({ error: `Access denied. You do not have permission to ${action.replace(/_/g, " ")} in ${module}.` });
+    next();
   };
 };
 
@@ -429,6 +456,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Add OT columns to payroll table if they don't exist
   await db.execute(sql`ALTER TABLE payroll ADD COLUMN IF NOT EXISTS ot_hours NUMERIC(6,2) DEFAULT 0`).catch(() => {});
   await db.execute(sql`ALTER TABLE payroll ADD COLUMN IF NOT EXISTS ot_amount INTEGER DEFAULT 0`).catch(() => {});
+
+  // Per-action access requests: optional array of actions requested within a
+  // module (e.g. ["create","edit"]). NULL = full-module ("Select All") request.
+  await db.execute(sql`ALTER TABLE module_access_requests ADD COLUMN IF NOT EXISTS actions text[]`).catch(() => {});
 
   // Mirror of migrations/007: short, friendly machine code shown in the
   // device list and used when assigning an employee to a specific machine.
@@ -1243,24 +1274,42 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = (req as any).user;
       const module = String(req.body?.module || "").trim();
       const reason = req.body?.reason ? String(req.body.reason).slice(0, 500) : null;
+      // Optional per-action list. Empty / missing = full-module ("Select All").
+      const rawActions = Array.isArray(req.body?.actions) ? req.body.actions : [];
+      const actions: string[] = rawActions
+        .map((a: any) => String(a || "").trim())
+        .filter((a: string) => /^[a-z0-9_]+$/.test(a))
+        .slice(0, 20);
       if (!module || !REQUESTABLE_MODULES.has(module)) {
         return res.status(400).json({ error: "Invalid module" });
       }
-      // Skip duplicate pending requests.
+      // Skip duplicate pending requests for the same module.
       const existing = await storage.findPendingModuleAccessRequest(user.id, module);
       if (existing) {
         return res.status(409).json({ error: "You already have a pending request for this module", request: existing });
       }
-      // If user already has access, no point requesting.
+      // If user already has full-module access, no point requesting.
       const perms = await storage.getUserPermissions(user.id);
-      const override = perms.find(p => p.module === module);
-      if (override?.canAccess) {
+      const moduleOverride = perms.find(p => p.module === module);
+      if (moduleOverride?.canAccess) {
         return res.status(409).json({ error: "You already have access to this module" });
+      }
+      // For per-action requests, drop actions the user already holds and
+      // reject if nothing remains to request.
+      const filteredActions = actions.length > 0
+        ? actions.filter(a => {
+            const ao = perms.find(p => p.module === `${module}:${a}`);
+            return !(ao?.canAccess === true);
+          })
+        : [];
+      if (actions.length > 0 && filteredActions.length === 0) {
+        return res.status(409).json({ error: "You already have access to the requested actions" });
       }
       const created = await storage.createModuleAccessRequest({
         userId: user.id,
         companyId: user.companyId || null,
         module,
+        actions: filteredActions.length > 0 ? filteredActions : null,
         reason,
       });
       // Notify approvers (super admin + company admins of the same company).
@@ -1345,9 +1394,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const newStatus = action === "approve" ? "approved" : "denied";
       const decided = await storage.decideModuleAccessRequest(existing.id, newStatus, user.id, note);
       if (action === "approve") {
+        // If the request specified individual actions, grant each as a
+        // `module:action` permission. Otherwise grant full-module access.
+        const reqActions: string[] = Array.isArray((existing as any).actions)
+          ? (existing as any).actions
+          : [];
+        const grants = reqActions.length > 0
+          ? reqActions.map(a => ({ module: `${existing.module}:${a}`, canAccess: true }))
+          : [{ module: existing.module, canAccess: true }];
         await storage.setUserPermissions(
           existing.userId,
-          [{ module: existing.module, canAccess: true }],
+          grants,
           user.id,
           existing.companyId,
         );
@@ -1384,6 +1441,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const targetUserId = String(req.body?.userId || "");
       const module = String(req.body?.module || "");
       const canAccess = req.body?.canAccess !== false; // default true
+      // Optional per-action list. Empty / missing = full-module grant/revoke.
+      const rawActions = Array.isArray(req.body?.actions) ? req.body.actions : [];
+      const actions: string[] = rawActions
+        .map((a: any) => String(a || "").trim())
+        .filter((a: string) => /^[a-z0-9_]+$/.test(a))
+        .slice(0, 20);
       if (!targetUserId || !module || !REQUESTABLE_MODULES.has(module)) {
         return res.status(400).json({ error: "userId and a valid module are required" });
       }
@@ -1392,26 +1455,61 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (user.role === "company_admin" && target.companyId !== user.companyId) {
         return res.status(403).json({ error: "Access denied" });
       }
+      // Build the set of permission rows to upsert. Full-module = single row;
+      // per-action = one row per action key.
+      const grants = actions.length > 0
+        ? actions.map(a => ({ module: `${module}:${a}`, canAccess }))
+        : [{ module, canAccess }];
       const result = await storage.setUserPermissions(
         targetUserId,
-        [{ module, canAccess }],
+        grants,
         user.id,
         target.companyId,
       );
       // Reflect the action on the request history so the History tab shows
       // an accurate status (Approved → Revoked) instead of leaving stale
-      // "Approved" rows after revocation.
+      // "Approved" rows after revocation. For a full-module revoke, mark all
+      // approved requests for this module. For per-action revokes, only mark
+      // requests whose action set is a subset of the revoked actions.
       if (!canAccess) {
         try {
-          await db.execute(sql`
-            UPDATE module_access_requests
-               SET status = 'revoked',
-                   decided_by = ${user.id},
-                   decided_at = ${new Date().toISOString()}
-             WHERE user_id = ${targetUserId}
-               AND module = ${module}
-               AND status = 'approved'
-          `);
+          if (actions.length === 0) {
+            // Also flip every `${module}:*` action-level grant to revoked so
+            // stale action rows can't keep authorizing the user after a
+            // full-module revoke.
+            await db.execute(sql`
+              UPDATE user_permissions
+                 SET can_access = false,
+                     granted_by = ${user.id},
+                     updated_at = ${new Date().toISOString()}
+               WHERE user_id = ${targetUserId}
+                 AND module LIKE ${module + ':%'}
+                 AND can_access = true
+            `);
+            await db.execute(sql`
+              UPDATE module_access_requests
+                 SET status = 'revoked',
+                     decided_by = ${user.id},
+                     decided_at = ${new Date().toISOString()}
+               WHERE user_id = ${targetUserId}
+                 AND module = ${module}
+                 AND status = 'approved'
+            `);
+          } else {
+            // Mark only rows whose action list is fully covered by the revoked
+            // actions (or which had no actions but module is being narrowed —
+            // skip those since the module grant itself isn't being revoked).
+            const approved = await storage.listModuleAccessRequests({ userId: targetUserId, status: "approved" });
+            const revokedSet = new Set(actions);
+            for (const r of approved) {
+              if (r.module !== module) continue;
+              const ra: string[] = Array.isArray((r as any).actions) ? (r as any).actions : [];
+              if (ra.length === 0) continue; // full-module grant — leave alone
+              if (ra.every(a => revokedSet.has(a))) {
+                await storage.decideModuleAccessRequest(r.id, "revoked", user.id, null);
+              }
+            }
+          }
         } catch (reqErr) {
           console.error("[module-access] failed to mark request revoked:", reqErr);
         }
@@ -1502,7 +1600,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.send(buffer);
   });
 
-  app.post("/api/employees/bulk-upload", requireAuth, requireModuleAccess("employees"), upload.single("file"), async (req, res) => {
+  app.post("/api/employees/bulk-upload", requireAuth, requireAction("employees", "bulk_upload"), upload.single("file"), async (req, res) => {
     try {
       const user = (req as any).user;
       const file = (req as any).file;
@@ -1798,7 +1896,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // POST /api/employees/bulk-update
-  app.post("/api/employees/bulk-update", requireAuth, requireModuleAccess("employees"), upload.single("file"), async (req, res) => {
+  app.post("/api/employees/bulk-update", requireAuth, requireAction("employees", "edit"), upload.single("file"), async (req, res) => {
     try {
       const user = (req as any).user;
       const file = (req as any).file;
@@ -2960,7 +3058,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   }
 
   // ===== Employee CRUD Routes =====
-  app.post("/api/employees", requireAuth, requireModuleAccess("employees"), async (req, res) => {
+  app.post("/api/employees", requireAuth, requireAction("employees", "create"), async (req, res) => {
     try {
       const user = (req as any).user;
       const data = insertEmployeeSchema.parse(req.body);
@@ -3033,7 +3131,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/employees/:id", requireAuth, requireModuleAccess("employees"), async (req, res) => {
+  app.patch("/api/employees/:id", requireAuth, requireAction("employees", "edit"), async (req, res) => {
     try {
       const user = (req as any).user;
       const existing = await storage.getEmployee(req.params.id);
@@ -3067,7 +3165,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/employees/:id", requireAuth, requireModuleAccess("employees"), async (req, res) => {
+  app.delete("/api/employees/:id", requireAuth, requireAction("employees", "delete"), async (req, res) => {
     try {
       const user = (req as any).user;
       const existing = await storage.getEmployee(req.params.id);
@@ -3085,7 +3183,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ===== Employee Exit & Reinstate Routes =====
-  app.post("/api/employees/:id/exit", requireAuth, async (req, res) => {
+  app.post("/api/employees/:id/exit", requireAuth, requireAction("employees", "edit"), async (req, res) => {
     try {
       const user = (req as any).user;
       const existing = await storage.getEmployee(req.params.id);
@@ -3106,7 +3204,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/employees/:id/reinstate", requireAuth, async (req, res) => {
+  app.post("/api/employees/:id/reinstate", requireAuth, requireAction("employees", "edit"), async (req, res) => {
     try {
       const user = (req as any).user;
       const existing = await storage.getEmployee(req.params.id);
@@ -3141,7 +3239,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/employees/:id/documents", requireAuth, docUpload.single("file"), async (req, res) => {
+  app.post("/api/employees/:id/documents", requireAuth, requireAction("employees", "edit"), docUpload.single("file"), async (req, res) => {
     try {
       const file = req.file;
       const { docType } = req.body;
@@ -3162,7 +3260,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/employees/:id/documents/:docId", requireAuth, async (req, res) => {
+  app.delete("/api/employees/:id/documents/:docId", requireAuth, requireAction("employees", "edit"), async (req, res) => {
     try {
       const row = await db.execute(sql`SELECT file_path FROM employee_documents WHERE id = ${req.params.docId} AND employee_id = ${req.params.id} LIMIT 1`);
       const doc = row.rows[0] as any;
@@ -3176,7 +3274,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/employees/:id/unlink-login", requireAuth, async (req, res) => {
+  app.post("/api/employees/:id/unlink-login", requireAuth, requireAction("employees", "edit"), async (req, res) => {
     try {
       const user = (req as any).user;
       const employee = await storage.getEmployee(req.params.id);
@@ -3192,7 +3290,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/employees/:id/create-login", requireAuth, async (req, res) => {
+  app.post("/api/employees/:id/create-login", requireAuth, requireAction("employees", "edit"), async (req, res) => {
     try {
       const user = (req as any).user;
       const employee = await storage.getEmployee(req.params.id);
@@ -3233,7 +3331,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ===== Aadhaar Verification =====
-  app.post("/api/employees/verify-aadhaar", requireAuth, async (req, res) => {
+  app.post("/api/employees/verify-aadhaar", requireAuth, requireAction("employees", "create"), async (req, res) => {
     try {
       const { aadhaar, companyId } = req.body;
       const allEmployees = await storage.getAllEmployees();
