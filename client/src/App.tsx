@@ -21,6 +21,7 @@ import AttendancePage from "@/pages/attendance";
 import LeavePage from "@/pages/leave";
 import LoanAdvancesPage from "@/pages/loan-advances";
 import PayrollPage from "@/pages/payroll";
+import { ModuleGate } from "@/components/module-gate";
 import SettingsPage from "@/pages/settings";
 import ReportsPage from "@/pages/reports";
 import BiometricPage from "@/pages/biometric";
@@ -112,7 +113,9 @@ function ProtectedRouter() {
       <Route path="/my-attendance" component={MyAttendancePage} />
       <Route path="/leave" component={LeavePage} />
       <Route path="/loan-advances" component={LoanAdvancesPage} />
-      <Route path="/payroll" component={PayrollPage} />
+      <Route path="/payroll">
+        <ModuleGate module="payroll"><PayrollPage /></ModuleGate>
+      </Route>
       <Route path="/fnf-settlement" component={RedirectToPayroll} />
       <Route path="/reports" component={ReportsPage} />
       <Route path="/holidays" component={RedirectToSettings} />

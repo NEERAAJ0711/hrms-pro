@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { apiRequest } from "@/lib/queryClient";
@@ -139,6 +140,21 @@ export default function FinancePage() {
   });
 
   const [expandedPayslip, setExpandedPayslip] = useState<string | null>(null);
+
+  const [location] = useLocation();
+  const initialTab = (() => {
+    if (typeof window === "undefined") return "loans";
+    const t = new URLSearchParams(window.location.search).get("tab");
+    return t === "payslips" || t === "expenses" || t === "loans" ? t : "loans";
+  })();
+  const [activeTab, setActiveTab] = useState<string>(initialTab);
+  useEffect(() => {
+    const t = new URLSearchParams(window.location.search).get("tab");
+    if (t && t !== activeTab && (t === "payslips" || t === "expenses" || t === "loans")) {
+      setActiveTab(t);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location]);
 
   const invalidateLoans = () => qc.invalidateQueries({ queryKey: ["/api/loan-advances"] });
   const invalidateExp   = () => qc.invalidateQueries({ queryKey: ["/api/expenses"] });
@@ -321,7 +337,7 @@ export default function FinancePage() {
         )}
 
         {/* ── Main Tabs ── */}
-        <Tabs defaultValue="loans">
+        <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList className="mb-2">
             <TabsTrigger value="loans" className="gap-2">
               <CreditCard className="h-4 w-4" />Loan & Advance

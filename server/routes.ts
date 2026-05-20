@@ -500,6 +500,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
        AND allowed_ip_cidr LIKE '%.%.%.%/32';
   `).catch((err) => console.error("[migrations] clear backfilled allowed_ip_cidr failed:", err));
 
+  // One-shot backfill: redirect existing payslip notifications away from
+  // the admin-only /payroll page to the employee Payslips tab.
+  await db.execute(sql`
+    UPDATE notifications
+       SET link = '/loan-advances?tab=payslips'
+     WHERE type IN ('payroll_processed', 'payroll_paid')
+       AND (link = '/payroll' OR link = '/loan-advances')
+  `).catch((err) => console.error("[migrations] backfill payslip notification link failed:", err));
+
   // Startup migration for module_access_requests — users requesting HR
   // module access; admins approve/deny which upserts user_permissions.
   await db.execute(sql`
@@ -4983,10 +4992,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
             const label = req.body.status === "paid" ? "Salary Credited" : "Payslip Ready";
             const msg = req.body.status === "paid"
               ? `Your salary for ${existing.month} ${existing.year} has been credited. ₹${Number((updated as any).netPay || (updated as any).netSalary || 0).toLocaleString("en-IN")}`
-              : `Your payslip for ${existing.month} ${existing.year} has been generated. You can view it under Loan & Advances.`;
-            // Send employees to their self-service page (which hosts the
-            // payslips section), not the admin-only /payroll module.
-            await createNotification({ userId: empUserId, companyId: existing.companyId, type: "payroll_" + req.body.status, title: label, message: msg, link: "/loan-advances" });
+              : `Your payslip for ${existing.month} ${existing.year} has been generated. You can view it under My Finance → Payslips.`;
+            // Send employees to the Payslips tab in My Finance (employee
+            // self-service), not the admin-only /payroll module.
+            await createNotification({ userId: empUserId, companyId: existing.companyId, type: "payroll_" + req.body.status, title: label, message: msg, link: "/loan-advances?tab=payslips" });
           }
         } catch (err) {
           console.error("[Notification] payroll notify failed:", err);
