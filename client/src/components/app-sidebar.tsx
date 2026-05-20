@@ -131,12 +131,14 @@ const hrModulesItems = [
   },
   {
     title: "My Leave",
+    adminTitle: "Leave",
     url: "/leave",
     icon: Calendar,
     module: "leave",
   },
   {
     title: "My Finance",
+    adminTitle: "Loan & Advances",
     url: "/loan-advances",
     icon: Wallet,
     module: "loan_advances",
@@ -173,6 +175,7 @@ const hrModulesItems = [
   },
   {
     title: "My Jobs",
+    adminTitle: "Job Applications",
     url: "/job-applications",
     icon: ClipboardList,
     module: "job_applications",
@@ -278,6 +281,9 @@ export function AppSidebar() {
     : 'User';
 
   const hasCompany = !!user?.companyId;
+  const isEmployeeView = user?.role === "employee";
+  const resolveTitle = (item: { title: string; adminTitle?: string }) =>
+    !isEmployeeView && item.adminTitle ? item.adminTitle : item.title;
   const filteredMainMenu = mainMenuItems.filter(item => checkAccess(item.module));
   const filteredHrModules = hrModulesItems.filter(item => checkAccess(item.module));
 
@@ -307,18 +313,20 @@ export function AppSidebar() {
             </SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
-                {filteredMainMenu.map((item) => (
+                {filteredMainMenu.map((item) => {
+                  const label = resolveTitle(item);
+                  return (
                   <SidebarMenuItem key={item.title}>
                     <SidebarMenuButton 
                       isActive={location === item.url}
                       onClick={() => handleNavigation(item.url)}
-                      data-testid={`nav-${item.title.toLowerCase()}`}
+                      data-testid={`nav-${label.toLowerCase()}`}
                     >
                       <item.icon className="h-4 w-4" />
-                      <span>{item.title}</span>
+                      <span>{label}</span>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
-                ))}
+                );})}
               </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>
@@ -331,18 +339,20 @@ export function AppSidebar() {
             </SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
-                {filteredHrModules.map((item) => (
+                {filteredHrModules.map((item) => {
+                  const label = resolveTitle(item);
+                  return (
                   <SidebarMenuItem key={item.title}>
                     <SidebarMenuButton 
                       isActive={location === item.url}
                       onClick={() => handleNavigation(item.url)}
-                      data-testid={`nav-${item.title.toLowerCase().replace(' ', '-')}`}
+                      data-testid={`nav-${label.toLowerCase().replace(' ', '-')}`}
                     >
                       <item.icon className="h-4 w-4" />
-                      <span>{item.title}</span>
+                      <span>{label}</span>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
-                ))}
+                );})}
               </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>
