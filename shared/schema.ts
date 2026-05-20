@@ -874,6 +874,33 @@ export const insertUserPermissionSchema = createInsertSchema(userPermissions).om
 export type InsertUserPermission = z.infer<typeof insertUserPermissionSchema>;
 export type UserPermission = typeof userPermissions.$inferSelect;
 
+// Module Access Requests — user requests admin to grant access to an HR module.
+// On approval, the corresponding `user_permissions` row is upserted with
+// canAccess=true (always permanent — admin manually revokes).
+export const moduleAccessRequests = pgTable("module_access_requests", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  userId: varchar("user_id", { length: 36 }).notNull(),
+  companyId: varchar("company_id", { length: 36 }),
+  module: text("module").notNull(),
+  status: text("status").notNull().default("pending"), // pending | approved | denied
+  reason: text("reason"),                              // user-supplied justification
+  decisionNote: text("decision_note"),                 // admin's note on approve/deny
+  decidedBy: varchar("decided_by", { length: 36 }),
+  decidedAt: text("decided_at"),
+  createdAt: text("created_at").notNull(),
+});
+
+export const insertModuleAccessRequestSchema = createInsertSchema(moduleAccessRequests).omit({
+  id: true,
+  status: true,
+  decisionNote: true,
+  decidedBy: true,
+  decidedAt: true,
+  createdAt: true,
+});
+export type InsertModuleAccessRequest = z.infer<typeof insertModuleAccessRequestSchema>;
+export type ModuleAccessRequest = typeof moduleAccessRequests.$inferSelect;
+
 // Notifications table
 export const notifications = pgTable("notifications", {
   id: varchar("id", { length: 36 }).primaryKey(),

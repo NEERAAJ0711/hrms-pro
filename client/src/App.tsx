@@ -30,6 +30,8 @@ import JobApplicationsPage from "@/pages/job-applications";
 import MyProfilePage from "@/pages/my-profile";
 import MyAttendancePage from "@/pages/my-attendance";
 import ProfileRequestsPage from "@/pages/profile-requests";
+import MyAccessRequestsPage from "@/pages/my-access-requests";
+import AccessRequestsPage from "@/pages/access-requests";
 import CompliancesPage from "@/pages/compliances";
 import BillingPage from "@/pages/billing";
 import NotFound from "@/pages/not-found";
@@ -120,6 +122,8 @@ function ProtectedRouter() {
       <Route path="/job-applications" component={JobApplicationsPage} />
       <Route path="/my-profile" component={MyProfilePage} />
       <Route path="/profile-requests" component={ProfileRequestsPage} />
+      <Route path="/my-access-requests" component={MyAccessRequestsPage} />
+      <Route path="/access-requests" component={AccessRequestsPage} />
       <Route path="/compliances" component={CompliancesPage} />
       <Route path="/billing" component={BillingPage} />
       <Route path="/settings" component={SettingsPage} />

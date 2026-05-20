@@ -53,6 +53,7 @@ import {
   type InsertLoanAdvance,
   type InsertPreviousExperience,
   type UserPermission,
+  type ModuleAccessRequest,
   type CompanyContractor,
   type InsertCompanyContractor,
   type ContractorMaster,
@@ -290,6 +291,13 @@ export interface IStorage {
   // User Permissions
   getUserPermissions(userId: string): Promise<UserPermission[]>;
   setUserPermissions(userId: string, permissions: { module: string; canAccess: boolean }[], grantedBy: string, companyId: string | null): Promise<UserPermission[]>;
+
+  // Module Access Requests
+  createModuleAccessRequest(data: { userId: string; companyId: string | null; module: string; reason?: string | null }): Promise<ModuleAccessRequest>;
+  getModuleAccessRequest(id: string): Promise<ModuleAccessRequest | undefined>;
+  listModuleAccessRequests(filters: { companyId?: string; userId?: string; status?: string }): Promise<ModuleAccessRequest[]>;
+  decideModuleAccessRequest(id: string, status: "approved" | "denied", decidedBy: string, decisionNote?: string | null): Promise<ModuleAccessRequest | undefined>;
+  findPendingModuleAccessRequest(userId: string, module: string): Promise<ModuleAccessRequest | undefined>;
 
   // Loan & Advances
   getLoanAdvance(id: string): Promise<LoanAdvance | undefined>;
@@ -1862,6 +1870,57 @@ export class MemStorage implements IStorage {
 
   async writeAuditLog(_entry: { action: string; userId: string; userName: string; details: string }): Promise<void> {
     // In-memory store has no audit log persistence
+  }
+
+  private moduleAccessRequestsMap: Map<string, ModuleAccessRequest> = new Map();
+
+  async createModuleAccessRequest(data: { userId: string; companyId: string | null; module: string; reason?: string | null }): Promise<ModuleAccessRequest> {
+    const id = randomUUID();
+    const row: ModuleAccessRequest = {
+      id,
+      userId: data.userId,
+      companyId: data.companyId,
+      module: data.module,
+      status: "pending",
+      reason: data.reason ?? null,
+      decisionNote: null,
+      decidedBy: null,
+      decidedAt: null,
+      createdAt: new Date().toISOString(),
+    };
+    this.moduleAccessRequestsMap.set(id, row);
+    return row;
+  }
+
+  async getModuleAccessRequest(id: string): Promise<ModuleAccessRequest | undefined> {
+    return this.moduleAccessRequestsMap.get(id);
+  }
+
+  async listModuleAccessRequests(filters: { companyId?: string; userId?: string; status?: string }): Promise<ModuleAccessRequest[]> {
+    return Array.from(this.moduleAccessRequestsMap.values())
+      .filter(r => (filters.companyId ? r.companyId === filters.companyId : true))
+      .filter(r => (filters.userId    ? r.userId    === filters.userId    : true))
+      .filter(r => (filters.status    ? r.status    === filters.status    : true))
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  async decideModuleAccessRequest(id: string, status: "approved" | "denied", decidedBy: string, decisionNote?: string | null): Promise<ModuleAccessRequest | undefined> {
+    const existing = this.moduleAccessRequestsMap.get(id);
+    if (!existing) return undefined;
+    const updated: ModuleAccessRequest = {
+      ...existing,
+      status,
+      decidedBy,
+      decidedAt: new Date().toISOString(),
+      decisionNote: decisionNote ?? null,
+    };
+    this.moduleAccessRequestsMap.set(id, updated);
+    return updated;
+  }
+
+  async findPendingModuleAccessRequest(userId: string, module: string): Promise<ModuleAccessRequest | undefined> {
+    return Array.from(this.moduleAccessRequestsMap.values())
+      .find(r => r.userId === userId && r.module === module && r.status === "pending");
   }
 }
 

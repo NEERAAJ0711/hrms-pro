@@ -18,6 +18,7 @@ import {
   UserCog,
   Wallet,
   ShieldCheck,
+  ShieldQuestion,
   CreditCard,
 } from "lucide-react";
 import { useLocation } from "wouter";
@@ -66,6 +67,8 @@ const MODULE_ACCESS: Record<string, UserRole[]> = {
   compliances: ["super_admin", "company_admin", "hr_admin"],
   billing: ["super_admin", "company_admin"],
   settings: ["super_admin", "company_admin"],
+  my_access_requests: ["super_admin", "company_admin", "hr_admin", "recruiter", "manager", "employee"],
+  access_requests: ["super_admin", "company_admin"],
 };
 
 const REQUIRES_COMPANY: string[] = [
@@ -185,6 +188,18 @@ const hrModulesItems = [
     url: "/profile-requests",
     icon: ClipboardCheck,
     module: "profile_requests",
+  },
+  {
+    title: "My Access Requests",
+    url: "/my-access-requests",
+    icon: ShieldQuestion,
+    module: "my_access_requests",
+  },
+  {
+    title: "Access Requests",
+    url: "/access-requests",
+    icon: ShieldCheck,
+    module: "access_requests",
   },
   {
     title: "Settings",

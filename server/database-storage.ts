@@ -53,6 +53,7 @@ import {
   type LoanAdvance,
   type InsertLoanAdvance,
   type UserPermission,
+  type ModuleAccessRequest,
   type CompanyContractor,
   type InsertCompanyContractor,
   type ContractorMaster,
@@ -87,6 +88,7 @@ import {
   previousExperiences,
   loanAdvances,
   userPermissions,
+  moduleAccessRequests,
   expenses,
   leaveAdjustments,
   compOffApplications,
@@ -1038,6 +1040,59 @@ export class DatabaseStorage implements IStorage {
       }
     }
     return result;
+  }
+
+  async createModuleAccessRequest(data: { userId: string; companyId: string | null; module: string; reason?: string | null }): Promise<ModuleAccessRequest> {
+    const id = randomUUID();
+    const row = {
+      id,
+      userId: data.userId,
+      companyId: data.companyId,
+      module: data.module,
+      status: "pending",
+      reason: data.reason ?? null,
+      decisionNote: null,
+      decidedBy: null,
+      decidedAt: null,
+      createdAt: new Date().toISOString(),
+    };
+    const inserted = await db.insert(moduleAccessRequests).values(row).returning();
+    return inserted[0];
+  }
+
+  async getModuleAccessRequest(id: string): Promise<ModuleAccessRequest | undefined> {
+    const r = await db.select().from(moduleAccessRequests).where(eq(moduleAccessRequests.id, id));
+    return r[0];
+  }
+
+  async listModuleAccessRequests(filters: { companyId?: string; userId?: string; status?: string }): Promise<ModuleAccessRequest[]> {
+    const conds: any[] = [];
+    if (filters.companyId) conds.push(eq(moduleAccessRequests.companyId, filters.companyId));
+    if (filters.userId)    conds.push(eq(moduleAccessRequests.userId, filters.userId));
+    if (filters.status)    conds.push(eq(moduleAccessRequests.status, filters.status));
+    const q = conds.length === 0
+      ? db.select().from(moduleAccessRequests)
+      : db.select().from(moduleAccessRequests).where(and(...conds));
+    return await q.orderBy(desc(moduleAccessRequests.createdAt));
+  }
+
+  async decideModuleAccessRequest(id: string, status: "approved" | "denied", decidedBy: string, decisionNote?: string | null): Promise<ModuleAccessRequest | undefined> {
+    const result = await db.update(moduleAccessRequests)
+      .set({ status, decidedBy, decidedAt: new Date().toISOString(), decisionNote: decisionNote ?? null })
+      .where(eq(moduleAccessRequests.id, id))
+      .returning();
+    return result[0];
+  }
+
+  async findPendingModuleAccessRequest(userId: string, module: string): Promise<ModuleAccessRequest | undefined> {
+    const r = await db.select().from(moduleAccessRequests).where(
+      and(
+        eq(moduleAccessRequests.userId, userId),
+        eq(moduleAccessRequests.module, module),
+        eq(moduleAccessRequests.status, "pending"),
+      )
+    );
+    return r[0];
   }
 
   async getLoanAdvance(id: string): Promise<LoanAdvance | undefined> {

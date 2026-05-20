@@ -1189,6 +1189,196 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ===== Module Access Requests =====
+  // The full list of HR modules a user can request access to. Keep in sync
+  // with the requireModuleAccess() / MODULE_ACCESS map above.
+  const REQUESTABLE_MODULES = new Set([
+    "employees", "attendance", "leave", "payroll", "reports",
+    "recruitment", "masters", "settings", "users",
+  ]);
+
+  // User creates a new request for module access.
+  app.post("/api/module-access-requests", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const module = String(req.body?.module || "").trim();
+      const reason = req.body?.reason ? String(req.body.reason).slice(0, 500) : null;
+      if (!module || !REQUESTABLE_MODULES.has(module)) {
+        return res.status(400).json({ error: "Invalid module" });
+      }
+      // Skip duplicate pending requests.
+      const existing = await storage.findPendingModuleAccessRequest(user.id, module);
+      if (existing) {
+        return res.status(409).json({ error: "You already have a pending request for this module", request: existing });
+      }
+      // If user already has access, no point requesting.
+      const perms = await storage.getUserPermissions(user.id);
+      const override = perms.find(p => p.module === module);
+      if (override?.canAccess) {
+        return res.status(409).json({ error: "You already have access to this module" });
+      }
+      const created = await storage.createModuleAccessRequest({
+        userId: user.id,
+        companyId: user.companyId || null,
+        module,
+        reason,
+      });
+      // Notify approvers (super admin + company admins of the same company).
+      try {
+        const allUsers = await storage.getAllUsers();
+        const approvers = allUsers.filter(u =>
+          u.role === "super_admin"
+          || (u.role === "company_admin" && u.companyId === user.companyId)
+        );
+        const requesterName = `${user.firstName || ""} ${user.lastName || ""}`.trim() || user.username;
+        await createNotificationForMany(approvers.map(a => a.id), {
+          companyId: user.companyId || null,
+          type: "module_access_request",
+          title: "New module access request",
+          message: `${requesterName} requested access to ${module}`,
+          link: "/access-requests",
+        });
+      } catch (notifyErr) {
+        console.error("[module-access] approver notification failed:", notifyErr);
+      }
+      res.json(created);
+    } catch (err) {
+      console.error("[module-access] create failed:", err);
+      res.status(500).json({ error: "Failed to create request" });
+    }
+  });
+
+  // User lists their own requests.
+  app.get("/api/module-access-requests/mine", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const rows = await storage.listModuleAccessRequests({ userId: user.id });
+      res.json(rows);
+    } catch (err) {
+      res.status(500).json({ error: "Failed to fetch your requests" });
+    }
+  });
+
+  // Admin lists all requests (super_admin sees everything; company_admin sees
+  // only requests in their own company).
+  app.get("/api/module-access-requests", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      if (user.role !== "super_admin" && user.role !== "company_admin") {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      const status = req.query.status ? String(req.query.status) : undefined;
+      const filters: { companyId?: string; status?: string } = {};
+      if (status) filters.status = status;
+      if (user.role === "company_admin") {
+        if (!user.companyId) return res.json([]);
+        filters.companyId = user.companyId;
+      } else if (req.query.companyId) {
+        filters.companyId = String(req.query.companyId);
+      }
+      const rows = await storage.listModuleAccessRequests(filters);
+      res.json(rows);
+    } catch (err) {
+      res.status(500).json({ error: "Failed to fetch requests" });
+    }
+  });
+
+  // Admin approves or denies a request. On approve we upsert the
+  // user_permissions row so the user's next API call passes the middleware.
+  app.patch("/api/module-access-requests/:id", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      if (user.role !== "super_admin" && user.role !== "company_admin") {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      const action = String(req.body?.action || "").toLowerCase();
+      if (action !== "approve" && action !== "deny") {
+        return res.status(400).json({ error: "action must be 'approve' or 'deny'" });
+      }
+      const existing = await storage.getModuleAccessRequest(req.params.id);
+      if (!existing) return res.status(404).json({ error: "Request not found" });
+      if (existing.status !== "pending") return res.status(409).json({ error: "Request already decided" });
+      if (user.role === "company_admin" && existing.companyId !== user.companyId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      const note = req.body?.note ? String(req.body.note).slice(0, 500) : null;
+      const newStatus = action === "approve" ? "approved" : "denied";
+      const decided = await storage.decideModuleAccessRequest(existing.id, newStatus, user.id, note);
+      if (action === "approve") {
+        await storage.setUserPermissions(
+          existing.userId,
+          [{ module: existing.module, canAccess: true }],
+          user.id,
+          existing.companyId,
+        );
+      }
+      // Notify the requester.
+      try {
+        await createNotification({
+          userId: existing.userId,
+          companyId: existing.companyId,
+          type: "module_access_decision",
+          title: action === "approve" ? "Module access approved" : "Module access denied",
+          message: `Your request for ${existing.module} was ${newStatus}${note ? `: ${note}` : ""}`,
+          link: "/my-access-requests",
+        });
+      } catch (notifyErr) {
+        console.error("[module-access] requester notification failed:", notifyErr);
+      }
+      res.json(decided);
+    } catch (err) {
+      console.error("[module-access] decide failed:", err);
+      res.status(500).json({ error: "Failed to update request" });
+    }
+  });
+
+  // Admin grants a module to a user directly (no prior request needed).
+  // Re-uses the existing user_permissions table — for revocation just call
+  // PUT /api/users/:id/permissions with canAccess: false (existing endpoint).
+  app.post("/api/module-access-grants", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      if (user.role !== "super_admin" && user.role !== "company_admin") {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      const targetUserId = String(req.body?.userId || "");
+      const module = String(req.body?.module || "");
+      const canAccess = req.body?.canAccess !== false; // default true
+      if (!targetUserId || !module || !REQUESTABLE_MODULES.has(module)) {
+        return res.status(400).json({ error: "userId and a valid module are required" });
+      }
+      const target = await storage.getUser(targetUserId);
+      if (!target) return res.status(404).json({ error: "User not found" });
+      if (user.role === "company_admin" && target.companyId !== user.companyId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      const result = await storage.setUserPermissions(
+        targetUserId,
+        [{ module, canAccess }],
+        user.id,
+        target.companyId,
+      );
+      try {
+        await createNotification({
+          userId: targetUserId,
+          companyId: target.companyId,
+          type: "module_access_decision",
+          title: canAccess ? "Module access granted" : "Module access revoked",
+          message: canAccess
+            ? `An administrator granted you access to ${module}`
+            : `An administrator revoked your access to ${module}`,
+          link: "/my-access-requests",
+        });
+      } catch (notifyErr) {
+        console.error("[module-access] grant notification failed:", notifyErr);
+      }
+      res.json(result[0] || null);
+    } catch (err) {
+      console.error("[module-access] grant failed:", err);
+      res.status(500).json({ error: "Failed to grant access" });
+    }
+  });
+
   // ===== Employee Routes =====
   app.get("/api/employees/me", requireAuth, async (req, res) => {
     try {
