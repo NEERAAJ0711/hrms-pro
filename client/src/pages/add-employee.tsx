@@ -48,6 +48,7 @@ const employeeFormSchema = z.object({
   department: z.string().optional(),
   designation: z.string().optional(),
   location: z.string().optional(),
+  reportingManager: z.string().optional(),
   employmentType: z.string().default("permanent"),
   status: z.enum(["active", "inactive"]).default("active"),
   grossSalary: z.coerce.number().optional(),
@@ -294,6 +295,17 @@ export default function AddEmployee() {
     },
   });
 
+  // Pool of potential reporting managers — every active employee in the same
+  // company except the one being edited (can't report to yourself).
+  const { data: allEmployees = [] } = useQuery<Employee[]>({
+    queryKey: ["/api/employees"],
+    queryFn: async () => {
+      const res = await fetch("/api/employees", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch employees");
+      return res.json();
+    },
+  });
+
   const { data: statutorySettingsList = [] } = useQuery<StatutorySettings[]>({
     queryKey: ["/api/statutory-settings"],
     queryFn: async () => {
@@ -326,6 +338,7 @@ export default function AddEmployee() {
       department: "",
       designation: "",
       location: "",
+      reportingManager: "",
       employmentType: "permanent",
       status: "active",
       wageGradeId: "",
@@ -395,6 +408,7 @@ export default function AddEmployee() {
       department: existingEmployee.department || "",
       designation: existingEmployee.designation || "",
       location: existingEmployee.location || "",
+      reportingManager: existingEmployee.reportingManager || "",
       employmentType: existingEmployee.employmentType || "permanent",
       status: existingEmployee.status as "active" | "inactive",
       pfApplicable: existingEmployee.pfApplicable || false,
@@ -537,6 +551,7 @@ export default function AddEmployee() {
       biometricDeviceId: data.biometricDeviceId || null,
       wageGradeId: data.wageGradeId || null,
       contractorMasterId: data.contractorMasterId || null,
+      reportingManager: data.reportingManager || null,
     };
     if (isEditing) {
       updateMutation.mutate(submitData as any);
@@ -934,6 +949,48 @@ export default function AddEmployee() {
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <FormField
+                      control={form.control}
+                      name="reportingManager"
+                      render={({ field }) => {
+                        const managerPool = allEmployees.filter(e =>
+                          e.companyId === effectiveCompanyId
+                          && e.status === "active"
+                          && e.id !== employeeId
+                        );
+                        return (
+                          <FormItem>
+                            <FormLabel>Reporting To</FormLabel>
+                            <Select
+                              onValueChange={(val) => field.onChange(val === "__none__" ? "" : val)}
+                              value={field.value || "__none__"}
+                            >
+                              <FormControl>
+                                <SelectTrigger data-testid="select-reporting-manager">
+                                  <SelectValue placeholder="Select reporting manager" />
+                                </SelectTrigger>
+                              </FormControl>
+                              <SelectContent>
+                                <SelectItem value="__none__">None</SelectItem>
+                                {managerPool.length > 0 ? (
+                                  managerPool.map((emp) => (
+                                    <SelectItem key={emp.id} value={emp.id}>
+                                      {emp.firstName} {emp.lastName} ({emp.employeeCode})
+                                      {emp.designation ? ` — ${emp.designation}` : ""}
+                                    </SelectItem>
+                                  ))
+                                ) : (
+                                  <SelectItem value="_none_rm" disabled>
+                                    No other active employees in this company
+                                  </SelectItem>
+                                )}
+                              </SelectContent>
+                            </Select>
+                            <FormMessage />
+                          </FormItem>
+                        );
+                      }}
+                    />
                     <FormField
                       control={form.control}
                       name="timeOfficePolicyId"
