@@ -500,6 +500,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
        AND allowed_ip_cidr LIKE '%.%.%.%/32';
   `).catch((err) => console.error("[migrations] clear backfilled allowed_ip_cidr failed:", err));
 
+  // Startup migration for module_access_requests — users requesting HR
+  // module access; admins approve/deny which upserts user_permissions.
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS module_access_requests (
+      id            VARCHAR(36) PRIMARY KEY,
+      user_id       VARCHAR(36) NOT NULL,
+      company_id    VARCHAR(36),
+      module        TEXT        NOT NULL,
+      status        TEXT        NOT NULL DEFAULT 'pending',
+      reason        TEXT,
+      decision_note TEXT,
+      decided_by    VARCHAR(36),
+      decided_at    TEXT,
+      created_at    TEXT        NOT NULL
+    )
+  `).catch((err) => console.error("[migrations] create module_access_requests failed:", err));
+  await db.execute(sql`
+    CREATE INDEX IF NOT EXISTS module_access_requests_user_idx
+      ON module_access_requests (user_id)
+  `).catch((err) => console.error("[migrations] module_access_requests_user_idx failed:", err));
+  await db.execute(sql`
+    CREATE INDEX IF NOT EXISTS module_access_requests_company_status_idx
+      ON module_access_requests (company_id, status)
+  `).catch((err) => console.error("[migrations] module_access_requests_company_status_idx failed:", err));
+
   // Mirror of migrations/008: per-device enrolled-user roster, populated
   // from USERINFO/USER records pushed via ADMS. Powers the View Users
   // dialog so even employees who haven't punched yet appear.
