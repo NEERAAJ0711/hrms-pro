@@ -4164,7 +4164,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/attendance/:id", requireAuth, requireAction("attendance", "edit"), async (req, res) => {
+  app.patch("/api/attendance/:id", requireAuth, requireRole("super_admin", "company_admin", "hr_admin"), requireAction("attendance", "edit"), async (req, res) => {
     try {
       const user = (req as any).user;
       const existing = await storage.getAttendance(req.params.id);
@@ -4226,7 +4226,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Company admins can add the missing punch for biometric miss_punch records
-  app.post("/api/attendance/:id/missed-log", requireAuth, requireAction("attendance", "edit"), async (req, res) => {
+  app.post("/api/attendance/:id/missed-log", requireAuth, requireRole("super_admin", "company_admin", "hr_admin"), requireAction("attendance", "edit"), async (req, res) => {
     try {
       const user = (req as any).user;
       const existing = await storage.getAttendance(req.params.id);
@@ -4312,7 +4312,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/attendance/:id", requireAuth, requireAction("attendance", "edit"), async (req, res) => {
+  app.delete("/api/attendance/:id", requireAuth, requireRole("super_admin", "company_admin", "hr_admin"), requireAction("attendance", "edit"), async (req, res) => {
     try {
       const user = (req as any).user;
       const existing = await storage.getAttendance(req.params.id);
@@ -4347,7 +4347,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/leave-types", requireAuth, requireAction("leave", "configure"), async (req, res) => {
+  app.post("/api/leave-types", requireAuth, requireRole("super_admin", "company_admin", "hr_admin"), requireAction("leave", "configure"), async (req, res) => {
     try {
       const data = insertLeaveTypeSchema.parse(req.body);
       const leaveType = await storage.createLeaveType(data);
@@ -4357,7 +4357,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/leave-types/:id", requireAuth, requireAction("leave", "configure"), async (req, res) => {
+  app.patch("/api/leave-types/:id", requireAuth, requireRole("super_admin", "company_admin", "hr_admin"), requireAction("leave", "configure"), async (req, res) => {
     try {
       const updated = await storage.updateLeaveType(req.params.id, req.body);
       if (!updated) return res.status(404).json({ error: "Leave type not found" });
@@ -4367,7 +4367,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/leave-types/:id", requireAuth, requireAction("leave", "configure"), async (req, res) => {
+  app.delete("/api/leave-types/:id", requireAuth, requireRole("super_admin", "company_admin", "hr_admin"), requireAction("leave", "configure"), async (req, res) => {
     try {
       const success = await storage.deleteLeaveType(req.params.id);
       if (!success) return res.status(404).json({ error: "Leave type not found" });
@@ -6269,7 +6269,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/leave-adjustments", requireAuth, requireAction("leave", "configure"), async (req, res) => {
+  app.post("/api/leave-adjustments", requireAuth, requireRole("super_admin", "company_admin", "hr_admin"), requireAction("leave", "configure"), async (req, res) => {
     try {
       const user = (req as any).user;
       const row = await storage.createLeaveAdjustment({ ...req.body, companyId: req.body.companyId || user.companyId, adjustedBy: String(user.id) });
@@ -6279,7 +6279,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/leave-adjustments/:id", requireAuth, requireAction("leave", "configure"), async (req, res) => {
+  app.delete("/api/leave-adjustments/:id", requireAuth, requireRole("super_admin", "company_admin", "hr_admin"), requireAction("leave", "configure"), async (req, res) => {
     try {
       await storage.deleteLeaveAdjustment(req.params.id);
       res.json({ success: true });
