@@ -58,6 +58,7 @@ import {
   Download,
   FileSpreadsheet,
   KeyRound,
+  Lock,
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useLocation } from "wouter";
@@ -654,6 +655,29 @@ export default function Employees() {
     setAadhaarDialogOpen(false);
     setLocation(`/employees/new?${params.toString()}`);
   };
+
+  // Page-level access guard. If the user has no module-level access AND no
+  // granted action under "employees", show an access-denied state instead of
+  // the table. This protects direct-URL navigation when the sidebar entry is
+  // stale or hidden, and complements the server's requireModuleAccess check.
+  if (!can("employees")) {
+    return (
+      <div className="p-6" data-testid="employees-page">
+        <Card className="max-w-md mx-auto mt-12">
+          <CardContent className="pt-8 pb-6 text-center">
+            <Lock className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
+            <h2 className="text-lg font-semibold mb-1">Access denied</h2>
+            <p className="text-sm text-muted-foreground mb-4">
+              You don't have permission to view employees. Request access from your administrator.
+            </p>
+            <Button variant="outline" onClick={() => setLocation("/my-access-requests")} data-testid="button-request-access">
+              Go to My Access Requests
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="p-6" data-testid="employees-page">

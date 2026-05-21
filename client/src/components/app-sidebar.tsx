@@ -234,8 +234,12 @@ export function AppSidebar() {
       return res.json();
     },
     enabled: !!user?.id && !isPrivileged,
-    staleTime: 30_000,
+    // Keep the sidebar in lock-step with the latest revoke/grant — staleness
+    // here directly causes "I revoked it but the module still shows" bugs.
+    staleTime: 0,
+    refetchOnMount: "always",
     refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
   });
 
   const permOverrides: Record<string, boolean> = {};

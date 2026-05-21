@@ -35,8 +35,13 @@ export function useCan() {
       return res.json();
     },
     enabled: !!user?.id && !isSuperAdmin,
-    staleTime: 30_000,
+    // Always refetch on mount/focus so a revoke shows up immediately the
+    // next time the user navigates or refocuses the tab. Permissions are
+    // tiny — freshness matters more than the extra round trip.
+    staleTime: 0,
+    refetchOnMount: "always",
     refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
   });
 
   const can = (module: string, action?: string): boolean => {
