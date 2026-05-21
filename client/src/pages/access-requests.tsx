@@ -111,6 +111,7 @@ export default function AccessRequestsPage() {
     },
     onSuccess: () => {
       toast({ title: "Access granted", description: "The user has been notified." });
+      queryClient.invalidateQueries({ queryKey: ["/api/module-access-requests"] });
       setGrantUserId("");
       setGrantModule("");
       setGrantActions([]);

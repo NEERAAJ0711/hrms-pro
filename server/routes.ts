@@ -1469,6 +1469,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const grants = actions.length > 0
         ? actions.map(a => ({ module: `${module}:${a}`, canAccess }))
         : [{ module, canAccess }];
+      // For direct grants (canAccess=true), create a synthetic "approved"
+      // module_access_requests row so the grant shows up in the admin
+      // History tab with a Revoke button. Without this, direct grants are
+      // invisible after the fact and admins can't undo them. We only create
+      // a fresh row per call so each grant action is auditable on its own.
+      if (canAccess) {
+        try {
+          const synthetic = await storage.createModuleAccessRequest({
+            userId: targetUserId,
+            companyId: target.companyId,
+            module,
+            actions: actions.length > 0 ? actions : null,
+            reason: "Granted directly by admin",
+          });
+          await storage.decideModuleAccessRequest(
+            synthetic.id,
+            "approved",
+            user.id,
+            null,
+          );
+        } catch (logErr) {
+          console.error("[module-access] failed to log direct grant:", logErr);
+        }
+      }
       const result = await storage.setUserPermissions(
         targetUserId,
         grants,
