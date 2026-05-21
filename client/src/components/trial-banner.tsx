@@ -8,6 +8,9 @@ export function TrialBanner() {
 
   if (dismissed) return null;
   if (!user?.trialActive || user.trialExpired) return null;
+  // Trial / billing is a company-admin concern. Employees, HR, managers and
+  // recruiters shouldn't see the "contact sales" nag on every page load.
+  if (user.role !== "company_admin" && user.role !== "super_admin") return null;
 
   const daysLeft = user.trialDaysLeft ?? 0;
   const isUrgent = daysLeft <= 1;
