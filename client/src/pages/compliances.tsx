@@ -4075,7 +4075,10 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
           doc.text(e.designation || "—", sx + doc.getTextWidth("Designation : "), cy);
           cy += 5;
           // Wage slip table — columns sized to slotW (≈132mm)
-          // 14 + 22 + 14 + 14 + 22 + 26 + 20 = 132mm
+          // 11 + 17 + 11 + 12 + 12 + 16 + 19 + 16 + 18 = 132mm
+          // Signature column gets a real width (18mm) so the header text
+          // wraps onto 3 lines horizontally instead of collapsing into a
+          // single vertical stack of letters.
           autoTbl(doc, {
             startY: cy,
             head:[[
@@ -4100,17 +4103,18 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
               e.netSalary ? Number(e.netSalary).toLocaleString("en-IN") : "—",
               "",
             ]],
-            styles:{...TS, fontSize:7, minCellHeight:20}, headStyles:{...TH, fontSize:7},
+            styles:{...TS, fontSize:6.5, minCellHeight:22, cellPadding:1.2, overflow:"linebreak"},
+            headStyles:{...TH, fontSize:6.5, cellPadding:1.2},
             columnStyles:{
-              0:{cellWidth:13,halign:"center"},
-              1:{cellWidth:20,halign:"center"},
-              2:{cellWidth:13,halign:"center"},
-              3:{cellWidth:14,halign:"center"},
-              4:{cellWidth:14,halign:"center"},
-              5:{cellWidth:18,halign:"right"},
-              6:{cellWidth:22},
-              7:{cellWidth:18,halign:"right"},
-              8:{cellWidth:"auto" as any},
+              0:{cellWidth:11,halign:"center"},
+              1:{cellWidth:17,halign:"center"},
+              2:{cellWidth:11,halign:"center"},
+              3:{cellWidth:12,halign:"center"},
+              4:{cellWidth:12,halign:"center"},
+              5:{cellWidth:16,halign:"right"},
+              6:{cellWidth:19,halign:"left"},
+              7:{cellWidth:16,halign:"right"},
+              8:{cellWidth:18,halign:"center"},
             },
             margin:{left:sx, right:mr},
           });
