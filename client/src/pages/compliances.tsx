@@ -2605,7 +2605,7 @@ function WorkmenRegisterView({ data }: { data: WorkmenRegisterData }) {
           {[
             ["Name and address of Contractor",                                            val(data.company.name, data.company.address)],
             ["Name and address of establishment in/under which contract is carried on",   val(c?.client_name, c?.client_address)],
-            ["Name and location of work",                                                  val(c?.nature_of_work, c?.location_of_work)],
+            ["Nature and location of work",                                                  val(c?.nature_of_work, c?.location_of_work)],
             ["Name and address of Principal Employer",                                     val(c?.principal_employer_name, c?.principal_employer_address)],
           ].map(([label, value]) => (
             <tr key={label}>
@@ -2689,7 +2689,7 @@ const CL_HDR  = (c: ClientInfo, company: { name: string; address: string }, extr
   const rows: [string,string][] = [
     ["Name and address of Contractor",                                          v(company.name, company.address)],
     ["Name and address of establishment in/under which contract is carried on", v(c?.client_name, c?.client_address)],
-    ["Name and location of work",                                               v(c?.nature_of_work, c?.location_of_work)],
+    ["Nature and location of work",                                               v(c?.nature_of_work, c?.location_of_work)],
     ["Name and address of Principal Employer",                                  v(c?.principal_employer_name, c?.principal_employer_address)],
     ...(extra || []),
   ];
@@ -3292,7 +3292,7 @@ function EmploymentCardView({ data }: { data: WorkmenRegisterData }) {
           </div>
           {HDR_ROW("Name and address of Contractor",   v(company.name, company.address))}
           {HDR_ROW("Name and address of establishment in/under which contract is carried on", v(c?.client_name, c?.client_address))}
-          {HDR_ROW("Name and location of work",        v(c?.nature_of_work, c?.location_of_work))}
+          {HDR_ROW("Nature and location of work",        v(c?.nature_of_work, c?.location_of_work))}
           {HDR_ROW("Name and address of Principal Employer", v(c?.principal_employer_name, c?.principal_employer_address))}
           <table style={{ width: "100%", borderCollapse: "collapse", marginTop: "10px", fontSize: "8.5px" }}>
             <thead>
@@ -3352,7 +3352,7 @@ function ServiceCertificateView({ workmen, wages }: { workmen: WorkmenRegisterDa
           <div key={e.serialNo} style={{ border: "1px solid #333", padding: "14px 16px", pageBreakInside: "avoid", breakInside: "avoid" }}>
             {HDR("Name and address of Contractor",                        v(company.name, company.address))}
             {HDR("Name and address of establishment in/under which contract is carried on", v(c?.client_name, c?.client_address))}
-            {HDR("Name and location of work",                             v(c?.nature_of_work, c?.location_of_work))}
+            {HDR("Nature and location of work",                             v(c?.nature_of_work, c?.location_of_work))}
             {HDR("Name and address of Principal Employer",                v(c?.principal_employer_name, c?.principal_employer_address))}
             <div style={{ marginBottom: "4px", fontSize: "9px" }}><b>Name and address of the workman :</b> <b style={{ fontSize: "9.5px" }}>{e.name}</b></div>
             <div style={{ marginBottom: "4px", fontSize: "9px" }}><b>Age and date of birth :</b> {e.age ? e.age + " yr" : "—"}</div>
@@ -3635,7 +3635,7 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
         const rows: [string, string][] = [
           ["Name and address of Contractor",                                          v(company.name, company.address)],
           ["Name and address of establishment in/under which contract is carried on", v(cl?.client_name, cl?.client_address)],
-          ["Name and location of work",                                               v(cl?.nature_of_work, cl?.location_of_work)],
+          ["Nature and location of work",                                               v(cl?.nature_of_work, cl?.location_of_work)],
           ["Name and address of Principal Employer",                                  v(cl?.principal_employer_name, cl?.principal_employer_address)],
           ...(extra || []),
         ];
@@ -3675,7 +3675,7 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
 
       // ── Form VIII ──────────────────────────────────────────────────────────
       addTitle("FORM VIII", "[See rule 73]", "Register of Particulars of Contractors");
-      // addHdr already outputs "Name and location of work" — no extra row needed here
+      // addHdr already outputs "Nature and location of work" — no extra row needed here
       let y = addHdr();
       doc.setFont("times", "bold"); doc.setFontSize(9.5); doc.text("PART – I", M, y); y += 5;
       const periodStr = (() => {
@@ -3769,7 +3769,7 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
           doc.setDrawColor(80, 80, 80); doc.line(sx, cy + 18, sx + slotW, cy + 18); cy += 22;
           ([ ["Name and address of Contractor",                                          v(company.name, company.address)],
              ["Name and address of establishment in/under which contract is carried on", v(cl?.client_name, cl?.client_address)],
-             ["Name and location of work",                                               v(cl?.nature_of_work, cl?.location_of_work)],
+             ["Nature and location of work",                                               v(cl?.nature_of_work, cl?.location_of_work)],
              ["Name and address of Principal Employer",                                  v(cl?.principal_employer_name, cl?.principal_employer_address)],
           ] as [string, string][]).forEach(([lbl, val]) => {
             doc.setFont("times", "bold"); doc.setFontSize(7.5); doc.text(lbl + " : ", sx, cy);
@@ -3864,7 +3864,7 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
           doc.setDrawColor(80,80,80); doc.line(sx, cy+18, sx+slotW, cy+18); cy += 22;
           ([ ["Name and address of Contractor",                                          v(company.name, company.address)],
              ["Name and address of establishment in/under which contract is carried on", v(cl?.client_name, cl?.client_address)],
-             ["Name and location of work",                                               v(cl?.nature_of_work, cl?.location_of_work)],
+             ["Nature and location of work",                                               v(cl?.nature_of_work, cl?.location_of_work)],
              ["Name and address of Principal Employer",                                  v(cl?.principal_employer_name, cl?.principal_employer_address)],
              ["Workman Name",      e.name || "—"],
              ["Age / DOB",         e.age ? `${e.age} yr` : "—"],
@@ -4081,7 +4081,7 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
           doc.setDrawColor(80,80,80); doc.line(sx, cy+18, sx+slotW, cy+18); cy += 22;
           ([ ["Name and address of Contractor",                                          v(company.name, company.address)],
              ["Name and address of establishment in/under which contract is carried on", v(cl?.client_name, cl?.client_address)],
-             ["Name and location of work",                                               v(cl?.nature_of_work, cl?.location_of_work)],
+             ["Nature and location of work",                                               v(cl?.nature_of_work, cl?.location_of_work)],
              ["Name and address of Principal Employer",                                  v(cl?.principal_employer_name, cl?.principal_employer_address)],
              ["For the month of",  `${monthFull} ${toYear}`],
           ] as [string,string][]).forEach(([lbl, val]) => {
@@ -4260,7 +4260,7 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
     <table class="hdr"><tbody>
       <tr><td>Name and address of Contractor :</td><td>${val(workmenData.company.name, workmenData.company.address)}</td></tr>
       <tr><td>Name and address of establishment in/under which contract is carried on :</td><td>${val(c?.client_name, c?.client_address)}</td></tr>
-      <tr><td>Name and location of work :</td><td>${val(c?.nature_of_work, c?.location_of_work)}</td></tr>
+      <tr><td>Nature and location of work :</td><td>${val(c?.nature_of_work, c?.location_of_work)}</td></tr>
       <tr><td>Name and address of Principal Employer :</td><td>${val(c?.principal_employer_name, c?.principal_employer_address)}</td></tr>
     </tbody></table>
     <table class="main"><thead><tr>
@@ -4316,7 +4316,7 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
     const headers = [
       ["Name and address of Contractor : ",                                          val(workmenData.company.name, workmenData.company.address)],
       ["Name and address of establishment in/under which contract is carried on : ", val(c?.client_name, c?.client_address)],
-      ["Name and location of work : ",                                               val(c?.nature_of_work, c?.location_of_work)],
+      ["Nature and location of work : ",                                               val(c?.nature_of_work, c?.location_of_work)],
       ["Name and address of Principal Employer : ",                                  val(c?.principal_employer_name, c?.principal_employer_address)],
     ];
     let y = 35;
