@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -30,6 +31,7 @@ import {
   ShieldCheck, Search, Save, RefreshCw, CheckCircle2,
   Download, Upload, AlertTriangle, Building2, Trash2, Settings2, Users, ArrowLeft, CheckCircle,
   Briefcase, Plus, UserPlus, UserMinus, CalendarDays, XCircle, FileBarChart2, ChevronDown, FileSpreadsheet,
+  Lock,
 } from "lucide-react";
 
 const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
@@ -259,22 +261,49 @@ const diff = (orig: number, adj: number | null | undefined) => {
 export default function CompliancesPage() {
   const { user } = useAuth();
   const { toast } = useToast();
+  const [, setLocation] = useLocation();
   const isSuperAdmin = user?.role === "super_admin";
+
+  // Page-level access guard. Compliance management is restricted to admins.
+  // The sidebar already hides this entry for non-admins; this guard protects
+  // direct-URL navigation and mirrors the server's requireAdminRole on every
+  // /api/compliance/* endpoint.
+  const COMPLIANCE_ROLES = ["super_admin", "company_admin", "hr_admin"];
+  const hasComplianceAccess = !!user && COMPLIANCE_ROLES.includes(user.role);
 
   const [companies, setCompanies] = useState<{ id: string; company_name: string }[]>([]);
   const [selectedCompany, setSelectedCompany] = useState("");
 
   // Load companies once for super_admin
   useEffect(() => {
-    if (isSuperAdmin) {
+    if (isSuperAdmin && hasComplianceAccess) {
       fetch("/api/compliance/companies", { credentials: "include" })
         .then(r => r.json())
         .then(data => { setCompanies(data); if (data.length > 0) setSelectedCompany(data[0].id); })
         .catch(() => {});
     }
-  }, [isSuperAdmin]);
+  }, [isSuperAdmin, hasComplianceAccess]);
 
   const effectiveCompanyId = isSuperAdmin ? selectedCompany : (user?.companyId || "");
+
+  if (!hasComplianceAccess) {
+    return (
+      <div className="p-6" data-testid="compliances-page">
+        <Card className="max-w-md mx-auto mt-12">
+          <CardContent className="pt-8 pb-6 text-center">
+            <Lock className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
+            <h2 className="text-lg font-semibold mb-1">Access denied</h2>
+            <p className="text-sm text-muted-foreground mb-4">
+              Compliance management is restricted to administrators. Please contact your administrator if you need access.
+            </p>
+            <Button variant="outline" onClick={() => setLocation("/dashboard")} data-testid="button-back-dashboard">
+              Back to Dashboard
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="p-6 space-y-4">
