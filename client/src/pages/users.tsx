@@ -78,6 +78,7 @@ const MODULE_DEFINITIONS = [
   { key: "employees",    label: "Employees",       description: "View and manage the employee directory", icon: Users2,           color: "text-violet-600" },
   { key: "reports",      label: "Reports",         description: "Generate and download HR reports", icon: FileBarChart2,    color: "text-rose-600" },
   { key: "recruitment",  label: "Recruitment",     description: "Job postings and application tracking", icon: BriefcaseBusiness, color: "text-cyan-600" },
+  { key: "compliances",  label: "Compliances",     description: "Manage statutory compliance and reports", icon: ShieldCheck,      color: "text-blue-600" },
   { key: "profile",      label: "Profile",         description: "Edit personal profile and settings", icon: UserCog,          color: "text-slate-600" },
 ];
 
