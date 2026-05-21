@@ -212,14 +212,23 @@ async function userHasAccess(
   const actionOverride = action
     ? userPerms.find(p => p.module === `${module}:${action}`)
     : undefined;
-  // Deny-first: an explicit module-level revoke blocks every action regardless
-  // of any stale action-level grants. An explicit action-level revoke blocks
-  // just that action.
+  // An explicit action-level allow always wins. This matters when an earlier
+  // full-module revoke wrote `module = deny` and the admin subsequently
+  // approved per-action requests — those new action grants should authorize.
+  // The revoke flow already flips matching `module:*` rows to deny, so this
+  // can only be true after a *fresh* post-revoke approval, not stale data.
+  if (actionOverride?.canAccess === true) return true;
+  // For module-level checks (no specific action requested), any granted
+  // action under this module is enough to surface it (read access etc.).
+  if (!action) {
+    const prefix = `${module}:`;
+    if (userPerms.some(p => p.module.startsWith(prefix) && p.canAccess)) return true;
+  }
+  // Deny-first for everything else: an explicit module-level revoke blocks,
+  // and an explicit action-level revoke blocks just that action.
   if (moduleOverride?.canAccess === false) return false;
   if (actionOverride?.canAccess === false) return false;
-  // Then explicit allows.
   if (moduleOverride?.canAccess === true) return true;
-  if (actionOverride?.canAccess === true) return true;
   return (MODULE_ACCESS[module] || []).includes(user.role);
 }
 

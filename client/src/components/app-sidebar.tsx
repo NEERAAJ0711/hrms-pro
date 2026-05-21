@@ -248,21 +248,17 @@ export function AppSidebar() {
   const checkAccess = (module: string): boolean => {
     if (isPrivileged) return hasModuleAccess(module, user?.role, hasCompanyEarly);
     const permKey = SIDEBAR_TO_PERM_KEY[module] ?? module;
-    // An explicit module-level override always wins.
-    if (permKey in permOverrides) return permOverrides[permKey];
-    // No module-level row: any granted action under this module is enough
-    // to surface the entry in the sidebar (e.g. user has "employees:create"
-    // but no full "employees" grant). An explicit action-level deny alone
-    // shouldn't hide the module if other actions are granted.
+    // Any granted action under this module surfaces the entry in the sidebar,
+    // even if a stale module-level deny row exists (e.g. from a previous
+    // "Full module" revoke that was later followed by per-action approvals).
+    // The revoke flow already flips matching `module:*` rows to deny, so a
+    // surviving action allow can only come from a fresh post-revoke approval.
     const prefix = `${permKey}:`;
-    let hasAnyActionGrant = false;
     for (const p of userPermissions) {
-      if (p.module.startsWith(prefix) && p.canAccess) {
-        hasAnyActionGrant = true;
-        break;
-      }
+      if (p.module.startsWith(prefix) && p.canAccess) return true;
     }
-    if (hasAnyActionGrant) return true;
+    // Otherwise honour an explicit module-level override.
+    if (permKey in permOverrides) return permOverrides[permKey];
     return hasModuleAccess(module, user?.role, hasCompanyEarly);
   };
 
