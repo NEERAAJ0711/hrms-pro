@@ -3587,8 +3587,21 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
       const { jsPDF } = await import("jspdf");
       const autoTbl = (await import("jspdf-autotable")).default;
       const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
-      const pw  = doc.internal.pageSize.getWidth();   // 297mm
-      const ph  = doc.internal.pageSize.getHeight();  // 210mm
+      // pw/ph are `let` so they can be updated when we flip orientation
+      // for Forms X (Employment Card), XI (Service Certificate) and XV
+      // (Wage Slip), which are rendered in portrait.
+      let pw  = doc.internal.pageSize.getWidth();   // landscape: 297mm
+      let ph  = doc.internal.pageSize.getHeight();  // landscape: 210mm
+      const goPortrait = () => {
+        doc.addPage("a4", "portrait");
+        pw = doc.internal.pageSize.getWidth();  // 210mm
+        ph = doc.internal.pageSize.getHeight(); // 297mm
+      };
+      const goLandscape = () => {
+        doc.addPage("a4", "landscape");
+        pw = doc.internal.pageSize.getWidth();  // 297mm
+        ph = doc.internal.pageSize.getHeight(); // 210mm
+      };
       const M   = 14;   // outer margin on all sides
       const LH  = 4.5;  // line height per text row in header (mm)
       const company  = clraData.viii.company;
@@ -3597,13 +3610,16 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
       const monthFull = monthIdx >= 0 ? MONTHS[monthIdx] : toMonth;
       const v = (...ps: (string | null | undefined)[]) => ps.filter(Boolean).join(", ") || "—";
 
-      // Draw page-number footer on every page
+      // Draw page-number footer on every page (per-page dimensions so
+      // portrait and landscape pages both center correctly)
       const addPageNum = () => {
         const total = doc.getNumberOfPages();
         for (let i = 1; i <= total; i++) {
           doc.setPage(i);
+          const ipw = doc.internal.pageSize.getWidth();
+          const iph = doc.internal.pageSize.getHeight();
           doc.setFont("times", "normal"); doc.setFontSize(7.5);
-          doc.text(`Page ${i} of ${total}`, pw / 2, ph - 5, { align: "center" });
+          doc.text(`Page ${i} of ${total}`, ipw / 2, iph - 5, { align: "center" });
         }
       };
 
@@ -3723,23 +3739,27 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
       });
       addFooter(lastY() + 8);
 
-      // ── Form X — Employment Card (2-up LEFT/RIGHT) ────────────────────────────
+      // ── Form X — Employment Card (PORTRAIT, 2-up stacked TOP/BOTTOM) ─────────
       {
-        // Left/right split: each slot is ~132mm wide × full page height → much more vertical room
-        const slotW  = Math.floor((pw - 2 * M - 4) / 2);  // ~132mm per slot
-        const slot2X = M + slotW + 4;                       // right slot x start
-        const divX   = M + slotW + 2;                       // vertical divider x
+        // Switch to portrait for this section. Each slot is full page width
+        // (~182mm) × half page height (~132mm tall) — top half and bottom half.
+        goPortrait();
+        const slotW  = pw - 2 * M;                          // ~182mm wide
+        const slotH  = Math.floor((ph - 2 * M - 4) / 2);    // ~132mm tall per slot
+        const slot2Y = M + slotH + 4;                       // bottom slot y start
+        const divY   = M + slotH + 2;                       // horizontal divider y
 
         const drawVDivX = () => {
           doc.setDrawColor(140); doc.setLineDashPattern([5, 3], 0);
-          doc.line(divX, M, divX, ph - M);
+          doc.line(M, divY, pw - M, divY);
           doc.setLineDashPattern([], 0); doc.setDrawColor(50);
         };
 
-        const drawXSlot = (sx: number, e: any, w: any) => {
-          const mr = pw - sx - slotW;   // right margin for autoTbl
-          const cx = sx + slotW / 2;    // centre of this slot
-          let cy = M;
+        const drawXSlot = (sy: number, e: any, w: any) => {
+          const sx = M;
+          const mr = M;                  // right margin for autoTbl
+          const cx = sx + slotW / 2;     // centre of this slot
+          let cy = sy;
           doc.setFont("times", "bold"); doc.setFontSize(11);
           doc.text("FORM X", cx, cy + 6, { align: "center" });
           doc.setFont("times", "normal"); doc.setFontSize(8);
@@ -3778,8 +3798,9 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
             startY: cy,
             head: [["Sl.\nNo.", "Designation", "Rate of Wages", "Wages\nPeriod", "Date of\nJoining", "Remarks"]],
             body: [[e.serialNo, e.designation || "LABOUR", w?.monthlyRate ? `₹ ${Number(w.monthlyRate).toLocaleString("en-IN")} Monthly` : "—", e.wagesPeriod || "Monthly", fmtDate(e.assignedDate || e.dateOfJoining) || "—", ""]],
-            styles: { ...TS, fontSize: 7.5 }, headStyles: { ...TH, fontSize: 7.5 },
-            columnStyles: { 0:{ cellWidth:12, halign:"center" }, 1:{ cellWidth:26 }, 2:{ cellWidth:32 }, 3:{ cellWidth:18, halign:"center" }, 4:{ cellWidth:22, halign:"center" }, 5:{ cellWidth:"auto" as any } },
+            styles: { ...TS, fontSize: 8 }, headStyles: { ...TH, fontSize: 8 },
+            // Widths scaled to slotW ≈ 182mm: 17+36+44+25+30+30 = 182mm
+            columnStyles: { 0:{ cellWidth:17, halign:"center" }, 1:{ cellWidth:36 }, 2:{ cellWidth:44 }, 3:{ cellWidth:25, halign:"center" }, 4:{ cellWidth:30, halign:"center" }, 5:{ cellWidth:30 } },
             margin: { left: sx, right: mr },
           });
           const fy = lastY() + 6;
@@ -3792,25 +3813,30 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
         const wageMap    = new Map(clraData.xiii.employees.map((e: any) => [e.name, e]));
 
         if (allWorkmen.length === 0) {
-          doc.addPage(); addTitle("FORM X", "[See rule 75]", "Employment Card");
+          // already on a fresh portrait page from goPortrait() above
+          addTitle("FORM X", "[See rule 75]", "Employment Card");
           y = addHdr();
           doc.setFont("times", "italic"); doc.setFontSize(10);
           doc.text(`No employees assigned to this project.`, pw / 2, y + 12, { align: "center" });
         } else {
+          // First portrait page was already added by goPortrait(); render onto it,
+          // then add subsequent portrait pages for every additional pair.
           for (let i = 0; i < allWorkmen.length; i += 2) {
-            doc.addPage();
+            if (i > 0) doc.addPage("a4", "portrait");
             drawVDivX();
             drawXSlot(M, allWorkmen[i], wageMap.get(allWorkmen[i].name));
-            if (allWorkmen[i + 1]) drawXSlot(slot2X, allWorkmen[i + 1], wageMap.get(allWorkmen[i + 1].name));
+            if (allWorkmen[i + 1]) drawXSlot(slot2Y, allWorkmen[i + 1], wageMap.get(allWorkmen[i + 1].name));
           }
         }
       }
 
-      // ── Form XI — Service Certificate (2-up LEFT/RIGHT) ──────────────────────
+      // ── Form XI — Service Certificate (PORTRAIT, 2-up stacked TOP/BOTTOM) ────
       {
-        const slotW  = Math.floor((pw - 2 * M - 4) / 2);
-        const slot2X = M + slotW + 4;
-        const divX   = M + slotW + 2;
+        goPortrait();
+        const slotW  = pw - 2 * M;                          // ~182mm wide
+        const slotH  = Math.floor((ph - 2 * M - 4) / 2);    // ~132mm tall per slot
+        const slot2Y = M + slotH + 4;                       // bottom slot y start
+        const divY   = M + slotH + 2;                       // horizontal divider y
 
         const wMap  = new Map(clraData.xiii.employees.map((e: any) => [e.name, e]));
         const mNum  = monthIdx + 1;
@@ -3820,14 +3846,15 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
 
         const drawVDivXI = () => {
           doc.setDrawColor(140); doc.setLineDashPattern([5,3], 0);
-          doc.line(divX, M, divX, ph - M);
+          doc.line(M, divY, pw - M, divY);
           doc.setLineDashPattern([], 0); doc.setDrawColor(50);
         };
 
-        const drawXISlot = (sx: number, e: any, w: any) => {
-          const mr = pw - sx - slotW;
+        const drawXISlot = (sy: number, e: any, w: any) => {
+          const sx = M;
+          const mr = M;
           const cx = sx + slotW / 2;
-          let cy = M;
+          let cy = sy;
           doc.setFont("times","bold"); doc.setFontSize(11);
           doc.text("FORM XI", cx, cy+6, {align:"center"});
           doc.setFont("times","normal"); doc.setFontSize(8);
@@ -3851,7 +3878,8 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
             cy += Math.max(1, ls.length)*3.5 + 0.5;
           });
           doc.setDrawColor(80,80,80); doc.line(sx, cy, sx+slotW, cy); cy += 3;
-          // 10 columns must fit inside slotW ≈ 132mm; total fixed = 132mm, no "auto" overflow
+          // 10 columns sized for portrait slotW ≈ 182mm
+          // 10+18+18+12+21+15+25+28+25+10 = 182mm
           autoTbl(doc, {
             startY: cy,
             head:[["Sr.\nNo.","From","To","Days\nWrkd","Nature\nof Work","Rate\nof Wage","Total Wages\nEarned (Rs.)","Deductions","Net Wages\nPaid (Rs.)","Rmks"]],
@@ -3859,18 +3887,18 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
               w ? w.totalEarnings.toLocaleString("en-IN") : "—",
               w ? `PF:${w.pf||0}\nESI:${w.esi||0}\nLWF:${w.lwf||0}` : "—",
               w ? w.netSalary.toLocaleString("en-IN") : "—", ""]],
-            styles:{...TS, fontSize:6.5, minCellHeight:12}, headStyles:{...TH, fontSize:6.5},
+            styles:{...TS, fontSize:7, minCellHeight:14}, headStyles:{...TH, fontSize:7},
             columnStyles:{
-              0:{cellWidth:7,  halign:"center"},
-              1:{cellWidth:13, halign:"center"},
-              2:{cellWidth:13, halign:"center"},
-              3:{cellWidth:9,  halign:"center"},
-              4:{cellWidth:15},
-              5:{cellWidth:11, halign:"center"},
-              6:{cellWidth:18, halign:"right"},
-              7:{cellWidth:20},
-              8:{cellWidth:18, halign:"right"},
-              9:{cellWidth:8},
+              0:{cellWidth:10, halign:"center"},
+              1:{cellWidth:18, halign:"center"},
+              2:{cellWidth:18, halign:"center"},
+              3:{cellWidth:12, halign:"center"},
+              4:{cellWidth:21},
+              5:{cellWidth:15, halign:"center"},
+              6:{cellWidth:25, halign:"right"},
+              7:{cellWidth:28},
+              8:{cellWidth:25, halign:"right"},
+              9:{cellWidth:10},
             },
             margin:{left:sx, right:mr},
           });
@@ -3883,21 +3911,23 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
         // Show all assigned employees (active + any de-assigned in this month)
         const emps = clraData.ix.employees;
         if (emps.length === 0) {
-          doc.addPage(); addTitle("FORM XI", "[See rule 76]", "Service Certificate");
+          // already on a fresh portrait page from goPortrait() above
+          addTitle("FORM XI", "[See rule 76]", "Service Certificate");
           y = addHdr();
           doc.setFont("times", "italic"); doc.setFontSize(10);
           doc.text(`No employees assigned to this project.`, pw / 2, y + 12, { align: "center" });
-        }
-        for (let i = 0; i < emps.length; i += 2) {
-          doc.addPage();
-          drawVDivXI();
-          drawXISlot(M, emps[i], wMap.get(emps[i].name));
-          if (emps[i+1]) drawXISlot(slot2X, emps[i+1], wMap.get(emps[i+1].name));
+        } else {
+          for (let i = 0; i < emps.length; i += 2) {
+            if (i > 0) doc.addPage("a4", "portrait");
+            drawVDivXI();
+            drawXISlot(M, emps[i], wMap.get(emps[i].name));
+            if (emps[i+1]) drawXISlot(slot2Y, emps[i+1], wMap.get(emps[i+1].name));
+          }
         }
       }
 
-      // ── Form XII — Muster Roll ─────────────────────────────────────────────
-      doc.addPage(); addTitle("FORM XII", "[See Rule 77 (1) (a) (i)]", "Muster Roll");
+      // ── Form XII — Muster Roll (LANDSCAPE) ─────────────────────────────────
+      goLandscape(); addTitle("FORM XII", "[See Rule 77 (1) (a) (i)]", "Muster Roll");
       y = addHdr([["For the month of", `${monthFull} ${toYear}`]]);
       const days = Array.from({ length: clraData.xii.daysInMonth }, (_, i) => i + 1);
       const usableW  = pw - M * 2;               // 297-28 = 269mm
@@ -4023,22 +4053,25 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
       }
       addFooter(lastY() + 8);
 
-      // ── Form XV — Wage Slip (2-up LEFT/RIGHT) ────────────────────────────────
+      // ── Form XV — Wage Slip (PORTRAIT, 2-up stacked TOP/BOTTOM) ──────────────
       {
-        const slotW  = Math.floor((pw - 2 * M - 4) / 2);
-        const slot2X = M + slotW + 4;
-        const divX   = M + slotW + 2;
+        goPortrait();
+        const slotW  = pw - 2 * M;                          // ~182mm wide
+        const slotH  = Math.floor((ph - 2 * M - 4) / 2);    // ~132mm tall per slot
+        const slot2Y = M + slotH + 4;                       // bottom slot y start
+        const divY   = M + slotH + 2;                       // horizontal divider y
 
         const drawVDivXV = () => {
           doc.setDrawColor(140); doc.setLineDashPattern([5,3], 0);
-          doc.line(divX, M, divX, ph - M);
+          doc.line(M, divY, pw - M, divY);
           doc.setLineDashPattern([], 0); doc.setDrawColor(50);
         };
 
-        const drawXVSlot = (sx: number, e: any) => {
-          const mr = pw - sx - slotW;
+        const drawXVSlot = (sy: number, e: any) => {
+          const sx = M;
+          const mr = M;
           const cx = sx + slotW / 2;
-          let cy = M;
+          let cy = sy;
           doc.setFont("times","bold"); doc.setFontSize(11);
           doc.text("FORM XV", cx, cy+6, {align:"center"});
           doc.setFont("times","normal"); doc.setFontSize(8);
@@ -4074,11 +4107,8 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
           doc.setFont("times","normal"); doc.setFontSize(8);
           doc.text(e.designation || "—", sx + doc.getTextWidth("Designation : "), cy);
           cy += 5;
-          // Wage slip table — columns sized to slotW (≈132mm)
-          // 11 + 17 + 11 + 12 + 12 + 16 + 19 + 16 + 18 = 132mm
-          // Signature column gets a real width (18mm) so the header text
-          // wraps onto 3 lines horizontally instead of collapsing into a
-          // single vertical stack of letters.
+          // Wage slip table — columns sized to slotW ≈ 182mm (portrait)
+          // 15 + 23 + 15 + 17 + 17 + 22 + 26 + 22 + 25 = 182mm
           autoTbl(doc, {
             startY: cy,
             head:[[
@@ -4103,18 +4133,18 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
               e.netSalary ? Number(e.netSalary).toLocaleString("en-IN") : "—",
               "",
             ]],
-            styles:{...TS, fontSize:6.5, minCellHeight:22, cellPadding:1.2, overflow:"linebreak"},
-            headStyles:{...TH, fontSize:6.5, cellPadding:1.2},
+            styles:{...TS, fontSize:7, minCellHeight:22, cellPadding:1.4, overflow:"linebreak"},
+            headStyles:{...TH, fontSize:7, cellPadding:1.4},
             columnStyles:{
-              0:{cellWidth:11,halign:"center"},
-              1:{cellWidth:17,halign:"center"},
-              2:{cellWidth:11,halign:"center"},
-              3:{cellWidth:12,halign:"center"},
-              4:{cellWidth:12,halign:"center"},
-              5:{cellWidth:16,halign:"right"},
-              6:{cellWidth:19,halign:"left"},
-              7:{cellWidth:16,halign:"right"},
-              8:{cellWidth:18,halign:"center"},
+              0:{cellWidth:15,halign:"center"},
+              1:{cellWidth:23,halign:"center"},
+              2:{cellWidth:15,halign:"center"},
+              3:{cellWidth:17,halign:"center"},
+              4:{cellWidth:17,halign:"center"},
+              5:{cellWidth:22,halign:"right"},
+              6:{cellWidth:26,halign:"left"},
+              7:{cellWidth:22,halign:"right"},
+              8:{cellWidth:25,halign:"center"},
             },
             margin:{left:sx, right:mr},
           });
@@ -4127,21 +4157,23 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
 
         const wageEmps = clraData.xiii.employees;
         if (wageEmps.length === 0) {
-          doc.addPage(); addTitle("FORM XV", "[See Rule 77 (1) (b)]", "Wage Slip");
+          // already on a fresh portrait page from goPortrait() above
+          addTitle("FORM XV", "[See Rule 77 (1) (b)]", "Wage Slip");
           y = addHdr([["For the month of", `${monthFull} ${toYear}`]]);
           doc.setFont("times","italic"); doc.setFontSize(10);
           doc.text("No wage data available.", pw / 2, y + 12, { align: "center" });
-        }
-        for (let i = 0; i < wageEmps.length; i += 2) {
-          doc.addPage();
-          drawVDivXV();
-          drawXVSlot(M, wageEmps[i]);
-          if (wageEmps[i+1]) drawXVSlot(slot2X, wageEmps[i+1]);
+        } else {
+          for (let i = 0; i < wageEmps.length; i += 2) {
+            if (i > 0) doc.addPage("a4", "portrait");
+            drawVDivXV();
+            drawXVSlot(M, wageEmps[i]);
+            if (wageEmps[i+1]) drawXVSlot(slot2Y, wageEmps[i+1]);
+          }
         }
       }
 
-      // ── Form XVI — Damage Register ────────────────────────────────────────
-      doc.addPage(); addTitle("FORM XVI", "[See Rule 77 (2) (a)]", "Register of Deductions for Damage or Loss");
+      // ── Form XVI — Damage Register (LANDSCAPE) ─────────────────────────────
+      goLandscape(); addTitle("FORM XVI", "[See Rule 77 (2) (a)]", "Register of Deductions for Damage or Loss");
       y = addHdr();
       autoTbl(doc, {
         startY: y,
