@@ -3767,10 +3767,10 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
           doc.setFont("times", "bold"); doc.setFontSize(10);
           doc.text("EMPLOYMENT CARD", cx, cy + 16, { align: "center" });
           doc.setDrawColor(80, 80, 80); doc.line(sx, cy + 18, sx + slotW, cy + 18); cy += 22;
-          ([ ["Contractor",        v(company.name, company.address)],
-             ["Establishment",     v(cl?.client_name, cl?.client_address)],
-             ["Location",          v(cl?.nature_of_work, cl?.location_of_work)],
-             ["Principal Employer",v(cl?.principal_employer_name, cl?.principal_employer_address)],
+          ([ ["Name and address of Contractor",                                          v(company.name, company.address)],
+             ["Name and address of establishment in/under which contract is carried on", v(cl?.client_name, cl?.client_address)],
+             ["Name and location of work",                                               v(cl?.nature_of_work, cl?.location_of_work)],
+             ["Name and address of Principal Employer",                                  v(cl?.principal_employer_name, cl?.principal_employer_address)],
           ] as [string, string][]).forEach(([lbl, val]) => {
             doc.setFont("times", "bold"); doc.setFontSize(7.5); doc.text(lbl + " : ", sx, cy);
             const lw = doc.getTextWidth(lbl + " : ");
@@ -3862,10 +3862,10 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
           doc.setFont("times","bold"); doc.setFontSize(10);
           doc.text("SERVICE CERTIFICATE", cx, cy+16, {align:"center"});
           doc.setDrawColor(80,80,80); doc.line(sx, cy+18, sx+slotW, cy+18); cy += 22;
-          ([ ["Contractor",        v(company.name, company.address)],
-             ["Establishment",     v(cl?.client_name, cl?.client_address)],
-             ["Location",          v(cl?.nature_of_work, cl?.location_of_work)],
-             ["Principal Employer",v(cl?.principal_employer_name, cl?.principal_employer_address)],
+          ([ ["Name and address of Contractor",                                          v(company.name, company.address)],
+             ["Name and address of establishment in/under which contract is carried on", v(cl?.client_name, cl?.client_address)],
+             ["Name and location of work",                                               v(cl?.nature_of_work, cl?.location_of_work)],
+             ["Name and address of Principal Employer",                                  v(cl?.principal_employer_name, cl?.principal_employer_address)],
              ["Workman Name",      e.name || "—"],
              ["Age / DOB",         e.age ? `${e.age} yr` : "—"],
              ["Father's / Husband's Name", e.fatherHusbandName || "—"],
@@ -4079,10 +4079,10 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
           doc.setFont("times","bold"); doc.setFontSize(10);
           doc.text("WAGE SLIP", cx, cy+16, {align:"center"});
           doc.setDrawColor(80,80,80); doc.line(sx, cy+18, sx+slotW, cy+18); cy += 22;
-          ([ ["Contractor",        v(company.name, company.address)],
-             ["Establishment",     v(cl?.client_name, cl?.client_address)],
-             ["Location",          v(cl?.nature_of_work, cl?.location_of_work)],
-             ["Principal Employer",v(cl?.principal_employer_name, cl?.principal_employer_address)],
+          ([ ["Name and address of Contractor",                                          v(company.name, company.address)],
+             ["Name and address of establishment in/under which contract is carried on", v(cl?.client_name, cl?.client_address)],
+             ["Name and location of work",                                               v(cl?.nature_of_work, cl?.location_of_work)],
+             ["Name and address of Principal Employer",                                  v(cl?.principal_employer_name, cl?.principal_employer_address)],
              ["For the month of",  `${monthFull} ${toYear}`],
           ] as [string,string][]).forEach(([lbl, val]) => {
             doc.setFont("times","bold"); doc.setFontSize(7.5); doc.text(lbl+" : ", sx, cy);
