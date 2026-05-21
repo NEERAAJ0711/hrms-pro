@@ -248,7 +248,21 @@ export function AppSidebar() {
   const checkAccess = (module: string): boolean => {
     if (isPrivileged) return hasModuleAccess(module, user?.role, hasCompanyEarly);
     const permKey = SIDEBAR_TO_PERM_KEY[module] ?? module;
+    // An explicit module-level override always wins.
     if (permKey in permOverrides) return permOverrides[permKey];
+    // No module-level row: any granted action under this module is enough
+    // to surface the entry in the sidebar (e.g. user has "employees:create"
+    // but no full "employees" grant). An explicit action-level deny alone
+    // shouldn't hide the module if other actions are granted.
+    const prefix = `${permKey}:`;
+    let hasAnyActionGrant = false;
+    for (const p of userPermissions) {
+      if (p.module.startsWith(prefix) && p.canAccess) {
+        hasAnyActionGrant = true;
+        break;
+      }
+    }
+    if (hasAnyActionGrant) return true;
     return hasModuleAccess(module, user?.role, hasCompanyEarly);
   };
 
