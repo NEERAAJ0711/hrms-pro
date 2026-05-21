@@ -48,13 +48,24 @@ export function useCan() {
       ? perms.find(p => p.module === permKey(module, action))
       : undefined;
 
-    // Deny-first to match server-side userHasAccess: an explicit revoke at
-    // the module level must block every action even if a stale action grant
-    // exists.
+    // An explicit action-level allow always wins. This handles the case
+    // where an earlier full-module revoke wrote `module = deny` and the
+    // admin later approved a per-action request — the fresh action grant
+    // must authorize. The revoke flow already flips matching `module:*`
+    // rows to deny, so a surviving action allow is necessarily post-revoke.
+    if (actionOverride?.canAccess === true) return true;
+
+    // For module-level checks, any granted action under this module
+    // implies module visibility / read access.
+    if (!action) {
+      const prefix = `${module}:`;
+      if (perms.some(p => p.module.startsWith(prefix) && p.canAccess)) return true;
+    }
+
+    // Deny-first for everything else.
     if (moduleOverride?.canAccess === false) return false;
     if (actionOverride?.canAccess === false) return false;
     if (moduleOverride?.canAccess === true) return true;
-    if (actionOverride?.canAccess === true) return true;
 
     return (ROLE_MODULE_ACCESS[module] || []).includes(user.role);
   };
