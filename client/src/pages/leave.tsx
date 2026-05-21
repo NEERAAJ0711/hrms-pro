@@ -544,10 +544,16 @@ export default function LeavePage() {
               </div>
             </div>
             {can("leave", "apply") && (
-              <Button className="gap-2 shrink-0" onClick={() => setIsCreateOpen(true)} data-testid="button-create-leave">
-                <Plus className="h-4 w-4" />
-                Apply for Leave
-              </Button>
+              <div className="flex flex-wrap gap-2 shrink-0">
+                <Button variant="outline" className="gap-2" onClick={() => setCompOffOpen(true)} data-testid="button-create-compoff">
+                  <RefreshCw className="h-4 w-4" />
+                  Apply for Comp Off
+                </Button>
+                <Button className="gap-2" onClick={() => setIsCreateOpen(true)} data-testid="button-create-leave">
+                  <Plus className="h-4 w-4" />
+                  Apply for Leave
+                </Button>
+              </div>
             )}
           </div>
 
