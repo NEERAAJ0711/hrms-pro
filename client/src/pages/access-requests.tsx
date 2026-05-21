@@ -24,6 +24,7 @@ const MODULES = [
   { value: "payroll",     label: "Payroll" },
   { value: "reports",     label: "Reports" },
   { value: "recruitment", label: "Recruitment" },
+  { value: "compliances", label: "Compliances" },
   { value: "masters",     label: "Master Data" },
   { value: "settings",    label: "Settings" },
   { value: "users",       label: "Users" },

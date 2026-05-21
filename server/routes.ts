@@ -1284,7 +1284,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // with the requireModuleAccess() / MODULE_ACCESS map above.
   const REQUESTABLE_MODULES = new Set([
     "employees", "attendance", "leave", "payroll", "reports",
-    "recruitment", "masters", "settings", "users",
+    "recruitment", "compliances", "masters", "settings", "users",
   ]);
 
   // User creates a new request for module access.
