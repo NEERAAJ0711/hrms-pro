@@ -1096,6 +1096,13 @@ export class DatabaseStorage implements IStorage {
     return r[0];
   }
 
+  async deleteModuleAccessRequest(id: string): Promise<boolean> {
+    const result = await db.delete(moduleAccessRequests)
+      .where(eq(moduleAccessRequests.id, id))
+      .returning({ id: moduleAccessRequests.id });
+    return result.length > 0;
+  }
+
   async getLoanAdvance(id: string): Promise<LoanAdvance | undefined> {
     const result = await db.select().from(loanAdvances).where(eq(loanAdvances.id, id));
     return result[0];

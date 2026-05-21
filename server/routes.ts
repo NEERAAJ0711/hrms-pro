@@ -1393,6 +1393,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Admin approves or denies a request. On approve we upsert the
   // user_permissions row so the user's next API call passes the middleware.
+  // Admin-only: permanently erase a history row. Used to clean up the
+  // History tab. Allowed for super_admin (any company) and company_admin
+  // (own company only). Pending requests can also be deleted — treat it
+  // as a hard cancel.
+  app.delete("/api/module-access-requests/:id", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      if (user.role !== "super_admin" && user.role !== "company_admin") {
+        return res.status(403).json({ error: "Only Super Admin and Company Admin can delete history" });
+      }
+      const existing = await storage.getModuleAccessRequest(req.params.id);
+      if (!existing) return res.status(404).json({ error: "Request not found" });
+      if (user.role === "company_admin" && existing.companyId !== user.companyId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      const ok = await storage.deleteModuleAccessRequest(existing.id);
+      if (!ok) return res.status(404).json({ error: "Request not found" });
+      res.json({ success: true });
+    } catch (err) {
+      console.error("[module-access] delete failed:", err);
+      res.status(500).json({ error: "Failed to delete request" });
+    }
+  });
+
   app.patch("/api/module-access-requests/:id", requireAuth, async (req, res) => {
     try {
       const user = (req as any).user;

@@ -12,7 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { ShieldCheck, Check, X, Plus, Loader2, Lock, RotateCcw } from "lucide-react";
+import { ShieldCheck, Check, X, Plus, Loader2, Lock, RotateCcw, Trash2 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import type { User } from "@shared/schema";
 import { MODULE_ACTIONS, actionLabel } from "@shared/permissions";
@@ -60,6 +60,7 @@ export default function AccessRequestsPage() {
   const [decision, setDecision] = useState<{ id: string; action: "approve" | "deny" } | null>(null);
   const [note, setNote] = useState("");
   const [revokeTarget, setRevokeTarget] = useState<{ userId: string; module: string; actions: string[] } | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; userName: string; module: string } | null>(null);
 
   // Direct grant
   const [grantUserId, setGrantUserId] = useState("");
@@ -141,6 +142,24 @@ export default function AccessRequestsPage() {
     onError: (err: any) => toast({ title: "Failed", description: err?.message || "Could not revoke access", variant: "destructive" }),
   });
 
+  // Permanently erase a history row. Server enforces super_admin /
+  // company_admin only. This does NOT change the user's current permissions
+  // (use Revoke for that) — it only removes the audit row from the History
+  // tab.
+  const deleteRequest = useMutation({
+    mutationFn: async () => {
+      if (!deleteTarget) return;
+      const res = await apiRequest("DELETE", `/api/module-access-requests/${deleteTarget.id}`);
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "History entry deleted" });
+      queryClient.invalidateQueries({ queryKey: ["/api/module-access-requests"] });
+      setDeleteTarget(null);
+    },
+    onError: (err: any) => toast({ title: "Failed", description: err?.message || "Could not delete entry", variant: "destructive" }),
+  });
+
   if (!isAdmin) {
     return (
       <div className="container mx-auto p-6">
@@ -186,22 +205,32 @@ export default function AccessRequestsPage() {
         <>
           <TableCell className="text-sm text-muted-foreground">{r.decisionNote || "—"}</TableCell>
           <TableCell className="text-right">
-            {r.status === "approved" ? (
+            <div className="flex gap-2 justify-end">
+              {r.status === "approved" && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setRevokeTarget({
+                    userId: r.userId,
+                    module: r.module,
+                    actions: Array.isArray(r.actions) ? r.actions : [],
+                  })}
+                  data-testid={`button-revoke-${r.id}`}
+                >
+                  <RotateCcw className="h-4 w-4 mr-1" /> Revoke
+                </Button>
+              )}
               <Button
                 size="sm"
-                variant="outline"
-                onClick={() => setRevokeTarget({
-                  userId: r.userId,
-                  module: r.module,
-                  actions: Array.isArray(r.actions) ? r.actions : [],
-                })}
-                data-testid={`button-revoke-${r.id}`}
+                variant="ghost"
+                className="text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950"
+                onClick={() => setDeleteTarget({ id: r.id, userName: userName(r.userId), module: moduleLabel(r.module) })}
+                data-testid={`button-delete-${r.id}`}
+                title="Delete history entry"
               >
-                <RotateCcw className="h-4 w-4 mr-1" /> Revoke
+                <Trash2 className="h-4 w-4" />
               </Button>
-            ) : (
-              <span className="text-xs text-muted-foreground">—</span>
-            )}
+            </div>
           </TableCell>
         </>
       )}
@@ -411,6 +440,33 @@ export default function AccessRequestsPage() {
             >
               {revoke.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
               Revoke access
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!deleteTarget} onOpenChange={(o) => { if (!o) setDeleteTarget(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete history entry?</DialogTitle>
+            <DialogDescription>
+              {deleteTarget ? (
+                <>
+                  This will permanently erase the history row for <b>{deleteTarget.userName}</b> on <b>{deleteTarget.module}</b>. This action cannot be undone. The user's current permissions are not changed — use <b>Revoke</b> to remove active access.
+                </>
+              ) : null}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteTarget(null)} disabled={deleteRequest.isPending}>Cancel</Button>
+            <Button
+              variant="destructive"
+              onClick={() => deleteRequest.mutate()}
+              disabled={deleteRequest.isPending}
+              data-testid="button-confirm-delete"
+            >
+              {deleteRequest.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Trash2 className="h-4 w-4 mr-2" />}
+              Delete entry
             </Button>
           </DialogFooter>
         </DialogContent>

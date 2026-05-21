@@ -298,6 +298,7 @@ export interface IStorage {
   listModuleAccessRequests(filters: { companyId?: string; userId?: string; status?: string }): Promise<ModuleAccessRequest[]>;
   decideModuleAccessRequest(id: string, status: "approved" | "denied" | "revoked", decidedBy: string, decisionNote?: string | null): Promise<ModuleAccessRequest | undefined>;
   findPendingModuleAccessRequest(userId: string, module: string): Promise<ModuleAccessRequest | undefined>;
+  deleteModuleAccessRequest(id: string): Promise<boolean>;
 
   // Loan & Advances
   getLoanAdvance(id: string): Promise<LoanAdvance | undefined>;
@@ -1922,6 +1923,10 @@ export class MemStorage implements IStorage {
   async findPendingModuleAccessRequest(userId: string, module: string): Promise<ModuleAccessRequest | undefined> {
     return Array.from(this.moduleAccessRequestsMap.values())
       .find(r => r.userId === userId && r.module === module && r.status === "pending");
+  }
+
+  async deleteModuleAccessRequest(id: string): Promise<boolean> {
+    return this.moduleAccessRequestsMap.delete(id);
   }
 }
 
