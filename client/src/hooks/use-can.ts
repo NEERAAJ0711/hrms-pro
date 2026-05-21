@@ -44,9 +44,21 @@ export function useCan() {
     refetchOnReconnect: true,
   });
 
+  // Self-service modules that are intrinsic to the Employee role. Admins
+  // cannot revoke these — stale deny rows in `user_permissions` must not
+  // override the role-based grant.
+  const EMPLOYEE_SELF_SERVICE = new Set([
+    "my_attendance", "my_profile", "my_access_requests",
+    "leave", "loan_advances", "job_applications",
+  ]);
+
   const can = (module: string, action?: string): boolean => {
     if (!user) return false;
     if (user.role === "super_admin") return true;
+
+    if (user.role === "employee" && EMPLOYEE_SELF_SERVICE.has(module)) {
+      return (ROLE_MODULE_ACCESS[module] || ["employee"]).includes(user.role);
+    }
 
     const moduleOverride = perms.find(p => p.module === module);
     const actionOverride = action

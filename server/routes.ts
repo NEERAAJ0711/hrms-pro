@@ -204,6 +204,16 @@ async function userHasAccess(
 ): Promise<boolean> {
   if (!user) return false;
   if (user.role === "super_admin") return true;
+  // Employee self-service modules are intrinsic to the role and cannot be
+  // revoked by an admin. Stale deny rows in `user_permissions` (e.g. left
+  // over from earlier admin testing) must not block these endpoints.
+  const EMPLOYEE_SELF_SERVICE = new Set([
+    "my_attendance", "my_profile", "my_access_requests",
+    "leave", "loan_advances", "job_applications",
+  ]);
+  if (user.role === "employee" && EMPLOYEE_SELF_SERVICE.has(module)) {
+    return (MODULE_ACCESS[module] || ["employee"]).includes(user.role);
+  }
   let userPerms: { module: string; canAccess: boolean }[] = [];
   try {
     userPerms = await storage.getUserPermissions(user.id);

@@ -76,6 +76,20 @@ const REQUIRES_COMPANY: string[] = [
   "reports", "biometric", "employees", "job_postings", "settings", "users", "companies"
 ];
 
+// Modules that are intrinsic to the Employee role's self-service experience.
+// These are always visible/usable for employees regardless of any explicit
+// deny rows in `user_permissions` — admins cannot revoke an employee's
+// ability to see their own attendance, profile, leave, etc.
+const EMPLOYEE_SELF_SERVICE: Set<string> = new Set([
+  "dashboard",
+  "my_attendance",
+  "my_profile",
+  "my_access_requests",
+  "leave",
+  "loan_advances",
+  "job_applications",
+]);
+
 const hasModuleAccess = (module: string, userRole: UserRole | undefined, hasCompany: boolean): boolean => {
   if (!userRole) return false;
   if (userRole === "employee" && !hasCompany && REQUIRES_COMPANY.includes(module)) return false;
@@ -251,6 +265,12 @@ export function AppSidebar() {
 
   const checkAccess = (module: string): boolean => {
     if (isPrivileged) return hasModuleAccess(module, user?.role, hasCompanyEarly);
+    // Employees always see their own self-service modules. These can't be
+    // revoked by an admin — stale `user_permissions` deny rows for these
+    // keys (e.g. left over from earlier admin testing) must not hide them.
+    if (user?.role === "employee" && EMPLOYEE_SELF_SERVICE.has(module)) {
+      return hasModuleAccess(module, user?.role, hasCompanyEarly);
+    }
     const permKey = SIDEBAR_TO_PERM_KEY[module] ?? module;
     // Any granted action under this module surfaces the entry in the sidebar,
     // even if a stale module-level deny row exists (e.g. from a previous
