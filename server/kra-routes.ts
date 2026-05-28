@@ -469,6 +469,120 @@ export function registerKraRoutes(app: Express, requireAuth: any, requireRole: a
     }
   });
 
+  // ─── Period-over-period Trends ───────────────────────────────────────────────
+
+  app.get("/api/kra/analytics/trends", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const user = (req as any).user;
+      const companyId = user.role === "super_admin" ? req.query.companyId as string : user.companyId;
+      if (!companyId) return res.status(400).json({ error: "companyId required" });
+
+      const assignments = await storage.getKraAssignmentsByCompany(companyId);
+      const enriched = await Promise.all(assignments.map(async (a) => {
+        const emp = await storage.getEmployee(a.employeeId);
+        return {
+          ...a,
+          employeeName: emp ? `${emp.firstName} ${emp.lastName}` : "Unknown",
+          employeeCode: emp?.employeeCode || "",
+          department: emp?.department || "Unassigned",
+        };
+      }));
+
+      // Only include assignments that have a totalScore (scored ones)
+      const scored = enriched.filter(a => a.totalScore != null);
+
+      // Build sorted list of unique periods
+      const PERIOD_ORDER: Record<string, number> = {
+        Q1: 1, Q2: 2, Q3: 3, Q4: 4, H1: 5, H2: 6, Annual: 7, Custom: 8
+      };
+      const periodSet = new Set<string>();
+      scored.forEach(a => periodSet.add(`${a.reviewPeriod} ${a.periodYear}`));
+      const periods = Array.from(periodSet).sort((a, b) => {
+        const [pA, yA] = a.split(" ");
+        const [pB, yB] = b.split(" ");
+        if (yA !== yB) return parseInt(yA) - parseInt(yB);
+        return (PERIOD_ORDER[pA] ?? 9) - (PERIOD_ORDER[pB] ?? 9);
+      });
+
+      // ── Department trends ─────────────────────────────────────────────────
+      const deptSet = new Set(scored.map(a => a.department));
+      const deptNames = Array.from(deptSet).sort();
+
+      // Build recharts-ready rows: [{period: "Q1 2026", Sales: 82, HR: 75, ...}]
+      const deptChartData = periods.map(period => {
+        const row: Record<string, any> = { period };
+        deptNames.forEach(dept => {
+          const relevant = scored.filter(a =>
+            `${a.reviewPeriod} ${a.periodYear}` === period && a.department === dept
+          );
+          if (relevant.length > 0) {
+            const avg = relevant.reduce((s, a) => s + (a.totalScore ?? 0), 0) / relevant.length;
+            row[dept] = Math.round(avg * 10) / 10;
+          } else {
+            row[dept] = null;
+          }
+        });
+        return row;
+      });
+
+      // Delta table: for each dept, latest score vs previous period score
+      const deptDeltaTable = deptNames.map(dept => {
+        const scores = periods.map(p => {
+          const row = deptChartData.find(r => r.period === p);
+          return row ? row[dept] : null;
+        });
+        const latestIdx = scores.map((s, i) => (s != null ? i : -1)).filter(i => i >= 0);
+        const last = latestIdx.length > 0 ? latestIdx[latestIdx.length - 1] : -1;
+        const prev = latestIdx.length > 1 ? latestIdx[latestIdx.length - 2] : -1;
+        return {
+          department: dept,
+          periodScores: periods.map((p, i) => ({ period: p, score: scores[i] })),
+          latestScore: last >= 0 ? scores[last] : null,
+          previousScore: prev >= 0 ? scores[prev] : null,
+          delta: last >= 0 && prev >= 0 ? Math.round((scores[last]! - scores[prev]!) * 10) / 10 : null,
+        };
+      });
+
+      // ── Employee trends ───────────────────────────────────────────────────
+      const empMap: Record<string, { name: string; code: string; dept: string; scores: Record<string, number> }> = {};
+      scored.forEach(a => {
+        const key = a.employeeId;
+        if (!empMap[key]) {
+          empMap[key] = { name: a.employeeName, code: a.employeeCode, dept: a.department, scores: {} };
+        }
+        const periodKey = `${a.reviewPeriod} ${a.periodYear}`;
+        // If employee has multiple assignments in same period, take the max
+        if (empMap[key].scores[periodKey] == null || (a.totalScore ?? 0) > empMap[key].scores[periodKey]) {
+          empMap[key].scores[periodKey] = a.totalScore ?? 0;
+        }
+      });
+
+      const employeeTrends = Object.values(empMap).map(e => {
+        const scoredPeriods = periods.filter(p => e.scores[p] != null);
+        const latestPeriod = scoredPeriods[scoredPeriods.length - 1] ?? null;
+        const prevPeriod = scoredPeriods[scoredPeriods.length - 2] ?? null;
+        const latestScore = latestPeriod ? e.scores[latestPeriod] : null;
+        const prevScore = prevPeriod ? e.scores[prevPeriod] : null;
+        return {
+          employeeName: e.name,
+          employeeCode: e.code,
+          department: e.dept,
+          periodScores: periods.map(p => ({ period: p, score: e.scores[p] ?? null })),
+          latestScore,
+          previousScore: prevScore,
+          delta: latestScore != null && prevScore != null
+            ? Math.round((latestScore - prevScore) * 10) / 10
+            : null,
+        };
+      }).sort((a, b) => (b.latestScore ?? 0) - (a.latestScore ?? 0));
+
+      res.json({ periods, deptNames, deptChartData, deptDeltaTable, employeeTrends });
+    } catch (e: any) {
+      console.error("[KRA trends]", e);
+      res.status(500).json({ error: "Failed to fetch trends" });
+    }
+  });
+
   // Update single KPI actual/score
   app.patch("/api/kra/assignment-kpis/:kpiId", requireAuth, async (req: Request, res: Response) => {
     try {

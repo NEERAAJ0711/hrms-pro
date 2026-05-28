@@ -63,6 +63,8 @@ import {
   PieChart,
   Pie,
   Legend,
+  LineChart,
+  Line,
 } from "recharts";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -830,6 +832,18 @@ export default function KraKpiPage() {
     enabled: canManage,
   });
 
+  // Trends query
+  const { data: trends, isLoading: trendsLoading } = useQuery<any>({
+    queryKey: ["/api/kra/analytics/trends"],
+    enabled: canManage,
+  });
+
+  // Trend view toggle state
+  const [trendView, setTrendView] = useState<"dept" | "employee">("dept");
+
+  // Colour palette for line chart lines
+  const LINE_COLORS = ["#6366f1","#f59e0b","#10b981","#ef4444","#3b82f6","#ec4899","#8b5cf6","#14b8a6"];
+
   // Delete template
   const deleteTemplate = useMutation({
     mutationFn: (id: string) => apiRequest("DELETE", `/api/kra/templates/${id}`),
@@ -1437,6 +1451,169 @@ export default function KraKpiPage() {
                     </CardContent>
                   </Card>
                 </div>
+
+                {/* ── Period-over-period Trends ──────────────────────────── */}
+                <Card>
+                  <CardHeader className="pb-2">
+                    <div className="flex items-start justify-between flex-wrap gap-3">
+                      <div>
+                        <CardTitle className="text-base flex items-center gap-2">
+                          <TrendingUp className="h-4 w-4 text-primary" />
+                          Period-over-Period Trends
+                        </CardTitle>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          How scores have changed across review cycles
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-1 bg-muted rounded-md p-0.5">
+                        <button
+                          onClick={() => setTrendView("dept")}
+                          className={`px-3 py-1 rounded text-xs font-medium transition-colors ${trendView === "dept" ? "bg-background shadow text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                          data-testid="toggle-trend-dept"
+                        >
+                          By Department
+                        </button>
+                        <button
+                          onClick={() => setTrendView("employee")}
+                          className={`px-3 py-1 rounded text-xs font-medium transition-colors ${trendView === "employee" ? "bg-background shadow text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                          data-testid="toggle-trend-employee"
+                        >
+                          By Employee
+                        </button>
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    {trendsLoading ? (
+                      <div className="py-10 text-center text-muted-foreground text-sm">Loading trends...</div>
+                    ) : !trends?.periods?.length ? (
+                      <div className="py-10 text-center text-muted-foreground text-sm">
+                        <TrendingUp className="h-10 w-10 mx-auto mb-2 opacity-25" />
+                        No scored assignments across multiple periods yet.
+                        <br />Score KRAs in at least two different review periods to see trends.
+                      </div>
+                    ) : trendView === "dept" ? (
+                      <div className="space-y-6">
+                        {/* Line Chart */}
+                        <ResponsiveContainer width="100%" height={280}>
+                          <LineChart data={trends.deptChartData} margin={{ top: 8, right: 16, left: -16, bottom: 0 }}>
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
+                            <XAxis dataKey="period" tick={{ fontSize: 11 }} />
+                            <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} tickFormatter={(v) => `${v}%`} />
+                            <Tooltip
+                              contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid hsl(var(--border))" }}
+                              formatter={(v: any, name: string) => [`${v}%`, name]}
+                            />
+                            <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12 }} />
+                            {(trends.deptNames as string[]).map((dept, i) => (
+                              <Line
+                                key={dept}
+                                type="monotone"
+                                dataKey={dept}
+                                stroke={LINE_COLORS[i % LINE_COLORS.length]}
+                                strokeWidth={2}
+                                dot={{ r: 4 }}
+                                activeDot={{ r: 6 }}
+                                connectNulls
+                              />
+                            ))}
+                          </LineChart>
+                        </ResponsiveContainer>
+
+                        {/* Department delta table */}
+                        <div className="overflow-x-auto">
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead>Department</TableHead>
+                                {(trends.periods as string[]).map((p: string) => (
+                                  <TableHead key={p} className="text-center">{p}</TableHead>
+                                ))}
+                                <TableHead className="text-center">Change</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {trends.deptDeltaTable.map((row: any, i: number) => (
+                                <TableRow key={i} data-testid={`row-trend-dept-${row.department}`}>
+                                  <TableCell className="font-medium">{row.department}</TableCell>
+                                  {row.periodScores.map((ps: any, j: number) => (
+                                    <TableCell key={j} className="text-center">
+                                      {ps.score != null ? (
+                                        <span className={`font-medium text-sm ${ps.score >= 80 ? "text-green-600" : ps.score >= 60 ? "text-yellow-600" : "text-red-600"}`}>
+                                          {ps.score}%
+                                        </span>
+                                      ) : <span className="text-muted-foreground text-sm">—</span>}
+                                    </TableCell>
+                                  ))}
+                                  <TableCell className="text-center">
+                                    {row.delta != null ? (
+                                      <span className={`inline-flex items-center gap-0.5 font-semibold text-sm ${row.delta > 0 ? "text-green-600" : row.delta < 0 ? "text-red-600" : "text-muted-foreground"}`}>
+                                        {row.delta > 0 ? "▲" : row.delta < 0 ? "▼" : "●"}
+                                        {Math.abs(row.delta)}%
+                                      </span>
+                                    ) : <span className="text-muted-foreground text-sm">—</span>}
+                                  </TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </div>
+                      </div>
+                    ) : (
+                      /* Employee trend table */
+                      <div className="overflow-x-auto">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Employee</TableHead>
+                              <TableHead>Dept</TableHead>
+                              {(trends.periods as string[]).map((p: string) => (
+                                <TableHead key={p} className="text-center">{p}</TableHead>
+                              ))}
+                              <TableHead className="text-center">Change</TableHead>
+                              <TableHead className="text-right">Latest</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {(trends.employeeTrends as any[]).map((emp, i) => (
+                              <TableRow key={i} data-testid={`row-trend-emp-${i}`}>
+                                <TableCell>
+                                  <p className="font-medium text-sm">{emp.employeeName}</p>
+                                  <p className="text-xs text-muted-foreground">{emp.employeeCode}</p>
+                                </TableCell>
+                                <TableCell className="text-sm text-muted-foreground">{emp.department}</TableCell>
+                                {emp.periodScores.map((ps: any, j: number) => (
+                                  <TableCell key={j} className="text-center">
+                                    {ps.score != null ? (
+                                      <span className={`font-medium text-sm ${ps.score >= 80 ? "text-green-600" : ps.score >= 60 ? "text-yellow-600" : "text-red-600"}`}>
+                                        {ps.score}%
+                                      </span>
+                                    ) : <span className="text-muted-foreground text-sm">—</span>}
+                                  </TableCell>
+                                ))}
+                                <TableCell className="text-center">
+                                  {emp.delta != null ? (
+                                    <span className={`inline-flex items-center gap-0.5 font-semibold text-sm ${emp.delta > 0 ? "text-green-600" : emp.delta < 0 ? "text-red-600" : "text-muted-foreground"}`}>
+                                      {emp.delta > 0 ? "▲" : emp.delta < 0 ? "▼" : "●"}
+                                      {Math.abs(emp.delta)}%
+                                    </span>
+                                  ) : <span className="text-muted-foreground text-sm">—</span>}
+                                </TableCell>
+                                <TableCell className="text-right">
+                                  {emp.latestScore != null ? (
+                                    <span className={`font-bold text-sm ${emp.latestScore >= 80 ? "text-green-600" : emp.latestScore >= 60 ? "text-yellow-600" : "text-red-600"}`}>
+                                      {emp.latestScore}%
+                                    </span>
+                                  ) : <span className="text-muted-foreground">—</span>}
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
 
               </div>
             )}
