@@ -4,7 +4,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { registerMobileRoutes } from "./mobile-routes";
 import { registerComplianceRoutes } from "./compliance-routes";
-import { registerKraRoutes } from "./kra-routes";
+import { registerKraRoutes, startKraDeadlineScheduler } from "./kra-routes";
 import { createNotification, createNotificationForMany } from "./notifications";
 import { addSSEClient, removeSSEClient } from "./sse";
 import { db } from "./db";
@@ -6723,6 +6723,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Register KRA & KPI routes
   registerKraRoutes(app, requireAuth, requireRole);
+  startKraDeadlineScheduler();
 
   // ===== CD Accounts (Credits & Billing) =====
 

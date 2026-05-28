@@ -7,8 +7,13 @@ import {
   insertKraTemplateKpiSchema,
   insertKraAssignmentSchema,
   insertKraAssignmentKpiSchema,
+  kraAssignments,
+  users as usersTable,
 } from "@shared/schema";
 import { z } from "zod";
+import { db } from "./db";
+import { inArray } from "drizzle-orm";
+import { createNotification, createNotificationForMany } from "./notifications";
 
 // Helper to compute the weighted score for an assignment from its KPIs
 function computeAssignmentScore(kpis: { weightage: number; computedScore: number | null | undefined }[]): number {
@@ -38,6 +43,80 @@ function computeKpiScore(kpi: {
   // Fall back to self score
   if (kpi.selfScore != null) return Math.min(100, Math.max(0, kpi.selfScore));
   return null;
+}
+
+// ─── Deadline Reminder Engine ─────────────────────────────────────────────────
+
+async function runKraDeadlineReminders(daysAhead = 3): Promise<{ sent: number; checked: number }> {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  let sent = 0;
+
+  const allAssignments = await db.select().from(kraAssignments);
+  const active = allAssignments.filter(a => a.status === "active" || a.status === "under_review");
+
+  for (const asg of active) {
+    const end = new Date(asg.endDate);
+    end.setHours(0, 0, 0, 0);
+    const diffDays = Math.ceil((end.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+    if (diffDays < 0 || diffDays > daysAhead) continue;
+
+    const dueText = diffDays === 0 ? "today" : `in ${diffDays} day${diffDays !== 1 ? "s" : ""}`;
+    const emp = await storage.getEmployee(asg.employeeId);
+
+    // Notify the employee if they have a user account
+    if (emp?.userId) {
+      await createNotification({
+        userId: emp.userId,
+        companyId: asg.companyId,
+        type: "kra_deadline",
+        title: "KRA Review Deadline Approaching",
+        message: `Your KRA "${asg.title}" is due ${dueText} (${asg.endDate}).${asg.status === "active" ? " Please complete your self-review." : ""}`,
+        link: "/kra-kpi",
+      });
+      sent++;
+    }
+
+    // Notify managers / HR admins for pending self-reviews
+    if (asg.status === "active") {
+      const adminRows = await db
+        .select({ id: usersTable.id, companyId: usersTable.companyId })
+        .from(usersTable)
+        .where(inArray(usersTable.role, ["company_admin", "hr_admin", "manager"]));
+      const adminIds = adminRows.filter(u => u.companyId === asg.companyId).map(u => u.id);
+      if (adminIds.length > 0) {
+        const empName = emp ? `${emp.firstName} ${emp.lastName}` : "An employee";
+        await createNotificationForMany(adminIds, {
+          companyId: asg.companyId,
+          type: "kra_deadline_manager",
+          title: "KRA Deadline Approaching",
+          message: `${empName}'s KRA "${asg.title}" is due ${dueText}. Self-review is pending.`,
+          link: "/kra-kpi",
+        });
+        sent += adminIds.length;
+      }
+    }
+  }
+
+  return { sent, checked: active.length };
+}
+
+export function startKraDeadlineScheduler(): void {
+  // Initial check 10 seconds after startup
+  setTimeout(async () => {
+    try {
+      const result = await runKraDeadlineReminders(3);
+      if (result.sent > 0) console.log(`[KRA Scheduler] Startup check: sent ${result.sent} deadline reminders`);
+    } catch (e) { console.error("[KRA Scheduler] startup check failed:", e); }
+  }, 10_000);
+
+  // Then every 24 hours
+  setInterval(async () => {
+    try {
+      const result = await runKraDeadlineReminders(3);
+      if (result.sent > 0) console.log(`[KRA Scheduler] Daily check: sent ${result.sent} deadline reminders`);
+    } catch (e) { console.error("[KRA Scheduler] daily check failed:", e); }
+  }, 24 * 60 * 60 * 1000);
 }
 
 export function registerKraRoutes(app: Express, requireAuth: any, requireRole: any) {
@@ -246,6 +325,24 @@ export function registerKraRoutes(app: Express, requireAuth: any, requireRole: a
       }
 
       const savedKpis = await storage.getKraAssignmentKpis(assignment.id);
+
+      // Notify employee about new KRA assignment
+      try {
+        const emp = await storage.getEmployee(assignment.employeeId);
+        if (emp?.userId) {
+          await createNotification({
+            userId: emp.userId,
+            companyId: assignment.companyId,
+            type: "kra_assigned",
+            title: "New KRA Assigned",
+            message: `You have been assigned "${assignment.title}" for ${assignment.reviewPeriod} ${assignment.periodYear}. Review period: ${assignment.startDate} to ${assignment.endDate}.`,
+            link: "/kra-kpi",
+          });
+        }
+      } catch (notifyErr) {
+        console.error("[KRA notify] assignment notification failed:", notifyErr);
+      }
+
       res.status(201).json({ ...assignment, kpis: savedKpis });
     } catch (e: any) {
       res.status(400).json({ error: e.message || "Failed to create assignment" });
@@ -331,10 +428,59 @@ export function registerKraRoutes(app: Express, requireAuth: any, requireRole: a
 
       const finalAssignment = await storage.updateKraAssignment(req.params.id, assignPatch);
       const finalKpis = await storage.getKraAssignmentKpis(req.params.id);
+
+      // Notifications post-review
+      try {
+        const emp = await storage.getEmployee(assignment.employeeId);
+        if (isEmployee && reviewType === "self") {
+          // Notify managers that self-review was submitted
+          const adminRows = await db
+            .select({ id: usersTable.id, companyId: usersTable.companyId })
+            .from(usersTable)
+            .where(inArray(usersTable.role, ["company_admin", "hr_admin", "manager"]));
+          const adminIds = adminRows.filter(u => u.companyId === assignment.companyId).map(u => u.id);
+          if (adminIds.length > 0) {
+            const empName = emp ? `${emp.firstName} ${emp.lastName}` : "Employee";
+            await createNotificationForMany(adminIds, {
+              companyId: assignment.companyId,
+              type: "kra_self_review_submitted",
+              title: "Self-Review Submitted",
+              message: `${empName} has submitted their self-review for "${assignment.title}". Manager review is now pending.`,
+              link: "/kra-kpi",
+            });
+          }
+        } else if (isManager && req.body.complete && emp?.userId) {
+          // Notify employee that review is complete with their score
+          const finalScore = assignPatch.totalScore != null ? `${assignPatch.totalScore.toFixed(1)}%` : "—";
+          await createNotification({
+            userId: emp.userId,
+            companyId: assignment.companyId,
+            type: "kra_review_completed",
+            title: "KRA Review Completed",
+            message: `Your KRA "${assignment.title}" has been reviewed. Final score: ${finalScore}.${feedback ? ` Feedback: "${feedback}"` : ""}`,
+            link: "/kra-kpi",
+          });
+        }
+      } catch (notifyErr) {
+        console.error("[KRA notify] score notification failed:", notifyErr);
+      }
+
       res.json({ ...finalAssignment, kpis: finalKpis });
     } catch (e: any) {
       console.error("[KRA score]", e);
       res.status(500).json({ error: e.message || "Failed to save scores" });
+    }
+  });
+
+  // Manual reminder trigger (admin only)
+  app.post("/api/kra/send-reminders", requireAuth, requireRole("company_admin", "hr_admin", "super_admin"), async (req: Request, res: Response) => {
+    try {
+      const daysAhead = parseInt(req.query.days as string || "3");
+      const result = await runKraDeadlineReminders(Math.max(1, Math.min(30, daysAhead)));
+      res.json({ success: true, message: `Checked ${result.checked} assignments. Sent ${result.sent} reminder notification${result.sent !== 1 ? "s" : ""}.`, ...result });
+    } catch (e: any) {
+      console.error("[KRA reminders]", e);
+      res.status(500).json({ error: "Failed to send reminders" });
     }
   });
 

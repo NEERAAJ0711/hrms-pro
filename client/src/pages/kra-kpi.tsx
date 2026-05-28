@@ -49,6 +49,9 @@ import {
   Award,
   TrendingDown,
   Building2,
+  Bell,
+  BellRing,
+  CalendarClock,
 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import {
@@ -121,6 +124,40 @@ interface Employee {
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function daysUntilDeadline(endDate: string): number {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const end = new Date(endDate);
+  end.setHours(0, 0, 0, 0);
+  return Math.ceil((end.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+}
+
+function DeadlineBadge({ endDate, status }: { endDate: string; status: string }) {
+  if (status === "completed") return null;
+  const days = daysUntilDeadline(endDate);
+  if (days > 3) return null;
+  if (days < 0) {
+    return (
+      <span className="inline-flex items-center gap-1 text-xs font-semibold text-red-600 bg-red-50 border border-red-200 rounded-full px-2 py-0.5">
+        <CalendarClock className="h-3 w-3" /> Overdue
+      </span>
+    );
+  }
+  if (days === 0) {
+    return (
+      <span className="inline-flex items-center gap-1 text-xs font-semibold text-red-600 bg-red-50 border border-red-200 rounded-full px-2 py-0.5 animate-pulse">
+        <BellRing className="h-3 w-3" /> Due today
+      </span>
+    );
+  }
+  return (
+    <span className={`inline-flex items-center gap-1 text-xs font-semibold rounded-full px-2 py-0.5 border ${days <= 1 ? "text-red-600 bg-red-50 border-red-200" : "text-yellow-700 bg-yellow-50 border-yellow-200"}`}>
+      <Bell className="h-3 w-3" /> Due in {days}d
+    </span>
+  );
+}
+
 const statusColor: Record<string, string> = {
   draft: "bg-gray-100 text-gray-700",
   active: "bg-blue-100 text-blue-700",
@@ -864,6 +901,20 @@ export default function KraKpiPage() {
     onError: () => toast({ title: "Failed to delete assignment", variant: "destructive" }),
   });
 
+  // Send deadline reminders
+  const sendReminders = useMutation({
+    mutationFn: (days: number) => apiRequest("POST", `/api/kra/send-reminders?days=${days}`),
+    onSuccess: (data: any) => {
+      toast({ title: "Reminders sent", description: data?.message || "Deadline reminders dispatched." });
+    },
+    onError: () => toast({ title: "Failed to send reminders", variant: "destructive" }),
+  });
+
+  // Count assignments with upcoming deadlines (≤3 days, not completed)
+  const urgentCount = assignments.filter(a =>
+    a.status !== "completed" && daysUntilDeadline(a.endDate) <= 3
+  ).length;
+
   // Stats
   const totalAssignments = assignments.length;
   const completedCount = assignments.filter(a => a.status === "completed").length;
@@ -985,9 +1036,10 @@ export default function KraKpiPage() {
                     {assignments.map(a => (
                       <div key={a.id} className="border rounded-lg p-4 flex items-center justify-between" data-testid={`card-assignment-${a.id}`}>
                         <div className="space-y-1">
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 flex-wrap">
                             <p className="font-medium">{a.title}</p>
                             <Badge className={statusColor[a.status] || ""}>{statusLabel[a.status] || a.status}</Badge>
+                            <DeadlineBadge endDate={a.endDate} status={a.status} />
                           </div>
                           <p className="text-sm text-muted-foreground">
                             {a.reviewPeriod} {a.periodYear} · {a.startDate} to {a.endDate}
@@ -1033,7 +1085,29 @@ export default function KraKpiPage() {
           <TabsContent value="assignments">
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">KRA Assignments</CardTitle>
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <div className="flex items-center gap-3">
+                    <CardTitle className="text-base">KRA Assignments</CardTitle>
+                    {urgentCount > 0 && (
+                      <span className="inline-flex items-center gap-1 text-xs font-semibold text-red-600 bg-red-50 border border-red-200 rounded-full px-2 py-0.5" data-testid="badge-urgent-count">
+                        <BellRing className="h-3 w-3" /> {urgentCount} urgent
+                      </span>
+                    )}
+                  </div>
+                  {isAdmin && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="text-yellow-700 border-yellow-300 hover:bg-yellow-50"
+                      onClick={() => sendReminders.mutate(3)}
+                      disabled={sendReminders.isPending}
+                      data-testid="button-send-reminders"
+                    >
+                      <Bell className="h-4 w-4 mr-1.5" />
+                      {sendReminders.isPending ? "Sending..." : "Send Deadline Reminders"}
+                    </Button>
+                  )}
+                </div>
               </CardHeader>
               <CardContent>
                 {asgLoading ? (
@@ -1050,7 +1124,7 @@ export default function KraKpiPage() {
                         <TableRow>
                           <TableHead>Employee</TableHead>
                           <TableHead>Title</TableHead>
-                          <TableHead>Period</TableHead>
+                          <TableHead>Period / Deadline</TableHead>
                           <TableHead>Status</TableHead>
                           <TableHead>Self Score</TableHead>
                           <TableHead>Final Score</TableHead>
@@ -1067,7 +1141,15 @@ export default function KraKpiPage() {
                               </div>
                             </TableCell>
                             <TableCell className="font-medium text-sm">{a.title}</TableCell>
-                            <TableCell className="text-sm">{a.reviewPeriod} {a.periodYear}</TableCell>
+                            <TableCell>
+                              <div className="space-y-1">
+                                <p className="text-sm">{a.reviewPeriod} {a.periodYear}</p>
+                                <div className="flex items-center gap-1 flex-wrap">
+                                  <span className="text-xs text-muted-foreground">Due {a.endDate}</span>
+                                  <DeadlineBadge endDate={a.endDate} status={a.status} />
+                                </div>
+                              </div>
+                            </TableCell>
                             <TableCell>
                               <Badge className={statusColor[a.status] || ""}>{statusLabel[a.status] || a.status}</Badge>
                             </TableCell>
