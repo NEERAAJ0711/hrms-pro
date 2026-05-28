@@ -338,6 +338,137 @@ export function registerKraRoutes(app: Express, requireAuth: any, requireRole: a
     }
   });
 
+  // ─── Analytics ───────────────────────────────────────────────────────────────
+
+  app.get("/api/kra/analytics", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const user = (req as any).user;
+      const companyId = user.role === "super_admin" ? req.query.companyId as string : user.companyId;
+      if (!companyId) return res.status(400).json({ error: "companyId required" });
+
+      const assignments = await storage.getKraAssignmentsByCompany(companyId);
+
+      // Enrich with employee data
+      const enriched = await Promise.all(assignments.map(async (a) => {
+        const emp = await storage.getEmployee(a.employeeId);
+        return {
+          ...a,
+          employeeName: emp ? `${emp.firstName} ${emp.lastName}` : "Unknown",
+          employeeCode: emp?.employeeCode || "",
+          department: emp?.department || "Unassigned",
+        };
+      }));
+
+      // Score distribution buckets
+      const buckets = [
+        { range: "0–40%", min: 0, max: 40, count: 0 },
+        { range: "40–60%", min: 40, max: 60, count: 0 },
+        { range: "60–80%", min: 60, max: 80, count: 0 },
+        { range: "80–100%", min: 80, max: 100, count: 0 },
+      ];
+      const scored = enriched.filter(a => a.totalScore != null);
+      scored.forEach(a => {
+        const s = a.totalScore!;
+        for (const b of buckets) {
+          if (s >= b.min && (s < b.max || (b.max === 100 && s <= 100))) {
+            b.count++;
+            break;
+          }
+        }
+      });
+
+      // Top & bottom performers (only scored assignments)
+      const sorted = [...scored].sort((a, b) => (b.totalScore ?? 0) - (a.totalScore ?? 0));
+      const topPerformers = sorted.slice(0, 5).map(a => ({
+        employeeName: a.employeeName,
+        employeeCode: a.employeeCode,
+        department: a.department,
+        title: a.title,
+        totalScore: a.totalScore,
+        status: a.status,
+      }));
+      const bottomPerformers = [...sorted].reverse().slice(0, 5).map(a => ({
+        employeeName: a.employeeName,
+        employeeCode: a.employeeCode,
+        department: a.department,
+        title: a.title,
+        totalScore: a.totalScore,
+        status: a.status,
+      }));
+
+      // Department stats
+      const deptMap: Record<string, { total: number; completed: number; scored: number; scoreSum: number }> = {};
+      enriched.forEach(a => {
+        const d = a.department || "Unassigned";
+        if (!deptMap[d]) deptMap[d] = { total: 0, completed: 0, scored: 0, scoreSum: 0 };
+        deptMap[d].total++;
+        if (a.status === "completed") deptMap[d].completed++;
+        if (a.totalScore != null) {
+          deptMap[d].scored++;
+          deptMap[d].scoreSum += a.totalScore;
+        }
+      });
+      const departmentStats = Object.entries(deptMap).map(([department, v]) => ({
+        department,
+        total: v.total,
+        completed: v.completed,
+        completionRate: v.total > 0 ? Math.round((v.completed / v.total) * 100) : 0,
+        avgScore: v.scored > 0 ? Math.round((v.scoreSum / v.scored) * 10) / 10 : null,
+      })).sort((a, b) => b.total - a.total);
+
+      // Status breakdown for donut chart
+      const statusBreakdown = [
+        { status: "Active", count: enriched.filter(a => a.status === "active").length },
+        { status: "Under Review", count: enriched.filter(a => a.status === "under_review").length },
+        { status: "Completed", count: enriched.filter(a => a.status === "completed").length },
+        { status: "Draft", count: enriched.filter(a => a.status === "draft").length },
+      ].filter(s => s.count > 0);
+
+      // KPI completion rate (assignments that have at least 1 scored KPI)
+      const kpiCompletionData = await Promise.all(
+        enriched.map(async a => {
+          const kpis = await storage.getKraAssignmentKpis(a.id);
+          const totalKpis = kpis.length;
+          const scoredKpis = kpis.filter(k => k.computedScore != null).length;
+          return { department: a.department, totalKpis, scoredKpis };
+        })
+      );
+      const deptKpiMap: Record<string, { total: number; scored: number }> = {};
+      kpiCompletionData.forEach(d => {
+        if (!deptKpiMap[d.department]) deptKpiMap[d.department] = { total: 0, scored: 0 };
+        deptKpiMap[d.department].total += d.totalKpis;
+        deptKpiMap[d.department].scored += d.scoredKpis;
+      });
+      const deptKpiCompletion = Object.entries(deptKpiMap).map(([department, v]) => ({
+        department,
+        kpiCompletionRate: v.total > 0 ? Math.round((v.scored / v.total) * 100) : 0,
+        totalKpis: v.total,
+        scoredKpis: v.scored,
+      }));
+
+      res.json({
+        summary: {
+          total: enriched.length,
+          active: enriched.filter(a => a.status === "active").length,
+          underReview: enriched.filter(a => a.status === "under_review").length,
+          completed: enriched.filter(a => a.status === "completed").length,
+          avgScore: scored.length > 0
+            ? Math.round((scored.reduce((s, a) => s + (a.totalScore ?? 0), 0) / scored.length) * 10) / 10
+            : null,
+        },
+        scoreDistribution: buckets,
+        statusBreakdown,
+        topPerformers,
+        bottomPerformers,
+        departmentStats,
+        deptKpiCompletion,
+      });
+    } catch (e: any) {
+      console.error("[KRA analytics]", e);
+      res.status(500).json({ error: "Failed to fetch analytics" });
+    }
+  });
+
   // Update single KPI actual/score
   app.patch("/api/kra/assignment-kpis/:kpiId", requireAuth, async (req: Request, res: Response) => {
     try {

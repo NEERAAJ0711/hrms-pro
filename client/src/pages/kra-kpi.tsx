@@ -45,8 +45,25 @@ import {
   Users,
   LayoutTemplate,
   ClipboardList,
+  BarChart2,
+  Award,
+  TrendingDown,
+  Building2,
 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  Cell,
+  PieChart,
+  Pie,
+  Legend,
+} from "recharts";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 interface KpiRow {
@@ -807,6 +824,12 @@ export default function KraKpiPage() {
     enabled: !!scoreDialog.assignment?.id && scoreDialog.open,
   });
 
+  // Analytics query
+  const { data: analytics, isLoading: analyticsLoading } = useQuery<any>({
+    queryKey: ["/api/kra/analytics"],
+    enabled: canManage,
+  });
+
   // Delete template
   const deleteTemplate = useMutation({
     mutationFn: (id: string) => apiRequest("DELETE", `/api/kra/templates/${id}`),
@@ -921,6 +944,11 @@ export default function KraKpiPage() {
           {isEmployee && <TabsTrigger value="my-kra">My KRAs</TabsTrigger>}
           {canManage && <TabsTrigger value="assignments">All Assignments</TabsTrigger>}
           {isAdmin && <TabsTrigger value="templates">Templates</TabsTrigger>}
+          {canManage && (
+            <TabsTrigger value="analytics" data-testid="tab-analytics">
+              <BarChart2 className="h-4 w-4 mr-1.5" />Analytics
+            </TabsTrigger>
+          )}
         </TabsList>
 
         {/* My KRA Tab (Employee) */}
@@ -1143,6 +1171,278 @@ export default function KraKpiPage() {
             </Card>
           </TabsContent>
         )}
+
+        {/* Analytics Tab */}
+        {canManage && (
+          <TabsContent value="analytics">
+            {analyticsLoading ? (
+              <div className="py-16 text-center text-muted-foreground">Loading analytics...</div>
+            ) : !analytics ? (
+              <div className="py-16 text-center text-muted-foreground">No data available.</div>
+            ) : (
+              <div className="space-y-6">
+
+                {/* Summary Row */}
+                <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+                  {[
+                    { label: "Total", value: analytics.summary.total, color: "text-blue-600", icon: <ClipboardList className="h-5 w-5 text-blue-500" /> },
+                    { label: "Active", value: analytics.summary.active, color: "text-yellow-600", icon: <Clock className="h-5 w-5 text-yellow-500" /> },
+                    { label: "Under Review", value: analytics.summary.underReview, color: "text-purple-600", icon: <Eye className="h-5 w-5 text-purple-500" /> },
+                    { label: "Completed", value: analytics.summary.completed, color: "text-green-600", icon: <CheckCircle2 className="h-5 w-5 text-green-500" /> },
+                    { label: "Avg Score", value: analytics.summary.avgScore != null ? `${analytics.summary.avgScore}%` : "—", color: "text-orange-600", icon: <Star className="h-5 w-5 text-orange-500" /> },
+                  ].map((s, i) => (
+                    <Card key={i}>
+                      <CardContent className="pt-3 pb-3">
+                        <div className="flex items-center gap-2">
+                          {s.icon}
+                          <div>
+                            <p className="text-xs text-muted-foreground">{s.label}</p>
+                            <p className={`text-xl font-bold ${s.color}`} data-testid={`analytics-stat-${s.label.toLowerCase().replace(" ", "-")}`}>{s.value}</p>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+
+                {/* Charts Row: Score Distribution + Status Breakdown */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+                  {/* Score Distribution Bar Chart */}
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-base flex items-center gap-2">
+                        <BarChart2 className="h-4 w-4 text-primary" />
+                        Score Distribution
+                      </CardTitle>
+                      <p className="text-xs text-muted-foreground">Number of assignments in each score band</p>
+                    </CardHeader>
+                    <CardContent>
+                      {analytics.scoreDistribution?.every((b: any) => b.count === 0) ? (
+                        <div className="h-48 flex items-center justify-center text-muted-foreground text-sm">No scored assignments yet</div>
+                      ) : (
+                        <ResponsiveContainer width="100%" height={220}>
+                          <BarChart data={analytics.scoreDistribution} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
+                            <XAxis dataKey="range" tick={{ fontSize: 12 }} />
+                            <YAxis tick={{ fontSize: 12 }} allowDecimals={false} />
+                            <Tooltip
+                              contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid hsl(var(--border))" }}
+                              formatter={(v: any) => [`${v} assignment${v !== 1 ? "s" : ""}`, "Count"]}
+                            />
+                            <Bar dataKey="count" radius={[4, 4, 0, 0]}>
+                              {analytics.scoreDistribution.map((_: any, i: number) => {
+                                const colors = ["#ef4444", "#f97316", "#eab308", "#22c55e"];
+                                return <Cell key={i} fill={colors[i % colors.length]} />;
+                              })}
+                            </Bar>
+                          </BarChart>
+                        </ResponsiveContainer>
+                      )}
+                    </CardContent>
+                  </Card>
+
+                  {/* Status Breakdown Pie */}
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-base flex items-center gap-2">
+                        <TrendingUp className="h-4 w-4 text-primary" />
+                        Assignment Status Breakdown
+                      </CardTitle>
+                      <p className="text-xs text-muted-foreground">Current state of all KRA assignments</p>
+                    </CardHeader>
+                    <CardContent>
+                      {!analytics.statusBreakdown?.length ? (
+                        <div className="h-48 flex items-center justify-center text-muted-foreground text-sm">No assignments yet</div>
+                      ) : (
+                        <ResponsiveContainer width="100%" height={220}>
+                          <PieChart>
+                            <Pie
+                              data={analytics.statusBreakdown}
+                              dataKey="count"
+                              nameKey="status"
+                              cx="50%"
+                              cy="50%"
+                              outerRadius={80}
+                              innerRadius={45}
+                              paddingAngle={3}
+                              label={({ status, percent }) => `${status} ${(percent * 100).toFixed(0)}%`}
+                              labelLine={false}
+                            >
+                              {analytics.statusBreakdown.map((_: any, i: number) => {
+                                const colors = ["#3b82f6", "#a855f7", "#22c55e", "#94a3b8"];
+                                return <Cell key={i} fill={colors[i % colors.length]} />;
+                              })}
+                            </Pie>
+                            <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid hsl(var(--border))" }} />
+                            <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12 }} />
+                          </PieChart>
+                        </ResponsiveContainer>
+                      )}
+                    </CardContent>
+                  </Card>
+                </div>
+
+                {/* Department Performance */}
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <Building2 className="h-4 w-4 text-primary" />
+                      Department Performance
+                    </CardTitle>
+                    <p className="text-xs text-muted-foreground">KRA completion and average scores by department</p>
+                  </CardHeader>
+                  <CardContent>
+                    {!analytics.departmentStats?.length ? (
+                      <div className="py-8 text-center text-muted-foreground text-sm">No department data available</div>
+                    ) : (
+                      <div className="overflow-x-auto">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Department</TableHead>
+                              <TableHead className="text-center">Total KRAs</TableHead>
+                              <TableHead className="text-center">Completed</TableHead>
+                              <TableHead>Completion Rate</TableHead>
+                              <TableHead>KPI Fill Rate</TableHead>
+                              <TableHead>Avg Score</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {analytics.departmentStats.map((d: any, i: number) => {
+                              const kpiRow = analytics.deptKpiCompletion?.find((k: any) => k.department === d.department);
+                              return (
+                                <TableRow key={i} data-testid={`row-dept-${d.department}`}>
+                                  <TableCell className="font-medium">{d.department}</TableCell>
+                                  <TableCell className="text-center">{d.total}</TableCell>
+                                  <TableCell className="text-center">{d.completed}</TableCell>
+                                  <TableCell>
+                                    <div className="flex items-center gap-2 min-w-[120px]">
+                                      <div className="flex-1 bg-muted rounded-full h-2 overflow-hidden">
+                                        <div
+                                          className={`h-full rounded-full ${d.completionRate >= 80 ? "bg-green-500" : d.completionRate >= 50 ? "bg-yellow-500" : "bg-red-500"}`}
+                                          style={{ width: `${d.completionRate}%` }}
+                                        />
+                                      </div>
+                                      <span className="text-sm font-medium w-10 text-right">{d.completionRate}%</span>
+                                    </div>
+                                  </TableCell>
+                                  <TableCell>
+                                    {kpiRow ? (
+                                      <div className="flex items-center gap-2 min-w-[120px]">
+                                        <div className="flex-1 bg-muted rounded-full h-2 overflow-hidden">
+                                          <div
+                                            className={`h-full rounded-full ${kpiRow.kpiCompletionRate >= 80 ? "bg-green-500" : kpiRow.kpiCompletionRate >= 50 ? "bg-yellow-500" : "bg-red-500"}`}
+                                            style={{ width: `${kpiRow.kpiCompletionRate}%` }}
+                                          />
+                                        </div>
+                                        <span className="text-sm font-medium w-10 text-right">{kpiRow.kpiCompletionRate}%</span>
+                                      </div>
+                                    ) : <span className="text-muted-foreground">—</span>}
+                                  </TableCell>
+                                  <TableCell>
+                                    {d.avgScore != null ? (
+                                      <span className={`font-semibold ${d.avgScore >= 80 ? "text-green-600" : d.avgScore >= 60 ? "text-yellow-600" : "text-red-600"}`}>
+                                        {d.avgScore}%
+                                      </span>
+                                    ) : <span className="text-muted-foreground">—</span>}
+                                  </TableCell>
+                                </TableRow>
+                              );
+                            })}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+
+                {/* Top & Bottom Performers */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+                  {/* Top Performers */}
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-base flex items-center gap-2">
+                        <Award className="h-4 w-4 text-yellow-500" />
+                        Top Performers
+                      </CardTitle>
+                      <p className="text-xs text-muted-foreground">Highest scoring completed KRAs</p>
+                    </CardHeader>
+                    <CardContent>
+                      {!analytics.topPerformers?.length ? (
+                        <div className="py-6 text-center text-muted-foreground text-sm">No scored assignments yet</div>
+                      ) : (
+                        <div className="space-y-3">
+                          {analytics.topPerformers.map((p: any, i: number) => (
+                            <div key={i} className="flex items-center gap-3" data-testid={`row-top-performer-${i}`}>
+                              <div className={`h-7 w-7 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0 ${i === 0 ? "bg-yellow-400" : i === 1 ? "bg-gray-400" : i === 2 ? "bg-amber-600" : "bg-muted text-muted-foreground"}`}>
+                                {i + 1}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className="font-medium text-sm truncate">{p.employeeName}</p>
+                                <p className="text-xs text-muted-foreground truncate">{p.department} · {p.title}</p>
+                              </div>
+                              <div className="text-right flex-shrink-0">
+                                <p className="font-bold text-sm text-green-600">{p.totalScore?.toFixed(1)}%</p>
+                                <div className="w-20 bg-muted rounded-full h-1.5 overflow-hidden mt-1">
+                                  <div className="h-full bg-green-500 rounded-full" style={{ width: `${p.totalScore}%` }} />
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+
+                  {/* Bottom Performers */}
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-base flex items-center gap-2">
+                        <TrendingDown className="h-4 w-4 text-red-500" />
+                        Needs Improvement
+                      </CardTitle>
+                      <p className="text-xs text-muted-foreground">Lowest scoring completed KRAs</p>
+                    </CardHeader>
+                    <CardContent>
+                      {!analytics.bottomPerformers?.length ? (
+                        <div className="py-6 text-center text-muted-foreground text-sm">No scored assignments yet</div>
+                      ) : (
+                        <div className="space-y-3">
+                          {analytics.bottomPerformers.map((p: any, i: number) => (
+                            <div key={i} className="flex items-center gap-3" data-testid={`row-bottom-performer-${i}`}>
+                              <div className="h-7 w-7 rounded-full bg-red-100 flex items-center justify-center text-xs font-bold text-red-600 flex-shrink-0">
+                                {i + 1}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className="font-medium text-sm truncate">{p.employeeName}</p>
+                                <p className="text-xs text-muted-foreground truncate">{p.department} · {p.title}</p>
+                              </div>
+                              <div className="text-right flex-shrink-0">
+                                <p className={`font-bold text-sm ${(p.totalScore ?? 0) < 60 ? "text-red-600" : "text-yellow-600"}`}>
+                                  {p.totalScore?.toFixed(1)}%
+                                </p>
+                                <div className="w-20 bg-muted rounded-full h-1.5 overflow-hidden mt-1">
+                                  <div
+                                    className={`h-full rounded-full ${(p.totalScore ?? 0) < 60 ? "bg-red-500" : "bg-yellow-500"}`}
+                                    style={{ width: `${p.totalScore}%` }}
+                                  />
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                </div>
+
+              </div>
+            )}
+          </TabsContent>
+        )}
+
       </Tabs>
 
       {/* View Assignment Detail Dialog */}
