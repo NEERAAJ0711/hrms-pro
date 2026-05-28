@@ -1111,6 +1111,82 @@ export const insertCompOffSchema = createInsertSchema(compOffApplications).omit(
 export type InsertCompOff = z.infer<typeof insertCompOffSchema>;
 export type CompOff = typeof compOffApplications.$inferSelect;
 
+// ─── KRA & KPI System ─────────────────────────────────────────────────────────
+
+// KRA Templates (reusable at company level)
+export const kraTemplates = pgTable("kra_templates", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  companyId: varchar("company_id", { length: 36 }).notNull(),
+  name: text("name").notNull(),
+  description: text("description"),
+  department: text("department"),
+  reviewPeriodType: text("review_period_type").notNull().default("annual"), // "quarterly" | "half_yearly" | "annual" | "custom"
+  status: text("status").notNull().default("active"), // "active" | "inactive"
+  createdAt: text("created_at").notNull(),
+  createdBy: varchar("created_by", { length: 36 }),
+});
+export const insertKraTemplateSchema = createInsertSchema(kraTemplates).omit({ id: true });
+export type InsertKraTemplate = z.infer<typeof insertKraTemplateSchema>;
+export type KraTemplate = typeof kraTemplates.$inferSelect;
+
+// KPI Metrics within a KRA Template
+export const kraTemplateKpis = pgTable("kra_template_kpis", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  templateId: varchar("template_id", { length: 36 }).notNull(),
+  kpiName: text("kpi_name").notNull(),
+  description: text("description"),
+  weightage: real("weightage").notNull().default(0), // percentage, all KPIs in template should sum to 100
+  measurementUnit: text("measurement_unit").default("number"), // "number" | "percentage" | "currency" | "boolean"
+  targetValue: real("target_value").default(100),
+  sortOrder: integer("sort_order").default(0),
+});
+export const insertKraTemplateKpiSchema = createInsertSchema(kraTemplateKpis).omit({ id: true });
+export type InsertKraTemplateKpi = z.infer<typeof insertKraTemplateKpiSchema>;
+export type KraTemplateKpi = typeof kraTemplateKpis.$inferSelect;
+
+// KRA Assignments (assigned to an employee for a specific period)
+export const kraAssignments = pgTable("kra_assignments", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  companyId: varchar("company_id", { length: 36 }).notNull(),
+  employeeId: varchar("employee_id", { length: 36 }).notNull(),
+  templateId: varchar("template_id", { length: 36 }), // optional – can be a custom assignment
+  title: text("title").notNull(),
+  reviewPeriod: text("review_period").notNull().default("annual"), // "Q1" | "Q2" | "Q3" | "Q4" | "H1" | "H2" | "annual" | "custom"
+  periodYear: integer("period_year").notNull(),
+  startDate: text("start_date").notNull(),
+  endDate: text("end_date").notNull(),
+  status: text("status").notNull().default("draft"), // "draft" | "active" | "under_review" | "completed"
+  managerId: varchar("manager_id", { length: 36 }),
+  selfScore: real("self_score"),     // weighted total from self review
+  managerScore: real("manager_score"), // weighted total from manager review
+  totalScore: real("total_score"),   // final accepted score (0–100)
+  feedback: text("feedback"),
+  createdAt: text("created_at").notNull(),
+  createdBy: varchar("created_by", { length: 36 }),
+});
+export const insertKraAssignmentSchema = createInsertSchema(kraAssignments).omit({ id: true });
+export type InsertKraAssignment = z.infer<typeof insertKraAssignmentSchema>;
+export type KraAssignment = typeof kraAssignments.$inferSelect;
+
+// KPI line-items copied into each assignment (with actuals & scores)
+export const kraAssignmentKpis = pgTable("kra_assignment_kpis", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  assignmentId: varchar("assignment_id", { length: 36 }).notNull(),
+  kpiName: text("kpi_name").notNull(),
+  description: text("description"),
+  weightage: real("weightage").notNull().default(0),
+  measurementUnit: text("measurement_unit").default("number"),
+  targetValue: real("target_value").default(100),
+  actualValue: real("actual_value"),              // entered by employee or manager
+  selfScore: real("self_score"),                   // 0–100 entered by employee
+  managerScore: real("manager_score"),             // 0–100 entered by manager (overrides auto)
+  computedScore: real("computed_score"),           // auto-calculated final score for this KPI
+  sortOrder: integer("sort_order").default(0),
+});
+export const insertKraAssignmentKpiSchema = createInsertSchema(kraAssignmentKpis).omit({ id: true });
+export type InsertKraAssignmentKpi = z.infer<typeof insertKraAssignmentKpiSchema>;
+export type KraAssignmentKpi = typeof kraAssignmentKpis.$inferSelect;
+
 // ─── Outdoor Duty Entries ─────────────────────────────────────────────────────
 export const outdoorEntries = pgTable("outdoor_entries", {
   id: varchar("id", { length: 36 }).primaryKey(),

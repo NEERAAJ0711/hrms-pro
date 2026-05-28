@@ -58,6 +58,14 @@ import {
   type InsertCompanyContractor,
   type ContractorMaster,
   type InsertContractorMaster,
+  type KraTemplate,
+  type InsertKraTemplate,
+  type KraTemplateKpi,
+  type InsertKraTemplateKpi,
+  type KraAssignment,
+  type InsertKraAssignment,
+  type KraAssignmentKpi,
+  type InsertKraAssignmentKpi,
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 
@@ -337,6 +345,34 @@ export interface IStorage {
   createOutdoorEntry(data: any): Promise<any>;
   updateOutdoorEntry(id: string, data: any): Promise<any>;
   deleteOutdoorEntry(id: string): Promise<boolean>;
+
+  // KRA Templates
+  getKraTemplatesByCompany(companyId: string): Promise<KraTemplate[]>;
+  getKraTemplate(id: string): Promise<KraTemplate | undefined>;
+  createKraTemplate(data: InsertKraTemplate): Promise<KraTemplate>;
+  updateKraTemplate(id: string, data: Partial<InsertKraTemplate>): Promise<KraTemplate | undefined>;
+  deleteKraTemplate(id: string): Promise<boolean>;
+
+  // KRA Template KPIs
+  getKraTemplateKpis(templateId: string): Promise<KraTemplateKpi[]>;
+  createKraTemplateKpi(data: InsertKraTemplateKpi): Promise<KraTemplateKpi>;
+  updateKraTemplateKpi(id: string, data: Partial<InsertKraTemplateKpi>): Promise<KraTemplateKpi | undefined>;
+  deleteKraTemplateKpi(id: string): Promise<boolean>;
+  deleteKraTemplateKpisByTemplate(templateId: string): Promise<void>;
+
+  // KRA Assignments
+  getKraAssignmentsByCompany(companyId: string): Promise<KraAssignment[]>;
+  getKraAssignmentsByEmployee(employeeId: string): Promise<KraAssignment[]>;
+  getKraAssignment(id: string): Promise<KraAssignment | undefined>;
+  createKraAssignment(data: InsertKraAssignment): Promise<KraAssignment>;
+  updateKraAssignment(id: string, data: Partial<InsertKraAssignment>): Promise<KraAssignment | undefined>;
+  deleteKraAssignment(id: string): Promise<boolean>;
+
+  // KRA Assignment KPIs
+  getKraAssignmentKpis(assignmentId: string): Promise<KraAssignmentKpi[]>;
+  createKraAssignmentKpi(data: InsertKraAssignmentKpi): Promise<KraAssignmentKpi>;
+  updateKraAssignmentKpi(id: string, data: Partial<InsertKraAssignmentKpi>): Promise<KraAssignmentKpi | undefined>;
+  deleteKraAssignmentKpisByAssignment(assignmentId: string): Promise<void>;
 
   // Audit log
   writeAuditLog(entry: { action: string; userId: string; userName: string; details: string }): Promise<void>;
@@ -1928,6 +1964,28 @@ export class MemStorage implements IStorage {
   async deleteModuleAccessRequest(id: string): Promise<boolean> {
     return this.moduleAccessRequestsMap.delete(id);
   }
+
+  // KRA stubs for MemStorage (not used in production)
+  async getKraTemplatesByCompany(_companyId: string): Promise<KraTemplate[]> { return []; }
+  async getKraTemplate(_id: string): Promise<KraTemplate | undefined> { return undefined; }
+  async createKraTemplate(data: InsertKraTemplate): Promise<KraTemplate> { return { ...data, id: randomUUID() } as KraTemplate; }
+  async updateKraTemplate(_id: string, _data: Partial<InsertKraTemplate>): Promise<KraTemplate | undefined> { return undefined; }
+  async deleteKraTemplate(_id: string): Promise<boolean> { return false; }
+  async getKraTemplateKpis(_templateId: string): Promise<KraTemplateKpi[]> { return []; }
+  async createKraTemplateKpi(data: InsertKraTemplateKpi): Promise<KraTemplateKpi> { return { ...data, id: randomUUID() } as KraTemplateKpi; }
+  async updateKraTemplateKpi(_id: string, _data: Partial<InsertKraTemplateKpi>): Promise<KraTemplateKpi | undefined> { return undefined; }
+  async deleteKraTemplateKpi(_id: string): Promise<boolean> { return false; }
+  async deleteKraTemplateKpisByTemplate(_templateId: string): Promise<void> {}
+  async getKraAssignmentsByCompany(_companyId: string): Promise<KraAssignment[]> { return []; }
+  async getKraAssignmentsByEmployee(_employeeId: string): Promise<KraAssignment[]> { return []; }
+  async getKraAssignment(_id: string): Promise<KraAssignment | undefined> { return undefined; }
+  async createKraAssignment(data: InsertKraAssignment): Promise<KraAssignment> { return { ...data, id: randomUUID() } as KraAssignment; }
+  async updateKraAssignment(_id: string, _data: Partial<InsertKraAssignment>): Promise<KraAssignment | undefined> { return undefined; }
+  async deleteKraAssignment(_id: string): Promise<boolean> { return false; }
+  async getKraAssignmentKpis(_assignmentId: string): Promise<KraAssignmentKpi[]> { return []; }
+  async createKraAssignmentKpi(data: InsertKraAssignmentKpi): Promise<KraAssignmentKpi> { return { ...data, id: randomUUID() } as KraAssignmentKpi; }
+  async updateKraAssignmentKpi(_id: string, _data: Partial<InsertKraAssignmentKpi>): Promise<KraAssignmentKpi | undefined> { return undefined; }
+  async deleteKraAssignmentKpisByAssignment(_assignmentId: string): Promise<void> {}
 }
 
 import { DatabaseStorage } from "./database-storage";

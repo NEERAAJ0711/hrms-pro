@@ -20,6 +20,7 @@ import {
   ShieldCheck,
   ShieldQuestion,
   CreditCard,
+  Target,
 } from "lucide-react";
 import { useLocation } from "wouter";
 import {
@@ -69,6 +70,7 @@ const MODULE_ACCESS: Record<string, UserRole[]> = {
   settings: ["super_admin", "company_admin"],
   my_access_requests: ["super_admin", "company_admin", "hr_admin", "recruiter", "manager", "employee"],
   access_requests: ["super_admin", "company_admin"],
+  kra_kpi: ["super_admin", "company_admin", "hr_admin", "manager", "employee"],
 };
 
 const REQUIRES_COMPANY: string[] = [
@@ -217,6 +219,12 @@ const hrModulesItems = [
     url: "/access-requests",
     icon: ShieldCheck,
     module: "access_requests",
+  },
+  {
+    title: "KRA & KPIs",
+    url: "/kra-kpi",
+    icon: Target,
+    module: "kra_kpi",
   },
   {
     title: "Settings",

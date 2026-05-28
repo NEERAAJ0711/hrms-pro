@@ -35,6 +35,7 @@ import MyAccessRequestsPage from "@/pages/my-access-requests";
 import AccessRequestsPage from "@/pages/access-requests";
 import CompliancesPage from "@/pages/compliances";
 import BillingPage from "@/pages/billing";
+import KraKpiPage from "@/pages/kra-kpi";
 import NotFound from "@/pages/not-found";
 import MobilePreview from "@/pages/mobile-preview";
 import WebsiteLayout from "@/pages/website/website-layout";
@@ -129,6 +130,7 @@ function ProtectedRouter() {
       <Route path="/access-requests" component={AccessRequestsPage} />
       <Route path="/compliances" component={CompliancesPage} />
       <Route path="/billing" component={BillingPage} />
+      <Route path="/kra-kpi" component={KraKpiPage} />
       <Route path="/settings" component={SettingsPage} />
       <Route path="/login" component={RedirectToDashboard} />
       <Route path="/signup" component={RedirectToDashboard} />

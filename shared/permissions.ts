@@ -69,6 +69,13 @@ export const MODULE_ACTIONS: Record<string, ModuleActionDef[]> = {
     { value: "edit",        label: "Edit User" },
     { value: "delete",      label: "Delete User" },
   ],
+  kra_kpi: [
+    { value: "view",          label: "View KRA & KPIs" },
+    { value: "manage_templates", label: "Manage KRA Templates" },
+    { value: "assign",        label: "Assign KRA to Employee" },
+    { value: "score",         label: "Score / Review KPIs" },
+    { value: "self_review",   label: "Self Review (Employee)" },
+  ],
 };
 
 export function getModuleActions(module: string): ModuleActionDef[] {
