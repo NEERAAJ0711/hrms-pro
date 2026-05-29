@@ -5,6 +5,7 @@ import { storage } from "./storage";
 import { registerMobileRoutes } from "./mobile-routes";
 import { registerComplianceRoutes } from "./compliance-routes";
 import { registerKraRoutes, startKraDeadlineScheduler } from "./kra-routes";
+import { registerEpfoEsicRoutes } from "./epfo-esic-routes";
 import { createNotification, createNotificationForMany } from "./notifications";
 import { addSSEClient, removeSSEClient } from "./sse";
 import { db } from "./db";
@@ -7234,6 +7235,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ─── EPFO / ESIC Automation ──────────────────────────────────────────────────
+
+  // Register all EPFO / ESIC routes (jobs, portal sessions, registrations, returns, reports)
+  registerEpfoEsicRoutes(app, requireAuth, requireRole);
 
   // Resume a paused automation job (CAPTCHA or OTP answer from admin)
   // POST /api/automation/jobs/:id/resume  { answer: string }
