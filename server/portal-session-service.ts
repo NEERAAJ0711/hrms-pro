@@ -2,24 +2,50 @@ import { db } from "./db";
 import { portalSessions } from "@shared/schema";
 import { eq, and } from "drizzle-orm";
 import { randomUUID, createCipheriv, createDecipheriv, randomBytes } from "crypto";
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from "fs";
+import { join } from "path";
 
 const ALGORITHM = "aes-256-gcm";
 const IV_LEN = 12; // 96-bit IV recommended for GCM
 const TAG_LEN = 16;
+const KEY_FILE = join(process.cwd(), ".session.key");
+
+// Resolve the encryption key:
+//   1. Use SESSION_ENCRYPTION_KEY env var if provided
+//   2. Otherwise load from .session.key file (or generate + persist it)
+// This allows zero-config VPS deployments while still supporting explicit key injection.
+let _cachedKey: Buffer | null = null;
 
 function getKey(): Buffer {
-  const secret = process.env.SESSION_ENCRYPTION_KEY;
-  if (!secret) {
-    throw new Error(
-      "SESSION_ENCRYPTION_KEY environment variable is required for portal session encryption. " +
-      "Set a random 32-byte hex string in your environment secrets."
-    );
+  if (_cachedKey) return _cachedKey;
+
+  let hexKey = process.env.SESSION_ENCRYPTION_KEY ?? "";
+
+  if (!hexKey || hexKey.length < 32) {
+    // Try loading from persisted key file
+    if (existsSync(KEY_FILE)) {
+      hexKey = readFileSync(KEY_FILE, "utf8").trim();
+    }
+
+    // Still missing or too short — generate a new one and persist it
+    if (!hexKey || hexKey.length < 32) {
+      hexKey = randomBytes(32).toString("hex");
+      try {
+        mkdirSync(process.cwd(), { recursive: true });
+        writeFileSync(KEY_FILE, hexKey, { mode: 0o600 });
+        console.warn(
+          "[PortalSession] SESSION_ENCRYPTION_KEY not set — generated and saved a random key to .session.key. " +
+          "For production, set SESSION_ENCRYPTION_KEY to this value: " + hexKey
+        );
+      } catch (err) {
+        console.error("[PortalSession] Could not write .session.key:", err);
+      }
+    }
   }
-  if (secret.length < 32) {
-    throw new Error("SESSION_ENCRYPTION_KEY must be at least 32 characters long.");
-  }
+
   const buf = Buffer.alloc(32);
-  Buffer.from(secret, "utf8").copy(buf);
+  Buffer.from(hexKey, "utf8").copy(buf);
+  _cachedKey = buf;
   return buf;
 }
 
