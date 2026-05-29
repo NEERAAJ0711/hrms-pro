@@ -1,13 +1,14 @@
 /**
  * EPFO & ESIC API Routes — Task #3
  *
- * Covers:
- *   - Automation job management (list, get+logs, retry, cancel)
- *   - Portal session management (upsert credentials, test login)
- *   - EPFO: registrations, KYC, ECR returns, challans
- *   - ESIC: registrations, monthly returns, challans
- *   - Compliance calendar (CRUD + auto-generate upcoming events)
- *   - Reports: EPFO ECR Excel, ESIC contribution Excel
+ * Covers all endpoints from the spec:
+ *   - Automation job management (list, enqueue, get+logs, retry, cancel)
+ *   - Portal session management (save, get, test)
+ *   - EPFO: registrations, KYC, ECR filing, challans, passbook, exit-management
+ *   - ESIC: registrations, contributions, monthly filing, challans, employee-search
+ *   - Compliance calendar (upcoming + history)
+ *   - Reports: EPFO ECR, ESIC contribution, failed-filings, audit (Excel + HTML/print-PDF)
+ *   - Automation logs (paginated, filterable)
  */
 
 import type { Express, Request, Response } from "express";
@@ -26,112 +27,236 @@ import {
   employees,
   payroll,
   statutorySettings,
+  automationJobTypes,
 } from "@shared/schema";
-import { eq, and, desc, sql, inArray } from "drizzle-orm";
+import { eq, and, desc, sql, inArray, gte, lte, or } from "drizzle-orm";
 import { randomUUID } from "crypto";
+import { z } from "zod";
 import { queueService } from "./queue-service";
 import { portalSessionService } from "./portal-session-service";
 import * as XLSX from "xlsx";
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+// ─── Shared Zod schemas ───────────────────────────────────────────────────────
+
+const monthSchema = z.enum([
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+]);
+
+const portalSchema = z.enum(["epfo", "esic"]);
+
+const paginationSchema = z.object({
+  page: z.coerce.number().int().positive().default(1),
+  limit: z.coerce.number().int().positive().max(200).default(50),
+});
+
+const enqueueJobSchema = z.object({
+  jobType: z.enum(automationJobTypes),
+  companyId: z.string().min(1).optional(),
+  payload: z.record(z.unknown()).optional(),
+  maxRetries: z.number().int().min(0).max(10).optional(),
+  scheduledAt: z.string().datetime().optional(),
+});
+
+const portalCredentialSchema = z.object({
+  username: z.string().min(1, "username is required"),
+  password: z.string().min(1, "password is required"),
+  companyId: z.string().min(1).optional(),
+});
+
+const registerEmployeeSchema = z.object({
+  employeeId: z.string().min(1, "employeeId is required"),
+  companyId: z.string().min(1).optional(),
+});
+
+const bulkRegisterSchema = z.object({
+  employeeIds: z.array(z.string().min(1)).min(1, "at least one employeeId is required"),
+  companyId: z.string().min(1).optional(),
+});
+
+const updateKycSchema = z.object({
+  employeeId: z.string().min(1, "employeeId is required"),
+  kycType: z.enum(["aadhaar", "pan", "bank"]),
+  documentNumber: z.string().optional(),
+  companyId: z.string().min(1).optional(),
+});
+
+const fileEcrSchema = z.object({
+  month: monthSchema,
+  year: z.number().int().min(2000).max(2100),
+  companyId: z.string().min(1).optional(),
+  bulk: z.boolean().optional().default(false),
+});
+
+const fileMonthlySSchema = z.object({
+  month: monthSchema,
+  year: z.number().int().min(2000).max(2100),
+  companyId: z.string().min(1).optional(),
+});
+
+const syncChallansSchema = z.object({
+  month: monthSchema.optional(),
+  year: z.number().int().min(2000).max(2100).optional(),
+  companyId: z.string().min(1).optional(),
+});
+
+const exitManagementSchema = z.object({
+  employeeId: z.string().min(1, "employeeId is required"),
+  exitDate: z.string().min(1, "exitDate is required"),
+  exitType: z.string().optional(),
+  companyId: z.string().min(1).optional(),
+});
+
+const esicEmployeeSearchSchema = z.object({
+  query: z.string().min(1, "search query is required"),
+  companyId: z.string().min(1).optional(),
+});
+
+const calendarEventSchema = z.object({
+  title: z.string().min(1),
+  description: z.string().optional(),
+  dueDate: z.string().min(1),
+  eventType: z.enum(["epfo_ecr_due", "esic_return_due", "pt_due", "lwf_due", "tds_due", "custom"]).default("custom"),
+  periodMonth: monthSchema.optional(),
+  periodYear: z.number().int().optional(),
+  companyId: z.string().min(1).optional(),
+});
+
+const calendarEventPatchSchema = z.object({
+  status: z.enum(["upcoming", "completed", "overdue", "waived"]).optional(),
+  title: z.string().min(1).optional(),
+  description: z.string().optional(),
+  dueDate: z.string().optional(),
+});
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const MONTH_NAMES = [
   "January", "February", "March", "April", "May", "June",
   "July", "August", "September", "October", "November", "December",
-];
+] as const;
 
-function monthIndex(name: string): number {
-  return MONTH_NAMES.findIndex(m => m.toLowerCase() === name.toLowerCase());
+function monthSortSql() {
+  return sql`CASE month
+    WHEN 'January' THEN 1 WHEN 'February' THEN 2 WHEN 'March' THEN 3
+    WHEN 'April' THEN 4 WHEN 'May' THEN 5 WHEN 'June' THEN 6
+    WHEN 'July' THEN 7 WHEN 'August' THEN 8 WHEN 'September' THEN 9
+    WHEN 'October' THEN 10 WHEN 'November' THEN 11 WHEN 'December' THEN 12
+  END DESC`;
 }
 
 /** ECR due on 15th of next month; ESIC due on 21st of next month */
 function calcDueDate(month: string, year: number, portal: "epfo" | "esic"): string {
-  const idx = monthIndex(month);
+  const idx = MONTH_NAMES.findIndex(m => m === month);
   const day = portal === "epfo" ? 15 : 21;
-  const nextMonthDate = new Date(year, idx + 1, day);
-  return nextMonthDate.toISOString().slice(0, 10);
+  const nextDate = new Date(year, idx + 1, day);
+  return nextDate.toISOString().slice(0, 10);
 }
 
-/** Returns the company the caller may act on, or throws a 403-payload object */
-function resolveCompanyId(
+/** Returns companyId from user context + optional override for super_admin */
+function getCompanyId(
   user: { role: string; companyId?: string | null },
-  requestedCompanyId?: string
-): string {
+  override?: string
+): { companyId: string } | { error: string; status: number } {
   if (user.role === "super_admin") {
-    if (!requestedCompanyId) throw { status: 400, error: "companyId is required for super_admin" };
-    return requestedCompanyId;
+    if (!override) return { error: "companyId is required for super_admin", status: 400 };
+    return { companyId: override };
   }
-  if (!user.companyId) throw { status: 403, error: "User has no company assigned" };
-  return user.companyId;
+  if (!user.companyId) return { error: "User has no company assigned", status: 403 };
+  return { companyId: user.companyId };
 }
 
 function isForbidden(user: { role: string; companyId?: string | null }, jobCompanyId: string): boolean {
   return user.role !== "super_admin" && user.companyId !== jobCompanyId;
 }
 
-// ─── Compliance calendar: seed N months of upcoming events ───────────────────
+/** Build offset from page/limit */
+function pageToOffset(page: number, limit: number): number {
+  return (page - 1) * limit;
+}
 
-async function ensureComplianceEvents(companyId: string, months = 6): Promise<void> {
+/** Validate body with Zod, send 400 on failure */
+function parseBody<T>(schema: z.ZodSchema<T>, body: unknown, res: Response): T | null {
+  const result = schema.safeParse(body);
+  if (!result.success) {
+    res.status(400).json({ error: "Validation failed", details: result.error.flatten() });
+    return null;
+  }
+  return result.data;
+}
+
+/** Validate query with Zod, send 400 on failure */
+function parseQuery<T>(schema: z.ZodSchema<T>, query: unknown, res: Response): T | null {
+  const result = schema.safeParse(query);
+  if (!result.success) {
+    res.status(400).json({ error: "Invalid query parameters", details: result.error.flatten() });
+    return null;
+  }
+  return result.data;
+}
+
+// ─── Compliance calendar: seed upcoming events ────────────────────────────────
+
+async function ensureUpcomingEvents(companyId: string, months = 6): Promise<void> {
   const now = new Date();
-  const events: typeof complianceCalendarEvents.$inferInsert[] = [];
   for (let i = 0; i < months; i++) {
     const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
     const month = MONTH_NAMES[d.getMonth()];
     const year = d.getFullYear();
-    // EPFO ECR due
-    const epfoDue = calcDueDate(month, year, "epfo");
-    const esicDue = calcDueDate(month, year, "esic");
     const nowStr = new Date().toISOString();
 
-    events.push({
-      id: randomUUID(),
-      companyId,
-      eventType: "epfo_ecr_due",
-      title: `EPFO ECR — ${month} ${year}`,
-      description: `Monthly ECR filing due for ${month} ${year}`,
-      dueDate: epfoDue,
-      periodMonth: month,
-      periodYear: year,
-      status: new Date(epfoDue) < now ? "overdue" : "upcoming",
-      createdAt: nowStr,
-      updatedAt: nowStr,
-    });
-    events.push({
-      id: randomUUID(),
-      companyId,
-      eventType: "esic_return_due",
-      title: `ESIC Return — ${month} ${year}`,
-      description: `Monthly ESIC contribution return due for ${month} ${year}`,
-      dueDate: esicDue,
-      periodMonth: month,
-      periodYear: year,
-      status: new Date(esicDue) < now ? "overdue" : "upcoming",
-      createdAt: nowStr,
-      updatedAt: nowStr,
-    });
-  }
-
-  // Upsert — ignore conflicts on (companyId, eventType, periodMonth, periodYear)
-  for (const ev of events) {
-    const existing = await db
-      .select({ id: complianceCalendarEvents.id })
-      .from(complianceCalendarEvents)
-      .where(
-        and(
+    for (const [portal, eventType] of [
+      ["epfo", "epfo_ecr_due"],
+      ["esic", "esic_return_due"],
+    ] as const) {
+      const due = calcDueDate(month, year, portal);
+      const existing = await db
+        .select({ id: complianceCalendarEvents.id })
+        .from(complianceCalendarEvents)
+        .where(and(
           eq(complianceCalendarEvents.companyId, companyId),
-          eq(complianceCalendarEvents.eventType, ev.eventType!),
-          eq(complianceCalendarEvents.periodMonth, ev.periodMonth!),
-          eq(complianceCalendarEvents.periodYear, ev.periodYear!)
-        )
-      )
-      .limit(1);
-    if (existing.length === 0) {
-      await db.insert(complianceCalendarEvents).values(ev);
+          eq(complianceCalendarEvents.eventType, eventType),
+          eq(complianceCalendarEvents.periodMonth, month),
+          eq(complianceCalendarEvents.periodYear, year)
+        ))
+        .limit(1);
+
+      if (existing.length === 0) {
+        await db.insert(complianceCalendarEvents).values({
+          id: randomUUID(),
+          companyId,
+          eventType,
+          title: `${portal.toUpperCase()} ${portal === "epfo" ? "ECR" : "Return"} — ${month} ${year}`,
+          description: `Monthly ${portal === "epfo" ? "ECR filing" : "ESIC contribution return"} due for ${month} ${year}`,
+          dueDate: due,
+          periodMonth: month,
+          periodYear: year,
+          status: new Date(due) < now ? "overdue" : "upcoming",
+          createdAt: nowStr,
+          updatedAt: nowStr,
+        });
+      }
     }
   }
 }
 
-// ─── Route Registration ───────────────────────────────────────────────────────
+// ─── HTML table report helper (printable as PDF) ──────────────────────────────
+
+function buildHtmlReport(title: string, columns: string[], rows: Record<string, unknown>[]): string {
+  const headerRow = columns.map(c => `<th style="border:1px solid #999;padding:6px 10px;background:#f5f5f5">${c}</th>`).join("");
+  const bodyRows = rows.map(r =>
+    `<tr>${columns.map(c => `<td style="border:1px solid #ccc;padding:5px 10px">${r[c] ?? ""}</td>`).join("")}</tr>`
+  ).join("");
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${title}</title>
+<style>body{font-family:sans-serif;font-size:13px}table{border-collapse:collapse;width:100%}
+@media print{button{display:none}}</style></head><body>
+<h2>${title}</h2>
+<button onclick="window.print()" style="margin-bottom:12px;padding:6px 14px;cursor:pointer">Print / Save as PDF</button>
+<table><thead><tr>${headerRow}</tr></thead><tbody>${bodyRows}</tbody></table>
+</body></html>`;
+}
+
+// ─── Route Registration ────────────────────────────────────────────────────────
 
 export function registerEpfoEsicRoutes(
   app: Express,
@@ -139,31 +264,60 @@ export function registerEpfoEsicRoutes(
   requireRole: (...roles: string[]) => any
 ): void {
 
+  const adminRoles = requireRole("super_admin", "company_admin", "hr_admin");
+
   // ═══════════════════════════════════════════════════════════════════════════
   // AUTOMATION JOBS
   // ═══════════════════════════════════════════════════════════════════════════
 
-  // GET /api/automation/jobs — list with optional filters
-  app.get("/api/automation/jobs", requireAuth, requireRole("super_admin", "company_admin", "hr_admin"), async (req: Request, res: Response) => {
+  // POST /api/automation/jobs — enqueue any job type
+  app.post("/api/automation/jobs", requireAuth, adminRoles, async (req: Request, res: Response) => {
     try {
       const user = (req as any).user;
-      const { status, jobType, limit = "50", offset = "0", companyId: qCompany } = req.query as Record<string, string>;
-      const cid = user.role === "super_admin" && qCompany ? qCompany : user.companyId ?? undefined;
+      const data = parseBody(enqueueJobSchema, req.body, res);
+      if (!data) return;
+
+      const cidResult = getCompanyId(user, data.companyId);
+      if ("error" in cidResult) return res.status(cidResult.status).json({ error: cidResult.error });
+
+      const job = await queueService.enqueueJob({
+        jobType: data.jobType,
+        companyId: cidResult.companyId,
+        payload: data.payload,
+        maxRetries: data.maxRetries,
+        scheduledAt: data.scheduledAt,
+        createdBy: user.id,
+      });
+      res.status(201).json(job);
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || "Failed to enqueue job" });
+    }
+  });
+
+  // GET /api/automation/jobs — list with filters
+  app.get("/api/automation/jobs", requireAuth, adminRoles, async (req: Request, res: Response) => {
+    try {
+      const user = (req as any).user;
+      const q = req.query as Record<string, string>;
+      const pg = parseQuery(paginationSchema, { page: q.page, limit: q.limit }, res);
+      if (!pg) return;
+
+      const cid = user.role === "super_admin" && q.companyId ? q.companyId : user.companyId ?? undefined;
       const jobs = await queueService.listJobs({
         companyId: cid,
-        status,
-        jobType,
-        limit: Math.min(Number(limit) || 50, 200),
-        offset: Number(offset) || 0,
+        status: q.status,
+        jobType: q.jobType,
+        limit: pg.limit,
+        offset: pageToOffset(pg.page, pg.limit),
       });
-      res.json(jobs);
+      res.json({ data: jobs, page: pg.page, limit: pg.limit });
     } catch (err: any) {
       res.status(500).json({ error: err?.message || "Failed to fetch jobs" });
     }
   });
 
   // GET /api/automation/jobs/:id — single job + logs
-  app.get("/api/automation/jobs/:id", requireAuth, requireRole("super_admin", "company_admin", "hr_admin"), async (req: Request, res: Response) => {
+  app.get("/api/automation/jobs/:id", requireAuth, adminRoles, async (req: Request, res: Response) => {
     try {
       const user = (req as any).user;
       const job = await queueService.getJob(req.params.id);
@@ -176,15 +330,15 @@ export function registerEpfoEsicRoutes(
     }
   });
 
-  // POST /api/automation/jobs/:id/retry — re-queue failed/cancelled job
-  app.post("/api/automation/jobs/:id/retry", requireAuth, requireRole("super_admin", "company_admin", "hr_admin"), async (req: Request, res: Response) => {
+  // POST /api/automation/jobs/:id/retry
+  app.post("/api/automation/jobs/:id/retry", requireAuth, adminRoles, async (req: Request, res: Response) => {
     try {
       const user = (req as any).user;
       const job = await queueService.getJob(req.params.id);
       if (!job) return res.status(404).json({ error: "Job not found" });
       if (isForbidden(user, job.companyId)) return res.status(403).json({ error: "Access denied" });
       if (!["failed", "cancelled"].includes(job.status)) {
-        return res.status(409).json({ error: `Cannot retry a job with status '${job.status}'` });
+        return res.status(409).json({ error: `Cannot retry job with status '${job.status}'` });
       }
       await queueService.retryJob(job.id);
       res.json({ ok: true, jobId: job.id });
@@ -193,8 +347,8 @@ export function registerEpfoEsicRoutes(
     }
   });
 
-  // DELETE /api/automation/jobs/:id — cancel a pending job
-  app.delete("/api/automation/jobs/:id", requireAuth, requireRole("super_admin", "company_admin", "hr_admin"), async (req: Request, res: Response) => {
+  // DELETE /api/automation/jobs/:id — cancel pending job
+  app.delete("/api/automation/jobs/:id", requireAuth, adminRoles, async (req: Request, res: Response) => {
     try {
       const user = (req as any).user;
       const job = await queueService.getJob(req.params.id);
@@ -214,120 +368,130 @@ export function registerEpfoEsicRoutes(
   // AUTOMATION LOGS
   // ═══════════════════════════════════════════════════════════════════════════
 
-  // GET /api/automation/logs — recent logs for company
-  app.get("/api/automation/logs", requireAuth, requireRole("super_admin", "company_admin", "hr_admin"), async (req: Request, res: Response) => {
+  // GET /api/automation/logs — paginated, filterable by job/level/date
+  app.get("/api/automation/logs", requireAuth, adminRoles, async (req: Request, res: Response) => {
     try {
       const user = (req as any).user;
-      const { companyId: qCompany, limit = "100" } = req.query as Record<string, string>;
-      const cid = user.role === "super_admin" && qCompany ? qCompany : user.companyId;
+      const q = req.query as Record<string, string>;
+      const pg = parseQuery(paginationSchema, { page: q.page, limit: q.limit }, res);
+      if (!pg) return;
+
+      const cid = user.role === "super_admin" && q.companyId ? q.companyId : user.companyId;
       if (!cid) return res.status(400).json({ error: "companyId required" });
-      const logs = await queueService.getRecentLogs(cid, Math.min(Number(limit) || 100, 500));
-      res.json(logs);
+
+      let query = db.select().from(automationLogs).$dynamic();
+      const conditions = [eq(automationLogs.companyId, cid)];
+      if (q.jobId) conditions.push(eq(automationLogs.jobId, q.jobId));
+      if (q.level) conditions.push(eq(automationLogs.level, q.level));
+      if (q.from) conditions.push(gte(automationLogs.createdAt, q.from));
+      if (q.to) conditions.push(lte(automationLogs.createdAt, q.to));
+
+      const total = await db
+        .select({ count: sql<number>`count(*)` })
+        .from(automationLogs)
+        .where(and(...conditions));
+
+      query = query
+        .where(and(...conditions))
+        .orderBy(desc(automationLogs.createdAt))
+        .limit(pg.limit)
+        .offset(pageToOffset(pg.page, pg.limit));
+
+      const logs = await query;
+      res.json({ data: logs, page: pg.page, limit: pg.limit, total: Number(total[0]?.count ?? 0) });
     } catch (err: any) {
       res.status(500).json({ error: err?.message || "Failed to fetch logs" });
     }
   });
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // PORTAL SESSIONS
+  // PORTAL SESSIONS  (spec: /api/automation/portal-session — singular)
   // ═══════════════════════════════════════════════════════════════════════════
 
-  // GET /api/automation/portal-sessions — list for company (no passwords)
-  app.get("/api/automation/portal-sessions", requireAuth, requireRole("super_admin", "company_admin", "hr_admin"), async (req: Request, res: Response) => {
+  // POST /api/automation/portal-session — save credentials
+  app.post("/api/automation/portal-session", requireAuth, adminRoles, async (req: Request, res: Response) => {
     try {
       const user = (req as any).user;
-      const { companyId: qCompany } = req.query as Record<string, string>;
-      const cid = user.role === "super_admin" && qCompany ? qCompany : user.companyId;
-      if (!cid) return res.status(400).json({ error: "companyId required" });
+      const data = parseBody(
+        portalCredentialSchema.extend({ portal: portalSchema }),
+        req.body,
+        res
+      );
+      if (!data) return;
+
+      const cidResult = getCompanyId(user, data.companyId);
+      if ("error" in cidResult) return res.status(cidResult.status).json({ error: cidResult.error });
+
+      await portalSessionService.saveCredentials(cidResult.companyId, data.portal, data.username, data.password);
+      res.json({ ok: true, portal: data.portal, companyId: cidResult.companyId });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || "Failed to save portal credentials" });
+    }
+  });
+
+  // GET /api/automation/portal-session/:portal — check if configured (no password in response)
+  app.get("/api/automation/portal-session/:portal", requireAuth, adminRoles, async (req: Request, res: Response) => {
+    try {
+      const user = (req as any).user;
+      const portalParse = portalSchema.safeParse(req.params.portal);
+      if (!portalParse.success) return res.status(400).json({ error: "portal must be 'epfo' or 'esic'" });
+
+      const { companyId: qCid } = req.query as Record<string, string>;
+      const cidResult = getCompanyId(user, qCid);
+      if ("error" in cidResult) return res.status(cidResult.status).json({ error: cidResult.error });
+
       const rows = await db
         .select({
           id: portalSessions.id,
-          companyId: portalSessions.companyId,
           portal: portalSessions.portal,
           username: portalSessions.username,
           lastLoginAt: portalSessions.lastLoginAt,
           sessionValidUntil: portalSessions.sessionValidUntil,
           isActive: portalSessions.isActive,
           hasCookies: sql<boolean>`(encrypted_cookies IS NOT NULL)`.as("hasCookies"),
-          createdAt: portalSessions.createdAt,
           updatedAt: portalSessions.updatedAt,
         })
         .from(portalSessions)
-        .where(eq(portalSessions.companyId, cid));
-      res.json(rows);
+        .where(and(
+          eq(portalSessions.companyId, cidResult.companyId),
+          eq(portalSessions.portal, portalParse.data),
+          eq(portalSessions.isActive, true)
+        ))
+        .limit(1);
+
+      if (!rows[0]) return res.json({ configured: false });
+      res.json({ configured: true, ...rows[0] });
     } catch (err: any) {
-      res.status(500).json({ error: err?.message || "Failed to fetch portal sessions" });
+      res.status(500).json({ error: err?.message || "Failed to fetch portal session" });
     }
   });
 
-  // PUT /api/automation/portal-sessions/:portal — upsert credentials
-  app.put("/api/automation/portal-sessions/:portal", requireAuth, requireRole("super_admin", "company_admin", "hr_admin"), async (req: Request, res: Response) => {
+  // POST /api/automation/portal-session/test — enqueue login test job
+  // NOTE: this must be registered BEFORE the :portal GET route to avoid collision
+  app.post("/api/automation/portal-session/test", requireAuth, adminRoles, async (req: Request, res: Response) => {
     try {
       const user = (req as any).user;
-      const portal = req.params.portal as "epfo" | "esic";
-      if (!["epfo", "esic"].includes(portal)) {
-        return res.status(400).json({ error: "portal must be 'epfo' or 'esic'" });
-      }
-      const { username, password, companyId: bodyCompany } = req.body as { username?: string; password?: string; companyId?: string };
-      if (!username?.trim() || !password?.trim()) {
-        return res.status(400).json({ error: "username and password are required" });
-      }
-      let cid: string;
-      try { cid = resolveCompanyId(user, bodyCompany); } catch (e: any) { return res.status(e.status).json({ error: e.error }); }
+      const data = parseBody(
+        z.object({ portal: portalSchema, companyId: z.string().min(1).optional() }),
+        req.body,
+        res
+      );
+      if (!data) return;
 
-      await portalSessionService.saveCredentials(cid, portal, username.trim(), password.trim());
-      res.json({ ok: true, portal, companyId: cid });
-    } catch (err: any) {
-      res.status(500).json({ error: err?.message || "Failed to save credentials" });
-    }
-  });
+      const cidResult = getCompanyId(user, data.companyId);
+      if ("error" in cidResult) return res.status(cidResult.status).json({ error: cidResult.error });
 
-  // DELETE /api/automation/portal-sessions/:portal — remove session
-  app.delete("/api/automation/portal-sessions/:portal", requireAuth, requireRole("super_admin", "company_admin"), async (req: Request, res: Response) => {
-    try {
-      const user = (req as any).user;
-      const portal = req.params.portal as "epfo" | "esic";
-      if (!["epfo", "esic"].includes(portal)) {
-        return res.status(400).json({ error: "portal must be 'epfo' or 'esic'" });
-      }
-      const { companyId: qCompany } = req.query as Record<string, string>;
-      let cid: string;
-      try { cid = resolveCompanyId(user, qCompany); } catch (e: any) { return res.status(e.status).json({ error: e.error }); }
-
-      const now = new Date().toISOString();
-      await db
-        .update(portalSessions)
-        .set({ isActive: false, encryptedCookies: null, updatedAt: now })
-        .where(and(eq(portalSessions.companyId, cid), eq(portalSessions.portal, portal)));
-      res.json({ ok: true });
-    } catch (err: any) {
-      res.status(500).json({ error: err?.message || "Failed to remove portal session" });
-    }
-  });
-
-  // POST /api/automation/portal-sessions/:portal/test — enqueue login test
-  app.post("/api/automation/portal-sessions/:portal/test", requireAuth, requireRole("super_admin", "company_admin", "hr_admin"), async (req: Request, res: Response) => {
-    try {
-      const user = (req as any).user;
-      const portal = req.params.portal as "epfo" | "esic";
-      if (!["epfo", "esic"].includes(portal)) {
-        return res.status(400).json({ error: "portal must be 'epfo' or 'esic'" });
-      }
-      const { companyId: bodyCompany } = req.body as { companyId?: string };
-      let cid: string;
-      try { cid = resolveCompanyId(user, bodyCompany); } catch (e: any) { return res.status(e.status).json({ error: e.error }); }
-
-      const jobType = portal === "epfo" ? "epfo_login_test" : "esic_login_test";
+      const jobType = data.portal === "epfo" ? "epfo_login_test" : "esic_login_test";
       const job = await queueService.enqueueJob({
         jobType,
-        companyId: cid,
-        payload: { portal },
+        companyId: cidResult.companyId,
+        payload: { portal: data.portal },
         createdBy: user.id,
         maxRetries: 0,
       });
       res.json({ ok: true, jobId: job.id });
     } catch (err: any) {
-      res.status(500).json({ error: err?.message || "Failed to enqueue login test" });
+      res.status(500).json({ error: err?.message || "Failed to enqueue portal test" });
     }
   });
 
@@ -336,86 +500,98 @@ export function registerEpfoEsicRoutes(
   // ═══════════════════════════════════════════════════════════════════════════
 
   // GET /api/epfo/registrations
-  app.get("/api/epfo/registrations", requireAuth, requireRole("super_admin", "company_admin", "hr_admin"), async (req: Request, res: Response) => {
+  app.get("/api/epfo/registrations", requireAuth, adminRoles, async (req: Request, res: Response) => {
     try {
       const user = (req as any).user;
-      const { companyId: qCompany, status } = req.query as Record<string, string>;
-      const cid = user.role === "super_admin" && qCompany ? qCompany : user.companyId;
+      const q = req.query as Record<string, string>;
+      const pg = parseQuery(paginationSchema, { page: q.page, limit: q.limit }, res);
+      if (!pg) return;
+
+      const cid = user.role === "super_admin" && q.companyId ? q.companyId : user.companyId;
       if (!cid) return res.status(400).json({ error: "companyId required" });
 
-      let q = db
+      const conditions = [eq(epfoRegistrations.companyId, cid)];
+      if (q.status) conditions.push(eq(epfoRegistrations.status, q.status));
+
+      const [{ count }] = await db
+        .select({ count: sql<number>`count(*)` })
+        .from(epfoRegistrations)
+        .where(and(...conditions));
+
+      const rows = await db
         .select({
           reg: epfoRegistrations,
-          employeeName: sql<string>`(select concat(first_name, ' ', last_name) from employees e where e.id = epfo_registrations.employee_id)`,
-          employeeCode: sql<string>`(select employee_code from employees e where e.id = epfo_registrations.employee_id)`,
+          employeeName: sql<string>`(select concat(first_name,' ',last_name) from employees e where e.id=epfo_registrations.employee_id)`,
+          employeeCode: sql<string>`(select employee_code from employees e where e.id=epfo_registrations.employee_id)`,
         })
         .from(epfoRegistrations)
-        .where(status
-          ? and(eq(epfoRegistrations.companyId, cid), eq(epfoRegistrations.status, status))
-          : eq(epfoRegistrations.companyId, cid))
-        .$dynamic();
-      const rows = await q.orderBy(desc(epfoRegistrations.createdAt));
-      res.json(rows.map(r => ({ ...r.reg, employeeName: r.employeeName, employeeCode: r.employeeCode })));
+        .where(and(...conditions))
+        .orderBy(desc(epfoRegistrations.createdAt))
+        .limit(pg.limit)
+        .offset(pageToOffset(pg.page, pg.limit));
+
+      res.json({
+        data: rows.map(r => ({ ...r.reg, employeeName: r.employeeName, employeeCode: r.employeeCode })),
+        page: pg.page, limit: pg.limit, total: Number(count),
+      });
     } catch (err: any) {
       res.status(500).json({ error: err?.message || "Failed to fetch EPFO registrations" });
     }
   });
 
   // GET /api/epfo/registrations/employee/:employeeId
-  app.get("/api/epfo/registrations/employee/:employeeId", requireAuth, requireRole("super_admin", "company_admin", "hr_admin"), async (req: Request, res: Response) => {
+  app.get("/api/epfo/registrations/employee/:employeeId", requireAuth, adminRoles, async (req: Request, res: Response) => {
     try {
       const user = (req as any).user;
-      const rows = await db
-        .select()
-        .from(epfoRegistrations)
+      const [row] = await db
+        .select().from(epfoRegistrations)
         .where(eq(epfoRegistrations.employeeId, req.params.employeeId))
         .limit(1);
-      if (!rows[0]) return res.status(404).json({ error: "No EPFO registration found" });
-      if (isForbidden(user, rows[0].companyId)) return res.status(403).json({ error: "Access denied" });
-      res.json(rows[0]);
+      if (!row) return res.status(404).json({ error: "No EPFO registration found" });
+      if (isForbidden(user, row.companyId)) return res.status(403).json({ error: "Access denied" });
+      res.json(row);
     } catch (err: any) {
       res.status(500).json({ error: err?.message || "Failed to fetch registration" });
     }
   });
 
   // POST /api/epfo/register-employee — enqueue UAN generation
-  app.post("/api/epfo/register-employee", requireAuth, requireRole("super_admin", "company_admin", "hr_admin"), async (req: Request, res: Response) => {
+  app.post("/api/epfo/register-employee", requireAuth, adminRoles, async (req: Request, res: Response) => {
     try {
       const user = (req as any).user;
-      const { employeeId, companyId: bodyCompany } = req.body as { employeeId?: string; companyId?: string };
-      if (!employeeId) return res.status(400).json({ error: "employeeId is required" });
-      let cid: string;
-      try { cid = resolveCompanyId(user, bodyCompany); } catch (e: any) { return res.status(e.status).json({ error: e.error }); }
+      const data = parseBody(registerEmployeeSchema, req.body, res);
+      if (!data) return;
 
-      // Check employee belongs to this company
-      const [emp] = await db.select().from(employees).where(eq(employees.id, employeeId)).limit(1);
+      const cidResult = getCompanyId(user, data.companyId);
+      if ("error" in cidResult) return res.status(cidResult.status).json({ error: cidResult.error });
+      const { companyId: cid } = cidResult;
+
+      const [emp] = await db.select().from(employees).where(eq(employees.id, data.employeeId)).limit(1);
       if (!emp) return res.status(404).json({ error: "Employee not found" });
       if (emp.companyId !== cid) return res.status(403).json({ error: "Employee does not belong to this company" });
 
-      // Upsert registration record
       const now = new Date().toISOString();
-      const existing = await db.select().from(epfoRegistrations).where(
-        and(eq(epfoRegistrations.companyId, cid), eq(epfoRegistrations.employeeId, employeeId))
+      const [existing] = await db.select().from(epfoRegistrations).where(
+        and(eq(epfoRegistrations.companyId, cid), eq(epfoRegistrations.employeeId, data.employeeId))
       ).limit(1);
 
       const job = await queueService.enqueueJob({
         jobType: "epfo_uan_generate",
         companyId: cid,
-        payload: { employeeId },
+        payload: { employeeId: data.employeeId },
         createdBy: user.id,
       });
 
-      if (existing.length > 0) {
+      if (existing) {
         await db.update(epfoRegistrations)
           .set({ status: "pending", jobId: job.id, errorMessage: null, updatedAt: now })
-          .where(eq(epfoRegistrations.id, existing[0].id));
-        return res.json({ ok: true, jobId: job.id, registrationId: existing[0].id });
+          .where(eq(epfoRegistrations.id, existing.id));
+        return res.json({ ok: true, jobId: job.id, registrationId: existing.id });
       }
 
       const id = randomUUID();
       await db.insert(epfoRegistrations).values({
-        id, companyId: cid, employeeId,
-        pfCode: emp.uan ? undefined : undefined,
+        id, companyId: cid, employeeId: data.employeeId,
         status: "pending", jobId: job.id,
         createdBy: user.id, createdAt: now, updatedAt: now,
       });
@@ -425,26 +601,25 @@ export function registerEpfoEsicRoutes(
     }
   });
 
-  // POST /api/epfo/bulk-register — enqueue bulk UAN generation
-  app.post("/api/epfo/bulk-register", requireAuth, requireRole("super_admin", "company_admin", "hr_admin"), async (req: Request, res: Response) => {
+  // POST /api/epfo/bulk-register
+  app.post("/api/epfo/bulk-register", requireAuth, adminRoles, async (req: Request, res: Response) => {
     try {
       const user = (req as any).user;
-      const { employeeIds, companyId: bodyCompany } = req.body as { employeeIds?: string[]; companyId?: string };
-      if (!Array.isArray(employeeIds) || employeeIds.length === 0) {
-        return res.status(400).json({ error: "employeeIds array is required" });
-      }
-      let cid: string;
-      try { cid = resolveCompanyId(user, bodyCompany); } catch (e: any) { return res.status(e.status).json({ error: e.error }); }
+      const data = parseBody(bulkRegisterSchema, req.body, res);
+      if (!data) return;
+
+      const cidResult = getCompanyId(user, data.companyId);
+      if ("error" in cidResult) return res.status(cidResult.status).json({ error: cidResult.error });
 
       const job = await queueService.enqueueJob({
         jobType: "epfo_bulk_register",
-        companyId: cid,
-        payload: { employeeIds },
+        companyId: cidResult.companyId,
+        payload: { employeeIds: data.employeeIds },
         createdBy: user.id,
       });
-      res.json({ ok: true, jobId: job.id, count: employeeIds.length });
+      res.json({ ok: true, jobId: job.id, count: data.employeeIds.length });
     } catch (err: any) {
-      res.status(500).json({ error: err?.message || "Failed to enqueue bulk registration" });
+      res.status(500).json({ error: err?.message || "Failed to enqueue bulk EPFO registration" });
     }
   });
 
@@ -453,12 +628,11 @@ export function registerEpfoEsicRoutes(
   // ═══════════════════════════════════════════════════════════════════════════
 
   // GET /api/epfo/kyc/:employeeId
-  app.get("/api/epfo/kyc/:employeeId", requireAuth, requireRole("super_admin", "company_admin", "hr_admin"), async (req: Request, res: Response) => {
+  app.get("/api/epfo/kyc/:employeeId", requireAuth, adminRoles, async (req: Request, res: Response) => {
     try {
       const user = (req as any).user;
       const rows = await db
-        .select()
-        .from(epfoKycRecords)
+        .select().from(epfoKycRecords)
         .where(eq(epfoKycRecords.employeeId, req.params.employeeId))
         .orderBy(desc(epfoKycRecords.createdAt));
       if (rows.length > 0 && isForbidden(user, rows[0].companyId)) {
@@ -470,25 +644,21 @@ export function registerEpfoEsicRoutes(
     }
   });
 
-  // POST /api/epfo/kyc — enqueue KYC update (aadhaar / pan / bank)
-  app.post("/api/epfo/kyc", requireAuth, requireRole("super_admin", "company_admin", "hr_admin"), async (req: Request, res: Response) => {
+  // POST /api/epfo/update-kyc — enqueue KYC update
+  app.post("/api/epfo/update-kyc", requireAuth, adminRoles, async (req: Request, res: Response) => {
     try {
       const user = (req as any).user;
-      const { employeeId, kycType, documentNumber, companyId: bodyCompany } =
-        req.body as { employeeId?: string; kycType?: string; documentNumber?: string; companyId?: string };
+      const data = parseBody(updateKycSchema, req.body, res);
+      if (!data) return;
 
-      if (!employeeId) return res.status(400).json({ error: "employeeId is required" });
-      if (!kycType || !["aadhaar", "pan", "bank"].includes(kycType)) {
-        return res.status(400).json({ error: "kycType must be aadhaar, pan, or bank" });
-      }
-      let cid: string;
-      try { cid = resolveCompanyId(user, bodyCompany); } catch (e: any) { return res.status(e.status).json({ error: e.error }); }
+      const cidResult = getCompanyId(user, data.companyId);
+      if ("error" in cidResult) return res.status(cidResult.status).json({ error: cidResult.error });
+      const { companyId: cid } = cidResult;
 
-      // Get UAN from EPFO registration
       const [reg] = await db
         .select({ uan: epfoRegistrations.uan })
         .from(epfoRegistrations)
-        .where(and(eq(epfoRegistrations.companyId, cid), eq(epfoRegistrations.employeeId, employeeId)))
+        .where(and(eq(epfoRegistrations.companyId, cid), eq(epfoRegistrations.employeeId, data.employeeId)))
         .limit(1);
 
       const jobTypeMap: Record<string, string> = {
@@ -496,37 +666,35 @@ export function registerEpfoEsicRoutes(
         pan: "epfo_kyc_pan",
         bank: "epfo_kyc_bank",
       };
+
       const job = await queueService.enqueueJob({
-        jobType: jobTypeMap[kycType],
+        jobType: jobTypeMap[data.kycType] as any,
         companyId: cid,
-        payload: { employeeId, kycType, documentNumber, uan: reg?.uan ?? null },
+        payload: { employeeId: data.employeeId, kycType: data.kycType, documentNumber: data.documentNumber, uan: reg?.uan ?? null },
         createdBy: user.id,
       });
 
-      // Upsert KYC record
       const now = new Date().toISOString();
-      const existingKyc = await db
-        .select()
-        .from(epfoKycRecords)
-        .where(and(
+      const [existingKyc] = await db.select().from(epfoKycRecords).where(
+        and(
           eq(epfoKycRecords.companyId, cid),
-          eq(epfoKycRecords.employeeId, employeeId),
-          eq(epfoKycRecords.kycType, kycType)
-        ))
-        .limit(1);
+          eq(epfoKycRecords.employeeId, data.employeeId),
+          eq(epfoKycRecords.kycType, data.kycType)
+        )
+      ).limit(1);
 
-      if (existingKyc.length > 0) {
+      if (existingKyc) {
         await db.update(epfoKycRecords)
-          .set({ status: "pending", jobId: job.id, documentNumber: documentNumber ?? null, errorMessage: null, updatedAt: now })
-          .where(eq(epfoKycRecords.id, existingKyc[0].id));
-        return res.json({ ok: true, jobId: job.id, kycRecordId: existingKyc[0].id });
+          .set({ status: "pending", jobId: job.id, documentNumber: data.documentNumber ?? null, errorMessage: null, updatedAt: now })
+          .where(eq(epfoKycRecords.id, existingKyc.id));
+        return res.json({ ok: true, jobId: job.id, kycRecordId: existingKyc.id });
       }
 
       const kycId = randomUUID();
       await db.insert(epfoKycRecords).values({
-        id: kycId, companyId: cid, employeeId,
-        uan: reg?.uan ?? null, kycType, status: "pending",
-        documentNumber: documentNumber ?? null,
+        id: kycId, companyId: cid, employeeId: data.employeeId,
+        uan: reg?.uan ?? null, kycType: data.kycType, status: "pending",
+        documentNumber: data.documentNumber ?? null,
         jobId: job.id, createdBy: user.id, createdAt: now, updatedAt: now,
       });
       res.status(201).json({ ok: true, jobId: job.id, kycRecordId: kycId });
@@ -536,145 +704,195 @@ export function registerEpfoEsicRoutes(
   });
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // EPFO — ECR RETURNS
+  // EPFO — ECR / CHALLANS / PASSBOOK / EXIT
   // ═══════════════════════════════════════════════════════════════════════════
 
-  // GET /api/epfo/ecr-returns
-  app.get("/api/epfo/ecr-returns", requireAuth, requireRole("super_admin", "company_admin", "hr_admin"), async (req: Request, res: Response) => {
+  // GET /api/epfo/ecr-returns (list)
+  app.get("/api/epfo/ecr-returns", requireAuth, adminRoles, async (req: Request, res: Response) => {
     try {
       const user = (req as any).user;
-      const { companyId: qCompany, year } = req.query as Record<string, string>;
-      const cid = user.role === "super_admin" && qCompany ? qCompany : user.companyId;
+      const q = req.query as Record<string, string>;
+      const pg = parseQuery(paginationSchema, { page: q.page, limit: q.limit }, res);
+      if (!pg) return;
+
+      const cid = user.role === "super_admin" && q.companyId ? q.companyId : user.companyId;
       if (!cid) return res.status(400).json({ error: "companyId required" });
 
-      const rows = await db
-        .select()
-        .from(epfoEcrReturns)
-        .where(year
-          ? and(eq(epfoEcrReturns.companyId, cid), eq(epfoEcrReturns.year, Number(year)))
-          : eq(epfoEcrReturns.companyId, cid))
-        .orderBy(desc(epfoEcrReturns.year), sql`
-          CASE month
-            WHEN 'January' THEN 1 WHEN 'February' THEN 2 WHEN 'March' THEN 3
-            WHEN 'April' THEN 4 WHEN 'May' THEN 5 WHEN 'June' THEN 6
-            WHEN 'July' THEN 7 WHEN 'August' THEN 8 WHEN 'September' THEN 9
-            WHEN 'October' THEN 10 WHEN 'November' THEN 11 WHEN 'December' THEN 12
-          END DESC
-        `);
-      res.json(rows);
+      const conditions = [eq(epfoEcrReturns.companyId, cid)];
+      if (q.status) conditions.push(eq(epfoEcrReturns.status, q.status));
+      if (q.year) conditions.push(eq(epfoEcrReturns.year, Number(q.year)));
+
+      const [{ count }] = await db
+        .select({ count: sql<number>`count(*)` })
+        .from(epfoEcrReturns).where(and(...conditions));
+
+      const rows = await db.select().from(epfoEcrReturns)
+        .where(and(...conditions))
+        .orderBy(desc(epfoEcrReturns.year), monthSortSql())
+        .limit(pg.limit).offset(pageToOffset(pg.page, pg.limit));
+
+      res.json({ data: rows, page: pg.page, limit: pg.limit, total: Number(count) });
     } catch (err: any) {
       res.status(500).json({ error: err?.message || "Failed to fetch ECR returns" });
     }
   });
 
-  // POST /api/epfo/ecr-returns — create ECR return record + enqueue filing
-  app.post("/api/epfo/ecr-returns", requireAuth, requireRole("super_admin", "company_admin", "hr_admin"), async (req: Request, res: Response) => {
+  // POST /api/epfo/file-ecr — create ECR return record + enqueue filing
+  app.post("/api/epfo/file-ecr", requireAuth, adminRoles, async (req: Request, res: Response) => {
     try {
       const user = (req as any).user;
-      const { month, year, companyId: bodyCompany, bulk = false } =
-        req.body as { month?: string; year?: number; companyId?: string; bulk?: boolean };
+      const data = parseBody(fileEcrSchema, req.body, res);
+      if (!data) return;
 
-      if (!month || !year) return res.status(400).json({ error: "month and year are required" });
-      if (!MONTH_NAMES.map(m => m.toLowerCase()).includes(month.toLowerCase())) {
-        return res.status(400).json({ error: "Invalid month name" });
-      }
-      let cid: string;
-      try { cid = resolveCompanyId(user, bodyCompany); } catch (e: any) { return res.status(e.status).json({ error: e.error }); }
+      const cidResult = getCompanyId(user, data.companyId);
+      if ("error" in cidResult) return res.status(cidResult.status).json({ error: cidResult.error });
+      const { companyId: cid } = cidResult;
 
-      // Check for duplicate
-      const existing = await db
-        .select()
-        .from(epfoEcrReturns)
-        .where(and(
-          eq(epfoEcrReturns.companyId, cid),
-          eq(epfoEcrReturns.month, month),
-          eq(epfoEcrReturns.year, year)
-        ))
-        .limit(1);
+      const [existing] = await db.select().from(epfoEcrReturns).where(
+        and(eq(epfoEcrReturns.companyId, cid), eq(epfoEcrReturns.month, data.month), eq(epfoEcrReturns.year, data.year))
+      ).limit(1);
 
-      if (existing.length > 0 && existing[0].status === "filed") {
+      if (existing?.status === "filed") {
         return res.status(409).json({ error: "ECR for this month/year is already filed" });
       }
 
-      // Compute aggregates from payroll
+      // Aggregate PF contributions from payroll
       const payrollRows = await db
-        .select({
-          pfEmployee: payroll.pfEmployee,
-          pfEmployer: sql<number>`0`,
-          basicSalary: payroll.basicSalary,
-        })
+        .select({ basicSalary: payroll.basicSalary, pfEmployee: payroll.pfEmployee })
         .from(payroll)
-        .where(and(
-          eq(payroll.companyId, cid),
-          eq(payroll.month, month),
-          eq(payroll.year, year)
-        ));
+        .where(and(eq(payroll.companyId, cid), eq(payroll.month, data.month), eq(payroll.year, data.year)));
 
       const totalEmployees = payrollRows.length;
       const totalPfWages = payrollRows.reduce((s, r) => s + (r.basicSalary || 0), 0);
       const totalEmployeeContribution = payrollRows.reduce((s, r) => s + (r.pfEmployee || 0), 0);
       const totalEmployerContribution = Math.round(totalPfWages * 0.12);
       const totalAmount = totalEmployeeContribution + totalEmployerContribution;
-      const dueDate = calcDueDate(month, year, "epfo");
+      const dueDate = calcDueDate(data.month, data.year, "epfo");
 
-      const jobType = bulk ? "epfo_bulk_ecr" : "epfo_ecr_file";
       const job = await queueService.enqueueJob({
-        jobType,
+        jobType: data.bulk ? "epfo_bulk_ecr" : "epfo_ecr_file",
         companyId: cid,
-        payload: { month, year, totalEmployees, totalAmount },
+        payload: { month: data.month, year: data.year, totalEmployees, totalAmount },
         createdBy: user.id,
       });
 
       const now = new Date().toISOString();
       let returnId: string;
-      if (existing.length > 0) {
+      if (existing) {
         await db.update(epfoEcrReturns)
-          .set({
-            status: "pending", jobId: job.id,
-            totalEmployees, totalPfWages, totalEmployeeContribution,
-            totalEmployerContribution, totalAmount, dueDate,
-            errorMessage: null, updatedAt: now,
-          })
-          .where(eq(epfoEcrReturns.id, existing[0].id));
-        returnId = existing[0].id;
+          .set({ status: "pending", jobId: job.id, totalEmployees, totalPfWages, totalEmployeeContribution, totalEmployerContribution, totalAmount, dueDate, errorMessage: null, updatedAt: now })
+          .where(eq(epfoEcrReturns.id, existing.id));
+        returnId = existing.id;
       } else {
         returnId = randomUUID();
         await db.insert(epfoEcrReturns).values({
-          id: returnId, companyId: cid, month, year: Number(year),
-          totalEmployees, totalPfWages, totalEmployeeContribution,
-          totalEmployerContribution, totalAmount,
+          id: returnId, companyId: cid, month: data.month, year: data.year,
+          totalEmployees, totalPfWages, totalEmployeeContribution, totalEmployerContribution, totalAmount,
           status: "pending", jobId: job.id, dueDate,
           createdBy: user.id, createdAt: now, updatedAt: now,
         });
       }
       res.status(201).json({ ok: true, jobId: job.id, returnId });
     } catch (err: any) {
-      res.status(500).json({ error: err?.message || "Failed to create ECR return" });
+      res.status(500).json({ error: err?.message || "Failed to file ECR" });
     }
   });
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // EPFO — CHALLANS
-  // ═══════════════════════════════════════════════════════════════════════════
-
   // GET /api/epfo/challans
-  app.get("/api/epfo/challans", requireAuth, requireRole("super_admin", "company_admin", "hr_admin"), async (req: Request, res: Response) => {
+  app.get("/api/epfo/challans", requireAuth, adminRoles, async (req: Request, res: Response) => {
     try {
       const user = (req as any).user;
-      const { companyId: qCompany, year } = req.query as Record<string, string>;
-      const cid = user.role === "super_admin" && qCompany ? qCompany : user.companyId;
+      const q = req.query as Record<string, string>;
+      const pg = parseQuery(paginationSchema, { page: q.page, limit: q.limit }, res);
+      if (!pg) return;
+
+      const cid = user.role === "super_admin" && q.companyId ? q.companyId : user.companyId;
       if (!cid) return res.status(400).json({ error: "companyId required" });
 
-      const rows = await db
-        .select()
-        .from(challans)
-        .where(year
-          ? and(eq(challans.companyId, cid), eq(challans.portal, "epfo"), eq(challans.year, Number(year)))
-          : and(eq(challans.companyId, cid), eq(challans.portal, "epfo")))
-        .orderBy(desc(challans.year), desc(challans.createdAt));
-      res.json(rows);
+      const conditions = [eq(challans.companyId, cid), eq(challans.portal, "epfo")];
+      if (q.status) conditions.push(eq(challans.status, q.status));
+      if (q.year) conditions.push(eq(challans.year, Number(q.year)));
+
+      const [{ count }] = await db.select({ count: sql<number>`count(*)` }).from(challans).where(and(...conditions));
+      const rows = await db.select().from(challans).where(and(...conditions))
+        .orderBy(desc(challans.year), desc(challans.createdAt))
+        .limit(pg.limit).offset(pageToOffset(pg.page, pg.limit));
+
+      res.json({ data: rows, page: pg.page, limit: pg.limit, total: Number(count) });
     } catch (err: any) {
-      res.status(500).json({ error: err?.message || "Failed to fetch challans" });
+      res.status(500).json({ error: err?.message || "Failed to fetch EPFO challans" });
+    }
+  });
+
+  // POST /api/epfo/sync-challans — enqueue challan download/sync
+  app.post("/api/epfo/sync-challans", requireAuth, adminRoles, async (req: Request, res: Response) => {
+    try {
+      const user = (req as any).user;
+      const data = parseBody(syncChallansSchema, req.body, res);
+      if (!data) return;
+
+      const cidResult = getCompanyId(user, data.companyId);
+      if ("error" in cidResult) return res.status(cidResult.status).json({ error: cidResult.error });
+
+      const job = await queueService.enqueueJob({
+        jobType: "epfo_challan_download",
+        companyId: cidResult.companyId,
+        payload: { month: data.month, year: data.year },
+        createdBy: user.id,
+      });
+      res.json({ ok: true, jobId: job.id });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || "Failed to enqueue challan sync" });
+    }
+  });
+
+  // GET /api/epfo/passbook/:uan — enqueue passbook status check
+  app.get("/api/epfo/passbook/:uan", requireAuth, adminRoles, async (req: Request, res: Response) => {
+    try {
+      const user = (req as any).user;
+      const { uan } = req.params;
+      if (!uan) return res.status(400).json({ error: "UAN is required" });
+
+      const { companyId: qCid } = req.query as Record<string, string>;
+      const cidResult = getCompanyId(user, qCid);
+      if ("error" in cidResult) return res.status(cidResult.status).json({ error: cidResult.error });
+
+      const job = await queueService.enqueueJob({
+        jobType: "epfo_passbook_status",
+        companyId: cidResult.companyId,
+        payload: { uan },
+        createdBy: user.id,
+        maxRetries: 1,
+      });
+      res.json({ ok: true, jobId: job.id, uan });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || "Failed to enqueue passbook check" });
+    }
+  });
+
+  // POST /api/epfo/exit-management — enqueue EPFO exit processing
+  app.post("/api/epfo/exit-management", requireAuth, adminRoles, async (req: Request, res: Response) => {
+    try {
+      const user = (req as any).user;
+      const data = parseBody(exitManagementSchema, req.body, res);
+      if (!data) return;
+
+      const cidResult = getCompanyId(user, data.companyId);
+      if ("error" in cidResult) return res.status(cidResult.status).json({ error: cidResult.error });
+
+      const [emp] = await db.select().from(employees).where(eq(employees.id, data.employeeId)).limit(1);
+      if (!emp) return res.status(404).json({ error: "Employee not found" });
+      if (emp.companyId !== cidResult.companyId) return res.status(403).json({ error: "Employee does not belong to this company" });
+
+      const job = await queueService.enqueueJob({
+        jobType: "epfo_exit_management",
+        companyId: cidResult.companyId,
+        payload: { employeeId: data.employeeId, exitDate: data.exitDate, exitType: data.exitType, uan: emp.uan },
+        createdBy: user.id,
+      });
+      res.json({ ok: true, jobId: job.id });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || "Failed to enqueue exit management" });
     }
   });
 
@@ -683,83 +901,96 @@ export function registerEpfoEsicRoutes(
   // ═══════════════════════════════════════════════════════════════════════════
 
   // GET /api/esic/registrations
-  app.get("/api/esic/registrations", requireAuth, requireRole("super_admin", "company_admin", "hr_admin"), async (req: Request, res: Response) => {
+  app.get("/api/esic/registrations", requireAuth, adminRoles, async (req: Request, res: Response) => {
     try {
       const user = (req as any).user;
-      const { companyId: qCompany, status } = req.query as Record<string, string>;
-      const cid = user.role === "super_admin" && qCompany ? qCompany : user.companyId;
+      const q = req.query as Record<string, string>;
+      const pg = parseQuery(paginationSchema, { page: q.page, limit: q.limit }, res);
+      if (!pg) return;
+
+      const cid = user.role === "super_admin" && q.companyId ? q.companyId : user.companyId;
       if (!cid) return res.status(400).json({ error: "companyId required" });
+
+      const conditions = [eq(esicRegistrations.companyId, cid)];
+      if (q.status) conditions.push(eq(esicRegistrations.status, q.status));
+
+      const [{ count }] = await db
+        .select({ count: sql<number>`count(*)` })
+        .from(esicRegistrations).where(and(...conditions));
 
       const rows = await db
         .select({
           reg: esicRegistrations,
-          employeeName: sql<string>`(select concat(first_name, ' ', last_name) from employees e where e.id = esic_registrations.employee_id)`,
-          employeeCode: sql<string>`(select employee_code from employees e where e.id = esic_registrations.employee_id)`,
+          employeeName: sql<string>`(select concat(first_name,' ',last_name) from employees e where e.id=esic_registrations.employee_id)`,
+          employeeCode: sql<string>`(select employee_code from employees e where e.id=esic_registrations.employee_id)`,
         })
         .from(esicRegistrations)
-        .where(status
-          ? and(eq(esicRegistrations.companyId, cid), eq(esicRegistrations.status, status))
-          : eq(esicRegistrations.companyId, cid))
-        .orderBy(desc(esicRegistrations.createdAt));
-      res.json(rows.map(r => ({ ...r.reg, employeeName: r.employeeName, employeeCode: r.employeeCode })));
+        .where(and(...conditions))
+        .orderBy(desc(esicRegistrations.createdAt))
+        .limit(pg.limit).offset(pageToOffset(pg.page, pg.limit));
+
+      res.json({
+        data: rows.map(r => ({ ...r.reg, employeeName: r.employeeName, employeeCode: r.employeeCode })),
+        page: pg.page, limit: pg.limit, total: Number(count),
+      });
     } catch (err: any) {
       res.status(500).json({ error: err?.message || "Failed to fetch ESIC registrations" });
     }
   });
 
   // GET /api/esic/registrations/employee/:employeeId
-  app.get("/api/esic/registrations/employee/:employeeId", requireAuth, requireRole("super_admin", "company_admin", "hr_admin"), async (req: Request, res: Response) => {
+  app.get("/api/esic/registrations/employee/:employeeId", requireAuth, adminRoles, async (req: Request, res: Response) => {
     try {
       const user = (req as any).user;
-      const rows = await db
-        .select()
-        .from(esicRegistrations)
-        .where(eq(esicRegistrations.employeeId, req.params.employeeId))
-        .limit(1);
-      if (!rows[0]) return res.status(404).json({ error: "No ESIC registration found" });
-      if (isForbidden(user, rows[0].companyId)) return res.status(403).json({ error: "Access denied" });
-      res.json(rows[0]);
+      const [row] = await db.select().from(esicRegistrations)
+        .where(eq(esicRegistrations.employeeId, req.params.employeeId)).limit(1);
+      if (!row) return res.status(404).json({ error: "No ESIC registration found" });
+      if (isForbidden(user, row.companyId)) return res.status(403).json({ error: "Access denied" });
+      res.json(row);
     } catch (err: any) {
       res.status(500).json({ error: err?.message || "Failed to fetch ESIC registration" });
     }
   });
 
-  // POST /api/esic/register-employee — enqueue IP number generation
-  app.post("/api/esic/register-employee", requireAuth, requireRole("super_admin", "company_admin", "hr_admin"), async (req: Request, res: Response) => {
+  // POST /api/esic/register-employee
+  app.post("/api/esic/register-employee", requireAuth, adminRoles, async (req: Request, res: Response) => {
     try {
       const user = (req as any).user;
-      const { employeeId, companyId: bodyCompany } = req.body as { employeeId?: string; companyId?: string };
-      if (!employeeId) return res.status(400).json({ error: "employeeId is required" });
-      let cid: string;
-      try { cid = resolveCompanyId(user, bodyCompany); } catch (e: any) { return res.status(e.status).json({ error: e.error }); }
+      const data = parseBody(registerEmployeeSchema, req.body, res);
+      if (!data) return;
 
-      const [emp] = await db.select().from(employees).where(eq(employees.id, employeeId)).limit(1);
+      const cidResult = getCompanyId(user, data.companyId);
+      if ("error" in cidResult) return res.status(cidResult.status).json({ error: cidResult.error });
+      const { companyId: cid } = cidResult;
+
+      const [emp] = await db.select().from(employees).where(eq(employees.id, data.employeeId)).limit(1);
       if (!emp) return res.status(404).json({ error: "Employee not found" });
       if (emp.companyId !== cid) return res.status(403).json({ error: "Employee does not belong to this company" });
 
       const now = new Date().toISOString();
-      const existing = await db.select().from(esicRegistrations).where(
-        and(eq(esicRegistrations.companyId, cid), eq(esicRegistrations.employeeId, employeeId))
+      const [existing] = await db.select().from(esicRegistrations).where(
+        and(eq(esicRegistrations.companyId, cid), eq(esicRegistrations.employeeId, data.employeeId))
       ).limit(1);
 
       const job = await queueService.enqueueJob({
         jobType: "esic_ip_generate",
         companyId: cid,
-        payload: { employeeId },
+        payload: { employeeId: data.employeeId },
         createdBy: user.id,
       });
 
-      if (existing.length > 0) {
+      if (existing) {
         await db.update(esicRegistrations)
           .set({ status: "pending", jobId: job.id, errorMessage: null, updatedAt: now })
-          .where(eq(esicRegistrations.id, existing[0].id));
-        return res.json({ ok: true, jobId: job.id, registrationId: existing[0].id });
+          .where(eq(esicRegistrations.id, existing.id));
+        return res.json({ ok: true, jobId: job.id, registrationId: existing.id });
       }
 
       const id = randomUUID();
       await db.insert(esicRegistrations).values({
-        id, companyId: cid, employeeId, status: "pending",
-        jobId: job.id, createdBy: user.id, createdAt: now, updatedAt: now,
+        id, companyId: cid, employeeId: data.employeeId,
+        status: "pending", jobId: job.id,
+        createdBy: user.id, createdAt: now, updatedAt: now,
       });
       res.status(201).json({ ok: true, jobId: job.id, registrationId: id });
     } catch (err: any) {
@@ -767,172 +998,237 @@ export function registerEpfoEsicRoutes(
     }
   });
 
-  // POST /api/esic/bulk-register — enqueue bulk IP generation
-  app.post("/api/esic/bulk-register", requireAuth, requireRole("super_admin", "company_admin", "hr_admin"), async (req: Request, res: Response) => {
+  // POST /api/esic/bulk-register
+  app.post("/api/esic/bulk-register", requireAuth, adminRoles, async (req: Request, res: Response) => {
     try {
       const user = (req as any).user;
-      const { employeeIds, companyId: bodyCompany } = req.body as { employeeIds?: string[]; companyId?: string };
-      if (!Array.isArray(employeeIds) || employeeIds.length === 0) {
-        return res.status(400).json({ error: "employeeIds array is required" });
-      }
-      let cid: string;
-      try { cid = resolveCompanyId(user, bodyCompany); } catch (e: any) { return res.status(e.status).json({ error: e.error }); }
+      const data = parseBody(bulkRegisterSchema, req.body, res);
+      if (!data) return;
+
+      const cidResult = getCompanyId(user, data.companyId);
+      if ("error" in cidResult) return res.status(cidResult.status).json({ error: cidResult.error });
 
       const job = await queueService.enqueueJob({
         jobType: "esic_bulk_register",
-        companyId: cid,
-        payload: { employeeIds },
+        companyId: cidResult.companyId,
+        payload: { employeeIds: data.employeeIds },
         createdBy: user.id,
       });
-      res.json({ ok: true, jobId: job.id, count: employeeIds.length });
+      res.json({ ok: true, jobId: job.id, count: data.employeeIds.length });
     } catch (err: any) {
       res.status(500).json({ error: err?.message || "Failed to enqueue ESIC bulk registration" });
     }
   });
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // ESIC — MONTHLY RETURNS
+  // ESIC — CONTRIBUTIONS / MONTHLY RETURNS / CHALLANS / SEARCH
   // ═══════════════════════════════════════════════════════════════════════════
 
-  // GET /api/esic/monthly-returns
-  app.get("/api/esic/monthly-returns", requireAuth, requireRole("super_admin", "company_admin", "hr_admin"), async (req: Request, res: Response) => {
+  // GET /api/esic/contributions — per-employee ESIC contribution data from payroll
+  app.get("/api/esic/contributions", requireAuth, adminRoles, async (req: Request, res: Response) => {
     try {
       const user = (req as any).user;
-      const { companyId: qCompany, year } = req.query as Record<string, string>;
-      const cid = user.role === "super_admin" && qCompany ? qCompany : user.companyId;
+      const q = req.query as Record<string, string>;
+      const pg = parseQuery(paginationSchema, { page: q.page, limit: q.limit }, res);
+      if (!pg) return;
+
+      const cid = user.role === "super_admin" && q.companyId ? q.companyId : user.companyId;
       if (!cid) return res.status(400).json({ error: "companyId required" });
 
+      const conditions = [eq(payroll.companyId, cid)];
+      if (q.month) conditions.push(eq(payroll.month, q.month));
+      if (q.year) conditions.push(eq(payroll.year, Number(q.year)));
+
+      const [{ count }] = await db.select({ count: sql<number>`count(*)` }).from(payroll).where(and(...conditions));
+
       const rows = await db
-        .select()
-        .from(esicMonthlyReturns)
-        .where(year
-          ? and(eq(esicMonthlyReturns.companyId, cid), eq(esicMonthlyReturns.year, Number(year)))
-          : eq(esicMonthlyReturns.companyId, cid))
-        .orderBy(desc(esicMonthlyReturns.year), sql`
-          CASE month
-            WHEN 'January' THEN 1 WHEN 'February' THEN 2 WHEN 'March' THEN 3
-            WHEN 'April' THEN 4 WHEN 'May' THEN 5 WHEN 'June' THEN 6
-            WHEN 'July' THEN 7 WHEN 'August' THEN 8 WHEN 'September' THEN 9
-            WHEN 'October' THEN 10 WHEN 'November' THEN 11 WHEN 'December' THEN 12
-          END DESC
-        `);
-      res.json(rows);
+        .select({
+          employeeId: payroll.employeeId,
+          employeeCode: employees.employeeCode,
+          firstName: employees.firstName,
+          lastName: employees.lastName,
+          esiNumber: employees.esiNumber,
+          month: payroll.month,
+          year: payroll.year,
+          esicWages: payroll.basicSalary,
+          employeeEsic: payroll.esi,
+          payrollStatus: payroll.status,
+        })
+        .from(payroll)
+        .innerJoin(employees, eq(employees.id, payroll.employeeId))
+        .where(and(...conditions))
+        .orderBy(desc(payroll.year), monthSortSql(), employees.employeeCode)
+        .limit(pg.limit).offset(pageToOffset(pg.page, pg.limit));
+
+      res.json({ data: rows, page: pg.page, limit: pg.limit, total: Number(count) });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || "Failed to fetch ESIC contributions" });
+    }
+  });
+
+  // GET /api/esic/monthly-returns (list)
+  app.get("/api/esic/monthly-returns", requireAuth, adminRoles, async (req: Request, res: Response) => {
+    try {
+      const user = (req as any).user;
+      const q = req.query as Record<string, string>;
+      const pg = parseQuery(paginationSchema, { page: q.page, limit: q.limit }, res);
+      if (!pg) return;
+
+      const cid = user.role === "super_admin" && q.companyId ? q.companyId : user.companyId;
+      if (!cid) return res.status(400).json({ error: "companyId required" });
+
+      const conditions = [eq(esicMonthlyReturns.companyId, cid)];
+      if (q.status) conditions.push(eq(esicMonthlyReturns.status, q.status));
+      if (q.year) conditions.push(eq(esicMonthlyReturns.year, Number(q.year)));
+
+      const [{ count }] = await db.select({ count: sql<number>`count(*)` }).from(esicMonthlyReturns).where(and(...conditions));
+      const rows = await db.select().from(esicMonthlyReturns)
+        .where(and(...conditions))
+        .orderBy(desc(esicMonthlyReturns.year), monthSortSql())
+        .limit(pg.limit).offset(pageToOffset(pg.page, pg.limit));
+
+      res.json({ data: rows, page: pg.page, limit: pg.limit, total: Number(count) });
     } catch (err: any) {
       res.status(500).json({ error: err?.message || "Failed to fetch ESIC returns" });
     }
   });
 
-  // POST /api/esic/monthly-returns — create ESIC monthly return + enqueue filing
-  app.post("/api/esic/monthly-returns", requireAuth, requireRole("super_admin", "company_admin", "hr_admin"), async (req: Request, res: Response) => {
+  // POST /api/esic/file-monthly — create ESIC monthly return + enqueue filing
+  app.post("/api/esic/file-monthly", requireAuth, adminRoles, async (req: Request, res: Response) => {
     try {
       const user = (req as any).user;
-      const { month, year, companyId: bodyCompany } =
-        req.body as { month?: string; year?: number; companyId?: string };
+      const data = parseBody(fileMonthlySSchema, req.body, res);
+      if (!data) return;
 
-      if (!month || !year) return res.status(400).json({ error: "month and year are required" });
-      if (!MONTH_NAMES.map(m => m.toLowerCase()).includes(month.toLowerCase())) {
-        return res.status(400).json({ error: "Invalid month name" });
-      }
-      let cid: string;
-      try { cid = resolveCompanyId(user, bodyCompany); } catch (e: any) { return res.status(e.status).json({ error: e.error }); }
+      const cidResult = getCompanyId(user, data.companyId);
+      if ("error" in cidResult) return res.status(cidResult.status).json({ error: cidResult.error });
+      const { companyId: cid } = cidResult;
 
-      const existing = await db
-        .select()
-        .from(esicMonthlyReturns)
-        .where(and(
-          eq(esicMonthlyReturns.companyId, cid),
-          eq(esicMonthlyReturns.month, month),
-          eq(esicMonthlyReturns.year, Number(year))
-        ))
-        .limit(1);
+      const [existing] = await db.select().from(esicMonthlyReturns).where(
+        and(eq(esicMonthlyReturns.companyId, cid), eq(esicMonthlyReturns.month, data.month), eq(esicMonthlyReturns.year, data.year))
+      ).limit(1);
 
-      if (existing.length > 0 && existing[0].status === "filed") {
+      if (existing?.status === "filed") {
         return res.status(409).json({ error: "ESIC return for this month/year is already filed" });
       }
 
-      // Aggregate from payroll
-      const payrollRows = await db
-        .select({ esi: payroll.esi, basicSalary: payroll.basicSalary })
-        .from(payroll)
-        .where(and(
-          eq(payroll.companyId, cid),
-          eq(payroll.month, month),
-          eq(payroll.year, Number(year))
-        ));
-
-      const settings = await db
+      const [settings] = await db
         .select({ esicEmployerPercent: statutorySettings.esicEmployerPercent })
         .from(statutorySettings)
         .where(eq(statutorySettings.companyId, cid))
         .limit(1);
+      const emplrPct = settings?.esicEmployerPercent ?? 325;
 
-      const empPct = 75; // 0.75% stored as 75 bp
-      const emplrPct = settings[0]?.esicEmployerPercent ?? 325; // 3.25% stored as 325 bp
+      const payrollRows = await db
+        .select({ esi: payroll.esi, basicSalary: payroll.basicSalary })
+        .from(payroll)
+        .where(and(eq(payroll.companyId, cid), eq(payroll.month, data.month), eq(payroll.year, data.year)));
 
       const totalEmployees = payrollRows.length;
       const totalEsicWages = payrollRows.reduce((s, r) => s + (r.basicSalary || 0), 0);
       const totalEmployeeContribution = payrollRows.reduce((s, r) => s + (r.esi || 0), 0);
       const totalEmployerContribution = Math.round(totalEsicWages * emplrPct / 10000);
       const totalAmount = totalEmployeeContribution + totalEmployerContribution;
-      const dueDate = calcDueDate(month, Number(year), "esic");
+      const dueDate = calcDueDate(data.month, data.year, "esic");
 
       const job = await queueService.enqueueJob({
         jobType: "esic_monthly_file",
         companyId: cid,
-        payload: { month, year, totalEmployees, totalAmount },
+        payload: { month: data.month, year: data.year, totalEmployees, totalAmount },
         createdBy: user.id,
       });
 
       const now = new Date().toISOString();
       let returnId: string;
-      if (existing.length > 0) {
+      if (existing) {
         await db.update(esicMonthlyReturns)
-          .set({
-            status: "pending", jobId: job.id,
-            totalEmployees, totalEsicWages, totalEmployeeContribution,
-            totalEmployerContribution, totalAmount, dueDate,
-            errorMessage: null, updatedAt: now,
-          })
-          .where(eq(esicMonthlyReturns.id, existing[0].id));
-        returnId = existing[0].id;
+          .set({ status: "pending", jobId: job.id, totalEmployees, totalEsicWages, totalEmployeeContribution, totalEmployerContribution, totalAmount, dueDate, errorMessage: null, updatedAt: now })
+          .where(eq(esicMonthlyReturns.id, existing.id));
+        returnId = existing.id;
       } else {
         returnId = randomUUID();
         await db.insert(esicMonthlyReturns).values({
-          id: returnId, companyId: cid, month, year: Number(year),
-          totalEmployees, totalEsicWages, totalEmployeeContribution,
-          totalEmployerContribution, totalAmount,
+          id: returnId, companyId: cid, month: data.month, year: data.year,
+          totalEmployees, totalEsicWages, totalEmployeeContribution, totalEmployerContribution, totalAmount,
           status: "pending", jobId: job.id, dueDate,
           createdBy: user.id, createdAt: now, updatedAt: now,
         });
       }
       res.status(201).json({ ok: true, jobId: job.id, returnId });
     } catch (err: any) {
-      res.status(500).json({ error: err?.message || "Failed to create ESIC return" });
+      res.status(500).json({ error: err?.message || "Failed to file ESIC monthly return" });
     }
   });
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // ESIC — CHALLANS
-  // ═══════════════════════════════════════════════════════════════════════════
-
   // GET /api/esic/challans
-  app.get("/api/esic/challans", requireAuth, requireRole("super_admin", "company_admin", "hr_admin"), async (req: Request, res: Response) => {
+  app.get("/api/esic/challans", requireAuth, adminRoles, async (req: Request, res: Response) => {
     try {
       const user = (req as any).user;
-      const { companyId: qCompany, year } = req.query as Record<string, string>;
-      const cid = user.role === "super_admin" && qCompany ? qCompany : user.companyId;
+      const q = req.query as Record<string, string>;
+      const pg = parseQuery(paginationSchema, { page: q.page, limit: q.limit }, res);
+      if (!pg) return;
+
+      const cid = user.role === "super_admin" && q.companyId ? q.companyId : user.companyId;
       if (!cid) return res.status(400).json({ error: "companyId required" });
 
-      const rows = await db
-        .select()
-        .from(challans)
-        .where(year
-          ? and(eq(challans.companyId, cid), eq(challans.portal, "esic"), eq(challans.year, Number(year)))
-          : and(eq(challans.companyId, cid), eq(challans.portal, "esic")))
-        .orderBy(desc(challans.year), desc(challans.createdAt));
-      res.json(rows);
+      const conditions = [eq(challans.companyId, cid), eq(challans.portal, "esic")];
+      if (q.status) conditions.push(eq(challans.status, q.status));
+      if (q.year) conditions.push(eq(challans.year, Number(q.year)));
+
+      const [{ count }] = await db.select({ count: sql<number>`count(*)` }).from(challans).where(and(...conditions));
+      const rows = await db.select().from(challans).where(and(...conditions))
+        .orderBy(desc(challans.year), desc(challans.createdAt))
+        .limit(pg.limit).offset(pageToOffset(pg.page, pg.limit));
+
+      res.json({ data: rows, page: pg.page, limit: pg.limit, total: Number(count) });
     } catch (err: any) {
       res.status(500).json({ error: err?.message || "Failed to fetch ESIC challans" });
+    }
+  });
+
+  // POST /api/esic/sync-challans — enqueue ESIC challan download
+  app.post("/api/esic/sync-challans", requireAuth, adminRoles, async (req: Request, res: Response) => {
+    try {
+      const user = (req as any).user;
+      const data = parseBody(syncChallansSchema, req.body, res);
+      if (!data) return;
+
+      const cidResult = getCompanyId(user, data.companyId);
+      if ("error" in cidResult) return res.status(cidResult.status).json({ error: cidResult.error });
+
+      const job = await queueService.enqueueJob({
+        jobType: "esic_challan_download",
+        companyId: cidResult.companyId,
+        payload: { month: data.month, year: data.year },
+        createdBy: user.id,
+      });
+      res.json({ ok: true, jobId: job.id });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || "Failed to enqueue ESIC challan sync" });
+    }
+  });
+
+  // GET /api/esic/employee-search — enqueue portal search job
+  app.get("/api/esic/employee-search", requireAuth, adminRoles, async (req: Request, res: Response) => {
+    try {
+      const user = (req as any).user;
+      const q = req.query as Record<string, string>;
+      const data = parseQuery(esicEmployeeSearchSchema.extend({ companyId: z.string().optional() }), q, res);
+      if (!data) return;
+
+      const cidResult = getCompanyId(user, data.companyId);
+      if ("error" in cidResult) return res.status(cidResult.status).json({ error: cidResult.error });
+
+      const job = await queueService.enqueueJob({
+        jobType: "esic_employee_search",
+        companyId: cidResult.companyId,
+        payload: { query: data.query },
+        createdBy: user.id,
+        maxRetries: 1,
+      });
+      res.json({ ok: true, jobId: job.id, query: data.query });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || "Failed to enqueue ESIC employee search" });
     }
   });
 
@@ -940,98 +1236,192 @@ export function registerEpfoEsicRoutes(
   // COMPLIANCE CALENDAR
   // ═══════════════════════════════════════════════════════════════════════════
 
-  // GET /api/compliance-calendar
-  app.get("/api/compliance-calendar", requireAuth, requireRole("super_admin", "company_admin", "hr_admin"), async (req: Request, res: Response) => {
+  // GET /api/compliance-calendar — upcoming events, auto-seeded + cross-referenced
+  app.get("/api/compliance-calendar", requireAuth, adminRoles, async (req: Request, res: Response) => {
     try {
       const user = (req as any).user;
-      const { companyId: qCompany, year, month } = req.query as Record<string, string>;
-      const cid = user.role === "super_admin" && qCompany ? qCompany : user.companyId;
+      const q = req.query as Record<string, string>;
+      const cid = user.role === "super_admin" && q.companyId ? q.companyId : user.companyId;
       if (!cid) return res.status(400).json({ error: "companyId required" });
 
-      // Auto-seed upcoming events if none exist yet
-      await ensureComplianceEvents(cid, 6);
+      // Auto-seed 6 months of EPFO/ESIC events
+      await ensureUpcomingEvents(cid, 6);
 
       const conditions = [eq(complianceCalendarEvents.companyId, cid)];
-      if (year) conditions.push(eq(complianceCalendarEvents.periodYear, Number(year)));
-      if (month) conditions.push(eq(complianceCalendarEvents.periodMonth, month));
+      if (q.year) conditions.push(eq(complianceCalendarEvents.periodYear, Number(q.year)));
+      if (q.month) conditions.push(eq(complianceCalendarEvents.periodMonth, q.month));
+      if (q.eventType) conditions.push(eq(complianceCalendarEvents.eventType, q.eventType));
 
-      const rows = await db
-        .select()
-        .from(complianceCalendarEvents)
+      const events = await db.select().from(complianceCalendarEvents)
         .where(and(...conditions))
         .orderBy(complianceCalendarEvents.dueDate);
 
-      // Auto-mark overdue events
-      const now = new Date().toISOString().slice(0, 10);
-      const overdueIds = rows
-        .filter(r => r.dueDate < now && r.status === "upcoming")
-        .map(r => r.id);
-      if (overdueIds.length > 0) {
-        await db
-          .update(complianceCalendarEvents)
-          .set({ status: "overdue", updatedAt: new Date().toISOString() })
-          .where(inArray(complianceCalendarEvents.id, overdueIds));
-        rows.forEach(r => { if (overdueIds.includes(r.id)) r.status = "overdue"; });
-      }
+      // Cross-reference: update status from actual EPFO/ESIC return records
+      const now = new Date();
+      const nowStr = now.toISOString().slice(0, 10);
+      const updates: Promise<void>[] = [];
 
-      res.json(rows);
+      for (const ev of events) {
+        if (!ev.periodMonth || !ev.periodYear) continue;
+        let computedStatus = ev.status;
+
+        if (ev.eventType === "epfo_ecr_due") {
+          const [ret] = await db.select({ status: epfoEcrReturns.status }).from(epfoEcrReturns)
+            .where(and(eq(epfoEcrReturns.companyId, cid), eq(epfoEcrReturns.month, ev.periodMonth), eq(epfoEcrReturns.year, ev.periodYear)))
+            .limit(1);
+          if (ret?.status === "filed" || ret?.status === "challan_generated" || ret?.status === "paid") {
+            computedStatus = "completed";
+          } else if (ev.dueDate < nowStr) {
+            computedStatus = "overdue";
+          }
+        } else if (ev.eventType === "esic_return_due") {
+          const [ret] = await db.select({ status: esicMonthlyReturns.status }).from(esicMonthlyReturns)
+            .where(and(eq(esicMonthlyReturns.companyId, cid), eq(esicMonthlyReturns.month, ev.periodMonth), eq(esicMonthlyReturns.year, ev.periodYear)))
+            .limit(1);
+          if (ret?.status === "filed" || ret?.status === "challan_generated" || ret?.status === "paid") {
+            computedStatus = "completed";
+          } else if (ev.dueDate < nowStr) {
+            computedStatus = "overdue";
+          }
+        } else if (ev.status === "upcoming" && ev.dueDate < nowStr) {
+          computedStatus = "overdue";
+        }
+
+        if (computedStatus !== ev.status) {
+          ev.status = computedStatus;
+          updates.push(
+            db.update(complianceCalendarEvents)
+              .set({ status: computedStatus, updatedAt: now.toISOString() })
+              .where(eq(complianceCalendarEvents.id, ev.id))
+              .then(() => undefined)
+          );
+        }
+      }
+      await Promise.all(updates);
+
+      res.json(events);
     } catch (err: any) {
       res.status(500).json({ error: err?.message || "Failed to fetch compliance calendar" });
     }
   });
 
-  // POST /api/compliance-calendar — create custom event
-  app.post("/api/compliance-calendar", requireAuth, requireRole("super_admin", "company_admin", "hr_admin"), async (req: Request, res: Response) => {
+  // GET /api/compliance-calendar/history — past filing statuses cross-referenced
+  app.get("/api/compliance-calendar/history", requireAuth, adminRoles, async (req: Request, res: Response) => {
     try {
       const user = (req as any).user;
-      const { title, description, dueDate, eventType = "custom", companyId: bodyCompany, periodMonth, periodYear } =
-        req.body as { title?: string; description?: string; dueDate?: string; eventType?: string; companyId?: string; periodMonth?: string; periodYear?: number };
+      const q = req.query as Record<string, string>;
+      const pg = parseQuery(paginationSchema, { page: q.page, limit: q.limit }, res);
+      if (!pg) return;
 
-      if (!title?.trim() || !dueDate) return res.status(400).json({ error: "title and dueDate are required" });
-      let cid: string;
-      try { cid = resolveCompanyId(user, bodyCompany); } catch (e: any) { return res.status(e.status).json({ error: e.error }); }
+      const cid = user.role === "super_admin" && q.companyId ? q.companyId : user.companyId;
+      if (!cid) return res.status(400).json({ error: "companyId required" });
 
-      const now = new Date().toISOString();
-      const id = randomUUID();
-      const [row] = await db.insert(complianceCalendarEvents).values({
-        id, companyId: cid, eventType, title: title.trim(),
-        description: description ?? null, dueDate,
-        periodMonth: periodMonth ?? null, periodYear: periodYear ?? null,
-        status: new Date(dueDate) < new Date() ? "overdue" : "upcoming",
-        createdBy: user.id, createdAt: now, updatedAt: now,
-      }).returning();
-      res.status(201).json(row);
+      // Get EPFO ECR history
+      const epfoHistory = await db
+        .select({
+          period: sql<string>`concat(month, ' ', year)`,
+          month: epfoEcrReturns.month,
+          year: epfoEcrReturns.year,
+          status: epfoEcrReturns.status,
+          type: sql<string>`'epfo_ecr'`,
+          filedAt: epfoEcrReturns.filedAt,
+          dueDate: epfoEcrReturns.dueDate,
+          totalAmount: epfoEcrReturns.totalAmount,
+          trrn: epfoEcrReturns.trrn,
+          challanNo: epfoEcrReturns.challanNo,
+          errorMessage: epfoEcrReturns.errorMessage,
+        })
+        .from(epfoEcrReturns)
+        .where(eq(epfoEcrReturns.companyId, cid))
+        .orderBy(desc(epfoEcrReturns.year), monthSortSql());
+
+      // Get ESIC monthly return history
+      const esicHistory = await db
+        .select({
+          period: sql<string>`concat(month, ' ', year)`,
+          month: esicMonthlyReturns.month,
+          year: esicMonthlyReturns.year,
+          status: esicMonthlyReturns.status,
+          type: sql<string>`'esic_monthly'`,
+          filedAt: esicMonthlyReturns.filedAt,
+          dueDate: esicMonthlyReturns.dueDate,
+          totalAmount: esicMonthlyReturns.totalAmount,
+          trrn: sql<null>`null`,
+          challanNo: esicMonthlyReturns.challanNo,
+          errorMessage: esicMonthlyReturns.errorMessage,
+        })
+        .from(esicMonthlyReturns)
+        .where(eq(esicMonthlyReturns.companyId, cid))
+        .orderBy(desc(esicMonthlyReturns.year), monthSortSql());
+
+      const combined = [...epfoHistory, ...esicHistory]
+        .sort((a, b) => {
+          if (b.year !== a.year) return b.year - a.year;
+          const mi = MONTH_NAMES.findIndex(m => m === a.month);
+          const mj = MONTH_NAMES.findIndex(m => m === b.month);
+          return mj - mi;
+        });
+
+      const start = pageToOffset(pg.page, pg.limit);
+      res.json({
+        data: combined.slice(start, start + pg.limit),
+        page: pg.page, limit: pg.limit, total: combined.length,
+      });
     } catch (err: any) {
-      res.status(500).json({ error: err?.message || "Failed to create event" });
+      res.status(500).json({ error: err?.message || "Failed to fetch filing history" });
     }
   });
 
-  // PATCH /api/compliance-calendar/:id — update status / description
-  app.patch("/api/compliance-calendar/:id", requireAuth, requireRole("super_admin", "company_admin", "hr_admin"), async (req: Request, res: Response) => {
+  // POST /api/compliance-calendar — create custom event
+  app.post("/api/compliance-calendar", requireAuth, adminRoles, async (req: Request, res: Response) => {
     try {
       const user = (req as any).user;
-      const [existing] = await db
-        .select()
-        .from(complianceCalendarEvents)
-        .where(eq(complianceCalendarEvents.id, req.params.id))
-        .limit(1);
+      const data = parseBody(calendarEventSchema, req.body, res);
+      if (!data) return;
+
+      const cidResult = getCompanyId(user, data.companyId);
+      if ("error" in cidResult) return res.status(cidResult.status).json({ error: cidResult.error });
+
+      const now = new Date().toISOString();
+      const [row] = await db.insert(complianceCalendarEvents).values({
+        id: randomUUID(),
+        companyId: cidResult.companyId,
+        eventType: data.eventType,
+        title: data.title,
+        description: data.description ?? null,
+        dueDate: data.dueDate,
+        periodMonth: data.periodMonth ?? null,
+        periodYear: data.periodYear ?? null,
+        status: new Date(data.dueDate) < new Date() ? "overdue" : "upcoming",
+        createdBy: user.id,
+        createdAt: now, updatedAt: now,
+      }).returning();
+      res.status(201).json(row);
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || "Failed to create calendar event" });
+    }
+  });
+
+  // PATCH /api/compliance-calendar/:id
+  app.patch("/api/compliance-calendar/:id", requireAuth, adminRoles, async (req: Request, res: Response) => {
+    try {
+      const user = (req as any).user;
+      const data = parseBody(calendarEventPatchSchema, req.body, res);
+      if (!data) return;
+
+      const [existing] = await db.select().from(complianceCalendarEvents)
+        .where(eq(complianceCalendarEvents.id, req.params.id)).limit(1);
       if (!existing) return res.status(404).json({ error: "Event not found" });
       if (isForbidden(user, existing.companyId)) return res.status(403).json({ error: "Access denied" });
 
-      const { status, title, description, dueDate } = req.body as {
-        status?: string; title?: string; description?: string; dueDate?: string;
-      };
       const updates: Record<string, unknown> = { updatedAt: new Date().toISOString() };
-      if (status) updates.status = status;
-      if (title) updates.title = title;
-      if (description !== undefined) updates.description = description;
-      if (dueDate) updates.dueDate = dueDate;
+      if (data.status) updates.status = data.status;
+      if (data.title) updates.title = data.title;
+      if (data.description !== undefined) updates.description = data.description;
+      if (data.dueDate) updates.dueDate = data.dueDate;
 
-      const [updated] = await db
-        .update(complianceCalendarEvents)
-        .set(updates)
-        .where(eq(complianceCalendarEvents.id, req.params.id))
-        .returning();
+      const [updated] = await db.update(complianceCalendarEvents)
+        .set(updates).where(eq(complianceCalendarEvents.id, req.params.id)).returning();
       res.json(updated);
     } catch (err: any) {
       res.status(500).json({ error: err?.message || "Failed to update event" });
@@ -1039,17 +1429,13 @@ export function registerEpfoEsicRoutes(
   });
 
   // DELETE /api/compliance-calendar/:id
-  app.delete("/api/compliance-calendar/:id", requireAuth, requireRole("super_admin", "company_admin", "hr_admin"), async (req: Request, res: Response) => {
+  app.delete("/api/compliance-calendar/:id", requireAuth, adminRoles, async (req: Request, res: Response) => {
     try {
       const user = (req as any).user;
-      const [existing] = await db
-        .select()
-        .from(complianceCalendarEvents)
-        .where(eq(complianceCalendarEvents.id, req.params.id))
-        .limit(1);
+      const [existing] = await db.select().from(complianceCalendarEvents)
+        .where(eq(complianceCalendarEvents.id, req.params.id)).limit(1);
       if (!existing) return res.status(404).json({ error: "Event not found" });
       if (isForbidden(user, existing.companyId)) return res.status(403).json({ error: "Access denied" });
-
       await db.delete(complianceCalendarEvents).where(eq(complianceCalendarEvents.id, req.params.id));
       res.json({ ok: true });
     } catch (err: any) {
@@ -1058,15 +1444,24 @@ export function registerEpfoEsicRoutes(
   });
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // REPORTS — EPFO ECR Contribution (Excel download)
+  // REPORTS
   // ═══════════════════════════════════════════════════════════════════════════
 
-  app.get("/api/epfo/reports/ecr-contribution", requireAuth, requireRole("super_admin", "company_admin", "hr_admin"), async (req: Request, res: Response) => {
+  const reportQuerySchema = z.object({
+    month: monthSchema,
+    year: z.coerce.number().int().min(2000).max(2100),
+    companyId: z.string().optional(),
+    format: z.enum(["excel", "pdf"]).default("excel"),
+  });
+
+  // GET /api/epfo/reports/contribution — PF contribution report
+  app.get("/api/epfo/reports/contribution", requireAuth, adminRoles, async (req: Request, res: Response) => {
     try {
       const user = (req as any).user;
-      const { month, year, companyId: qCompany } = req.query as Record<string, string>;
-      if (!month || !year) return res.status(400).json({ error: "month and year are required" });
-      const cid = user.role === "super_admin" && qCompany ? qCompany : user.companyId;
+      const params = parseQuery(reportQuerySchema, req.query, res);
+      if (!params) return;
+
+      const cid = user.role === "super_admin" && params.companyId ? params.companyId : user.companyId;
       if (!cid) return res.status(400).json({ error: "companyId required" });
 
       const rows = await db
@@ -1077,60 +1472,57 @@ export function registerEpfoEsicRoutes(
           uan: employees.uan,
           basicSalary: payroll.basicSalary,
           pfEmployee: payroll.pfEmployee,
-          status: payroll.status,
+          payrollStatus: payroll.status,
         })
         .from(payroll)
         .innerJoin(employees, eq(employees.id, payroll.employeeId))
-        .where(and(
-          eq(payroll.companyId, cid),
-          eq(payroll.month, month),
-          eq(payroll.year, Number(year))
-        ))
+        .where(and(eq(payroll.companyId, cid), eq(payroll.month, params.month), eq(payroll.year, params.year)))
         .orderBy(employees.employeeCode);
 
       const data = rows.map(r => ({
         "Employee Code": r.employeeCode,
         "Employee Name": `${r.firstName} ${r.lastName}`,
         "UAN": r.uan || "",
-        "PF Wages": r.basicSalary || 0,
-        "Employee PF (12%)": r.pfEmployee || 0,
-        "Employer PF (12%)": Math.round((r.basicSalary || 0) * 0.12),
-        "Total PF": (r.pfEmployee || 0) + Math.round((r.basicSalary || 0) * 0.12),
-        "Status": r.status,
+        "PF Wages (₹)": r.basicSalary || 0,
+        "Employee PF 12% (₹)": r.pfEmployee || 0,
+        "Employer PF 12% (₹)": Math.round((r.basicSalary || 0) * 0.12),
+        "Total PF (₹)": (r.pfEmployee || 0) + Math.round((r.basicSalary || 0) * 0.12),
+        "Payroll Status": r.payrollStatus,
       }));
 
-      const ws = XLSX.utils.json_to_sheet(data);
-      ws["!cols"] = [16, 30, 16, 12, 18, 18, 12, 12].map(w => ({ wch: w }));
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, "EPFO ECR");
+      const title = `EPFO PF Contribution — ${params.month} ${params.year}`;
+      if (params.format === "pdf") {
+        res.setHeader("Content-Type", "text/html; charset=utf-8");
+        return res.send(buildHtmlReport(title, Object.keys(data[0] || {}), data as any));
+      }
 
+      const ws = XLSX.utils.json_to_sheet(data);
+      ws["!cols"] = [16, 30, 16, 16, 18, 18, 14, 14].map(w => ({ wch: w }));
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "PF Contribution");
       const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
       res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-      res.setHeader("Content-Disposition", `attachment; filename=EPFO_ECR_${month}_${year}.xlsx`);
+      res.setHeader("Content-Disposition", `attachment; filename=EPFO_PF_${params.month}_${params.year}.xlsx`);
       res.send(buf);
     } catch (err: any) {
       res.status(500).json({ error: err?.message || "Failed to generate EPFO report" });
     }
   });
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // REPORTS — ESIC Contribution (Excel download)
-  // ═══════════════════════════════════════════════════════════════════════════
-
-  app.get("/api/esic/reports/contribution", requireAuth, requireRole("super_admin", "company_admin", "hr_admin"), async (req: Request, res: Response) => {
+  // GET /api/esic/reports/contribution — ESIC contribution report
+  app.get("/api/esic/reports/contribution", requireAuth, adminRoles, async (req: Request, res: Response) => {
     try {
       const user = (req as any).user;
-      const { month, year, companyId: qCompany } = req.query as Record<string, string>;
-      if (!month || !year) return res.status(400).json({ error: "month and year are required" });
-      const cid = user.role === "super_admin" && qCompany ? qCompany : user.companyId;
+      const params = parseQuery(reportQuerySchema, req.query, res);
+      if (!params) return;
+
+      const cid = user.role === "super_admin" && params.companyId ? params.companyId : user.companyId;
       if (!cid) return res.status(400).json({ error: "companyId required" });
 
-      const settings = await db
+      const [settings] = await db
         .select({ esicEmployerPercent: statutorySettings.esicEmployerPercent })
-        .from(statutorySettings)
-        .where(eq(statutorySettings.companyId, cid))
-        .limit(1);
-      const emplrPct = settings[0]?.esicEmployerPercent ?? 325;
+        .from(statutorySettings).where(eq(statutorySettings.companyId, cid)).limit(1);
+      const emplrPct = settings?.esicEmployerPercent ?? 325;
 
       const rows = await db
         .select({
@@ -1140,54 +1532,151 @@ export function registerEpfoEsicRoutes(
           esiNumber: employees.esiNumber,
           basicSalary: payroll.basicSalary,
           esi: payroll.esi,
-          status: payroll.status,
+          payrollStatus: payroll.status,
         })
         .from(payroll)
         .innerJoin(employees, eq(employees.id, payroll.employeeId))
-        .where(and(
-          eq(payroll.companyId, cid),
-          eq(payroll.month, month),
-          eq(payroll.year, Number(year))
-        ))
+        .where(and(eq(payroll.companyId, cid), eq(payroll.month, params.month), eq(payroll.year, params.year)))
         .orderBy(employees.employeeCode);
 
       const data = rows.map(r => ({
         "Employee Code": r.employeeCode,
         "Employee Name": `${r.firstName} ${r.lastName}`,
         "IP Number": r.esiNumber || "",
-        "ESIC Wages": r.basicSalary || 0,
-        "Employee ESIC (0.75%)": r.esi || 0,
-        "Employer ESIC (3.25%)": Math.round((r.basicSalary || 0) * emplrPct / 10000),
-        "Total ESIC": (r.esi || 0) + Math.round((r.basicSalary || 0) * emplrPct / 10000),
-        "Status": r.status,
+        "ESIC Wages (₹)": r.basicSalary || 0,
+        "Employee ESIC 0.75% (₹)": r.esi || 0,
+        "Employer ESIC 3.25% (₹)": Math.round((r.basicSalary || 0) * emplrPct / 10000),
+        "Total ESIC (₹)": (r.esi || 0) + Math.round((r.basicSalary || 0) * emplrPct / 10000),
+        "Payroll Status": r.payrollStatus,
       }));
 
+      const title = `ESIC Contribution — ${params.month} ${params.year}`;
+      if (params.format === "pdf") {
+        res.setHeader("Content-Type", "text/html; charset=utf-8");
+        return res.send(buildHtmlReport(title, Object.keys(data[0] || {}), data as any));
+      }
+
       const ws = XLSX.utils.json_to_sheet(data);
-      ws["!cols"] = [16, 30, 16, 14, 20, 20, 14, 12].map(w => ({ wch: w }));
+      ws["!cols"] = [16, 30, 16, 16, 20, 20, 14, 14].map(w => ({ wch: w }));
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, "ESIC Contribution");
-
       const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
       res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-      res.setHeader("Content-Disposition", `attachment; filename=ESIC_Contribution_${month}_${year}.xlsx`);
+      res.setHeader("Content-Disposition", `attachment; filename=ESIC_Contribution_${params.month}_${params.year}.xlsx`);
       res.send(buf);
     } catch (err: any) {
       res.status(500).json({ error: err?.message || "Failed to generate ESIC report" });
     }
   });
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // SUMMARY / DASHBOARD — overview counts for the compliance module
-  // ═══════════════════════════════════════════════════════════════════════════
-
-  app.get("/api/automation/summary", requireAuth, requireRole("super_admin", "company_admin", "hr_admin"), async (req: Request, res: Response) => {
+  // GET /api/automation/reports/failed-filings — jobs that failed
+  app.get("/api/automation/reports/failed-filings", requireAuth, adminRoles, async (req: Request, res: Response) => {
     try {
       const user = (req as any).user;
-      const { companyId: qCompany } = req.query as Record<string, string>;
-      const cid = user.role === "super_admin" && qCompany ? qCompany : user.companyId;
+      const q = req.query as Record<string, string>;
+      const pg = parseQuery(paginationSchema, { page: q.page, limit: q.limit }, res);
+      if (!pg) return;
+
+      const cid = user.role === "super_admin" && q.companyId ? q.companyId : user.companyId;
       if (!cid) return res.status(400).json({ error: "companyId required" });
 
-      const [epfoReg, esicReg, pendingJobs, failedJobs, epfoEcr, esicReturn] = await Promise.all([
+      const conditions = [
+        eq(automationJobs.companyId, cid),
+        eq(automationJobs.status, "failed"),
+      ];
+      if (q.jobType) conditions.push(eq(automationJobs.jobType, q.jobType));
+      if (q.from) conditions.push(gte(automationJobs.createdAt, q.from));
+      if (q.to) conditions.push(lte(automationJobs.createdAt, q.to));
+
+      const [{ count }] = await db.select({ count: sql<number>`count(*)` }).from(automationJobs).where(and(...conditions));
+      const rows = await db.select().from(automationJobs).where(and(...conditions))
+        .orderBy(desc(automationJobs.updatedAt))
+        .limit(pg.limit).offset(pageToOffset(pg.page, pg.limit));
+
+      if (q.format === "excel") {
+        const data = rows.map(r => ({
+          "Job ID": r.id,
+          "Job Type": r.jobType,
+          "Error": r.errorMessage || "",
+          "Retry Count": r.retryCount,
+          "Created At": r.createdAt,
+          "Updated At": r.updatedAt,
+        }));
+        const ws = XLSX.utils.json_to_sheet(data);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "Failed Filings");
+        const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
+        res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        res.setHeader("Content-Disposition", "attachment; filename=Failed_Filings.xlsx");
+        return res.send(buf);
+      }
+
+      res.json({ data: rows, page: pg.page, limit: pg.limit, total: Number(count) });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || "Failed to generate failed-filings report" });
+    }
+  });
+
+  // GET /api/automation/reports/audit — full audit trail of all jobs
+  app.get("/api/automation/reports/audit", requireAuth, adminRoles, async (req: Request, res: Response) => {
+    try {
+      const user = (req as any).user;
+      const q = req.query as Record<string, string>;
+      const pg = parseQuery(paginationSchema, { page: q.page, limit: q.limit }, res);
+      if (!pg) return;
+
+      const cid = user.role === "super_admin" && q.companyId ? q.companyId : user.companyId;
+      if (!cid) return res.status(400).json({ error: "companyId required" });
+
+      const conditions = [eq(automationJobs.companyId, cid)];
+      if (q.status) conditions.push(eq(automationJobs.status, q.status));
+      if (q.jobType) conditions.push(eq(automationJobs.jobType, q.jobType));
+      if (q.from) conditions.push(gte(automationJobs.createdAt, q.from));
+      if (q.to) conditions.push(lte(automationJobs.createdAt, q.to));
+
+      const [{ count }] = await db.select({ count: sql<number>`count(*)` }).from(automationJobs).where(and(...conditions));
+      const rows = await db.select().from(automationJobs).where(and(...conditions))
+        .orderBy(desc(automationJobs.createdAt))
+        .limit(pg.limit).offset(pageToOffset(pg.page, pg.limit));
+
+      if (q.format === "excel") {
+        const data = rows.map(r => ({
+          "Job ID": r.id,
+          "Job Type": r.jobType,
+          "Status": r.status,
+          "Retry Count": r.retryCount,
+          "Started At": r.startedAt || "",
+          "Completed At": r.completedAt || "",
+          "Error": r.errorMessage || "",
+          "Created At": r.createdAt,
+        }));
+        const ws = XLSX.utils.json_to_sheet(data);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "Automation Audit");
+        const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
+        res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        res.setHeader("Content-Disposition", "attachment; filename=Automation_Audit.xlsx");
+        return res.send(buf);
+      }
+
+      res.json({ data: rows, page: pg.page, limit: pg.limit, total: Number(count) });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || "Failed to generate audit report" });
+    }
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SUMMARY DASHBOARD
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  app.get("/api/automation/summary", requireAuth, adminRoles, async (req: Request, res: Response) => {
+    try {
+      const user = (req as any).user;
+      const { companyId: qCid } = req.query as Record<string, string>;
+      const cid = user.role === "super_admin" && qCid ? qCid : user.companyId;
+      if (!cid) return res.status(400).json({ error: "companyId required" });
+
+      const [epfoReg, esicReg, pendingJobs, failedJobs, ecrReturns, esicReturns] = await Promise.all([
         db.select({ count: sql<number>`count(*)` }).from(epfoRegistrations).where(eq(epfoRegistrations.companyId, cid)),
         db.select({ count: sql<number>`count(*)` }).from(esicRegistrations).where(eq(esicRegistrations.companyId, cid)),
         db.select({ count: sql<number>`count(*)` }).from(automationJobs).where(and(eq(automationJobs.companyId, cid), eq(automationJobs.status, "pending"))),
@@ -1201,8 +1690,8 @@ export function registerEpfoEsicRoutes(
         esicRegistrations: Number(esicReg[0]?.count ?? 0),
         pendingJobs: Number(pendingJobs[0]?.count ?? 0),
         failedJobs: Number(failedJobs[0]?.count ?? 0),
-        epfoEcrReturns: Number(epfoEcr[0]?.count ?? 0),
-        esicMonthlyReturns: Number(esicReturn[0]?.count ?? 0),
+        epfoEcrReturns: Number(ecrReturns[0]?.count ?? 0),
+        esicMonthlyReturns: Number(esicReturns[0]?.count ?? 0),
       });
     } catch (err: any) {
       res.status(500).json({ error: err?.message || "Failed to fetch summary" });
