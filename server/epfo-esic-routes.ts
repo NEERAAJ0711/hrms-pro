@@ -360,11 +360,20 @@ export function registerEpfoEsicRoutes(
       const pg = parseQuery(paginationSchema, { page: q.page, limit: q.limit }, res);
       if (!pg) return;
 
-      const cid = user.role === "super_admin" && q.companyId ? q.companyId : user.companyId ?? undefined;
+      // Enforce tenant isolation: non-super_admin must always have a companyId
+      let cid: string | undefined;
+      if (user.role === "super_admin") {
+        cid = q.companyId || undefined; // super_admin may list all or filter by company
+      } else {
+        if (!user.companyId) return res.status(403).json({ error: "No company assigned to this user" });
+        cid = user.companyId;
+      }
+      // Accept both ?type= and ?jobType= for frontend compatibility
+      const jobType = q.jobType || q.type || undefined;
       const jobs = await queueService.listJobs({
         companyId: cid,
         status: q.status,
-        jobType: q.jobType,
+        jobType,
         from: q.from,
         to: q.to,
         limit: pg.limit,
@@ -1304,8 +1313,8 @@ export function registerEpfoEsicRoutes(
       const cid = user.role === "super_admin" && q.companyId ? q.companyId : user.companyId;
       if (!cid) return res.status(400).json({ error: "companyId required" });
 
-      // Auto-seed 6 months of EPFO/ESIC events
-      await ensureUpcomingEvents(cid, 6);
+      // Auto-seed next 3 months of EPFO/ESIC events (per spec)
+      await ensureUpcomingEvents(cid, 3);
 
       const conditions = [eq(complianceCalendarEvents.companyId, cid)];
       if (q.year) conditions.push(eq(complianceCalendarEvents.periodYear, Number(q.year)));
