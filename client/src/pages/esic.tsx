@@ -705,8 +705,10 @@ function PortalSettingsTab({ companyId }: { companyId: string }) {
 
   const [testJobId, setTestJobId] = useState<string | null>(null);
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const [captchaAnswer, setCaptchaAnswer] = useState("");
+  const [testPhase, setTestPhase] = useState<"idle" | "running" | "captcha" | "otp" | "done">("idle");
 
-  const { data: polledJob } = useQuery<{ id: string; status: string; errorMessage?: string | null }>({
+  const { data: polledJob } = useQuery<{ id: string; status: string; errorMessage?: string | null; screenshotPath?: string | null }>({
     queryKey: ["/api/automation/jobs", testJobId],
     queryFn: async () => {
       const res = await fetch(`/api/automation/jobs/${testJobId}`, { credentials: "include" });
@@ -724,13 +726,21 @@ function PortalSettingsTab({ companyId }: { companyId: string }) {
   useEffect(() => {
     if (!polledJob) return;
     if (polledJob.status === "completed") {
-      setTestResult({ ok: true, message: "Login successful — credentials are working correctly." });
+      setTestPhase("done");
+      setTestResult({ ok: true, message: "Login successful — credentials verified and working." });
       setTestJobId(null);
+      queryClient.invalidateQueries({ queryKey: ["/api/automation/portal-session/esic"] });
     } else if (polledJob.status === "failed" || polledJob.status === "cancelled") {
+      setTestPhase("done");
       setTestResult({ ok: false, message: polledJob.errorMessage || "Login failed. Check your credentials." });
       setTestJobId(null);
+    } else if (polledJob.status === "paused") {
+      setCaptchaAnswer("");
+      setTestPhase(polledJob.screenshotPath?.toLowerCase().includes("otp") ? "otp" : "captcha");
+    } else if (polledJob.status === "running") {
+      setTestPhase("running");
     }
-  }, [polledJob?.status]);
+  }, [polledJob?.status, polledJob?.screenshotPath]);
 
   const testMutation = useMutation({
     mutationFn: async () => {
@@ -739,12 +749,32 @@ function PortalSettingsTab({ companyId }: { companyId: string }) {
     },
     onSuccess: (data) => {
       setTestResult(null);
+      setCaptchaAnswer("");
+      setTestPhase("running");
       setTestJobId(data.jobId);
     },
     onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
-  const isTestRunning = testMutation.isPending || !!testJobId;
+  const resumeMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/automation/jobs/${testJobId}/resume`, { answer: captchaAnswer });
+      return res.json();
+    },
+    onSuccess: () => {
+      setCaptchaAnswer("");
+      setTestPhase("running");
+    },
+    onError: (e: any) => toast({ title: "Submit failed", description: e.message, variant: "destructive" }),
+  });
+
+  const screenshotUrl = polledJob?.screenshotPath
+    ? (polledJob.screenshotPath.includes("/uploads/")
+        ? "/uploads/" + polledJob.screenshotPath.split("/uploads/")[1]
+        : `/uploads/automation-screenshots/${polledJob.screenshotPath.split("/").pop()}`)
+    : null;
+
+  const isTestActive = testMutation.isPending || !!testJobId;
 
   return (
     <div className="space-y-5 max-w-xl">
@@ -779,9 +809,9 @@ function PortalSettingsTab({ companyId }: { companyId: string }) {
               Save Credentials
             </Button>
             {session?.configured && (
-              <Button variant="outline" onClick={() => { setTestResult(null); testMutation.mutate(); }} disabled={isTestRunning} data-testid="button-test-esic-login">
-                {isTestRunning ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Activity className="h-4 w-4 mr-2" />}
-                {isTestRunning ? "Testing…" : "Test Login"}
+              <Button variant="outline" onClick={() => { setTestResult(null); setTestPhase("idle"); testMutation.mutate(); }} disabled={isTestActive} data-testid="button-test-esic-login">
+                {isTestActive && testPhase === "running" ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Activity className="h-4 w-4 mr-2" />}
+                {isTestActive ? "Testing…" : "Test Login"}
               </Button>
             )}
             <a href="https://esic.gov.in/" target="_blank" rel="noopener noreferrer">
@@ -792,14 +822,57 @@ function PortalSettingsTab({ companyId }: { companyId: string }) {
             </a>
           </div>
 
-          {isTestRunning && (
+          {/* Step 1: running — filling credentials on portal */}
+          {testPhase === "running" && (
             <div className="flex items-center gap-2 p-3 rounded-lg bg-blue-50 border border-blue-200 text-sm text-blue-800">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Running automated login test via server — please wait…
+              <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+              <span>Opening ESIC portal and filling username &amp; password automatically…</span>
             </div>
           )}
 
-          {testResult && !isTestRunning && (
+          {/* Step 2: CAPTCHA or OTP required */}
+          {(testPhase === "captcha" || testPhase === "otp") && (
+            <div className="rounded-lg border-2 border-orange-300 bg-orange-50 p-4 space-y-3">
+              <div className="flex items-center gap-2 text-orange-800 font-semibold text-sm">
+                <AlertTriangle className="h-4 w-4 shrink-0" />
+                {testPhase === "captcha"
+                  ? "CAPTCHA required — portal is showing a verification image"
+                  : "OTP required — check the mobile number registered with ESIC"}
+              </div>
+              {screenshotUrl && (
+                <div className="rounded-md overflow-hidden border border-orange-200 bg-white">
+                  <img src={screenshotUrl} alt="Portal screenshot showing CAPTCHA" className="w-full object-contain max-h-64" />
+                </div>
+              )}
+              <div className="space-y-2">
+                <Label className="text-orange-900 text-sm font-medium">
+                  {testPhase === "captcha" ? "Enter the CAPTCHA text shown in the image above:" : "Enter the OTP sent to your registered mobile:"}
+                </Label>
+                <div className="flex gap-2">
+                  <Input
+                    value={captchaAnswer}
+                    onChange={e => setCaptchaAnswer(e.target.value)}
+                    onKeyDown={e => { if (e.key === "Enter" && captchaAnswer.trim()) resumeMutation.mutate(); }}
+                    placeholder={testPhase === "captcha" ? "e.g. AB12CD" : "e.g. 123456"}
+                    className="font-mono tracking-widest text-lg"
+                    autoFocus
+                    data-testid="input-esic-captcha"
+                  />
+                  <Button
+                    onClick={() => resumeMutation.mutate()}
+                    disabled={!captchaAnswer.trim() || resumeMutation.isPending}
+                    data-testid="button-esic-submit-captcha"
+                  >
+                    {resumeMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Submit"}
+                  </Button>
+                </div>
+                <p className="text-xs text-orange-700">Press Enter or click Submit — automation will continue automatically.</p>
+              </div>
+            </div>
+          )}
+
+          {/* Step 3: final result */}
+          {testPhase === "done" && testResult && (
             <div className={`flex items-start gap-2 p-3 rounded-lg border text-sm ${testResult.ok ? "bg-green-50 border-green-200 text-green-800" : "bg-red-50 border-red-200 text-red-800"}`}>
               {testResult.ok ? <CheckCircle2 className="h-4 w-4 mt-0.5 shrink-0" /> : <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />}
               <span>{testResult.message}</span>
