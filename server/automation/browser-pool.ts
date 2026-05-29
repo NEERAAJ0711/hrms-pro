@@ -9,7 +9,7 @@
  * binary (found via PATH) which self-wraps all its dependencies.
  */
 import * as fs from "fs";
-import { execSync } from "child_process";
+import { execSync, spawnSync } from "child_process";
 import { chromium, type Browser } from "playwright";
 
 const MAX_BROWSERS_PER_PORTAL = 3;
@@ -68,9 +68,58 @@ const CHROMIUM_EXECUTABLE = resolveChromiumPath();
 console.log(
   CHROMIUM_EXECUTABLE
     ? `[BrowserPool] Using system Chromium: ${CHROMIUM_EXECUTABLE}`
-    : "[BrowserPool] No system Chromium found — will use Playwright's downloaded binary. " +
-      "If it is missing, run: npx playwright install chromium"
+    : "[BrowserPool] No system Chromium found — will use Playwright's downloaded binary."
 );
+
+/**
+ * If no system Chromium is found and Playwright's own binary is missing,
+ * auto-download it by running `npx playwright install chromium`.
+ * This is a one-shot blocking call — it only fires the very first time
+ * the binary is absent, and subsequent calls skip it instantly.
+ */
+let _playwrightInstallPromise: Promise<void> | null = null;
+
+function ensurePlaywrightBinary(): Promise<void> {
+  // System browser available — nothing to install
+  if (CHROMIUM_EXECUTABLE) return Promise.resolve();
+
+  // Return the cached promise if installation is already in progress
+  if (_playwrightInstallPromise) return _playwrightInstallPromise;
+
+  // Check whether Playwright's own binary already exists on disk
+  let binaryPath = "";
+  try {
+    binaryPath = chromium.executablePath();
+  } catch {
+    // executablePath() can throw if Playwright config is broken — proceed to install
+  }
+  if (binaryPath && fs.existsSync(binaryPath)) {
+    return Promise.resolve();
+  }
+
+  // Binary missing — install it now
+  console.log("[BrowserPool] Playwright Chromium binary not found — installing (this takes ~1 min)...");
+  _playwrightInstallPromise = new Promise<void>((resolve, reject) => {
+    const result = spawnSync(
+      "npx",
+      ["playwright", "install", "chromium", "--with-deps"],
+      { stdio: "inherit", timeout: 5 * 60_000 }
+    );
+    if (result.status === 0) {
+      console.log("[BrowserPool] Playwright Chromium installed successfully.");
+      resolve();
+    } else {
+      const msg =
+        "Auto-install of Playwright Chromium failed. " +
+        "Please run manually on the server: npx playwright install chromium";
+      console.error("[BrowserPool]", msg);
+      _playwrightInstallPromise = null; // allow retry
+      reject(new Error(msg));
+    }
+  });
+
+  return _playwrightInstallPromise;
+}
 
 interface PoolSlot {
   browser: Browser | null;
@@ -139,6 +188,10 @@ class BrowserPool {
         slot.browser = null;
       }
       try {
+        // Auto-install Playwright's Chromium binary if no system browser was found
+        // and the binary hasn't been downloaded yet. No-op when already installed.
+        await ensurePlaywrightBinary();
+
         // Race the launch against a 30s timeout so a hung Chromium never blocks the slot
         const launchPromise = chromium.launch({
           headless: PLAYWRIGHT_HEADLESS,
