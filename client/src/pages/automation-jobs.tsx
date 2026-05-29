@@ -261,7 +261,7 @@ function PausedJobsTab() {
               <div>
                 <p className="text-xs font-medium text-muted-foreground mb-2">Portal screenshot at pause point:</p>
                 <img
-                  src={`/uploads/automation-screenshots/${job.screenshotPath.split("/").pop()}`}
+                  src={job.screenshotPath.includes("/uploads/") ? "/uploads/" + job.screenshotPath.split("/uploads/")[1] : `/uploads/automation-screenshots/${job.screenshotPath.split("/").pop()}`}
                   alt="Portal screenshot"
                   className="max-w-full rounded border border-orange-200 shadow-sm max-h-64 object-contain"
                   data-testid={`img-screenshot-${job.id}`}

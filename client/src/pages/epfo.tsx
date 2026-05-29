@@ -286,7 +286,7 @@ function RegistrationTab({ companyId }: { companyId: string }) {
 
   const bulkRegister = () => {
     if (selected.size === 0) return;
-    triggerJob.mutate({ jobType: "epfo_bulk_register", companyId, payload: { employeeIds: Array.from(selected) } });
+    triggerJob.mutate({ jobType: "epfo_bulk_register", companyId, payload: { employees: emps.filter(e => selected.has(e.id)) } });
     setSelected(new Set());
   };
 
@@ -576,9 +576,9 @@ function BulkUploadTab({ companyId }: { companyId: string }) {
   };
 
   const submit = () => {
-    const validCodes = preview.filter(r => r.valid).map(r => r.code);
-    if (!validCodes.length) return;
-    triggerJob.mutate({ jobType: "epfo_bulk_register", companyId, payload: { employeeCodes: validCodes } });
+    const validRows = preview.filter(r => r.valid);
+    if (!validRows.length) return;
+    triggerJob.mutate({ jobType: "epfo_bulk_register", companyId, payload: { employees: validRows } });
     setPreview([]); setParsed(false);
   };
 

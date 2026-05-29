@@ -288,7 +288,7 @@ function RegistrationTab({ companyId }: { companyId: string }) {
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted-foreground">{emps.length} ESIC-eligible active employees</p>
         {selected.size > 0 && (
-          <Button size="sm" onClick={() => { triggerJob.mutate({ jobType: "esic_bulk_register", companyId, payload: { employeeIds: Array.from(selected) } }); setSelected(new Set()); }} disabled={triggerJob.isPending} data-testid="button-esic-bulk-register">
+          <Button size="sm" onClick={() => { triggerJob.mutate({ jobType: "esic_bulk_register", companyId, payload: { employees: emps.filter(e => selected.has(e.id)) } }); setSelected(new Set()); }} disabled={triggerJob.isPending} data-testid="button-esic-bulk-register">
             {triggerJob.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null}
             Bulk Register ({selected.size})
           </Button>
@@ -660,7 +660,7 @@ function BulkUploadTab({ companyId }: { companyId: string }) {
               </Table>
             </div>
             <div className="mt-4 flex gap-3">
-              <Button onClick={() => { triggerJob.mutate({ jobType: "esic_bulk_register", companyId, payload: { employeeCodes: preview.filter(r => r.valid).map(r => r.code) } }); setPreview([]); setParsed(false); }} disabled={triggerJob.isPending} data-testid="button-submit-esic-bulk">
+              <Button onClick={() => { triggerJob.mutate({ jobType: "esic_bulk_register", companyId, payload: { employees: preview.filter(r => r.valid) } }); setPreview([]); setParsed(false); }} disabled={triggerJob.isPending} data-testid="button-submit-esic-bulk">
                 {triggerJob.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
                 Queue {preview.filter(r => r.valid).length} Registrations
               </Button>
