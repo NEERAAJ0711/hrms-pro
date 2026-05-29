@@ -2,12 +2,12 @@
  * EPFO & ESIC API Routes — Task #3
  *
  * Covers all endpoints from the spec:
- *   - Automation job management (list, enqueue, get+logs, retry, cancel)
+ *   - Automation job management (list, enqueue, get+logs, retry, cancel, resume)
  *   - Portal session management (save, get, test)
  *   - EPFO: registrations, KYC, ECR filing, challans, passbook, exit-management
  *   - ESIC: registrations, contributions, monthly filing, challans, employee-search
  *   - Compliance calendar (upcoming + history)
- *   - Reports: EPFO ECR, ESIC contribution, failed-filings, audit (Excel + HTML/print-PDF)
+ *   - Reports: EPFO ECR, ESIC contribution, failed-filings, audit (PDF + Excel)
  *   - Automation logs (paginated, filterable)
  */
 
@@ -35,6 +35,7 @@ import { z } from "zod";
 import { queueService } from "./queue-service";
 import { portalSessionService } from "./portal-session-service";
 import * as XLSX from "xlsx";
+import PDFDocument from "pdfkit";
 
 // ─── Shared Zod schemas ───────────────────────────────────────────────────────
 
@@ -240,20 +241,77 @@ async function ensureUpcomingEvents(companyId: string, months = 6): Promise<void
   }
 }
 
-// ─── HTML table report helper (printable as PDF) ──────────────────────────────
+// ─── pdfkit PDF report helper ─────────────────────────────────────────────────
 
-function buildHtmlReport(title: string, columns: string[], rows: Record<string, unknown>[]): string {
-  const headerRow = columns.map(c => `<th style="border:1px solid #999;padding:6px 10px;background:#f5f5f5">${c}</th>`).join("");
-  const bodyRows = rows.map(r =>
-    `<tr>${columns.map(c => `<td style="border:1px solid #ccc;padding:5px 10px">${r[c] ?? ""}</td>`).join("")}</tr>`
-  ).join("");
-  return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${title}</title>
-<style>body{font-family:sans-serif;font-size:13px}table{border-collapse:collapse;width:100%}
-@media print{button{display:none}}</style></head><body>
-<h2>${title}</h2>
-<button onclick="window.print()" style="margin-bottom:12px;padding:6px 14px;cursor:pointer">Print / Save as PDF</button>
-<table><thead><tr>${headerRow}</tr></thead><tbody>${bodyRows}</tbody></table>
-</body></html>`;
+function streamPdfReport(
+  res: Response,
+  title: string,
+  columns: string[],
+  rows: Record<string, unknown>[],
+  filename: string
+): void {
+  const doc = new PDFDocument({ margin: 40, size: "A4", layout: "landscape" });
+  res.setHeader("Content-Type", "application/pdf");
+  res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+  doc.pipe(res);
+
+  // Title
+  doc.fontSize(14).font("Helvetica-Bold").text(title, { align: "center" });
+  doc.moveDown(0.5);
+  doc.fontSize(9).font("Helvetica").text(`Generated: ${new Date().toLocaleString("en-IN")}`, { align: "right" });
+  doc.moveDown(0.8);
+
+  if (rows.length === 0) {
+    doc.fontSize(11).text("No data found for the selected period.", { align: "center" });
+    doc.end();
+    return;
+  }
+
+  // Calculate equal column widths
+  const pageWidth = doc.page.width - 80;
+  const colWidth = Math.floor(pageWidth / columns.length);
+  const rowHeight = 18;
+  const headerH = 20;
+  let y = doc.y;
+
+  const drawRow = (vals: string[], isHeader: boolean) => {
+    if (y + rowHeight > doc.page.height - 60) {
+      doc.addPage();
+      y = 40;
+    }
+    if (isHeader) {
+      doc.rect(40, y, pageWidth, headerH).fill("#4A90D9");
+      doc.fillColor("white").font("Helvetica-Bold").fontSize(8);
+    } else {
+      doc.fillColor("#333").font("Helvetica").fontSize(8);
+    }
+    vals.forEach((v, i) => {
+      doc.text(v, 40 + i * colWidth + 3, y + 4, {
+        width: colWidth - 6,
+        ellipsis: true,
+        lineBreak: false,
+      });
+    });
+    if (!isHeader) {
+      doc.strokeColor("#ddd").rect(40, y, pageWidth, rowHeight).stroke();
+    }
+    y += isHeader ? headerH : rowHeight;
+    doc.fillColor("#333");
+  };
+
+  // Header row
+  drawRow(columns, true);
+  // Data rows
+  rows.forEach((r, idx) => {
+    if (idx % 2 === 0) {
+      doc.rect(40, y, pageWidth, rowHeight).fill("#f9f9f9").stroke();
+    }
+    drawRow(columns.map(c => String(r[c] ?? "")), false);
+  });
+
+  // Footer
+  doc.fontSize(8).fillColor("#888").text(`Total rows: ${rows.length}`, 40, doc.page.height - 40);
+  doc.end();
 }
 
 // ─── Route Registration ────────────────────────────────────────────────────────
@@ -307,6 +365,8 @@ export function registerEpfoEsicRoutes(
         companyId: cid,
         status: q.status,
         jobType: q.jobType,
+        from: q.from,
+        to: q.to,
         limit: pg.limit,
         offset: pageToOffset(pg.page, pg.limit),
       });
@@ -1492,8 +1552,7 @@ export function registerEpfoEsicRoutes(
 
       const title = `EPFO PF Contribution — ${params.month} ${params.year}`;
       if (params.format === "pdf") {
-        res.setHeader("Content-Type", "text/html; charset=utf-8");
-        return res.send(buildHtmlReport(title, Object.keys(data[0] || {}), data as any));
+        return streamPdfReport(res, title, Object.keys(data[0] || {}), data as any, `EPFO_PF_${params.month}_${params.year}.pdf`);
       }
 
       const ws = XLSX.utils.json_to_sheet(data);
@@ -1552,8 +1611,7 @@ export function registerEpfoEsicRoutes(
 
       const title = `ESIC Contribution — ${params.month} ${params.year}`;
       if (params.format === "pdf") {
-        res.setHeader("Content-Type", "text/html; charset=utf-8");
-        return res.send(buildHtmlReport(title, Object.keys(data[0] || {}), data as any));
+        return streamPdfReport(res, title, Object.keys(data[0] || {}), data as any, `ESIC_Contribution_${params.month}_${params.year}.pdf`);
       }
 
       const ws = XLSX.utils.json_to_sheet(data);
@@ -1662,6 +1720,38 @@ export function registerEpfoEsicRoutes(
       res.json({ data: rows, page: pg.page, limit: pg.limit, total: Number(count) });
     } catch (err: any) {
       res.status(500).json({ error: err?.message || "Failed to generate audit report" });
+    }
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // RESUME — inject CAPTCHA / OTP answer into a paused job
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  // POST /api/automation/jobs/:id/resume  { answer: string }
+  app.post("/api/automation/jobs/:id/resume", requireAuth, adminRoles, async (req: Request, res: Response) => {
+    try {
+      const user = (req as any).user;
+      const data = parseBody(z.object({ answer: z.string().min(1, "answer is required") }), req.body, res);
+      if (!data) return;
+
+      const { id } = req.params;
+      const worker = await import("./automation/queue-worker");
+      const job = await worker.queueService.getJob(id);
+      if (!job) return res.status(404).json({ error: "Job not found" });
+      if (isForbidden(user, job.companyId)) return res.status(403).json({ error: "Access denied — job belongs to a different company" });
+      if (job.status !== "paused") {
+        return res.status(409).json({ error: `Job is not paused (current status: ${job.status})` });
+      }
+      const resolver = worker.resumeResolvers.get(id);
+      if (!resolver) {
+        return res.status(404).json({ error: "No active pause handler for this job (worker may have restarted)" });
+      }
+      worker.resumeResolvers.delete(id);
+      await worker.queueService.markJobResumed(id);
+      resolver(data.answer.trim());
+      res.json({ ok: true, jobId: id });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || "Failed to resume job" });
     }
   });
 
