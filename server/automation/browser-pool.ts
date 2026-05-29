@@ -80,7 +80,7 @@ console.log(
  */
 let _playwrightInstallPromise: Promise<void> | null = null;
 
-function ensurePlaywrightBinary(): Promise<void> {
+export function ensurePlaywrightBinary(): Promise<void> {
   // System browser available — nothing to install
   if (CHROMIUM_EXECUTABLE) return Promise.resolve();
 

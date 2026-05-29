@@ -9,6 +9,7 @@ import { setupBiometricSync } from "./biometric-sync";
 import { startAdmsServer, registerAdmsRoutes } from "./adms";
 import { startBiometricAttendanceSync } from "./biometric-attendance-sync";
 import { serveStatic } from "./static";
+import { ensurePlaywrightBinary } from "./automation/browser-pool";
 import { createServer } from "http";
 
 // Always load .env from disk, merging into process.env without overwriting
@@ -290,6 +291,14 @@ app.use((req, res, next) => {
     },
     () => {
       log(`serving on port ${port}`);
+
+      // Eagerly install Playwright's Chromium binary in the background so it is
+      // ready before the first automation job arrives. This prevents the 1-minute
+      // download from racing against the 2-minute per-job timeout.
+      // No-op when a system Chromium is already found (Replit/NixOS dev env).
+      ensurePlaywrightBinary()
+        .then(() => log("Playwright Chromium ready", "BrowserPool"))
+        .catch((err: Error) => log(`Playwright Chromium install failed: ${err.message}`, "BrowserPool"));
     },
   );
 })();
