@@ -742,6 +742,25 @@ function PortalSettingsTab({ companyId }: { companyId: string }) {
         : `/uploads/automation-screenshots/${polledJob.screenshotPath.split("/").pop()}`)
     : null;
 
+  // Client-side 90s safety net: if the job is still "running" after 90 seconds
+  // (portal unreachable, Chromium can't start, etc.) stop the spinner and tell the user.
+  useEffect(() => {
+    if (testPhase !== "running") return;
+    const timer = setTimeout(() => {
+      setTestPhase("done");
+      setTestResult({ ok: false, message: "Portal automation timed out after 90 seconds. The EPFO portal may be slow or unreachable from the server. Try again or click 'Open Portal' to log in manually." });
+      setTestJobId(null);
+    }, 90_000);
+    return () => clearTimeout(timer);
+  }, [testPhase]);
+
+  const cancelTest = () => {
+    setTestPhase("idle");
+    setTestResult(null);
+    setTestJobId(null);
+    setCaptchaAnswer("");
+  };
+
   const isTestActive = testMutation.isPending || !!testJobId;
 
   return (
@@ -801,9 +820,12 @@ function PortalSettingsTab({ companyId }: { companyId: string }) {
 
           {/* Step 1: running — filling credentials on portal */}
           {testPhase === "running" && (
-            <div className="flex items-center gap-2 p-3 rounded-lg bg-blue-50 border border-blue-200 text-sm text-blue-800">
-              <Loader2 className="h-4 w-4 animate-spin shrink-0" />
-              <span>Opening EPFO portal and filling username &amp; password automatically…</span>
+            <div className="flex items-center justify-between gap-2 p-3 rounded-lg bg-blue-50 border border-blue-200 text-sm text-blue-800">
+              <div className="flex items-center gap-2">
+                <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+                <span>Opening EPFO portal and filling username &amp; password automatically…</span>
+              </div>
+              <button onClick={cancelTest} className="text-xs text-blue-600 underline hover:no-underline shrink-0" data-testid="button-cancel-epfo-test">Cancel</button>
             </div>
           )}
 
