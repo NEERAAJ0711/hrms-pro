@@ -394,8 +394,8 @@ async function processJob(job: JobRecord): Promise<void> {
     if (errorMessage.includes("Executable doesn't exist") || errorMessage.includes("browserType.launch")) {
       errorMessage =
         "Chromium browser not found on server. " +
-        "Run: npx playwright install chromium  —  then restart the server. " +
-        "Alternatively install system Chrome: sudo apt-get install -y chromium-browser";
+        `SSH in and run (from the app directory):  cd ${process.cwd()} && npx playwright install chromium  — then restart the server. ` +
+        "Do NOT add --with-deps (that requires sudo and will fail).";
     }
 
     console.error(`[QueueWorker] Job ${job.id} (${job.jobType}) failed:`, errorMessage);
