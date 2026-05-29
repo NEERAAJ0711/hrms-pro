@@ -3,29 +3,46 @@ import { portalSessions } from "@shared/schema";
 import { eq, and } from "drizzle-orm";
 import { randomUUID, createCipheriv, createDecipheriv, randomBytes } from "crypto";
 
-const ALGORITHM = "aes-256-cbc";
+const ALGORITHM = "aes-256-gcm";
+const IV_LEN = 12; // 96-bit IV recommended for GCM
+const TAG_LEN = 16;
 
 function getKey(): Buffer {
-  const secret = process.env.SESSION_ENCRYPTION_KEY ?? "hrms-portal-session-default-key-32b!";
-  // Derive exactly 32 bytes from the key (pad/truncate)
+  const secret = process.env.SESSION_ENCRYPTION_KEY;
+  if (!secret) {
+    throw new Error(
+      "SESSION_ENCRYPTION_KEY environment variable is required for portal session encryption. " +
+      "Set a random 32-byte hex string in your environment secrets."
+    );
+  }
+  if (secret.length < 32) {
+    throw new Error("SESSION_ENCRYPTION_KEY must be at least 32 characters long.");
+  }
   const buf = Buffer.alloc(32);
-  Buffer.from(secret).copy(buf);
+  Buffer.from(secret, "utf8").copy(buf);
   return buf;
 }
 
-function encrypt(text: string): string {
-  const iv = randomBytes(16);
-  const cipher = createCipheriv(ALGORITHM, getKey(), iv);
-  const encrypted = Buffer.concat([cipher.update(text, "utf8"), cipher.final()]);
-  return iv.toString("hex") + ":" + encrypted.toString("hex");
+function encrypt(plainText: string): string {
+  const key = getKey();
+  const iv = randomBytes(IV_LEN);
+  const cipher = createCipheriv(ALGORITHM, key, iv) as ReturnType<typeof createCipheriv> & { getAuthTag(): Buffer };
+  const encrypted = Buffer.concat([cipher.update(plainText, "utf8"), cipher.final()]);
+  const tag = (cipher as any).getAuthTag() as Buffer;
+  // Format: iv_hex:tag_hex:ciphertext_hex
+  return iv.toString("hex") + ":" + tag.toString("hex") + ":" + encrypted.toString("hex");
 }
 
 function decrypt(cipherText: string): string {
-  const [ivHex, encHex] = cipherText.split(":");
-  if (!ivHex || !encHex) throw new Error("Invalid cipher text format");
+  const parts = cipherText.split(":");
+  if (parts.length !== 3) throw new Error("Invalid cipher text format");
+  const [ivHex, tagHex, encHex] = parts;
+  const key = getKey();
   const iv = Buffer.from(ivHex, "hex");
+  const tag = Buffer.from(tagHex, "hex");
   const encrypted = Buffer.from(encHex, "hex");
-  const decipher = createDecipheriv(ALGORITHM, getKey(), iv);
+  const decipher = createDecipheriv(ALGORITHM, key, iv) as ReturnType<typeof createDecipheriv> & { setAuthTag(tag: Buffer): void };
+  (decipher as any).setAuthTag(tag);
   const decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()]);
   return decrypted.toString("utf8");
 }

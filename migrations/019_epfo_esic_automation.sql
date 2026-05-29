@@ -37,7 +37,9 @@ CREATE TABLE IF NOT EXISTS automation_logs (
   level       TEXT          NOT NULL DEFAULT 'info',
   message     TEXT          NOT NULL,
   meta        JSONB,
-  created_at  TEXT          NOT NULL
+  created_by  VARCHAR(36),
+  created_at  TEXT          NOT NULL,
+  updated_at  TEXT          NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_automation_logs_job_id      ON automation_logs (job_id);
@@ -55,6 +57,7 @@ CREATE TABLE IF NOT EXISTS portal_sessions (
   last_login_at         TEXT,
   session_valid_until   TEXT,
   is_active             BOOLEAN       NOT NULL DEFAULT TRUE,
+  created_by            VARCHAR(36),
   created_at            TEXT          NOT NULL,
   updated_at            TEXT          NOT NULL,
   UNIQUE (company_id, portal)
@@ -201,6 +204,7 @@ CREATE TABLE IF NOT EXISTS challans (
   status      TEXT          NOT NULL DEFAULT 'generated',
   file_path   TEXT,
   job_id      VARCHAR(36),
+  created_by  VARCHAR(36),
   created_at  TEXT          NOT NULL,
   updated_at  TEXT          NOT NULL
 );
@@ -221,6 +225,7 @@ CREATE TABLE IF NOT EXISTS compliance_calendar_events (
   period_year       INTEGER,
   status            TEXT          NOT NULL DEFAULT 'upcoming',
   related_return_id VARCHAR(36),
+  created_by        VARCHAR(36),
   created_at        TEXT          NOT NULL,
   updated_at        TEXT          NOT NULL
 );

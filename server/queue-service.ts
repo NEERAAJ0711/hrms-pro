@@ -156,6 +156,29 @@ export class QueueService {
       .where(and(eq(automationJobs.id, id), eq(automationJobs.status, "pending")));
   }
 
+  /**
+   * Retry all failed jobs that still have remaining retries.
+   * Resets retry_count to 0 so they get a fresh attempt cycle.
+   * Returns the number of jobs re-queued.
+   */
+  async retryFailedJobs(companyId?: string): Promise<number> {
+    const now = new Date().toISOString();
+    const conditions = [eq(automationJobs.status, "failed")];
+    if (companyId) conditions.push(eq(automationJobs.companyId, companyId));
+    const result = await db.execute(sql`
+      UPDATE automation_jobs
+      SET status = 'pending',
+          retry_count = 0,
+          error_message = NULL,
+          started_at = NULL,
+          completed_at = NULL,
+          updated_at = ${now}
+      WHERE status = 'failed'
+        ${companyId ? sql`AND company_id = ${companyId}` : sql``}
+    `);
+    return (result as any).rowCount ?? 0;
+  }
+
   /** Reset stuck "running" jobs older than `stuckMinutes` back to pending */
   async recoverStuckJobs(stuckMinutes = 15): Promise<number> {
     const cutoff = new Date(Date.now() - stuckMinutes * 60 * 1000).toISOString();
@@ -206,7 +229,8 @@ export class QueueService {
     companyId: string,
     level: "info" | "warn" | "error" | "debug",
     message: string,
-    meta?: Record<string, unknown>
+    meta?: Record<string, unknown>,
+    createdBy?: string
   ): Promise<void> {
     const now = new Date().toISOString();
     await db.insert(automationLogs).values({
@@ -216,7 +240,9 @@ export class QueueService {
       level,
       message,
       meta: meta ?? null,
+      createdBy: createdBy ?? null,
       createdAt: now,
+      updatedAt: now,
     });
   }
 

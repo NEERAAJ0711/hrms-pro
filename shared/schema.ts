@@ -1,4 +1,4 @@
-import { pgTable, text, varchar, boolean, timestamp, integer, real, numeric, bigserial, json } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, boolean, timestamp, integer, real, numeric, bigserial, json, jsonb } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -1226,8 +1226,8 @@ export const automationJobs = pgTable("automation_jobs", {
   companyId: varchar("company_id", { length: 36 }).notNull(),
   jobType: text("job_type").notNull(),
   status: text("status").notNull().default("pending"),
-  payload: json("payload").$type<Record<string, unknown>>().default({}),
-  result: json("result").$type<Record<string, unknown>>(),
+  payload: jsonb("payload").$type<Record<string, unknown>>().default({}),
+  result: jsonb("result").$type<Record<string, unknown>>(),
   screenshotPath: text("screenshot_path"),
   errorMessage: text("error_message"),
   retryCount: integer("retry_count").notNull().default(0),
@@ -1253,8 +1253,10 @@ export const automationLogs = pgTable("automation_logs", {
   companyId: varchar("company_id", { length: 36 }).notNull(),
   level: text("level").notNull().default("info"),
   message: text("message").notNull(),
-  meta: json("meta").$type<Record<string, unknown>>(),
+  meta: jsonb("meta").$type<Record<string, unknown>>(),
+  createdBy: varchar("created_by", { length: 36 }),
   createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
 });
 export const insertAutomationLogSchema = createInsertSchema(automationLogs).omit({ id: true });
 export type InsertAutomationLog = z.infer<typeof insertAutomationLogSchema>;
@@ -1274,6 +1276,7 @@ export const portalSessions = pgTable("portal_sessions", {
   lastLoginAt: text("last_login_at"),
   sessionValidUntil: text("session_valid_until"),
   isActive: boolean("is_active").notNull().default(true),
+  createdBy: varchar("created_by", { length: 36 }),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
 });
@@ -1432,6 +1435,7 @@ export const challans = pgTable("challans", {
   status: text("status").notNull().default("generated"),
   filePath: text("file_path"),
   jobId: varchar("job_id", { length: 36 }),
+  createdBy: varchar("created_by", { length: 36 }),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
 });
@@ -1454,6 +1458,7 @@ export const complianceCalendarEvents = pgTable("compliance_calendar_events", {
   periodYear: integer("period_year"),
   status: text("status").notNull().default("upcoming"), // upcoming | completed | overdue | waived
   relatedReturnId: varchar("related_return_id", { length: 36 }),
+  createdBy: varchar("created_by", { length: 36 }),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
 });
