@@ -1206,6 +1206,7 @@ export const automationJobTypes = [
   "epfo_passbook_status",
   "epfo_exit_management",
   "epfo_bulk_register",
+  "epfo_bulk_ecr",
   "epfo_login_test",
   // ESIC
   "esic_ip_generate",

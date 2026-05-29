@@ -135,6 +135,7 @@ function bindPageToContext(ctx: AutomationContext, page: Page): AutomationContex
 // ─── Job dispatcher ───────────────────────────────────────────────────────────
 /**
  * Routes a job to the correct service function.
+ * Uses the canonical job type names from shared/schema.ts automationJobTypes.
  * Returns the result object or throws.
  */
 async function dispatch(
@@ -145,7 +146,7 @@ async function dispatch(
   const p = job.payload as Record<string, unknown>;
 
   switch (job.jobType) {
-    // ── EPFO ──
+    // ── EPFO individual operations ─────────────────────────────────────────
     case "epfo_login_test": {
       const creds = await portalSessionService.getCredentials(job.companyId, "epfo");
       if (!creds) throw new Error("No EPFO credentials saved for this company");
@@ -154,13 +155,13 @@ async function dispatch(
     }
     case "epfo_uan_generate":
       return epfo.uanGenerate(page, p as any, ctx);
-    case "epfo_aadhaar_kyc":
+    case "epfo_kyc_aadhaar":
       return epfo.aadhaarKyc(page, p as any, ctx);
-    case "epfo_pan_kyc":
+    case "epfo_kyc_pan":
       return epfo.panKyc(page, p as any, ctx);
-    case "epfo_bank_kyc":
+    case "epfo_kyc_bank":
       return epfo.bankKyc(page, p as any, ctx);
-    case "epfo_ecr_filing":
+    case "epfo_ecr_file":
       return epfo.ecrFiling(page, p as any, ctx);
     case "epfo_challan_download":
       return epfo.challanDownload(page, { ...(p as any), downloadDir: ctx.screenshotDir }, ctx);
@@ -171,9 +172,9 @@ async function dispatch(
     case "epfo_exit_management":
       return epfo.exitManagement(page, p as any, ctx);
 
-    // ── EPFO bulk fan-out (no browser needed — just enqueue children) ──
-    case "epfo_bulk_uan": {
-      const jobs = epfo.getBulkUanJobs(p as any);
+    // ── EPFO bulk fan-out (no browser — just enqueue child jobs) ──────────
+    case "epfo_bulk_register": {
+      const jobs = epfo.getBulkRegisterJobs(p as any);
       for (const j of jobs) {
         await queueService.enqueueJob({
           jobType: j.jobType,
@@ -185,8 +186,8 @@ async function dispatch(
       }
       return { enqueued: jobs.length };
     }
-    case "epfo_bulk_kyc": {
-      const jobs = epfo.getBulkKycJobs(p as any);
+    case "epfo_bulk_ecr": {
+      const jobs = epfo.getBulkEcrJobs(p as any);
       for (const j of jobs) {
         await queueService.enqueueJob({
           jobType: j.jobType,
@@ -199,7 +200,7 @@ async function dispatch(
       return { enqueued: jobs.length };
     }
 
-    // ── ESIC ──
+    // ── ESIC individual operations ─────────────────────────────────────────
     case "esic_login_test": {
       const creds = await portalSessionService.getCredentials(job.companyId, "esic");
       if (!creds) throw new Error("No ESIC credentials saved for this company");
@@ -210,7 +211,7 @@ async function dispatch(
       return esic.ipNumberGenerate(page, p as any, ctx);
     case "esic_family_declaration":
       return esic.familyDeclaration(page, p as any, ctx);
-    case "esic_monthly_contribution":
+    case "esic_monthly_file":
       return esic.monthlyContributionFiling(page, p as any, ctx);
     case "esic_challan_download":
       return esic.esicChallanDownload(page, { ...(p as any), downloadDir: ctx.screenshotDir }, ctx);
@@ -219,13 +220,75 @@ async function dispatch(
     case "esic_contribution_tracking":
       return esic.contributionTracking(page, p as any, ctx);
 
+    // ── ESIC card downloads (stub — extend when portal selectors are known) ─
+    case "esic_temp_card_download":
+      return esicCardDownload(page, p, "temp_card", ctx);
+    case "esic_pehchan_card_download":
+      return esicCardDownload(page, p, "pehchan_card", ctx);
+
+    // ── ESIC bulk fan-out ──────────────────────────────────────────────────
+    case "esic_bulk_register": {
+      const employees = (p.employees as Array<Record<string, unknown>>) ?? [];
+      for (const emp of employees) {
+        await queueService.enqueueJob({
+          jobType: "esic_ip_generate",
+          companyId: job.companyId,
+          payload: emp,
+          maxRetries: 3,
+          createdBy: job.createdBy ?? undefined,
+        });
+      }
+      return { enqueued: employees.length };
+    }
+
     default:
       throw new Error(`Unknown job type: ${job.jobType}`);
   }
 }
 
+/** Shared helper for ESIC card downloads (temp card / Pehchan card) */
+async function esicCardDownload(
+  page: Page,
+  payload: Record<string, unknown>,
+  cardType: string,
+  ctx: AutomationContext
+): Promise<Record<string, unknown>> {
+  const ESIC_BASE = "https://www.esic.in/EmployerPortal";
+  const urlMap: Record<string, string> = {
+    temp_card: `${ESIC_BASE}/TempCard.aspx`,
+    pehchan_card: `${ESIC_BASE}/PehchanCard.aspx`,
+  };
+  await ctx.log("info", `Downloading ESIC ${cardType}`, payload);
+  await page.goto(urlMap[cardType] ?? ESIC_BASE, { waitUntil: "domcontentloaded", timeout: 30000 });
+  await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {});
+
+  const ipNumber = (payload.ipNumber as string) ?? "";
+  if (ipNumber) {
+    await page.fill('#txtIPNo, input[name*="ipNo" i]', ipNumber).catch(() => {});
+    await page.click('#btnSearch, button[id*="search" i]').catch(() => {});
+    await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {});
+  }
+
+  await ctx.takeScreenshot(`${cardType}-page`);
+  const downloadDir = ctx.screenshotDir;
+  try {
+    const [download] = await Promise.all([
+      page.waitForEvent("download", { timeout: 20000 }),
+      page.click('#btnDownload, a[id*="download" i]'),
+    ]);
+    const filePath = `${downloadDir}/${download.suggestedFilename()}`;
+    await download.saveAs(filePath);
+    await ctx.log("info", `${cardType} downloaded`, { filePath });
+    return { cardType, ipNumber, filePath };
+  } catch {
+    // Download button not found or download didn't trigger — return page text
+    const content = await page.textContent("body").catch(() => "");
+    return { cardType, ipNumber, pageContent: content?.slice(0, 500) };
+  }
+}
+
 // ─── Bulk jobs (no browser needed) ───────────────────────────────────────────
-const BROWSER_FREE_JOB_TYPES = new Set(["epfo_bulk_uan", "epfo_bulk_kyc"]);
+const BROWSER_FREE_JOB_TYPES = new Set(["epfo_bulk_register", "epfo_bulk_ecr", "esic_bulk_register"]);
 
 // ─── Main job processor ───────────────────────────────────────────────────────
 async function processJob(job: JobRecord): Promise<void> {

@@ -602,12 +602,11 @@ export async function exitManagement(
   return { uan: payload.uan, exitDate: payload.exitDate, result: resultMsg };
 }
 
-// ─── Bulk operations ──────────────────────────────────────────────────────────
+// ─── Bulk fan-out helpers (no browser needed) ─────────────────────────────────
 /**
- * Fan out bulk operations into individual jobs.
- * This function does NOT launch a browser — it just enqueues per-employee jobs.
+ * Fan out bulk UAN registration into one epfo_uan_generate job per employee.
  */
-export function getBulkUanJobs(
+export function getBulkRegisterJobs(
   payload: { employees: Array<Record<string, unknown>> }
 ): Array<{ jobType: string; payload: Record<string, unknown> }> {
   return payload.employees.map((emp) => ({
@@ -616,11 +615,15 @@ export function getBulkUanJobs(
   }));
 }
 
-export function getBulkKycJobs(
-  payload: { members: Array<{ uan: string; type: "aadhaar" | "pan" | "bank"; data: Record<string, unknown> }> }
+/**
+ * Fan out bulk ECR filing into one epfo_ecr_file job per entry.
+ * Each entry should contain { wageMonth, wageYear, ecrFilePath }.
+ */
+export function getBulkEcrJobs(
+  payload: { filings: Array<Record<string, unknown>> }
 ): Array<{ jobType: string; payload: Record<string, unknown> }> {
-  return payload.members.map((m) => ({
-    jobType: m.type === "aadhaar" ? "epfo_aadhaar_kyc" : m.type === "pan" ? "epfo_pan_kyc" : "epfo_bank_kyc",
-    payload: { uan: m.uan, ...m.data },
+  return payload.filings.map((filing) => ({
+    jobType: "epfo_ecr_file",
+    payload: filing,
   }));
 }
