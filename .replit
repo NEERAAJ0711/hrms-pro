@@ -51,3 +51,4 @@ timeoutMs = 20000
 [userenv]
 
 [userenv.shared]
+SESSION_ENCRYPTION_KEY = "e65141760b3e554a2d5f4d48e835a2cf63cd75b7875aef3f718ef5259054df38"
