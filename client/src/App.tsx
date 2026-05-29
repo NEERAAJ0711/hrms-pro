@@ -36,6 +36,10 @@ import AccessRequestsPage from "@/pages/access-requests";
 import CompliancesPage from "@/pages/compliances";
 import BillingPage from "@/pages/billing";
 import KraKpiPage from "@/pages/kra-kpi";
+import EpfoPage from "@/pages/epfo";
+import EsicPage from "@/pages/esic";
+import ComplianceCalendarPage from "@/pages/compliance-calendar";
+import AutomationJobsPage from "@/pages/automation-jobs";
 import NotFound from "@/pages/not-found";
 import MobilePreview from "@/pages/mobile-preview";
 import WebsiteLayout from "@/pages/website/website-layout";
@@ -129,6 +133,10 @@ function ProtectedRouter() {
       <Route path="/my-access-requests" component={MyAccessRequestsPage} />
       <Route path="/access-requests" component={AccessRequestsPage} />
       <Route path="/compliances" component={CompliancesPage} />
+      <Route path="/epfo" component={EpfoPage} />
+      <Route path="/esic" component={EsicPage} />
+      <Route path="/compliance-calendar" component={ComplianceCalendarPage} />
+      <Route path="/automation-jobs" component={AutomationJobsPage} />
       <Route path="/billing" component={BillingPage} />
       <Route path="/kra-kpi" component={KraKpiPage} />
       <Route path="/settings" component={SettingsPage} />

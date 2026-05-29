@@ -21,6 +21,9 @@ import {
   ShieldQuestion,
   CreditCard,
   Target,
+  Bot,
+  Activity,
+  CalendarCheck,
 } from "lucide-react";
 import { useLocation } from "wouter";
 import {
@@ -71,6 +74,10 @@ const MODULE_ACCESS: Record<string, UserRole[]> = {
   my_access_requests: ["super_admin", "company_admin", "hr_admin", "recruiter", "manager", "employee"],
   access_requests: ["super_admin", "company_admin"],
   kra_kpi: ["super_admin", "company_admin", "hr_admin", "manager", "employee"],
+  epfo_automation: ["super_admin", "company_admin", "hr_admin"],
+  esic_automation: ["super_admin", "company_admin", "hr_admin"],
+  compliance_calendar: ["super_admin", "company_admin", "hr_admin"],
+  automation_jobs: ["super_admin", "company_admin", "hr_admin"],
 };
 
 const REQUIRES_COMPANY: string[] = [
@@ -225,6 +232,30 @@ const hrModulesItems = [
     url: "/kra-kpi",
     icon: Target,
     module: "kra_kpi",
+  },
+  {
+    title: "EPFO Automation",
+    url: "/epfo",
+    icon: ShieldCheck,
+    module: "epfo_automation",
+  },
+  {
+    title: "ESIC Automation",
+    url: "/esic",
+    icon: Activity,
+    module: "esic_automation",
+  },
+  {
+    title: "Compliance Calendar",
+    url: "/compliance-calendar",
+    icon: CalendarCheck,
+    module: "compliance_calendar",
+  },
+  {
+    title: "Automation Jobs",
+    url: "/automation-jobs",
+    icon: Bot,
+    module: "automation_jobs",
   },
   {
     title: "Settings",
