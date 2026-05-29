@@ -9,6 +9,7 @@
  * binary (found via PATH) which self-wraps all its dependencies.
  */
 import * as fs from "fs";
+import * as path from "path";
 import { execSync, spawnSync } from "child_process";
 import { chromium, type Browser } from "playwright";
 
@@ -97,25 +98,37 @@ function ensurePlaywrightBinary(): Promise<void> {
     return Promise.resolve();
   }
 
-  // Binary missing — install it now
-  console.log("[BrowserPool] Playwright Chromium binary not found — installing (this takes ~1 min)...");
+  // Binary missing — install it now.
+  // Use the local node_modules/.bin/playwright binary directly to avoid PATH
+  // issues with npx in service/daemon environments.
+  // Do NOT pass --with-deps: that flag runs `sudo apt-get install` for system
+  // libraries and fails when the process has no sudo access.
+  const localPlaywright = path.join(process.cwd(), "node_modules", ".bin", "playwright");
+  const [cmd, args] = fs.existsSync(localPlaywright)
+    ? [localPlaywright, ["install", "chromium"]]
+    : ["npx", ["playwright", "install", "chromium"]];
+
+  console.log(`[BrowserPool] Playwright Chromium binary not found — running: ${cmd} ${args.join(" ")} (may take ~1 min)...`);
+
   _playwrightInstallPromise = new Promise<void>((resolve, reject) => {
-    const result = spawnSync(
-      "npx",
-      ["playwright", "install", "chromium", "--with-deps"],
-      { stdio: "inherit", timeout: 5 * 60_000 }
-    );
+    const result = spawnSync(cmd, args, { stdio: "inherit", timeout: 5 * 60_000 });
+
     if (result.status === 0) {
       console.log("[BrowserPool] Playwright Chromium installed successfully.");
       resolve();
-    } else {
-      const msg =
-        "Auto-install of Playwright Chromium failed. " +
-        "Please run manually on the server: npx playwright install chromium";
-      console.error("[BrowserPool]", msg);
-      _playwrightInstallPromise = null; // allow retry
-      reject(new Error(msg));
+      return;
     }
+
+    // Install failed — clear promise so next job can retry, then give up with a
+    // clear actionable message that surfaces directly in the Test Login banner.
+    _playwrightInstallPromise = null;
+    const reason = result.error ? result.error.message : `exit code ${result.status}`;
+    reject(new Error(
+      `Chromium could not be installed automatically (${reason}). ` +
+      `Please SSH into the server and run:\n` +
+      `  cd ${process.cwd()} && npx playwright install chromium\n` +
+      `Then restart the server.`
+    ));
   });
 
   return _playwrightInstallPromise;
