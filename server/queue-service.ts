@@ -1,0 +1,263 @@
+import { db } from "./db";
+import { automationJobs, automationLogs } from "@shared/schema";
+import { eq, and, lt, inArray, sql } from "drizzle-orm";
+import { randomUUID } from "crypto";
+
+export type JobType = typeof import("@shared/schema").automationJobTypes[number];
+
+export interface EnqueueJobOptions {
+  jobType: string;
+  companyId: string;
+  payload?: Record<string, unknown>;
+  maxRetries?: number;
+  scheduledAt?: string;
+  createdBy?: string;
+}
+
+export interface JobRecord {
+  id: string;
+  companyId: string;
+  jobType: string;
+  status: string;
+  payload: Record<string, unknown>;
+  result?: Record<string, unknown> | null;
+  screenshotPath?: string | null;
+  errorMessage?: string | null;
+  retryCount: number;
+  maxRetries: number;
+  scheduledAt?: string | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  createdBy?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export class QueueService {
+  async enqueueJob(options: EnqueueJobOptions): Promise<JobRecord> {
+    const now = new Date().toISOString();
+    const id = randomUUID();
+    const [row] = await db
+      .insert(automationJobs)
+      .values({
+        id,
+        companyId: options.companyId,
+        jobType: options.jobType,
+        status: "pending",
+        payload: options.payload ?? {},
+        retryCount: 0,
+        maxRetries: options.maxRetries ?? 3,
+        scheduledAt: options.scheduledAt ?? null,
+        createdBy: options.createdBy ?? null,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning();
+    return row as JobRecord;
+  }
+
+  async claimNextJob(): Promise<JobRecord | null> {
+    const now = new Date().toISOString();
+    try {
+      const rows = await db.execute(sql`
+        UPDATE automation_jobs
+        SET status = 'running',
+            started_at = ${now},
+            updated_at = ${now}
+        WHERE id = (
+          SELECT id FROM automation_jobs
+          WHERE status = 'pending'
+            AND (scheduled_at IS NULL OR scheduled_at <= ${now})
+          ORDER BY created_at ASC
+          LIMIT 1
+          FOR UPDATE SKIP LOCKED
+        )
+        RETURNING *
+      `);
+      const row = (rows as any).rows?.[0] ?? null;
+      if (!row) return null;
+      return this._mapRow(row);
+    } catch {
+      return null;
+    }
+  }
+
+  async markJobPaused(id: string, screenshotPath: string): Promise<void> {
+    await db
+      .update(automationJobs)
+      .set({
+        status: "paused",
+        screenshotPath,
+        updatedAt: new Date().toISOString(),
+      })
+      .where(eq(automationJobs.id, id));
+  }
+
+  async markJobResumed(id: string): Promise<void> {
+    await db
+      .update(automationJobs)
+      .set({
+        status: "running",
+        screenshotPath: null,
+        updatedAt: new Date().toISOString(),
+      })
+      .where(eq(automationJobs.id, id));
+  }
+
+  async markJobCompleted(id: string, result?: Record<string, unknown>): Promise<void> {
+    const now = new Date().toISOString();
+    await db
+      .update(automationJobs)
+      .set({
+        status: "completed",
+        result: result ?? {},
+        completedAt: now,
+        updatedAt: now,
+      })
+      .where(eq(automationJobs.id, id));
+  }
+
+  async markJobFailed(id: string, errorMessage: string): Promise<void> {
+    const now = new Date().toISOString();
+    // Increment retry count
+    await db.execute(sql`
+      UPDATE automation_jobs
+      SET status = CASE
+            WHEN retry_count + 1 < max_retries THEN 'pending'
+            ELSE 'failed'
+          END,
+          retry_count = retry_count + 1,
+          error_message = ${errorMessage},
+          completed_at = CASE WHEN retry_count + 1 >= max_retries THEN ${now} ELSE NULL END,
+          updated_at = ${now}
+      WHERE id = ${id}
+    `);
+  }
+
+  async retryJob(id: string): Promise<void> {
+    const now = new Date().toISOString();
+    await db
+      .update(automationJobs)
+      .set({
+        status: "pending",
+        retryCount: 0,
+        errorMessage: null,
+        startedAt: null,
+        completedAt: null,
+        updatedAt: now,
+      })
+      .where(and(eq(automationJobs.id, id), inArray(automationJobs.status, ["failed", "cancelled"])));
+  }
+
+  async cancelJob(id: string): Promise<void> {
+    await db
+      .update(automationJobs)
+      .set({ status: "cancelled", updatedAt: new Date().toISOString() })
+      .where(and(eq(automationJobs.id, id), eq(automationJobs.status, "pending")));
+  }
+
+  /** Reset stuck "running" jobs older than `stuckMinutes` back to pending */
+  async recoverStuckJobs(stuckMinutes = 15): Promise<number> {
+    const cutoff = new Date(Date.now() - stuckMinutes * 60 * 1000).toISOString();
+    const now = new Date().toISOString();
+    const result = await db.execute(sql`
+      UPDATE automation_jobs
+      SET status = 'pending',
+          started_at = NULL,
+          updated_at = ${now}
+      WHERE status = 'running'
+        AND updated_at < ${cutoff}
+    `);
+    return (result as any).rowCount ?? 0;
+  }
+
+  async getJob(id: string): Promise<JobRecord | null> {
+    const rows = await db
+      .select()
+      .from(automationJobs)
+      .where(eq(automationJobs.id, id))
+      .limit(1);
+    return rows[0] ? (rows[0] as JobRecord) : null;
+  }
+
+  async listJobs(filters: {
+    companyId?: string;
+    status?: string;
+    jobType?: string;
+    limit?: number;
+    offset?: number;
+  } = {}): Promise<JobRecord[]> {
+    let query = db.select().from(automationJobs).$dynamic();
+    const conditions = [];
+    if (filters.companyId) conditions.push(eq(automationJobs.companyId, filters.companyId));
+    if (filters.status) conditions.push(eq(automationJobs.status, filters.status));
+    if (filters.jobType) conditions.push(eq(automationJobs.jobType, filters.jobType));
+    if (conditions.length > 0) {
+      query = query.where(and(...conditions));
+    }
+    query = query.orderBy(sql`${automationJobs.createdAt} DESC`);
+    if (filters.limit) query = query.limit(filters.limit);
+    if (filters.offset) query = query.offset(filters.offset);
+    return (await query) as JobRecord[];
+  }
+
+  async addLog(
+    jobId: string,
+    companyId: string,
+    level: "info" | "warn" | "error" | "debug",
+    message: string,
+    meta?: Record<string, unknown>
+  ): Promise<void> {
+    const now = new Date().toISOString();
+    await db.insert(automationLogs).values({
+      id: randomUUID(),
+      jobId,
+      companyId,
+      level,
+      message,
+      meta: meta ?? null,
+      createdAt: now,
+    });
+  }
+
+  async getLogs(jobId: string, limit = 200): Promise<typeof automationLogs.$inferSelect[]> {
+    return db
+      .select()
+      .from(automationLogs)
+      .where(eq(automationLogs.jobId, jobId))
+      .orderBy(sql`${automationLogs.createdAt} ASC`)
+      .limit(limit);
+  }
+
+  async getRecentLogs(companyId: string, limit = 100): Promise<typeof automationLogs.$inferSelect[]> {
+    return db
+      .select()
+      .from(automationLogs)
+      .where(eq(automationLogs.companyId, companyId))
+      .orderBy(sql`${automationLogs.createdAt} DESC`)
+      .limit(limit);
+  }
+
+  private _mapRow(row: Record<string, unknown>): JobRecord {
+    return {
+      id: row.id as string,
+      companyId: row.company_id as string,
+      jobType: row.job_type as string,
+      status: row.status as string,
+      payload: (row.payload as Record<string, unknown>) ?? {},
+      result: row.result as Record<string, unknown> | null,
+      screenshotPath: row.screenshot_path as string | null,
+      errorMessage: row.error_message as string | null,
+      retryCount: row.retry_count as number,
+      maxRetries: row.max_retries as number,
+      scheduledAt: row.scheduled_at as string | null,
+      startedAt: row.started_at as string | null,
+      completedAt: row.completed_at as string | null,
+      createdBy: row.created_by as string | null,
+      createdAt: row.created_at as string,
+      updatedAt: row.updated_at as string,
+    };
+  }
+}
+
+export const queueService = new QueueService();

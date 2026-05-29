@@ -1187,6 +1187,280 @@ export const insertKraAssignmentKpiSchema = createInsertSchema(kraAssignmentKpis
 export type InsertKraAssignmentKpi = z.infer<typeof insertKraAssignmentKpiSchema>;
 export type KraAssignmentKpi = typeof kraAssignmentKpis.$inferSelect;
 
+// ─── EPFO & ESIC Automation ───────────────────────────────────────────────────
+
+// Automation job statuses
+export const automationJobStatuses = ["pending", "running", "paused", "completed", "failed", "cancelled"] as const;
+export type AutomationJobStatus = typeof automationJobStatuses[number];
+
+// Automation job types
+export const automationJobTypes = [
+  // EPFO
+  "epfo_uan_generate",
+  "epfo_kyc_aadhaar",
+  "epfo_kyc_pan",
+  "epfo_kyc_bank",
+  "epfo_ecr_file",
+  "epfo_challan_download",
+  "epfo_trrn_track",
+  "epfo_passbook_status",
+  "epfo_exit_management",
+  "epfo_bulk_register",
+  "epfo_login_test",
+  // ESIC
+  "esic_ip_generate",
+  "esic_family_declaration",
+  "esic_monthly_file",
+  "esic_challan_download",
+  "esic_temp_card_download",
+  "esic_pehchan_card_download",
+  "esic_employee_search",
+  "esic_bulk_register",
+  "esic_login_test",
+] as const;
+export type AutomationJobType = typeof automationJobTypes[number];
+
+// Automation Jobs (queue table)
+export const automationJobs = pgTable("automation_jobs", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  companyId: varchar("company_id", { length: 36 }).notNull(),
+  jobType: text("job_type").notNull(),
+  status: text("status").notNull().default("pending"),
+  payload: json("payload").$type<Record<string, unknown>>().default({}),
+  result: json("result").$type<Record<string, unknown>>(),
+  screenshotPath: text("screenshot_path"),
+  errorMessage: text("error_message"),
+  retryCount: integer("retry_count").notNull().default(0),
+  maxRetries: integer("max_retries").notNull().default(3),
+  scheduledAt: text("scheduled_at"),
+  startedAt: text("started_at"),
+  completedAt: text("completed_at"),
+  createdBy: varchar("created_by", { length: 36 }),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+export const insertAutomationJobSchema = createInsertSchema(automationJobs).omit({ id: true });
+export type InsertAutomationJob = z.infer<typeof insertAutomationJobSchema>;
+export type AutomationJob = typeof automationJobs.$inferSelect;
+
+// Automation Logs (detailed activity log per job)
+export const automationLogLevels = ["info", "warn", "error", "debug"] as const;
+export type AutomationLogLevel = typeof automationLogLevels[number];
+
+export const automationLogs = pgTable("automation_logs", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  jobId: varchar("job_id", { length: 36 }).notNull(),
+  companyId: varchar("company_id", { length: 36 }).notNull(),
+  level: text("level").notNull().default("info"),
+  message: text("message").notNull(),
+  meta: json("meta").$type<Record<string, unknown>>(),
+  createdAt: text("created_at").notNull(),
+});
+export const insertAutomationLogSchema = createInsertSchema(automationLogs).omit({ id: true });
+export type InsertAutomationLog = z.infer<typeof insertAutomationLogSchema>;
+export type AutomationLog = typeof automationLogs.$inferSelect;
+
+// Portal Sessions (encrypted browser cookies per company per portal)
+export const portalTypes = ["epfo", "esic"] as const;
+export type PortalType = typeof portalTypes[number];
+
+export const portalSessions = pgTable("portal_sessions", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  companyId: varchar("company_id", { length: 36 }).notNull(),
+  portal: text("portal").notNull(), // "epfo" | "esic"
+  username: text("username").notNull(),
+  encryptedPassword: text("encrypted_password").notNull(),
+  encryptedCookies: text("encrypted_cookies"),
+  lastLoginAt: text("last_login_at"),
+  sessionValidUntil: text("session_valid_until"),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+export const insertPortalSessionSchema = createInsertSchema(portalSessions).omit({ id: true });
+export type InsertPortalSession = z.infer<typeof insertPortalSessionSchema>;
+export type PortalSession = typeof portalSessions.$inferSelect;
+
+// EPFO Registrations
+export const epfoRegistrationStatuses = ["pending", "submitted", "uan_generated", "kyc_pending", "kyc_done", "failed"] as const;
+export type EpfoRegistrationStatus = typeof epfoRegistrationStatuses[number];
+
+export const epfoRegistrations = pgTable("epfo_registrations", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  companyId: varchar("company_id", { length: 36 }).notNull(),
+  employeeId: varchar("employee_id", { length: 36 }).notNull(),
+  uan: text("uan"),
+  pfCode: text("pf_code"),
+  memberIdAtEpfo: text("member_id_at_epfo"),
+  status: text("status").notNull().default("pending"),
+  jobId: varchar("job_id", { length: 36 }),
+  submittedAt: text("submitted_at"),
+  uanGeneratedAt: text("uan_generated_at"),
+  errorMessage: text("error_message"),
+  remarks: text("remarks"),
+  createdBy: varchar("created_by", { length: 36 }),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+export const insertEpfoRegistrationSchema = createInsertSchema(epfoRegistrations).omit({ id: true });
+export type InsertEpfoRegistration = z.infer<typeof insertEpfoRegistrationSchema>;
+export type EpfoRegistration = typeof epfoRegistrations.$inferSelect;
+
+// EPFO KYC Records
+export const epfoKycTypes = ["aadhaar", "pan", "bank"] as const;
+export type EpfoKycType = typeof epfoKycTypes[number];
+
+export const epfoKycStatuses = ["pending", "submitted", "approved", "rejected", "failed"] as const;
+
+export const epfoKycRecords = pgTable("epfo_kyc_records", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  companyId: varchar("company_id", { length: 36 }).notNull(),
+  employeeId: varchar("employee_id", { length: 36 }).notNull(),
+  uan: text("uan"),
+  kycType: text("kyc_type").notNull(), // aadhaar | pan | bank
+  status: text("status").notNull().default("pending"),
+  documentNumber: text("document_number"), // masked Aadhaar / PAN / account no.
+  jobId: varchar("job_id", { length: 36 }),
+  submittedAt: text("submitted_at"),
+  approvedAt: text("approved_at"),
+  errorMessage: text("error_message"),
+  createdBy: varchar("created_by", { length: 36 }),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+export const insertEpfoKycRecordSchema = createInsertSchema(epfoKycRecords).omit({ id: true });
+export type InsertEpfoKycRecord = z.infer<typeof insertEpfoKycRecordSchema>;
+export type EpfoKycRecord = typeof epfoKycRecords.$inferSelect;
+
+// EPFO ECR Returns
+export const epfoEcrStatuses = ["pending", "filed", "challan_generated", "paid", "failed"] as const;
+
+export const epfoEcrReturns = pgTable("epfo_ecr_returns", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  companyId: varchar("company_id", { length: 36 }).notNull(),
+  month: text("month").notNull(), // "January" … "December"
+  year: integer("year").notNull(),
+  totalEmployees: integer("total_employees").default(0),
+  totalPfWages: integer("total_pf_wages").default(0),
+  totalEmployeeContribution: integer("total_employee_contribution").default(0),
+  totalEmployerContribution: integer("total_employer_contribution").default(0),
+  totalAmount: integer("total_amount").default(0),
+  trrn: text("trrn"),
+  challanNo: text("challan_no"),
+  status: text("status").notNull().default("pending"),
+  ecrFilePath: text("ecr_file_path"),
+  challanFilePath: text("challan_file_path"),
+  jobId: varchar("job_id", { length: 36 }),
+  filedAt: text("filed_at"),
+  dueDate: text("due_date"),
+  errorMessage: text("error_message"),
+  createdBy: varchar("created_by", { length: 36 }),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+export const insertEpfoEcrReturnSchema = createInsertSchema(epfoEcrReturns).omit({ id: true });
+export type InsertEpfoEcrReturn = z.infer<typeof insertEpfoEcrReturnSchema>;
+export type EpfoEcrReturn = typeof epfoEcrReturns.$inferSelect;
+
+// ESIC Registrations
+export const esicRegistrationStatuses = ["pending", "submitted", "ip_generated", "failed"] as const;
+
+export const esicRegistrations = pgTable("esic_registrations", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  companyId: varchar("company_id", { length: 36 }).notNull(),
+  employeeId: varchar("employee_id", { length: 36 }).notNull(),
+  ipNumber: text("ip_number"),
+  esicCode: text("esic_code"),
+  status: text("status").notNull().default("pending"),
+  jobId: varchar("job_id", { length: 36 }),
+  submittedAt: text("submitted_at"),
+  ipGeneratedAt: text("ip_generated_at"),
+  errorMessage: text("error_message"),
+  remarks: text("remarks"),
+  createdBy: varchar("created_by", { length: 36 }),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+export const insertEsicRegistrationSchema = createInsertSchema(esicRegistrations).omit({ id: true });
+export type InsertEsicRegistration = z.infer<typeof insertEsicRegistrationSchema>;
+export type EsicRegistration = typeof esicRegistrations.$inferSelect;
+
+// ESIC Monthly Returns
+export const esicReturnStatuses = ["pending", "filed", "challan_generated", "paid", "failed"] as const;
+
+export const esicMonthlyReturns = pgTable("esic_monthly_returns", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  companyId: varchar("company_id", { length: 36 }).notNull(),
+  month: text("month").notNull(),
+  year: integer("year").notNull(),
+  totalEmployees: integer("total_employees").default(0),
+  totalEsicWages: integer("total_esic_wages").default(0),
+  totalEmployeeContribution: integer("total_employee_contribution").default(0),
+  totalEmployerContribution: integer("total_employer_contribution").default(0),
+  totalAmount: integer("total_amount").default(0),
+  challanNo: text("challan_no"),
+  status: text("status").notNull().default("pending"),
+  returnFilePath: text("return_file_path"),
+  challanFilePath: text("challan_file_path"),
+  jobId: varchar("job_id", { length: 36 }),
+  filedAt: text("filed_at"),
+  dueDate: text("due_date"),
+  errorMessage: text("error_message"),
+  createdBy: varchar("created_by", { length: 36 }),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+export const insertEsicMonthlyReturnSchema = createInsertSchema(esicMonthlyReturns).omit({ id: true });
+export type InsertEsicMonthlyReturn = z.infer<typeof insertEsicMonthlyReturnSchema>;
+export type EsicMonthlyReturn = typeof esicMonthlyReturns.$inferSelect;
+
+// Challans (unified for EPFO & ESIC)
+export const challanPortals = ["epfo", "esic"] as const;
+export const challanStatuses = ["generated", "paid", "cancelled"] as const;
+
+export const challans = pgTable("challans", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  companyId: varchar("company_id", { length: 36 }).notNull(),
+  portal: text("portal").notNull(), // "epfo" | "esic"
+  month: text("month").notNull(),
+  year: integer("year").notNull(),
+  challanNo: text("challan_no"),
+  trrn: text("trrn"),
+  amount: integer("amount").default(0),
+  dueDate: text("due_date"),
+  paidDate: text("paid_date"),
+  status: text("status").notNull().default("generated"),
+  filePath: text("file_path"),
+  jobId: varchar("job_id", { length: 36 }),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+export const insertChallanSchema = createInsertSchema(challans).omit({ id: true });
+export type InsertChallan = z.infer<typeof insertChallanSchema>;
+export type Challan = typeof challans.$inferSelect;
+
+// Compliance Calendar Events
+export const complianceCalendarEventTypes = ["epfo_ecr_due", "esic_return_due", "pt_due", "lwf_due", "tds_due", "custom"] as const;
+export type ComplianceCalendarEventType = typeof complianceCalendarEventTypes[number];
+
+export const complianceCalendarEvents = pgTable("compliance_calendar_events", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  companyId: varchar("company_id", { length: 36 }).notNull(),
+  eventType: text("event_type").notNull(),
+  title: text("title").notNull(),
+  description: text("description"),
+  dueDate: text("due_date").notNull(),
+  periodMonth: text("period_month"), // "January" … "December"
+  periodYear: integer("period_year"),
+  status: text("status").notNull().default("upcoming"), // upcoming | completed | overdue | waived
+  relatedReturnId: varchar("related_return_id", { length: 36 }),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+export const insertComplianceCalendarEventSchema = createInsertSchema(complianceCalendarEvents).omit({ id: true });
+export type InsertComplianceCalendarEvent = z.infer<typeof insertComplianceCalendarEventSchema>;
+export type ComplianceCalendarEvent = typeof complianceCalendarEvents.$inferSelect;
+
 // ─── Outdoor Duty Entries ─────────────────────────────────────────────────────
 export const outdoorEntries = pgTable("outdoor_entries", {
   id: varchar("id", { length: 36 }).primaryKey(),
