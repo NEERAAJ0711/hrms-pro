@@ -886,44 +886,83 @@ function PortalSettingsTab({ companyId }: { companyId: string }) {
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function EpfoPage() {
   const { user } = useAuth();
+  const [activeTab, setActiveTab] = useState("dashboard");
+  const [selectedCompanyId, setSelectedCompanyId] = useState("");
+
+  const isSuperAdmin = user?.role === "super_admin";
+
+  const { data: companies = [] } = useQuery<{ id: string; name: string }[]>({
+    queryKey: ["/api/companies"],
+    queryFn: async () => {
+      const res = await fetch("/api/companies", { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: isSuperAdmin,
+  });
 
   const ALLOWED = ["super_admin", "company_admin", "hr_admin"];
   if (!user || !ALLOWED.includes(user.role)) {
     return <div className="p-6 text-center text-muted-foreground">You do not have permission to view this page.</div>;
   }
 
-  const companyId = user.companyId ?? "";
-  const [activeTab, setActiveTab] = useState("dashboard");
+  const companyId = isSuperAdmin ? selectedCompanyId : (user.companyId ?? "");
 
   return (
     <div className="p-6 space-y-5">
-      <div className="flex items-center gap-3">
-        <div className="p-2 bg-blue-600 rounded-lg">
-          <ShieldCheck className="h-6 w-6 text-white" />
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-3">
+          <div className="p-2 bg-blue-600 rounded-lg">
+            <ShieldCheck className="h-6 w-6 text-white" />
+          </div>
+          <div>
+            <h1 className="text-2xl font-bold">EPFO Automation</h1>
+            <p className="text-sm text-muted-foreground">Manage UAN generation, ECR filing, and PF compliance via automated portal workflows</p>
+          </div>
         </div>
-        <div>
-          <h1 className="text-2xl font-bold">EPFO Automation</h1>
-          <p className="text-sm text-muted-foreground">Manage UAN generation, ECR filing, and PF compliance via automated portal workflows</p>
-        </div>
+        {isSuperAdmin && (
+          <div className="flex items-center gap-2 min-w-[220px]">
+            <Label className="text-sm font-medium whitespace-nowrap">Company</Label>
+            <Select value={selectedCompanyId} onValueChange={setSelectedCompanyId} data-testid="select-epfo-company">
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Select a company…" />
+              </SelectTrigger>
+              <SelectContent>
+                {companies.map((c) => (
+                  <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
       </div>
 
-      <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="flex flex-wrap gap-0.5">
-          <TabsTrigger value="dashboard" data-testid="tab-epfo-dashboard">Dashboard</TabsTrigger>
-          <TabsTrigger value="registration" data-testid="tab-epfo-registration">Registration</TabsTrigger>
-          <TabsTrigger value="returns" data-testid="tab-epfo-returns">Return Filing</TabsTrigger>
-          <TabsTrigger value="challans" data-testid="tab-epfo-challans">Challans</TabsTrigger>
-          <TabsTrigger value="bulk" data-testid="tab-epfo-bulk">Bulk Upload</TabsTrigger>
-          <TabsTrigger value="portal" data-testid="tab-epfo-portal">Portal Settings</TabsTrigger>
-        </TabsList>
+      {isSuperAdmin && !companyId ? (
+        <Card className="border-dashed">
+          <CardContent className="py-16 text-center text-muted-foreground">
+            <ShieldCheck className="h-10 w-10 mx-auto mb-3 opacity-30" />
+            <p className="font-medium">Select a company above to view EPFO data</p>
+          </CardContent>
+        </Card>
+      ) : (
+        <Tabs value={activeTab} onValueChange={setActiveTab}>
+          <TabsList className="flex flex-wrap gap-0.5">
+            <TabsTrigger value="dashboard" data-testid="tab-epfo-dashboard">Dashboard</TabsTrigger>
+            <TabsTrigger value="registration" data-testid="tab-epfo-registration">Registration</TabsTrigger>
+            <TabsTrigger value="returns" data-testid="tab-epfo-returns">Return Filing</TabsTrigger>
+            <TabsTrigger value="challans" data-testid="tab-epfo-challans">Challans</TabsTrigger>
+            <TabsTrigger value="bulk" data-testid="tab-epfo-bulk">Bulk Upload</TabsTrigger>
+            <TabsTrigger value="portal" data-testid="tab-epfo-portal">Portal Settings</TabsTrigger>
+          </TabsList>
 
-        <TabsContent value="dashboard" className="mt-4"><DashboardTab companyId={companyId} onTabChange={setActiveTab} /></TabsContent>
-        <TabsContent value="registration" className="mt-4"><RegistrationTab companyId={companyId} /></TabsContent>
-        <TabsContent value="returns" className="mt-4"><ReturnFilingTab companyId={companyId} /></TabsContent>
-        <TabsContent value="challans" className="mt-4"><ChallanTab companyId={companyId} /></TabsContent>
-        <TabsContent value="bulk" className="mt-4"><BulkUploadTab companyId={companyId} /></TabsContent>
-        <TabsContent value="portal" className="mt-4"><PortalSettingsTab companyId={companyId} /></TabsContent>
-      </Tabs>
+          <TabsContent value="dashboard" className="mt-4"><DashboardTab companyId={companyId} onTabChange={setActiveTab} /></TabsContent>
+          <TabsContent value="registration" className="mt-4"><RegistrationTab companyId={companyId} /></TabsContent>
+          <TabsContent value="returns" className="mt-4"><ReturnFilingTab companyId={companyId} /></TabsContent>
+          <TabsContent value="challans" className="mt-4"><ChallanTab companyId={companyId} /></TabsContent>
+          <TabsContent value="bulk" className="mt-4"><BulkUploadTab companyId={companyId} /></TabsContent>
+          <TabsContent value="portal" className="mt-4"><PortalSettingsTab companyId={companyId} /></TabsContent>
+        </Tabs>
+      )}
     </div>
   );
 }
