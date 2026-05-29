@@ -1,6 +1,6 @@
 import { db } from "./db";
 import { automationJobs, automationLogs } from "@shared/schema";
-import { eq, and, lt, inArray, sql } from "drizzle-orm";
+import { eq, and, lt, gte, lte, inArray, sql } from "drizzle-orm";
 import { randomUUID } from "crypto";
 
 export type JobType = typeof import("@shared/schema").automationJobTypes[number];
@@ -207,6 +207,8 @@ export class QueueService {
     companyId?: string;
     status?: string;
     jobType?: string;
+    from?: string;
+    to?: string;
     limit?: number;
     offset?: number;
   } = {}): Promise<JobRecord[]> {
@@ -215,12 +217,14 @@ export class QueueService {
     if (filters.companyId) conditions.push(eq(automationJobs.companyId, filters.companyId));
     if (filters.status) conditions.push(eq(automationJobs.status, filters.status));
     if (filters.jobType) conditions.push(eq(automationJobs.jobType, filters.jobType));
+    if (filters.from) conditions.push(gte(automationJobs.createdAt, filters.from));
+    if (filters.to) conditions.push(lte(automationJobs.createdAt, filters.to));
     if (conditions.length > 0) {
       query = query.where(and(...conditions));
     }
     query = query.orderBy(sql`${automationJobs.createdAt} DESC`);
     if (filters.limit) query = query.limit(filters.limit);
-    if (filters.offset) query = query.offset(filters.offset);
+    if (filters.offset !== undefined) query = query.offset(filters.offset);
     return (await query) as JobRecord[];
   }
 

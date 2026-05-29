@@ -7239,55 +7239,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Register all EPFO / ESIC routes (jobs, portal sessions, registrations, returns, reports)
   registerEpfoEsicRoutes(app, requireAuth, requireRole);
 
-  // Resume a paused automation job (CAPTCHA or OTP answer from admin)
-  // POST /api/automation/jobs/:id/resume  { answer: string }
-  // Restricted to company_admin / hr_admin / super_admin; job must belong to the caller's company.
-  app.post(
-    "/api/automation/jobs/:id/resume",
-    requireAuth,
-    requireRole("super_admin", "company_admin", "hr_admin"),
-    async (req: Request, res: Response) => {
-      try {
-        const user = (req as any).user;
-        const { id } = req.params;
-        const { answer } = req.body as { answer?: string };
-
-        if (!answer || typeof answer !== "string" || !answer.trim()) {
-          return res.status(400).json({ error: "answer is required" });
-        }
-
-        // Load the worker module (imported lazily to avoid startup ordering issues)
-        const worker = await import("./automation/queue-worker");
-
-        // Verify the job exists and belongs to this user's company
-        const job = await worker.queueService.getJob(id);
-        if (!job) {
-          return res.status(404).json({ error: "Job not found" });
-        }
-        if (user.role !== "super_admin" && job.companyId !== user.companyId) {
-          return res.status(403).json({ error: "Access denied — job belongs to a different company" });
-        }
-        if (job.status !== "paused") {
-          return res.status(409).json({ error: `Job is not paused (current status: ${job.status})` });
-        }
-
-        const resolver = worker.resumeResolvers.get(id);
-        if (!resolver) {
-          return res.status(404).json({ error: "No active pause handler for this job (worker may have restarted)" });
-        }
-
-        worker.resumeResolvers.delete(id);
-        await worker.queueService.markJobResumed(id);
-        resolver(answer.trim());
-
-        res.json({ ok: true, jobId: id });
-      } catch (err: any) {
-        console.error("[Routes] resume error:", err);
-        res.status(500).json({ error: err?.message || "Failed to resume job" });
-      }
-    }
-  );
-
   // Start the automation queue worker (fire-and-forget background process)
   try {
     const { startQueueWorker } = await import("./automation/queue-worker");
