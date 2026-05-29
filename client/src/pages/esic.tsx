@@ -784,7 +784,7 @@ function PortalSettingsTab({ companyId }: { companyId: string }) {
                 {isTestRunning ? "Testing…" : "Test Login"}
               </Button>
             )}
-            <a href="https://www.esic.in/EmployerPortal/ESICInsurance/eSICMainPage.aspx" target="_blank" rel="noopener noreferrer">
+            <a href="https://esic.gov.in/" target="_blank" rel="noopener noreferrer">
               <Button variant="ghost" type="button" data-testid="button-open-esic-portal">
                 <Download className="h-4 w-4 mr-2 rotate-180" />
                 Open Portal
