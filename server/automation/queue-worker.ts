@@ -25,6 +25,7 @@ import { eq, sql } from "drizzle-orm";
 const POLL_INTERVAL_MS = 10_000;
 const RECOVERY_INTERVAL_MS = 5 * 60_000;
 const MAX_CONCURRENT = 3;
+const JOB_TIMEOUT_MS = 2 * 60_000; // 2-minute hard ceiling per job
 const SCREENSHOT_BASE = path.join(process.cwd(), "uploads", "automation-screenshots");
 const BACKOFF_SECONDS = [30, 120, 300]; // delay after 1st, 2nd, 3rd failure
 
@@ -253,7 +254,7 @@ async function esicCardDownload(
   cardType: string,
   ctx: AutomationContext
 ): Promise<Record<string, unknown>> {
-  const ESIC_BASE = "https://www.esic.in/EmployerPortal";
+  const ESIC_BASE = "https://esic.gov.in/EmployerPortal";
   const urlMap: Record<string, string> = {
     temp_card: `${ESIC_BASE}/TempCard.aspx`,
     pehchan_card: `${ESIC_BASE}/PehchanCard.aspx`,
@@ -325,6 +326,9 @@ async function processJob(job: JobRecord): Promise<void> {
         "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
     });
     page = await context.newPage();
+    // Cap every individual page action at 25s so a missing selector
+    // fails quickly instead of hanging for the Playwright default (30s).
+    page.setDefaultTimeout(25_000);
 
     // Build context with page bound for real screenshots
     const baseCtx = buildContext(job, screenshotDir);
@@ -353,7 +357,7 @@ async function processJob(job: JobRecord): Promise<void> {
       await page.goto(
         portal === "epfo"
           ? "https://unifiedportal-emp.epfindia.gov.in/epfo/"
-          : "https://www.esic.in/EmployerPortal/",
+          : "https://esic.gov.in/",
         { waitUntil: "domcontentloaded", timeout: 20000 }
       ).catch(() => {});
 
@@ -429,9 +433,21 @@ async function poll(): Promise<void> {
     try {
       const job = await queueService.claimNextJob();
       if (job) {
-        processJob(job).catch((err) =>
-          console.error(`[QueueWorker] Unhandled processJob error for ${job.id}:`, err)
+        // Wrap every job in a hard timeout so a hung Playwright call can never
+        // leave a job stuck in "running" forever.
+        const jobPromise = processJob(job);
+        const timeoutPromise = new Promise<void>((_, reject) =>
+          setTimeout(
+            () => reject(new Error(`Job timed out after ${JOB_TIMEOUT_MS / 1000}s`)),
+            JOB_TIMEOUT_MS
+          )
         );
+        Promise.race([jobPromise, timeoutPromise]).catch(async (err) => {
+          const msg = err instanceof Error ? err.message : String(err);
+          console.error(`[QueueWorker] Job ${job.id} (${job.jobType}) error: ${msg}`);
+          // Best-effort: mark the job failed if it is still in a running state
+          await queueService.markJobFailed(job.id, msg).catch(() => {});
+        });
       }
     } catch (err) {
       console.error("[QueueWorker] poll error:", err);
@@ -444,7 +460,7 @@ async function poll(): Promise<void> {
 // ─── Recovery cron ────────────────────────────────────────────────────────────
 async function runRecovery(): Promise<void> {
   try {
-    const recovered = await queueService.recoverStuckJobs(15);
+    const recovered = await queueService.recoverStuckJobs(3);
     if (recovered > 0) {
       console.log(`[QueueWorker] Recovered ${recovered} stuck job(s)`);
     }

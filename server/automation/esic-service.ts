@@ -15,8 +15,8 @@ import type { Page } from "playwright";
 import type { AutomationContext } from "./queue-worker";
 
 // ─── Portal URLs ──────────────────────────────────────────────────────────────
-const ESIC_BASE = "https://www.esic.in/EmployerPortal";
-const ESIC_LOGIN_URL = `${ESIC_BASE}/ESICInsuredPersonPortal/ESICInsuredPersonLogin.aspx`;
+const ESIC_BASE = "https://esic.gov.in/EmployerPortal";
+const ESIC_LOGIN_URL = "https://esic.gov.in/EmployerPortal/ESICInsuredPersonPortal/ESICInsuredPersonLogin.aspx";
 
 // ─── Selector constants ───────────────────────────────────────────────────────
 const SEL = {

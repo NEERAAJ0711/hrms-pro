@@ -98,18 +98,30 @@ class BrowserPool {
     if (!slot.browser || !slot.browser.isConnected()) {
       if (slot.browser) {
         try { await slot.browser.close(); } catch { /* ignore */ }
+        slot.browser = null;
       }
-      slot.browser = await chromium.launch({
-        headless: PLAYWRIGHT_HEADLESS,
-        executablePath: CHROMIUM_EXECUTABLE,
-        args: [
-          "--no-sandbox",
-          "--disable-setuid-sandbox",
-          "--disable-dev-shm-usage",
-          "--disable-gpu",
-          "--disable-extensions",
-        ],
-      });
+      try {
+        // Race the launch against a 30s timeout so a hung Chromium never blocks the slot
+        const launchPromise = chromium.launch({
+          headless: PLAYWRIGHT_HEADLESS,
+          executablePath: CHROMIUM_EXECUTABLE,
+          args: [
+            "--no-sandbox",
+            "--disable-setuid-sandbox",
+            "--disable-dev-shm-usage",
+            "--disable-gpu",
+            "--disable-extensions",
+          ],
+        });
+        const timeoutPromise = new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error("Chromium launch timed out after 30s")), 30_000)
+        );
+        slot.browser = await Promise.race([launchPromise, timeoutPromise]);
+      } catch (err) {
+        // Free the slot so future jobs can try again instead of deadlocking
+        slot.inUse = false;
+        throw err;
+      }
     }
     return slot.browser;
   }
