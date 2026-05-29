@@ -78,7 +78,9 @@ function fmtDate(s: string | null | undefined) {
 }
 
 // ─── Dashboard Tab ────────────────────────────────────────────────────────────
-function DashboardTab({ companyId }: { companyId: string }) {
+function DashboardTab({ companyId, onTabChange }: { companyId: string; onTabChange: (tab: string) => void }) {
+  const triggerJob = useTriggerJob(["/api/esic/registrations", "/api/esic/monthly-returns", "/api/esic/challans"]);
+
   const { data: summary } = useQuery<AutomationSummary>({
     queryKey: ["/api/automation/summary", companyId],
     queryFn: async () => {
@@ -98,15 +100,35 @@ function DashboardTab({ companyId }: { companyId: string }) {
     },
   });
 
-  const nextDue = (() => {
-    const now = new Date();
-    const d21 = new Date(now.getFullYear(), now.getMonth() + 1, 21);
-    const diff = Math.ceil((d21.getTime() - now.getTime()) / 86400000);
-    return `ESIC due ${diff > 0 ? `in ${diff} day${diff !== 1 ? "s" : ""}` : "today"} (21st ${MONTHS[d21.getMonth()]})`;
-  })();
+  const { data: recentJobs } = useQuery<{ data: Array<{ id: string; jobType: string; status: string; createdAt: string; errorMessage?: string | null }> }>({
+    queryKey: ["/api/automation/jobs", companyId, "esic", "recent"],
+    queryFn: async () => {
+      const params = new URLSearchParams({ companyId, limit: "8", jobType: "esic" });
+      const res = await fetch(`/api/automation/jobs?${params}`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed");
+      return res.json();
+    },
+    refetchInterval: 10000,
+  });
+
+  const now = new Date();
+  const d21 = new Date(now.getFullYear(), now.getMonth() + 1, 21);
+  const diffDays = Math.ceil((d21.getTime() - now.getTime()) / 86400000);
+  const nextDue = `ESIC due ${diffDays > 0 ? `in ${diffDays} day${diffDays !== 1 ? "s" : ""}` : "today"} (21st ${MONTHS[d21.getMonth()]})`;
+
+  const prevMonth = now.getMonth() === 0 ? MONTHS[11] : MONTHS[now.getMonth() - 1];
+  const prevYear = now.getMonth() === 0 ? now.getFullYear() - 1 : now.getFullYear();
+
+  const jobStatusIcon = (status: string) => {
+    if (status === "completed") return <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />;
+    if (status === "failed") return <AlertTriangle className="h-3.5 w-3.5 text-red-500" />;
+    if (status === "running") return <Loader2 className="h-3.5 w-3.5 text-blue-500 animate-spin" />;
+    return <Clock className="h-3.5 w-3.5 text-yellow-500" />;
+  };
 
   return (
     <div className="space-y-5">
+      {/* Summary cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
           { label: "Registered Employees", value: summary?.esicRegistrations ?? 0, icon: Users, color: "text-emerald-600 bg-emerald-50" },
@@ -128,41 +150,92 @@ function DashboardTab({ companyId }: { companyId: string }) {
         ))}
       </div>
 
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">Recent Monthly Returns</CardTitle>
+      {/* Quick actions */}
+      <Card className="bg-emerald-50/40 border-emerald-100">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm font-semibold text-emerald-800">Quick Actions</CardTitle>
         </CardHeader>
-        <CardContent>
-          {!recentReturns?.data?.length ? (
-            <p className="text-sm text-muted-foreground text-center py-4">No ESIC returns filed yet</p>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Period</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Employees</TableHead>
-                  <TableHead>Amount</TableHead>
-                  <TableHead>Due Date</TableHead>
-                  <TableHead>Filed At</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {recentReturns.data.map(r => (
-                  <TableRow key={r.id}>
-                    <TableCell className="font-medium">{r.month} {r.year}</TableCell>
-                    <TableCell>{statusBadge(r.status)}</TableCell>
-                    <TableCell>{r.totalEmployees}</TableCell>
-                    <TableCell>{fmt(r.totalAmount)}</TableCell>
-                    <TableCell>{fmtDate(r.dueDate)}</TableCell>
-                    <TableCell>{fmtDate(r.filedAt)}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
+        <CardContent className="flex flex-wrap gap-3">
+          <Button size="sm" onClick={() => onTabChange("registration")} variant="outline" data-testid="qaction-esic-go-register">
+            <Users className="h-4 w-4 mr-1.5" /> Register Employees
+          </Button>
+          <Button size="sm" onClick={() => triggerJob.mutate({ jobType: "esic_monthly_file", companyId, payload: { month: prevMonth, year: prevYear } })} disabled={triggerJob.isPending} variant="outline" data-testid="qaction-esic-file-monthly">
+            {triggerJob.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : <FileText className="h-4 w-4 mr-1.5" />}
+            File Monthly ({prevMonth} {prevYear})
+          </Button>
+          <Button size="sm" onClick={() => triggerJob.mutate({ jobType: "esic_challan_download", companyId })} disabled={triggerJob.isPending} variant="outline" data-testid="qaction-esic-sync-challans">
+            <Download className="h-4 w-4 mr-1.5" /> Sync Challans
+          </Button>
+          <Button size="sm" onClick={() => onTabChange("portal")} variant="outline" data-testid="qaction-esic-portal-settings">
+            <Settings className="h-4 w-4 mr-1.5" /> Portal Settings
+          </Button>
         </CardContent>
       </Card>
+
+      <div className="grid md:grid-cols-2 gap-4">
+        {/* Recent returns */}
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">Recent Monthly Returns</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {!recentReturns?.data?.length ? (
+              <p className="text-sm text-muted-foreground text-center py-4">No ESIC returns filed yet</p>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Period</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Amount</TableHead>
+                    <TableHead>Filed</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {recentReturns.data.map(r => (
+                    <TableRow key={r.id}>
+                      <TableCell className="font-medium text-sm">{r.month} {r.year}</TableCell>
+                      <TableCell>{statusBadge(r.status)}</TableCell>
+                      <TableCell className="text-sm">{fmt(r.totalAmount)}</TableCell>
+                      <TableCell className="text-xs">{fmtDate(r.filedAt)}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Recent automation jobs */}
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              Recent Automation Activity
+              <span className="text-xs font-normal text-muted-foreground">auto-refreshes</span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {!recentJobs?.data?.length ? (
+              <p className="text-sm text-muted-foreground text-center py-4">No automation jobs yet</p>
+            ) : (
+              <div className="space-y-2">
+                {recentJobs.data.map(job => (
+                  <div key={job.id} className="flex items-center gap-3 py-1.5 border-b last:border-0">
+                    {jobStatusIcon(job.status)}
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate">{job.jobType.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())}</p>
+                      {job.errorMessage && <p className="text-xs text-red-500 truncate">{job.errorMessage}</p>}
+                    </div>
+                    <span className="text-xs text-muted-foreground whitespace-nowrap">
+                      {new Date(job.createdAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }
@@ -694,6 +767,7 @@ export default function EsicPage() {
   }
 
   const companyId = user.companyId ?? "";
+  const [activeTab, setActiveTab] = useState("dashboard");
 
   return (
     <div className="p-6 space-y-5">
@@ -707,7 +781,7 @@ export default function EsicPage() {
         </div>
       </div>
 
-      <Tabs defaultValue="dashboard">
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="flex flex-wrap gap-0.5">
           <TabsTrigger value="dashboard" data-testid="tab-esic-dashboard">Dashboard</TabsTrigger>
           <TabsTrigger value="registration" data-testid="tab-esic-registration">Registration</TabsTrigger>
@@ -718,7 +792,7 @@ export default function EsicPage() {
           <TabsTrigger value="portal" data-testid="tab-esic-portal">Portal Settings</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="dashboard" className="mt-4"><DashboardTab companyId={companyId} /></TabsContent>
+        <TabsContent value="dashboard" className="mt-4"><DashboardTab companyId={companyId} onTabChange={setActiveTab} /></TabsContent>
         <TabsContent value="registration" className="mt-4"><RegistrationTab companyId={companyId} /></TabsContent>
         <TabsContent value="contributions" className="mt-4"><ContributionsTab companyId={companyId} /></TabsContent>
         <TabsContent value="returns" className="mt-4"><MonthlyFilingTab companyId={companyId} /></TabsContent>
