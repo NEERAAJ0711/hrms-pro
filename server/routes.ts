@@ -7233,5 +7233,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ─── EPFO / ESIC Automation ──────────────────────────────────────────────────
+
+  // Resume a paused automation job (CAPTCHA or OTP answer from admin)
+  // POST /api/automation/jobs/:id/resume  { answer: string }
+  app.post("/api/automation/jobs/:id/resume", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const { answer } = req.body as { answer?: string };
+      if (!answer || typeof answer !== "string" || !answer.trim()) {
+        return res.status(400).json({ error: "answer is required" });
+      }
+      const { resumeResolvers } = await import("./automation/queue-worker");
+      const resolver = resumeResolvers.get(id);
+      if (!resolver) {
+        return res.status(404).json({ error: "No paused job found with that ID" });
+      }
+      resumeResolvers.delete(id);
+      const { queueService: qs } = await import("./automation/queue-worker");
+      await qs.markJobResumed(id);
+      resolver(answer.trim());
+      res.json({ ok: true, jobId: id });
+    } catch (err: any) {
+      console.error("[Routes] resume error:", err);
+      res.status(500).json({ error: err?.message || "Failed to resume job" });
+    }
+  });
+
+  // Start the automation queue worker (fire-and-forget background process)
+  try {
+    const { startQueueWorker } = await import("./automation/queue-worker");
+    startQueueWorker();
+  } catch (err) {
+    console.error("[Routes] Failed to start queue worker:", err);
+  }
+
   return httpServer;
 }
