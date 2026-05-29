@@ -3,11 +3,36 @@
  * instances per portal. Browsers are kept alive between jobs to reuse OS
  * processes and skip re-login overhead. A crashed browser is replaced
  * automatically before the slot is returned to the pool.
+ *
+ * On NixOS (Replit), the Playwright-downloaded headless shell may be missing
+ * system libraries (libgbm, libudev).  We prefer the NixOS-managed Chromium
+ * binary (found via PATH) which self-wraps all its dependencies.
  */
+import { execSync } from "child_process";
 import { chromium, type Browser } from "playwright";
 
 const MAX_BROWSERS_PER_PORTAL = 3;
 const PLAYWRIGHT_HEADLESS = process.env.PLAYWRIGHT_HEADLESS !== "false";
+
+/** Resolve the best available Chromium executable path at startup */
+function resolveChromiumPath(): string | undefined {
+  if (process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH) {
+    return process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH;
+  }
+  for (const candidate of ["chromium", "chromium-browser", "google-chrome"]) {
+    try {
+      const p = execSync(`which ${candidate}`, { stdio: ["ignore", "pipe", "ignore"] })
+        .toString()
+        .trim();
+      if (p) return p;
+    } catch {
+      // not on PATH — try next
+    }
+  }
+  return undefined; // fall back to Playwright's own download
+}
+
+const CHROMIUM_EXECUTABLE = resolveChromiumPath();
 
 interface PoolSlot {
   browser: Browser | null;
@@ -76,6 +101,7 @@ class BrowserPool {
       }
       slot.browser = await chromium.launch({
         headless: PLAYWRIGHT_HEADLESS,
+        executablePath: CHROMIUM_EXECUTABLE,
         args: [
           "--no-sandbox",
           "--disable-setuid-sandbox",
