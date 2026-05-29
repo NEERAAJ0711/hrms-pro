@@ -387,7 +387,17 @@ async function processJob(job: JobRecord): Promise<void> {
     await queueService.markJobCompleted(job.id, result);
     await queueService.addLog(job.id, job.companyId, "info", "Job completed successfully", result);
   } catch (err: unknown) {
-    const errorMessage = err instanceof Error ? err.message : String(err);
+    let errorMessage = err instanceof Error ? err.message : String(err);
+
+    // Translate the cryptic Playwright "Executable doesn't exist" error into an
+    // actionable message the user can act on without reading stack traces.
+    if (errorMessage.includes("Executable doesn't exist") || errorMessage.includes("browserType.launch")) {
+      errorMessage =
+        "Chromium browser not found on server. " +
+        "Run: npx playwright install chromium  —  then restart the server. " +
+        "Alternatively install system Chrome: sudo apt-get install -y chromium-browser";
+    }
+
     console.error(`[QueueWorker] Job ${job.id} (${job.jobType}) failed:`, errorMessage);
 
     await queueService.addLog(job.id, job.companyId, "error", `Job failed: ${errorMessage}`, {

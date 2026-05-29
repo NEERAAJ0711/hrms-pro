@@ -8,6 +8,7 @@
  * system libraries (libgbm, libudev).  We prefer the NixOS-managed Chromium
  * binary (found via PATH) which self-wraps all its dependencies.
  */
+import * as fs from "fs";
 import { execSync } from "child_process";
 import { chromium, type Browser } from "playwright";
 
@@ -16,10 +17,20 @@ const PLAYWRIGHT_HEADLESS = process.env.PLAYWRIGHT_HEADLESS !== "false";
 
 /** Resolve the best available Chromium executable path at startup */
 function resolveChromiumPath(): string | undefined {
+  // 1. Explicit override always wins
   if (process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH) {
     return process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH;
   }
-  for (const candidate of ["chromium", "chromium-browser", "google-chrome"]) {
+
+  // 2. Search PATH for any known Chrome/Chromium binary name
+  const pathCandidates = [
+    "chromium",
+    "chromium-browser",
+    "google-chrome",
+    "google-chrome-stable",
+    "google-chrome-beta",
+  ];
+  for (const candidate of pathCandidates) {
     try {
       const p = execSync(`which ${candidate}`, { stdio: ["ignore", "pipe", "ignore"] })
         .toString()
@@ -29,10 +40,37 @@ function resolveChromiumPath(): string | undefined {
       // not on PATH — try next
     }
   }
-  return undefined; // fall back to Playwright's own download
+
+  // 3. Check well-known absolute paths on Ubuntu/Debian/CentOS VPS servers
+  const absoluteCandidates = [
+    "/usr/bin/chromium-browser",
+    "/usr/bin/chromium",
+    "/usr/bin/google-chrome",
+    "/usr/bin/google-chrome-stable",
+    "/usr/local/bin/chromium",
+    "/snap/bin/chromium",
+    "/opt/google/chrome/chrome",
+  ];
+  for (const p of absoluteCandidates) {
+    try {
+      if (fs.existsSync(p)) return p;
+    } catch {
+      // ignore
+    }
+  }
+
+  // 4. Fall back to Playwright's own downloaded binary
+  return undefined;
 }
 
 const CHROMIUM_EXECUTABLE = resolveChromiumPath();
+// Log at startup so operators can immediately see whether a system browser was found
+console.log(
+  CHROMIUM_EXECUTABLE
+    ? `[BrowserPool] Using system Chromium: ${CHROMIUM_EXECUTABLE}`
+    : "[BrowserPool] No system Chromium found — will use Playwright's downloaded binary. " +
+      "If it is missing, run: npx playwright install chromium"
+);
 
 interface PoolSlot {
   browser: Browser | null;
