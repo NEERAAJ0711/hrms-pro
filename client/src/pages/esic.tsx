@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
@@ -703,14 +703,48 @@ function PortalSettingsTab({ companyId }: { companyId: string }) {
     onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
+  const [testJobId, setTestJobId] = useState<string | null>(null);
+  const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
+
+  const { data: polledJob } = useQuery<{ id: string; status: string; errorMessage?: string | null }>({
+    queryKey: ["/api/automation/jobs", testJobId],
+    queryFn: async () => {
+      const res = await fetch(`/api/automation/jobs/${testJobId}`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed");
+      return res.json();
+    },
+    enabled: !!testJobId,
+    refetchInterval: (query) => {
+      const s = (query.state.data as any)?.status;
+      if (s === "completed" || s === "failed" || s === "cancelled") return false;
+      return 2000;
+    },
+  });
+
+  useEffect(() => {
+    if (!polledJob) return;
+    if (polledJob.status === "completed") {
+      setTestResult({ ok: true, message: "Login successful — credentials are working correctly." });
+      setTestJobId(null);
+    } else if (polledJob.status === "failed" || polledJob.status === "cancelled") {
+      setTestResult({ ok: false, message: polledJob.errorMessage || "Login failed. Check your credentials." });
+      setTestJobId(null);
+    }
+  }, [polledJob?.status]);
+
   const testMutation = useMutation({
     mutationFn: async () => {
       const res = await apiRequest("POST", "/api/automation/portal-session/test", { portal: "esic", companyId });
       return res.json();
     },
-    onSuccess: data => toast({ title: "Test login queued", description: `Job #${data.jobId?.slice(0, 8)}` }),
+    onSuccess: (data) => {
+      setTestResult(null);
+      setTestJobId(data.jobId);
+    },
     onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
+
+  const isTestRunning = testMutation.isPending || !!testJobId;
 
   return (
     <div className="space-y-5 max-w-xl">
@@ -739,18 +773,38 @@ function PortalSettingsTab({ companyId }: { companyId: string }) {
               </button>
             </div>
           </div>
-          <div className="flex gap-3">
+          <div className="flex flex-wrap gap-3">
             <Button onClick={() => saveMutation.mutate()} disabled={!username || !password || saveMutation.isPending} data-testid="button-save-esic-credentials">
               {saveMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Settings className="h-4 w-4 mr-2" />}
               Save Credentials
             </Button>
             {session?.configured && (
-              <Button variant="outline" onClick={() => testMutation.mutate()} disabled={testMutation.isPending} data-testid="button-test-esic-login">
-                {testMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Activity className="h-4 w-4 mr-2" />}
-                Test Login
+              <Button variant="outline" onClick={() => { setTestResult(null); testMutation.mutate(); }} disabled={isTestRunning} data-testid="button-test-esic-login">
+                {isTestRunning ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Activity className="h-4 w-4 mr-2" />}
+                {isTestRunning ? "Testing…" : "Test Login"}
               </Button>
             )}
+            <a href="https://www.esic.in/EmployerPortal/ESICInsurance/eSICMainPage.aspx" target="_blank" rel="noopener noreferrer">
+              <Button variant="ghost" type="button" data-testid="button-open-esic-portal">
+                <Download className="h-4 w-4 mr-2 rotate-180" />
+                Open Portal
+              </Button>
+            </a>
           </div>
+
+          {isTestRunning && (
+            <div className="flex items-center gap-2 p-3 rounded-lg bg-blue-50 border border-blue-200 text-sm text-blue-800">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Running automated login test via server — please wait…
+            </div>
+          )}
+
+          {testResult && !isTestRunning && (
+            <div className={`flex items-start gap-2 p-3 rounded-lg border text-sm ${testResult.ok ? "bg-green-50 border-green-200 text-green-800" : "bg-red-50 border-red-200 text-red-800"}`}>
+              {testResult.ok ? <CheckCircle2 className="h-4 w-4 mt-0.5 shrink-0" /> : <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />}
+              <span>{testResult.message}</span>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>
