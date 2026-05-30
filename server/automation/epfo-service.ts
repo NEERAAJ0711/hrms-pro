@@ -45,7 +45,7 @@ async function gotoWithRetry(
 
 // ─── Portal URLs ──────────────────────────────────────────────────────────────
 const EPFO_BASE = "https://unifiedportal-emp.epfindia.gov.in/epfo";
-const EPFO_LOGIN_URL = "https://unifiedportal-emp.epfindia.gov.in/globalutilities-web/appId/21/login";
+const EPFO_LOGIN_URL = "https://unifiedportal-emp.epfindia.gov.in/epfo/";
 
 // ─── Selector constants ───────────────────────────────────────────────────────
 const SEL = {
@@ -225,18 +225,31 @@ export async function epfoLogin(
   // Screenshot after login attempt — captures the result page for debugging
   await safeScreenshot(page, ctx, "epfo-login-result");
 
-  // Verify login success — must NOT be on login page anymore
-  const currentUrl = page.url();
-  if (currentUrl.includes("login") || currentUrl.includes("globalutilities-web")) {
-    // Extract a useful error excerpt from the page body
-    const errorText = await page.textContent("body").catch(() => "");
-    // Look for specific error messages from the portal
-    const errMatch = errorText?.match(/(invalid|incorrect|wrong|error|fail|blocked|locked)[^.\n]{0,120}/i);
-    const detail = errMatch ? errMatch[0] : errorText?.slice(0, 200);
-    throw new Error(`EPFO login failed. URL: ${currentUrl}. Portal says: ${detail}`);
+  // Verify login success:
+  // 1. Check for portal-specific error messages first (most reliable)
+  const portalError = await page
+    .locator('.error-msg, .alert-danger, #errorMessage, #lblMessage, .validation-summary-errors, [class*="error" i]')
+    .first()
+    .textContent({ timeout: 3000 })
+    .catch(() => null);
+  if (portalError?.trim()) {
+    throw new Error(`EPFO login failed — ${portalError.trim()}`);
   }
 
-  await ctx.log("info", "EPFO login successful", { url: currentUrl });
+  // 2. Check if the login form (username input) is still visible — means we're still on the login page
+  const loginFormVisible = await page.$(SEL.username).catch(() => null);
+  if (loginFormVisible) {
+    const bodyText = await page.textContent("body").catch(() => "");
+    const credentialError = /invalid.*password|wrong.*password|invalid.*user|user.*not.*found|invalid.*credential|authentication.*fail/i.test(bodyText ?? "");
+    if (credentialError) {
+      throw new Error("EPFO login failed — portal rejected your credentials. Check username and password.");
+    }
+    const errMatch = bodyText?.match(/(invalid|incorrect|wrong|error|fail|blocked|locked)[^.\n]{0,120}/i);
+    const detail = errMatch ? errMatch[0] : bodyText?.slice(0, 200);
+    throw new Error(`EPFO login failed. URL: ${page.url()}. Portal says: ${detail}`);
+  }
+
+  await ctx.log("info", "EPFO login successful", { url: page.url() });
 }
 
 // ─── UAN Generation ───────────────────────────────────────────────────────────
