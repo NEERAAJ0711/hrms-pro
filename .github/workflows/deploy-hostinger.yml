@@ -23,10 +23,10 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v5
+        uses: actions/checkout@v4
 
       - name: Setup Node.js 20
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v4
         with:
           node-version: "20"
           cache: "npm"
@@ -45,7 +45,7 @@ jobs:
           test -f dist/public/index.html && echo "✅ Client bundle OK" || (echo "❌ Client bundle missing" && exit 1)
 
       - name: Upload build artifact
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v4
         with:
           name: dist-${{ github.sha }}
           path: dist/
@@ -59,16 +59,16 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v5
+        uses: actions/checkout@v4
 
       - name: Setup Node.js 20
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v4
         with:
           node-version: "20"
           cache: "npm"
 
       - name: Download build artifact
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v4
         with:
           name: dist-${{ github.sha }}
           path: dist/
@@ -139,7 +139,7 @@ jobs:
       - name: Upload package to server
         run: |
           scp -i ~/.ssh/deploy_key \
-              -P ${{ secrets.HOSTINGER_PORT || 22 }} \
+              -P ${{ secrets.HOSTINGER_PORT || '22' }} \
               -o StrictHostKeyChecking=yes \
               -o UserKnownHostsFile=~/.ssh/known_hosts \
               deploy.tar.gz \
@@ -198,7 +198,7 @@ jobs:
           # earlier ssh-keyscan step has populated ~/.ssh/known_hosts, so a
           # MITM/host-impersonation cannot capture the encoded secrets.
           scp -i ~/.ssh/deploy_key \
-              -P ${{ secrets.HOSTINGER_PORT || 22 }} \
+              -P ${{ secrets.HOSTINGER_PORT || '22' }} \
               -o StrictHostKeyChecking=yes \
               -o UserKnownHostsFile=~/.ssh/known_hosts \
               deploy.env.b64 \
@@ -208,7 +208,7 @@ jobs:
       - name: Deploy on server
         run: |
           ssh -i ~/.ssh/deploy_key \
-              -p ${{ secrets.HOSTINGER_PORT || 22 }} \
+              -p ${{ secrets.HOSTINGER_PORT || '22' }} \
               -o StrictHostKeyChecking=yes \
               -o UserKnownHostsFile=~/.ssh/known_hosts \
               ${{ secrets.HOSTINGER_USERNAME }}@${{ secrets.HOSTINGER_HOST }} \
