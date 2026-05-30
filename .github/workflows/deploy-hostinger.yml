@@ -110,6 +110,8 @@ jobs:
 
       - name: Create deployment package
         run: |
+          # Ensure all files are readable before archiving
+          chmod -R a+r scripts/ migrations/ dist/ 2>/dev/null || true
           tar --exclude='node_modules' -czf deploy.tar.gz \
             dist/ \
             package.json \
@@ -181,9 +183,12 @@ jobs:
             rm -f "$ENV_FILE"
             trap - EXIT
 
-            # ── Paths — CloudPanel puts apps in ~/htdocs/<name> ──────────────
-            APP_DIR="$HOME/htdocs/hrms-pro"
-            BACKUP_DIR="$HOME/hrms-pro-backup-$(date +%Y%m%d%H%M%S)"
+            # ── Paths ────────────────────────────────────────────────────────
+            # Deploy to $HOME/hrms-app — NOT htdocs/ which is owned by the
+            # web server user and not writable by the SSH deploy user.
+            # nginx proxies to port 8080 regardless of where files live.
+            APP_DIR="$HOME/hrms-app"
+            BACKUP_DIR="$HOME/hrms-app-backup-$(date +%Y%m%d%H%M%S)"
 
             echo "▶ Deploying as: $(whoami)"
             echo "▶ App directory: $APP_DIR"
