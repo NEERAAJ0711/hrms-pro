@@ -195,6 +195,9 @@ jobs:
             fi
 
             # ── Extract new build ─────────────────────────────────────────────
+            # Remove old dist/scripts/migrations so tar never hits a
+            # "File exists / cannot change mode" error on re-deploy.
+            rm -rf "$APP_DIR/dist" "$APP_DIR/scripts" "$APP_DIR/migrations"
             mkdir -p "$APP_DIR"
             tar -xzf "$DEPLOY_TAR" -C "$APP_DIR"
             rm -f "$DEPLOY_TAR"
