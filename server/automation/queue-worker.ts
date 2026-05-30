@@ -357,7 +357,7 @@ async function processJob(job: JobRecord): Promise<void> {
       await page.goto(
         portal === "epfo"
           ? "https://unifiedportal-emp.epfindia.gov.in/epfo/"
-          : "https://esic.gov.in/",
+          : "https://www.esic.in/EmployerPortal/",
         { waitUntil: "domcontentloaded", timeout: 20000 }
       ).catch(() => {});
 
@@ -536,7 +536,7 @@ export function startQueueWorker(): void {
 
   ensureDir(SCREENSHOT_BASE);
 
-  console.log("[QueueWorker] Starting — poll interval 10s, max concurrent:", MAX_CONCURRENT);
+  console.log(`[QueueWorker] Starting — poll interval ${POLL_INTERVAL_MS / 1000}s, max concurrent: ${MAX_CONCURRENT}`);
   setTimeout(poll, 2000);       // slight delay to let the server finish starting
   setTimeout(runRecovery, 5000); // first recovery check after 5s
 }

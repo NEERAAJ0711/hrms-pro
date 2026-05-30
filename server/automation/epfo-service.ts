@@ -168,17 +168,24 @@ export async function epfoLogin(
   await gotoWithRetry(page, EPFO_LOGIN_URL, { waitUntil: "domcontentloaded", timeout: 60000 });
   await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {});
 
+  // Screenshot of the raw login page — useful for verifying selectors match
+  await safeScreenshot(page, ctx, "epfo-login-page");
+
   // Fill credentials
   await page.fill(SEL.username, payload.username);
   await ctx.log("info", "Filled username");
   await page.fill(SEL.password, payload.password);
   await ctx.log("info", "Filled password");
 
-  // Handle CAPTCHA if present
-  if (await hasCaptcha(page)) {
+  // Handle CAPTCHA if present (always take screenshot so admin can see the page)
+  const captchaVisible = await hasCaptcha(page);
+  if (captchaVisible) {
     const captchaAnswer = await solveCaptcha(page, ctx, "login-captcha");
     await page.fill(SEL.captchaInput, captchaAnswer);
     await ctx.log("info", "Filled CAPTCHA answer");
+  } else {
+    // No CAPTCHA found — take a screenshot anyway so we can see the form state
+    await safeScreenshot(page, ctx, "epfo-login-no-captcha");
   }
 
   // Click login
@@ -194,29 +201,18 @@ export async function epfoLogin(
     await page.waitForLoadState("networkidle", { timeout: 20000 }).catch(() => {});
   }
 
+  // Screenshot after login attempt — captures the result page for debugging
+  await safeScreenshot(page, ctx, "epfo-login-result");
+
   // Verify login success — must NOT be on login page anymore
   const currentUrl = page.url();
   if (currentUrl.includes("login") || currentUrl.includes("globalutilities-web")) {
-    // Try to extract a visible error message from the portal (e.g. "Invalid username or password")
-    const portalError = await page
-      .locator('.error-msg, .errorMessage, .alert-danger, #errorMessage, [class*="error" i], .validation-summary-errors')
-      .first()
-      .textContent({ timeout: 3000 })
-      .catch(() => null);
-
-    if (portalError?.trim()) {
-      throw new Error(`Login failed — ${portalError.trim()}`);
-    }
-
-    // Scan the full body for known credential-failure keywords
-    const bodyText = await page.textContent("body").catch(() => "");
-    const credentialError = /invalid.*password|wrong.*password|incorrect.*password|invalid.*user|user.*not.*found|invalid.*credential|authentication.*fail/i.test(bodyText ?? "");
-
-    if (credentialError) {
-      throw new Error("Login failed — the EPFO portal rejected your credentials. Check your username and password.");
-    }
-
-    throw new Error("Login failed — still on the EPFO login page after submitting. The portal may have changed or credentials are wrong.");
+    // Extract a useful error excerpt from the page body
+    const errorText = await page.textContent("body").catch(() => "");
+    // Look for specific error messages from the portal
+    const errMatch = errorText?.match(/(invalid|incorrect|wrong|error|fail|blocked|locked)[^.\n]{0,120}/i);
+    const detail = errMatch ? errMatch[0] : errorText?.slice(0, 200);
+    throw new Error(`EPFO login failed. URL: ${currentUrl}. Portal says: ${detail}`);
   }
 
   await ctx.log("info", "EPFO login successful", { url: currentUrl });

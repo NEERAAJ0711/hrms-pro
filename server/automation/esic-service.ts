@@ -43,8 +43,11 @@ async function gotoWithRetry(
 }
 
 // ─── Portal URLs ──────────────────────────────────────────────────────────────
-const ESIC_BASE = "https://esic.gov.in/EmployerPortal";
-const ESIC_LOGIN_URL = "https://esic.gov.in/EmployerPortal/ESICInsuredPersonPortal/ESICInsuredPersonLogin.aspx";
+// Canonical ESIC Employer Portal — www.esic.in, NOT esic.gov.in (which redirects).
+// The "ESICInsuredPersonPortal" path is for employees (insured persons) and must
+// NOT be used here. Employers log in at the root EmployerPortal URL.
+const ESIC_BASE = "https://www.esic.in/EmployerPortal";
+const ESIC_LOGIN_URL = "https://www.esic.in/EmployerPortal/";
 
 // ─── Selector constants ───────────────────────────────────────────────────────
 const SEL = {
@@ -141,19 +144,31 @@ export async function esicLogin(
   payload: { username: string; password: string },
   ctx: AutomationContext
 ): Promise<void> {
-  await ctx.log("info", "Navigating to ESIC login page");
+  await ctx.log("info", "Navigating to ESIC Employer Portal login page");
   await gotoWithRetry(page, ESIC_LOGIN_URL, { waitUntil: "domcontentloaded", timeout: 60000 });
   await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {});
 
-  await page.fill(SEL.username, payload.username);
-  await page.fill(SEL.password, payload.password);
+  // Screenshot of the raw login page — useful for verifying selectors match the real portal
+  await ctx.takeScreenshot("esic-login-page");
 
-  if (await hasCaptcha(page)) {
+  await page.fill(SEL.username, payload.username);
+  await ctx.log("info", "Filled ESIC username");
+  await page.fill(SEL.password, payload.password);
+  await ctx.log("info", "Filled ESIC password");
+
+  // Handle CAPTCHA if present (always screenshot so admin sees the page state)
+  const captchaVisible = await hasCaptcha(page);
+  if (captchaVisible) {
     const ans = await solveCaptcha(page, ctx, "esic-login-captcha");
     await page.fill(SEL.captchaInput, ans);
+    await ctx.log("info", "Filled ESIC CAPTCHA answer");
+  } else {
+    // No CAPTCHA — screenshot anyway for debugging
+    await ctx.takeScreenshot("esic-login-no-captcha");
   }
 
   await page.click(SEL.loginBtn);
+  await ctx.log("info", "Clicked ESIC login button");
   await page.waitForLoadState("networkidle", { timeout: 20000 }).catch(() => {});
 
   if (await hasOtp(page)) {
@@ -163,9 +178,15 @@ export async function esicLogin(
     await page.waitForLoadState("networkidle", { timeout: 20000 }).catch(() => {});
   }
 
+  // Screenshot of post-login page — captures success dashboard or error message
+  await ctx.takeScreenshot("esic-login-result");
+
   const currentUrl = page.url();
-  if (currentUrl.toLowerCase().includes("login")) {
-    // Try to extract a visible error message from the portal
+  // Login failure: still on a login or default-redirect URL
+  if (currentUrl.toLowerCase().includes("login") || currentUrl.toLowerCase().includes("employerportal/$")
+      || currentUrl === ESIC_LOGIN_URL) {
+    // 3-tier error classification:
+    // 1. Try to extract a visible error message from the portal using specific selectors
     const portalError = await page
       .locator('.error-msg, .errorMessage, .alert-danger, #lblMessage, #ErrorMessage, [class*="error" i], .validation-summary-errors')
       .first()
@@ -176,7 +197,7 @@ export async function esicLogin(
       throw new Error(`Login failed — ${portalError.trim()}`);
     }
 
-    // Scan the full body for known credential-failure keywords
+    // 2. Scan the full body for known credential-failure keywords
     const bodyText = await page.textContent("body").catch(() => "");
     const credentialError = /invalid.*password|wrong.*password|incorrect.*password|invalid.*user|user.*not.*found|invalid.*credential|authentication.*fail/i.test(bodyText ?? "");
 
@@ -184,7 +205,10 @@ export async function esicLogin(
       throw new Error("Login failed — the ESIC portal rejected your credentials. Check your username and password.");
     }
 
-    throw new Error("Login failed — still on the ESIC login page after submitting. The portal may have changed or credentials are wrong.");
+    // 3. Fallback: extract a useful error excerpt from the page body
+    const errMatch = bodyText?.match(/(invalid|incorrect|wrong|error|fail|blocked|locked)[^.\n]{0,120}/i);
+    const detail = errMatch ? errMatch[0] : bodyText?.slice(0, 200);
+    throw new Error(`ESIC login failed. URL: ${currentUrl}. Portal says: ${detail}`);
   }
 
   await ctx.log("info", "ESIC login successful", { url: currentUrl });
