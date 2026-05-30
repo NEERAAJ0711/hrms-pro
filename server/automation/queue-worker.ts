@@ -25,7 +25,7 @@ import { eq, sql } from "drizzle-orm";
 const POLL_INTERVAL_MS = 30_000;
 const RECOVERY_INTERVAL_MS = 5 * 60_000;
 const MAX_CONCURRENT = 1;
-const JOB_TIMEOUT_MS = 2 * 60_000; // 2-minute hard ceiling per job
+const JOB_TIMEOUT_MS = 10 * 60_000; // 10-minute hard ceiling per job (govt portals are slow)
 const SCREENSHOT_BASE = path.join(process.cwd(), "uploads", "automation-screenshots");
 const BACKOFF_SECONDS = [30, 120, 300]; // delay after 1st, 2nd, 3rd failure
 

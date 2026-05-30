@@ -15,6 +15,34 @@
 import type { Page } from "playwright";
 import type { AutomationContext } from "./queue-worker";
 
+// ─── Navigation helper ────────────────────────────────────────────────────────
+/**
+ * Navigate to a URL with automatic retries on timeout.
+ * Government portals are often slow — retry up to 3 times before failing.
+ */
+async function gotoWithRetry(
+  page: Page,
+  url: string,
+  options: { waitUntil?: "domcontentloaded" | "load" | "networkidle" | "commit"; timeout?: number } = {},
+  retries = 3
+): Promise<void> {
+  const timeout = options.timeout ?? 60000;
+  const waitUntil = options.waitUntil ?? "domcontentloaded";
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      await page.goto(url, { waitUntil, timeout });
+      return;
+    } catch (err) {
+      lastErr = err;
+      if (attempt < retries) {
+        await page.waitForTimeout(3000);
+      }
+    }
+  }
+  throw lastErr;
+}
+
 // ─── Portal URLs ──────────────────────────────────────────────────────────────
 const EPFO_BASE = "https://unifiedportal-emp.epfindia.gov.in/epfo";
 const EPFO_LOGIN_URL = "https://unifiedportal-emp.epfindia.gov.in/globalutilities-web/appId/21/login";
@@ -137,7 +165,7 @@ export async function epfoLogin(
   ctx: AutomationContext
 ): Promise<void> {
   await ctx.log("info", "Navigating to EPFO login page");
-  await page.goto(EPFO_LOGIN_URL, { waitUntil: "domcontentloaded", timeout: 60000 });
+  await gotoWithRetry(page, EPFO_LOGIN_URL, { waitUntil: "domcontentloaded", timeout: 60000 });
   await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {});
 
   // Fill credentials
@@ -195,7 +223,7 @@ export async function uanGenerate(
   await ctx.log("info", "Starting UAN generation", { employeeId: payload.employeeId });
 
   // Navigate to member registration
-  await page.goto(`${EPFO_BASE}/employer/member/memberRegistration.html`, {
+  await gotoWithRetry(page, `${EPFO_BASE}/employer/member/memberRegistration.html`, {
     waitUntil: "domcontentloaded",
     timeout: 60000,
   });
@@ -258,7 +286,7 @@ export async function aadhaarKyc(
 ): Promise<Record<string, unknown>> {
   await ctx.log("info", "Starting Aadhaar KYC update", { uan: payload.uan });
 
-  await page.goto(`${EPFO_BASE}/employer/member/kycUpdate.html`, {
+  await gotoWithRetry(page, `${EPFO_BASE}/employer/member/kycUpdate.html`, {
     waitUntil: "domcontentloaded",
     timeout: 60000,
   });
@@ -309,7 +337,7 @@ export async function panKyc(
 ): Promise<Record<string, unknown>> {
   await ctx.log("info", "Starting PAN KYC update", { uan: payload.uan });
 
-  await page.goto(`${EPFO_BASE}/employer/member/kycUpdate.html`, {
+  await gotoWithRetry(page, `${EPFO_BASE}/employer/member/kycUpdate.html`, {
     waitUntil: "domcontentloaded",
     timeout: 60000,
   });
@@ -357,7 +385,7 @@ export async function bankKyc(
 ): Promise<Record<string, unknown>> {
   await ctx.log("info", "Starting bank KYC update", { uan: payload.uan });
 
-  await page.goto(`${EPFO_BASE}/employer/member/kycUpdate.html`, {
+  await gotoWithRetry(page, `${EPFO_BASE}/employer/member/kycUpdate.html`, {
     waitUntil: "domcontentloaded",
     timeout: 60000,
   });
@@ -411,7 +439,7 @@ export async function ecrFiling(
 ): Promise<Record<string, unknown>> {
   await ctx.log("info", "Starting ECR filing", { month: payload.wageMonth, year: payload.wageYear });
 
-  await page.goto(`${EPFO_BASE}/employer/ecr/ecrUpload.html`, {
+  await gotoWithRetry(page, `${EPFO_BASE}/employer/ecr/ecrUpload.html`, {
     waitUntil: "domcontentloaded",
     timeout: 60000,
   });
@@ -466,7 +494,7 @@ export async function challanDownload(
 ): Promise<Record<string, unknown>> {
   await ctx.log("info", "Downloading EPFO challan", { trrn: payload.trrn });
 
-  await page.goto(`${EPFO_BASE}/employer/ecr/challanDetails.html`, {
+  await gotoWithRetry(page, `${EPFO_BASE}/employer/ecr/challanDetails.html`, {
     waitUntil: "domcontentloaded",
     timeout: 60000,
   });
@@ -501,7 +529,7 @@ export async function trrnTrack(
 ): Promise<Record<string, unknown>> {
   await ctx.log("info", "Checking TRRN status", { trrn: payload.trrn });
 
-  await page.goto(`${EPFO_BASE}/employer/ecr/challanDetails.html`, {
+  await gotoWithRetry(page, `${EPFO_BASE}/employer/ecr/challanDetails.html`, {
     waitUntil: "domcontentloaded",
     timeout: 60000,
   });
@@ -531,7 +559,7 @@ export async function passbookStatus(
 ): Promise<Record<string, unknown>> {
   await ctx.log("info", "Checking passbook status", { uan: payload.uan });
 
-  await page.goto(`${EPFO_BASE}/employer/member/passbookStatus.html`, {
+  await gotoWithRetry(page, `${EPFO_BASE}/employer/member/passbookStatus.html`, {
     waitUntil: "domcontentloaded",
     timeout: 60000,
   });
@@ -566,7 +594,7 @@ export async function exitManagement(
 ): Promise<Record<string, unknown>> {
   await ctx.log("info", "Processing exit management", { uan: payload.uan });
 
-  await page.goto(`${EPFO_BASE}/employer/member/exitMgmt.html`, {
+  await gotoWithRetry(page, `${EPFO_BASE}/employer/member/exitMgmt.html`, {
     waitUntil: "domcontentloaded",
     timeout: 60000,
   });

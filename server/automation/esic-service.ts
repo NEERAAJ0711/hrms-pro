@@ -14,6 +14,34 @@
 import type { Page } from "playwright";
 import type { AutomationContext } from "./queue-worker";
 
+// ─── Navigation helper ────────────────────────────────────────────────────────
+/**
+ * Navigate to a URL with automatic retries on timeout.
+ * Government portals are often slow — retry up to 3 times before failing.
+ */
+async function gotoWithRetry(
+  page: Page,
+  url: string,
+  options: { waitUntil?: "domcontentloaded" | "load" | "networkidle" | "commit"; timeout?: number } = {},
+  retries = 3
+): Promise<void> {
+  const timeout = options.timeout ?? 60000;
+  const waitUntil = options.waitUntil ?? "domcontentloaded";
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      await page.goto(url, { waitUntil, timeout });
+      return;
+    } catch (err) {
+      lastErr = err;
+      if (attempt < retries) {
+        await page.waitForTimeout(3000);
+      }
+    }
+  }
+  throw lastErr;
+}
+
 // ─── Portal URLs ──────────────────────────────────────────────────────────────
 const ESIC_BASE = "https://esic.gov.in/EmployerPortal";
 const ESIC_LOGIN_URL = "https://esic.gov.in/EmployerPortal/ESICInsuredPersonPortal/ESICInsuredPersonLogin.aspx";
@@ -114,7 +142,7 @@ export async function esicLogin(
   ctx: AutomationContext
 ): Promise<void> {
   await ctx.log("info", "Navigating to ESIC login page");
-  await page.goto(ESIC_LOGIN_URL, { waitUntil: "domcontentloaded", timeout: 60000 });
+  await gotoWithRetry(page, ESIC_LOGIN_URL, { waitUntil: "domcontentloaded", timeout: 60000 });
   await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {});
 
   await page.fill(SEL.username, payload.username);
@@ -164,7 +192,7 @@ export async function ipNumberGenerate(
 ): Promise<Record<string, unknown>> {
   await ctx.log("info", "Starting IP number generation", { employeeCode: payload.employeeCode });
 
-  await page.goto(`${ESIC_BASE}/IPRegistration.aspx`, {
+  await gotoWithRetry(page, `${ESIC_BASE}/IPRegistration.aspx`, {
     waitUntil: "domcontentloaded",
     timeout: 60000,
   });
@@ -221,7 +249,7 @@ export async function familyDeclaration(
 ): Promise<Record<string, unknown>> {
   await ctx.log("info", "Starting family declaration", { ipNumber: payload.ipNumber });
 
-  await page.goto(`${ESIC_BASE}/FamilyDeclaration.aspx`, {
+  await gotoWithRetry(page, `${ESIC_BASE}/FamilyDeclaration.aspx`, {
     waitUntil: "domcontentloaded",
     timeout: 60000,
   });
@@ -269,7 +297,7 @@ export async function monthlyContributionFiling(
     year: payload.year,
   });
 
-  await page.goto(`${ESIC_BASE}/MonthlyContribution.aspx`, {
+  await gotoWithRetry(page, `${ESIC_BASE}/MonthlyContribution.aspx`, {
     waitUntil: "domcontentloaded",
     timeout: 60000,
   });
@@ -317,7 +345,7 @@ export async function esicChallanDownload(
 ): Promise<Record<string, unknown>> {
   await ctx.log("info", "Downloading ESIC challan", { challanNo: payload.challanNo });
 
-  await page.goto(`${ESIC_BASE}/ChallanDownload.aspx`, {
+  await gotoWithRetry(page, `${ESIC_BASE}/ChallanDownload.aspx`, {
     waitUntil: "domcontentloaded",
     timeout: 60000,
   });
@@ -351,7 +379,7 @@ export async function esicEmployeeSearch(
 ): Promise<Record<string, unknown>> {
   await ctx.log("info", "Searching ESIC employee", payload);
 
-  await page.goto(`${ESIC_BASE}/IPSearch.aspx`, {
+  await gotoWithRetry(page, `${ESIC_BASE}/IPSearch.aspx`, {
     waitUntil: "domcontentloaded",
     timeout: 60000,
   });
@@ -381,7 +409,7 @@ export async function contributionTracking(
 ): Promise<Record<string, unknown>> {
   await ctx.log("info", "Fetching contribution history", { ipNumber: payload.ipNumber });
 
-  await page.goto(`${ESIC_BASE}/ContributionHistory.aspx`, {
+  await gotoWithRetry(page, `${ESIC_BASE}/ContributionHistory.aspx`, {
     waitUntil: "domcontentloaded",
     timeout: 60000,
   });
