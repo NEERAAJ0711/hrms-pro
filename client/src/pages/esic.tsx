@@ -21,7 +21,7 @@ import {
 import {
   ShieldCheck, Users, FileText, Download, RefreshCw, Loader2,
   CheckCircle2, AlertTriangle, Clock, Upload, Settings, Activity,
-  Eye, EyeOff, Lock, Search,
+  Eye, EyeOff, Lock, Search, Monitor,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 
@@ -808,7 +808,6 @@ function MemberToolsTab({ companyId }: { companyId: string }) {
           >
             {familyPolling ? "Submitting on portal…" : "Submit Family Declaration"}
           </Button>
-          {familyPolling && familyJobId && <LiveScreen jobId={familyJobId} active={familyPolling} label="ESIC Portal — Family Declaration" />}
         </CardContent>
       </Card>
 
@@ -852,7 +851,6 @@ function MemberToolsTab({ companyId }: { companyId: string }) {
               <span className="ml-1">Pehchan Card</span>
             </Button>
           </div>
-          {cardPolling && cardJobId && <LiveScreen jobId={cardJobId} active={cardPolling} label="ESIC Portal — Card Download" />}
         </CardContent>
       </Card>
 
@@ -880,7 +878,6 @@ function MemberToolsTab({ companyId }: { companyId: string }) {
               <span className="ml-1">Search</span>
             </Button>
           </div>
-          {searchPolling && searchJobId && <LiveScreen jobId={searchJobId} active={searchPolling} label="ESIC Portal — Employee Search" />}
           {searchResult && (
             <div className="rounded border bg-muted/40 p-4 text-sm space-y-2 max-w-2xl">
               {searchResult.details && <p className="whitespace-pre-wrap text-xs">{String(searchResult.details)}</p>}
@@ -936,7 +933,6 @@ function MemberToolsTab({ companyId }: { companyId: string }) {
           >
             {ctPolling ? "Tracking on portal…" : "Track Contributions"}
           </Button>
-          {ctPolling && ctJobId && <LiveScreen jobId={ctJobId} active={ctPolling} label="ESIC Portal — Contribution Tracking" />}
           {ctResult && (
             <div className="overflow-x-auto rounded border text-sm">
               <table className="w-full">
@@ -1061,9 +1057,6 @@ function EmployeeListTab({ companyId }: { companyId: string }) {
             )}
           </div>
 
-          {isBusy && activeJobId && (
-            <LiveScreen jobId={activeJobId} active={polling} label="ESIC Portal — Fetching Employee List" />
-          )}
         </CardContent>
       </Card>
 
@@ -1260,9 +1253,34 @@ function PortalSettingsTab({ companyId, isSuperAdmin, companies = [] }: {
 
   const isTestActive = testMutation.isPending || !!testJobId;
 
+  const { data: runningJobs = [] } = useQuery<Array<{ id: string; status: string; jobType: string }>>({
+    queryKey: ["/api/automation/jobs/running-esic", effectiveCid],
+    queryFn: async () => {
+      const res = await fetch(`/api/automation/jobs?companyId=${effectiveCid}&limit=10`, { credentials: "include" });
+      if (!res.ok) return [];
+      const raw = await res.json();
+      const list: Array<{ id: string; status: string; jobType: string }> = Array.isArray(raw) ? raw : (raw.data ?? []);
+      return list.filter(j => j.status === "running" || j.status === "paused");
+    },
+    enabled: !!effectiveCid,
+    refetchInterval: testJobId ? false : 3000,
+  });
+  const latestRunningJob = testJobId ? null : (runningJobs[0] ?? null);
+  const activeScreenJobId: string | null = testJobId ?? latestRunningJob?.id ?? null;
+  const activeScreenActive = !!activeScreenJobId && (
+    testJobId
+      ? (testPhase === "running" || testPhase === "captcha" || testPhase === "otp")
+      : !!latestRunningJob
+  );
+  const activeScreenLabel = testJobId
+    ? (testPhase === "captcha" ? "CAPTCHA Required" : testPhase === "otp" ? "OTP Required" : "ESIC Portal — Live View")
+    : latestRunningJob
+      ? latestRunningJob.jobType.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())
+      : "ESIC Portal — Live View";
+
   return (
-    <div className="space-y-5 max-w-xl">
-      <Card>
+    <div className="space-y-5">
+      <Card className="max-w-xl">
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2"><Lock className="h-4 w-4" /> ESIC Portal Credentials</CardTitle>
           <CardDescription>Credentials are AES-256-GCM encrypted before storage.</CardDescription>
@@ -1327,15 +1345,12 @@ function PortalSettingsTab({ companyId, isSuperAdmin, companies = [] }: {
 
           {/* Step 1: running — filling credentials on portal */}
           {testPhase === "running" && (
-            <div className="space-y-3">
-              <div className="flex items-center justify-between gap-2 p-3 rounded-lg bg-blue-50 border border-blue-200 text-sm text-blue-800">
-                <div className="flex items-center gap-2">
-                  <Loader2 className="h-4 w-4 animate-spin shrink-0" />
-                  <span>Opening ESIC portal and filling username &amp; password automatically…</span>
-                </div>
-                <button onClick={cancelTest} className="text-xs text-blue-600 underline hover:no-underline shrink-0" data-testid="button-cancel-esic-test">Cancel</button>
+            <div className="flex items-center justify-between gap-2 p-3 rounded-lg bg-blue-50 border border-blue-200 text-sm text-blue-800">
+              <div className="flex items-center gap-2">
+                <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+                <span>Opening ESIC portal and filling username &amp; password automatically…</span>
               </div>
-              <LiveScreen jobId={testJobId} active={testPhase === "running"} label="ESIC Portal — Live View" />
+              <button onClick={cancelTest} className="text-xs text-blue-600 underline hover:no-underline shrink-0" data-testid="button-cancel-esic-test">Cancel</button>
             </div>
           )}
 
@@ -1345,13 +1360,12 @@ function PortalSettingsTab({ companyId, isSuperAdmin, companies = [] }: {
               <div className="flex items-center gap-2 text-orange-800 font-semibold text-sm">
                 <AlertTriangle className="h-4 w-4 shrink-0" />
                 {testPhase === "captcha"
-                  ? "CAPTCHA required — portal is showing a verification image"
+                  ? "CAPTCHA required — see the Live View below for the verification image"
                   : "OTP required — check the mobile number registered with ESIC"}
               </div>
-              <LiveScreen jobId={testJobId} active={testPhase === "captcha" || testPhase === "otp"} label="ESIC Portal — Live View" />
               <div className="space-y-2">
                 <Label className="text-orange-900 text-sm font-medium">
-                  {testPhase === "captcha" ? "Enter the CAPTCHA text shown above:" : "Enter the OTP sent to your registered mobile:"}
+                  {testPhase === "captcha" ? "Enter the CAPTCHA shown in the Live View below:" : "Enter the OTP sent to your registered mobile:"}
                 </Label>
                 <div className="flex gap-2">
                   <Input
@@ -1413,6 +1427,29 @@ function PortalSettingsTab({ companyId, isSuperAdmin, companies = [] }: {
           )}
         </CardContent>
       </Card>
+
+      {/* ── Portal Live Monitor — ONE screen, always visible ── */}
+      {activeScreenJobId ? (
+        <LiveScreen jobId={activeScreenJobId} active={activeScreenActive} label={activeScreenLabel} />
+      ) : (
+        <div className="rounded-xl overflow-hidden border-2 border-slate-700 bg-slate-950 shadow-xl">
+          <div className="flex items-center justify-between px-3 py-2 bg-slate-900 border-b border-slate-800">
+            <div className="flex items-center gap-2">
+              <Monitor className="h-3.5 w-3.5 text-slate-400" />
+              <span className="text-xs text-slate-300 font-medium">ESIC Portal — Live View</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <div className="h-2 w-2 rounded-full bg-slate-600" />
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">IDLE</span>
+            </div>
+          </div>
+          <div className="flex flex-col items-center justify-center py-24 gap-3 text-slate-600">
+            <Monitor className="h-10 w-10" />
+            <p className="text-sm">No automation running</p>
+            <p className="text-xs text-center max-w-xs">Start any portal operation to see the live browser view here</p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
