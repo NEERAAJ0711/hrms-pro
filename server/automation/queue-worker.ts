@@ -389,13 +389,58 @@ async function processJob(job: JobRecord): Promise<void> {
   } catch (err: unknown) {
     let errorMessage = err instanceof Error ? err.message : String(err);
 
-    // Translate the cryptic Playwright "Executable doesn't exist" error into an
-    // actionable message the user can act on without reading stack traces.
+    const portal = job.jobType.startsWith("epfo") ? "EPFO" : "ESIC";
+
+    // Translate cryptic Playwright / network errors into plain-language messages.
     if (errorMessage.includes("Executable doesn't exist") || errorMessage.includes("browserType.launch")) {
+      // ── Chromium binary missing ────────────────────────────────────────────
       errorMessage =
         "Chromium browser not found on server. " +
         `SSH in and run (from the app directory):  cd ${process.cwd()} && npx playwright install chromium  — then restart the server. ` +
         "Do NOT add --with-deps (that requires sudo and will fail).";
+    } else if (
+      errorMessage.includes("net::ERR_NAME_NOT_RESOLVED") ||
+      errorMessage.includes("ERR_NAME_NOT_RESOLVED")
+    ) {
+      // ── DNS / no internet ──────────────────────────────────────────────────
+      errorMessage =
+        `${portal} portal could not be reached — the server cannot resolve the domain name. ` +
+        "Check that the server has internet access and try again.";
+    } else if (
+      errorMessage.includes("net::ERR_CONNECTION_REFUSED") ||
+      errorMessage.includes("ERR_CONNECTION_REFUSED")
+    ) {
+      // ── Connection refused ─────────────────────────────────────────────────
+      errorMessage =
+        `${portal} portal refused the connection — it may be temporarily down or blocking the server's IP. Try again in a few minutes.`;
+    } else if (
+      errorMessage.includes("net::ERR_INTERNET_DISCONNECTED") ||
+      errorMessage.includes("ERR_INTERNET_DISCONNECTED") ||
+      errorMessage.includes("net::ERR_NETWORK_CHANGED") ||
+      errorMessage.includes("ERR_NETWORK_CHANGED")
+    ) {
+      // ── Network disconnected ───────────────────────────────────────────────
+      errorMessage =
+        `${portal} portal could not be reached — the server lost its internet connection. Try again in a few minutes.`;
+    } else if (
+      errorMessage.includes("net::ERR_") ||
+      errorMessage.includes("ERR_CONNECTION") ||
+      errorMessage.includes("ERR_TIMED_OUT")
+    ) {
+      // ── Other network errors ───────────────────────────────────────────────
+      errorMessage =
+        `${portal} portal could not be reached (network error). The portal may be down or slow. Try again in a few minutes.`;
+    } else if (
+      (errorMessage.includes("Timeout") || errorMessage.includes("timeout")) &&
+      (errorMessage.includes("navigation") ||
+        errorMessage.includes("goto") ||
+        errorMessage.includes("waiting for") ||
+        errorMessage.includes("exceeded"))
+    ) {
+      // ── Navigation / wait timeout ──────────────────────────────────────────
+      errorMessage =
+        `${portal} portal took too long to respond — it may be slow or temporarily down. ` +
+        "Try again in a few minutes. If this keeps happening, try opening the portal manually to check its status.";
     }
 
     console.error(`[QueueWorker] Job ${job.id} (${job.jobType}) failed:`, errorMessage);
