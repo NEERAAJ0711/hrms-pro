@@ -256,42 +256,57 @@ function PausedJobsTab() {
               {statusBadge(job.status)}
             </div>
           </CardHeader>
-          <CardContent className="space-y-4">
-            {job.screenshotPath && (
-              <div>
-                <p className="text-xs font-medium text-muted-foreground mb-2">Portal screenshot at pause point:</p>
-                <img
-                  src={job.screenshotPath.includes("/uploads/") ? "/uploads/" + job.screenshotPath.split("/uploads/")[1] : `/uploads/automation-screenshots/${job.screenshotPath.split("/").pop()}`}
-                  alt="Portal screenshot"
-                  className="max-w-full rounded border border-orange-200 shadow-sm max-h-64 object-contain"
-                  data-testid={`img-screenshot-${job.id}`}
-                />
+          <CardContent>
+            <div className="flex flex-col lg:flex-row gap-6">
+              {/* Left: input + meta */}
+              <div className="flex flex-col gap-4 flex-1 min-w-0">
+                <div>
+                  <p className="text-sm font-medium mb-1">Enter the CAPTCHA text or OTP shown in the screenshot:</p>
+                  <div className="flex gap-3 items-center">
+                    <Input
+                      placeholder="Type CAPTCHA or OTP here..."
+                      value={answers[job.id] ?? ""}
+                      onChange={e => setAnswers(prev => ({ ...prev, [job.id]: e.target.value }))}
+                      className="flex-1 text-base h-11"
+                      data-testid={`input-captcha-${job.id}`}
+                      onKeyDown={e => {
+                        if (e.key === "Enter" && answers[job.id]?.trim()) {
+                          resumeMutation.mutate({ jobId: job.id, answer: answers[job.id] });
+                        }
+                      }}
+                    />
+                    <Button
+                      size="lg"
+                      onClick={() => resumeMutation.mutate({ jobId: job.id, answer: answers[job.id] ?? "" })}
+                      disabled={!answers[job.id]?.trim() || resumeMutation.isPending}
+                      data-testid={`button-resume-${job.id}`}
+                    >
+                      {resumeMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                      Submit & Resume
+                    </Button>
+                  </div>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Paused at: {formatDate(job.updatedAt)} · Retries: {job.retryCount}/{job.maxRetries}
+                </p>
               </div>
-            )}
-            <div className="flex gap-3 items-center">
-              <Input
-                placeholder="Enter CAPTCHA text or OTP..."
-                value={answers[job.id] ?? ""}
-                onChange={e => setAnswers(prev => ({ ...prev, [job.id]: e.target.value }))}
-                className="flex-1"
-                data-testid={`input-captcha-${job.id}`}
-                onKeyDown={e => {
-                  if (e.key === "Enter" && answers[job.id]?.trim()) {
-                    resumeMutation.mutate({ jobId: job.id, answer: answers[job.id] });
-                  }
-                }}
-              />
-              <Button
-                onClick={() => resumeMutation.mutate({ jobId: job.id, answer: answers[job.id] ?? "" })}
-                disabled={!answers[job.id]?.trim() || resumeMutation.isPending}
-                data-testid={`button-resume-${job.id}`}
-              >
-                {resumeMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Submit & Resume"}
-              </Button>
+
+              {/* Right: large screenshot */}
+              {job.screenshotPath && (
+                <div className="lg:w-[520px] flex-shrink-0">
+                  <p className="text-xs font-medium text-muted-foreground mb-2">Portal screenshot (captcha visible):</p>
+                  <img
+                    src={job.screenshotPath.includes("/uploads/")
+                      ? "/uploads/" + job.screenshotPath.split("/uploads/")[1]
+                      : `/uploads/automation-screenshots/${job.screenshotPath.split("/").pop()}`}
+                    alt="Portal screenshot"
+                    className="w-full rounded-lg border border-orange-200 shadow-md object-contain bg-white"
+                    style={{ maxHeight: "480px" }}
+                    data-testid={`img-screenshot-${job.id}`}
+                  />
+                </div>
+              )}
             </div>
-            <p className="text-xs text-muted-foreground">
-              Paused at: {formatDate(job.updatedAt)} · Retries: {job.retryCount}/{job.maxRetries}
-            </p>
           </CardContent>
         </Card>
       ))}
