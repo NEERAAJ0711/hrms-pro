@@ -156,20 +156,42 @@ export async function esicLogin(
   await page.fill(SEL.password, payload.password);
   await ctx.log("info", "Filled ESIC password");
 
-  // Handle CAPTCHA if present (always screenshot so admin sees the page state)
+  // Handle CAPTCHA if present — retry up to 3 times if the portal rejects the answer
   const captchaVisible = await hasCaptcha(page);
+  const MAX_CAPTCHA_ATTEMPTS = 3;
+
   if (captchaVisible) {
-    const ans = await solveCaptcha(page, ctx, "esic-login-captcha");
-    await page.fill(SEL.captchaInput, ans);
-    await ctx.log("info", "Filled ESIC CAPTCHA answer");
+    let captchaAccepted = false;
+    for (let attempt = 1; attempt <= MAX_CAPTCHA_ATTEMPTS; attempt++) {
+      const label = attempt === 1 ? "esic-login-captcha" : `esic-login-captcha-retry-${attempt}`;
+      const ans = await solveCaptcha(page, ctx, label);
+      await page.fill(SEL.captchaInput, ans);
+      await ctx.log("info", `Filled ESIC CAPTCHA answer (attempt ${attempt}/${MAX_CAPTCHA_ATTEMPTS})`);
+
+      await page.click(SEL.loginBtn);
+      await ctx.log("info", "Clicked ESIC login button");
+      await page.waitForLoadState("networkidle", { timeout: 20000 }).catch(() => {});
+
+      // If a CAPTCHA is still visible the portal rejected the answer and showed a new one
+      if (await hasCaptcha(page)) {
+        if (attempt < MAX_CAPTCHA_ATTEMPTS) {
+          await ctx.log("warn", `CAPTCHA rejected by portal (attempt ${attempt}/${MAX_CAPTCHA_ATTEMPTS}) — pausing for new answer`);
+          continue;
+        } else {
+          throw new Error(`CAPTCHA was entered incorrectly ${MAX_CAPTCHA_ATTEMPTS} times. Please start a new login test.`);
+        }
+      }
+
+      captchaAccepted = true;
+      break;
+    }
   } else {
     // No CAPTCHA — screenshot anyway for debugging
     await ctx.takeScreenshot("esic-login-no-captcha");
+    await page.click(SEL.loginBtn);
+    await ctx.log("info", "Clicked ESIC login button");
+    await page.waitForLoadState("networkidle", { timeout: 20000 }).catch(() => {});
   }
-
-  await page.click(SEL.loginBtn);
-  await ctx.log("info", "Clicked ESIC login button");
-  await page.waitForLoadState("networkidle", { timeout: 20000 }).catch(() => {});
 
   if (await hasOtp(page)) {
     const otp = await solveOtp(page, ctx, "esic-login-otp");

@@ -177,21 +177,42 @@ export async function epfoLogin(
   await page.fill(SEL.password, payload.password);
   await ctx.log("info", "Filled password");
 
-  // Handle CAPTCHA if present (always take screenshot so admin can see the page)
+  // Handle CAPTCHA if present — retry up to 3 times if the portal rejects the answer
   const captchaVisible = await hasCaptcha(page);
+  const MAX_CAPTCHA_ATTEMPTS = 3;
+
   if (captchaVisible) {
-    const captchaAnswer = await solveCaptcha(page, ctx, "login-captcha");
-    await page.fill(SEL.captchaInput, captchaAnswer);
-    await ctx.log("info", "Filled CAPTCHA answer");
+    let captchaAccepted = false;
+    for (let attempt = 1; attempt <= MAX_CAPTCHA_ATTEMPTS; attempt++) {
+      const label = attempt === 1 ? "login-captcha" : `login-captcha-retry-${attempt}`;
+      const captchaAnswer = await solveCaptcha(page, ctx, label);
+      await page.fill(SEL.captchaInput, captchaAnswer);
+      await ctx.log("info", `Filled CAPTCHA answer (attempt ${attempt}/${MAX_CAPTCHA_ATTEMPTS})`);
+
+      await page.click(SEL.loginBtn);
+      await ctx.log("info", "Clicked login button");
+      await page.waitForLoadState("networkidle", { timeout: 20000 }).catch(() => {});
+
+      // If a CAPTCHA is still visible the portal rejected the answer and showed a new one
+      if (await hasCaptcha(page)) {
+        if (attempt < MAX_CAPTCHA_ATTEMPTS) {
+          await ctx.log("warn", `CAPTCHA rejected by portal (attempt ${attempt}/${MAX_CAPTCHA_ATTEMPTS}) — pausing for new answer`);
+          continue;
+        } else {
+          throw new Error(`CAPTCHA was entered incorrectly ${MAX_CAPTCHA_ATTEMPTS} times. Please start a new login test.`);
+        }
+      }
+
+      captchaAccepted = true;
+      break;
+    }
   } else {
     // No CAPTCHA found — take a screenshot anyway so we can see the form state
     await safeScreenshot(page, ctx, "epfo-login-no-captcha");
+    await page.click(SEL.loginBtn);
+    await ctx.log("info", "Clicked login button");
+    await page.waitForLoadState("networkidle", { timeout: 20000 }).catch(() => {});
   }
-
-  // Click login
-  await page.click(SEL.loginBtn);
-  await ctx.log("info", "Clicked login button");
-  await page.waitForLoadState("networkidle", { timeout: 20000 }).catch(() => {});
 
   // Check for OTP challenge
   if (await hasOtp(page)) {
