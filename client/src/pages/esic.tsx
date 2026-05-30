@@ -674,6 +674,289 @@ function BulkUploadTab({ companyId }: { companyId: string }) {
   );
 }
 
+// ─── Member Tools Tab ─────────────────────────────────────────────────────────
+function MemberToolsTab({ companyId }: { companyId: string }) {
+  const { toast } = useToast();
+  const triggerJob = useTriggerJob();
+
+  // Family Declaration
+  const [familyIp, setFamilyIp] = useState("");
+  const [familyMembers, setFamilyMembers] = useState([{ name: "", relation: "Wife/Husband", dob: "" }]);
+  const [familyJobId, setFamilyJobId] = useState<string | null>(null);
+  const [familyPolling, setFamilyPolling] = useState(false);
+
+  // Card Downloads
+  const [cardIp, setCardIp] = useState("");
+  const [cardJobId, setCardJobId] = useState<string | null>(null);
+  const [cardPolling, setCardPolling] = useState(false);
+  const [activeCard, setActiveCard] = useState<"temp" | "pehchan">("temp");
+
+  // Employee Search
+  const [searchInput, setSearchInput] = useState("");
+  const [searchJobId, setSearchJobId] = useState<string | null>(null);
+  const [searchPolling, setSearchPolling] = useState(false);
+  const [searchResult, setSearchResult] = useState<Record<string,unknown>|null>(null);
+
+  // Contribution Tracking
+  const [ctIp, setCtIp] = useState("");
+  const [ctFrom, setCtFrom] = useState("");
+  const [ctTo, setCtTo] = useState("");
+  const [ctJobId, setCtJobId] = useState<string | null>(null);
+  const [ctPolling, setCtPolling] = useState(false);
+  const [ctResult, setCtResult] = useState<Record<string,unknown>|null>(null);
+
+  const { data: familyJob } = useQuery<{ id: string; status: string; result?: Record<string,unknown>; errorMessage?: string }>({
+    queryKey: ["/api/automation/jobs", familyJobId, "fam"],
+    queryFn: async () => { const res = await apiRequest("GET", `/api/automation/jobs/${familyJobId}`); return res.json(); },
+    enabled: !!familyJobId && familyPolling, refetchInterval: familyPolling ? 3000 : false,
+  });
+  const { data: cardJob } = useQuery<{ id: string; status: string; result?: Record<string,unknown>; errorMessage?: string }>({
+    queryKey: ["/api/automation/jobs", cardJobId, "card"],
+    queryFn: async () => { const res = await apiRequest("GET", `/api/automation/jobs/${cardJobId}`); return res.json(); },
+    enabled: !!cardJobId && cardPolling, refetchInterval: cardPolling ? 3000 : false,
+  });
+  const { data: searchJob } = useQuery<{ id: string; status: string; result?: Record<string,unknown>; errorMessage?: string }>({
+    queryKey: ["/api/automation/jobs", searchJobId, "srch"],
+    queryFn: async () => { const res = await apiRequest("GET", `/api/automation/jobs/${searchJobId}`); return res.json(); },
+    enabled: !!searchJobId && searchPolling, refetchInterval: searchPolling ? 3000 : false,
+  });
+  const { data: ctJob } = useQuery<{ id: string; status: string; result?: Record<string,unknown>; errorMessage?: string }>({
+    queryKey: ["/api/automation/jobs", ctJobId, "ct"],
+    queryFn: async () => { const res = await apiRequest("GET", `/api/automation/jobs/${ctJobId}`); return res.json(); },
+    enabled: !!ctJobId && ctPolling, refetchInterval: ctPolling ? 3000 : false,
+  });
+
+  useEffect(() => {
+    if (!familyJob) return;
+    if (familyJob.status === "completed") { setFamilyPolling(false); setFamilyJobId(null); toast({ title: "Family declaration submitted", description: "Members added on ESIC portal" }); }
+    else if (familyJob.status === "failed") { setFamilyPolling(false); setFamilyJobId(null); toast({ title: "Family declaration failed", description: familyJob.errorMessage ?? "Error", variant: "destructive" }); }
+  }, [familyJob?.status]);
+  useEffect(() => {
+    if (!cardJob) return;
+    if (cardJob.status === "completed") { setCardPolling(false); setCardJobId(null); toast({ title: "Card downloaded", description: "Card retrieved from ESIC portal" }); }
+    else if (cardJob.status === "failed") { setCardPolling(false); setCardJobId(null); toast({ title: "Card download failed", description: cardJob.errorMessage ?? "Error", variant: "destructive" }); }
+  }, [cardJob?.status]);
+  useEffect(() => {
+    if (!searchJob) return;
+    if (searchJob.status === "completed") { setSearchPolling(false); setSearchJobId(null); setSearchResult(searchJob.result ?? null); }
+    else if (searchJob.status === "failed") { setSearchPolling(false); setSearchJobId(null); toast({ title: "Search failed", description: searchJob.errorMessage ?? "Error", variant: "destructive" }); }
+  }, [searchJob?.status]);
+  useEffect(() => {
+    if (!ctJob) return;
+    if (ctJob.status === "completed") { setCtPolling(false); setCtJobId(null); setCtResult(ctJob.result ?? null); }
+    else if (ctJob.status === "failed") { setCtPolling(false); setCtJobId(null); toast({ title: "Contribution tracking failed", description: ctJob.errorMessage ?? "Error", variant: "destructive" }); }
+  }, [ctJob?.status]);
+
+  const updateMember = (i: number, field: string, value: string) =>
+    setFamilyMembers(prev => prev.map((m, idx) => idx === i ? { ...m, [field]: value } : m));
+
+  return (
+    <div className="space-y-5">
+      {/* Family Declaration */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Users className="h-4 w-4 text-emerald-600" />
+            Family Declaration
+          </CardTitle>
+          <CardDescription>Add family members for an insured person (IP) on the ESIC portal</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="max-w-xs">
+            <Label>IP Number</Label>
+            <Input value={familyIp} onChange={e => setFamilyIp(e.target.value)} placeholder="Insured Person IP number" data-testid="input-family-ip" />
+          </div>
+          <div className="space-y-2">
+            <Label className="text-xs font-medium text-muted-foreground">Family Members</Label>
+            {familyMembers.map((m, i) => (
+              <div key={i} className="grid grid-cols-3 gap-2 items-end">
+                <div>
+                  {i === 0 && <Label className="text-xs">Name</Label>}
+                  <Input value={m.name} onChange={e => updateMember(i, "name", e.target.value)} placeholder="Full name" data-testid={`input-family-name-${i}`} />
+                </div>
+                <div>
+                  {i === 0 && <Label className="text-xs">Relation</Label>}
+                  <Select value={m.relation} onValueChange={v => updateMember(i, "relation", v)}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {["Wife/Husband","Father","Mother","Son","Daughter","Others"].map(r => <SelectItem key={r} value={r}>{r}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  {i === 0 && <Label className="text-xs">Date of Birth</Label>}
+                  <div className="flex gap-1">
+                    <Input type="date" value={m.dob} onChange={e => updateMember(i, "dob", e.target.value)} data-testid={`input-family-dob-${i}`} />
+                    {familyMembers.length > 1 && (
+                      <Button size="icon" variant="ghost" className="h-10 w-10 shrink-0" onClick={() => setFamilyMembers(p => p.filter((_,idx) => idx !== i))}>✕</Button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
+            <Button size="sm" variant="outline" onClick={() => setFamilyMembers(p => [...p, { name:"", relation:"Son", dob:"" }])} data-testid="btn-add-family-member">
+              + Add Member
+            </Button>
+          </div>
+          <Button
+            onClick={() => triggerJob.mutate(
+              { jobType: "esic_family_declaration", companyId, payload: { ipNumber: familyIp, familyMembers } },
+              { onSuccess: j => { setFamilyJobId(j.id); setFamilyPolling(true); } }
+            )}
+            disabled={!familyIp || familyPolling || triggerJob.isPending || familyMembers.every(m => !m.name)}
+            data-testid="btn-family-submit"
+          >
+            {familyPolling ? "Submitting on portal…" : "Submit Family Declaration"}
+          </Button>
+          {familyPolling && familyJobId && <LiveScreen jobId={familyJobId} active={familyPolling} label="ESIC Portal — Family Declaration" />}
+        </CardContent>
+      </Card>
+
+      {/* Card Downloads */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Download className="h-4 w-4 text-emerald-600" />
+            Card Downloads
+          </CardTitle>
+          <CardDescription>Download Temporary Card or Pehchan Card for an insured person</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex gap-3 max-w-lg items-end">
+            <div className="flex-1">
+              <Label>IP Number</Label>
+              <Input value={cardIp} onChange={e => setCardIp(e.target.value)} placeholder="Insured Person IP number" data-testid="input-card-ip" />
+            </div>
+            <Button
+              variant="outline"
+              onClick={() => { setActiveCard("temp"); triggerJob.mutate(
+                { jobType: "esic_temp_card_download", companyId, payload: { ipNumber: cardIp } },
+                { onSuccess: j => { setCardJobId(j.id); setCardPolling(true); } }
+              ); }}
+              disabled={!cardIp || cardPolling || triggerJob.isPending}
+              data-testid="btn-temp-card"
+            >
+              {cardPolling && activeCard === "temp" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+              <span className="ml-1">Temp Card</span>
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => { setActiveCard("pehchan"); triggerJob.mutate(
+                { jobType: "esic_pehchan_card_download", companyId, payload: { ipNumber: cardIp } },
+                { onSuccess: j => { setCardJobId(j.id); setCardPolling(true); } }
+              ); }}
+              disabled={!cardIp || cardPolling || triggerJob.isPending}
+              data-testid="btn-pehchan-card"
+            >
+              {cardPolling && activeCard === "pehchan" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+              <span className="ml-1">Pehchan Card</span>
+            </Button>
+          </div>
+          {cardPolling && cardJobId && <LiveScreen jobId={cardJobId} active={cardPolling} label="ESIC Portal — Card Download" />}
+        </CardContent>
+      </Card>
+
+      {/* Employee Search */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Search className="h-4 w-4 text-emerald-600" />
+            Employee Search
+          </CardTitle>
+          <CardDescription>Search for an insured person by IP number or employee code on the ESIC portal</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex gap-3 max-w-md">
+            <Input value={searchInput} onChange={e => setSearchInput(e.target.value)} placeholder="IP number or employee code" data-testid="input-esic-search" />
+            <Button
+              onClick={() => triggerJob.mutate(
+                { jobType: "esic_employee_search", companyId, payload: { ipNumber: searchInput } },
+                { onSuccess: j => { setSearchJobId(j.id); setSearchPolling(true); setSearchResult(null); } }
+              )}
+              disabled={!searchInput || searchPolling || triggerJob.isPending}
+              data-testid="btn-esic-search"
+            >
+              {searchPolling ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+              <span className="ml-1">Search</span>
+            </Button>
+          </div>
+          {searchPolling && searchJobId && <LiveScreen jobId={searchJobId} active={searchPolling} label="ESIC Portal — Employee Search" />}
+          {searchResult && (
+            <div className="rounded border bg-muted/40 p-4 text-sm space-y-2 max-w-2xl">
+              {searchResult.details && <p className="whitespace-pre-wrap text-xs">{String(searchResult.details)}</p>}
+              {Array.isArray(searchResult.tableRows) && (searchResult.tableRows as string[][]).length > 0 && (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs border-collapse">
+                    <tbody>
+                      {(searchResult.tableRows as string[][]).map((row, i) => (
+                        <tr key={i} className="border-b">
+                          {(row as string[]).map((cell, j) => <td key={j} className="px-2 py-1">{cell}</td>)}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Contribution Tracking */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Activity className="h-4 w-4 text-emerald-600" />
+            Contribution Tracking
+          </CardTitle>
+          <CardDescription>Track contribution history for an insured person by IP number on the ESIC portal</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-3 gap-3 max-w-xl">
+            <div>
+              <Label>IP Number</Label>
+              <Input value={ctIp} onChange={e => setCtIp(e.target.value)} placeholder="IP number" data-testid="input-ct-ip" />
+            </div>
+            <div>
+              <Label>From Date</Label>
+              <Input type="date" value={ctFrom} onChange={e => setCtFrom(e.target.value)} data-testid="input-ct-from" />
+            </div>
+            <div>
+              <Label>To Date</Label>
+              <Input type="date" value={ctTo} onChange={e => setCtTo(e.target.value)} data-testid="input-ct-to" />
+            </div>
+          </div>
+          <Button
+            onClick={() => triggerJob.mutate(
+              { jobType: "esic_contribution_tracking", companyId, payload: { ipNumber: ctIp, fromDate: ctFrom, toDate: ctTo } },
+              { onSuccess: j => { setCtJobId(j.id); setCtPolling(true); setCtResult(null); } }
+            )}
+            disabled={!ctIp || ctPolling || triggerJob.isPending}
+            data-testid="btn-ct-track"
+          >
+            {ctPolling ? "Tracking on portal…" : "Track Contributions"}
+          </Button>
+          {ctPolling && ctJobId && <LiveScreen jobId={ctJobId} active={ctPolling} label="ESIC Portal — Contribution Tracking" />}
+          {ctResult && (
+            <div className="overflow-x-auto rounded border text-sm">
+              <table className="w-full">
+                <tbody>
+                  {Array.isArray(ctResult.rows) && (ctResult.rows as string[][]).map((row, i) => (
+                    <tr key={i} className="border-b hover:bg-muted/40">
+                      {(row as string[]).map((cell, j) => <td key={j} className="px-3 py-2 text-xs">{cell}</td>)}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {ctResult.total && <p className="px-3 py-2 text-xs text-muted-foreground">Total: {String(ctResult.total)}</p>}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 // ─── Employee List Tab ────────────────────────────────────────────────────────
 function EmployeeListTab({ companyId }: { companyId: string }) {
   const { toast } = useToast();
@@ -1204,6 +1487,7 @@ export default function EsicPage() {
             <TabsTrigger value="returns" data-testid="tab-esic-returns">Monthly Filing</TabsTrigger>
             <TabsTrigger value="challans" data-testid="tab-esic-challans">Challans</TabsTrigger>
             <TabsTrigger value="bulk" data-testid="tab-esic-bulk">Bulk Upload</TabsTrigger>
+            <TabsTrigger value="tools" data-testid="tab-esic-tools">Member Tools</TabsTrigger>
             <TabsTrigger value="employees" data-testid="tab-esic-employees">Employee List</TabsTrigger>
             <TabsTrigger value="portal" data-testid="tab-esic-portal">Portal Settings</TabsTrigger>
           </TabsList>
@@ -1214,6 +1498,7 @@ export default function EsicPage() {
           <TabsContent value="returns" className="mt-4"><MonthlyFilingTab companyId={companyId} /></TabsContent>
           <TabsContent value="challans" className="mt-4"><ChallanTab companyId={companyId} /></TabsContent>
           <TabsContent value="bulk" className="mt-4"><BulkUploadTab companyId={companyId} /></TabsContent>
+          <TabsContent value="tools" className="mt-4"><MemberToolsTab companyId={companyId} /></TabsContent>
           <TabsContent value="employees" className="mt-4"><EmployeeListTab companyId={companyId} /></TabsContent>
           <TabsContent value="portal" className="mt-4"><PortalSettingsTab companyId={companyId} isSuperAdmin={isSuperAdmin} companies={companies} /></TabsContent>
         </Tabs>

@@ -678,10 +678,6 @@ export function getBulkRegisterJobs(
   }));
 }
 
-/**
- * Fan out bulk ECR filing into one epfo_ecr_file job per entry.
- * Each entry should contain { wageMonth, wageYear, ecrFilePath }.
- */
 // ─── Employee List ────────────────────────────────────────────────────────────
 /**
  * Fetches the full member list from the EPFO Unified Portal.

@@ -1217,6 +1217,7 @@ export const automationJobTypes = [
   "esic_pehchan_card_download",
   "esic_employee_search",
   "esic_employee_list",
+  "esic_contribution_tracking",
   "esic_bulk_register",
   "esic_login_test",
   // EPFO

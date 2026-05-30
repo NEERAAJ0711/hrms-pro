@@ -24,7 +24,7 @@ import {
 import {
   ShieldCheck, Users, FileText, Download, RefreshCw, Loader2,
   CheckCircle2, AlertTriangle, Clock, Upload, Settings, Activity,
-  Eye, EyeOff, Lock,
+  Eye, EyeOff, Lock, Search,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 
@@ -643,6 +643,331 @@ function BulkUploadTab({ companyId }: { companyId: string }) {
   );
 }
 
+// ─── KYC Tab ──────────────────────────────────────────────────────────────────
+function KycTab({ companyId }: { companyId: string }) {
+  const { toast } = useToast();
+  const triggerJob = useTriggerJob();
+  const [uan, setUan] = useState("");
+  const [kycType, setKycType] = useState<"aadhaar" | "pan" | "bank">("aadhaar");
+  const [aadhaarNo, setAadhaarNo] = useState("");
+  const [panNo, setPanNo] = useState("");
+  const [accountNo, setAccountNo] = useState("");
+  const [ifsc, setIfsc] = useState("");
+  const [bankName, setBankName] = useState("");
+  const [activeJobId, setActiveJobId] = useState<string | null>(null);
+  const [polling, setPolling] = useState(false);
+
+  const { data: regs } = useQuery<{ data: EpfoRegistration[]; total: number }>({
+    queryKey: ["/api/epfo/registrations", companyId, "kyc"],
+    queryFn: async () => {
+      const res = await fetch(`/api/epfo/registrations?companyId=${companyId}&page=1&limit=200`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed");
+      return res.json();
+    },
+  });
+
+  const { data: activeJob } = useQuery<{ id: string; status: string; result?: Record<string, unknown>; errorMessage?: string }>({
+    queryKey: ["/api/automation/jobs", activeJobId],
+    queryFn: async () => { const res = await apiRequest("GET", `/api/automation/jobs/${activeJobId}`); return res.json(); },
+    enabled: !!activeJobId && polling,
+    refetchInterval: polling ? 3000 : false,
+  });
+
+  useEffect(() => {
+    if (!activeJob) return;
+    if (activeJob.status === "completed") { setPolling(false); setActiveJobId(null); toast({ title: "KYC Updated", description: "KYC updated on EPFO portal" }); }
+    else if (activeJob.status === "failed") { setPolling(false); setActiveJobId(null); toast({ title: "KYC Update Failed", description: activeJob.errorMessage ?? "Error", variant: "destructive" }); }
+  }, [activeJob?.status]);
+
+  const registeredEmps = (regs?.data ?? []).filter(r => r.uan && r.status === "registered");
+  const isBusy = triggerJob.isPending || polling;
+  const canSubmit = !!uan && !isBusy && (
+    (kycType === "aadhaar" && aadhaarNo.length === 12) ||
+    (kycType === "pan" && panNo.length === 10) ||
+    (kycType === "bank" && !!accountNo && !!ifsc)
+  );
+
+  const handleSubmit = () => {
+    const jobTypeMap = { aadhaar: "epfo_kyc_aadhaar", pan: "epfo_kyc_pan", bank: "epfo_kyc_bank" } as const;
+    const payloadMap: Record<string, Record<string, string>> = {
+      aadhaar: { uan, aadhaarNo },
+      pan: { uan, panNo },
+      bank: { uan, accountNo, ifsc, bankName },
+    };
+    triggerJob.mutate(
+      { jobType: jobTypeMap[kycType], companyId, payload: payloadMap[kycType] },
+      { onSuccess: j => { setActiveJobId(j.id); setPolling(true); } }
+    );
+  };
+
+  return (
+    <div className="space-y-5">
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <FileText className="h-4 w-4 text-blue-600" />
+            KYC Management
+          </CardTitle>
+          <CardDescription>Update Aadhaar, PAN, or Bank KYC for any EPFO member directly on the portal</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-3 max-w-md">
+            <div className="space-y-1">
+              <Label>UAN</Label>
+              <Input value={uan} onChange={e => setUan(e.target.value)} placeholder="Enter UAN" data-testid="input-kyc-uan" />
+              {registeredEmps.length > 0 && (
+                <Select onValueChange={setUan}>
+                  <SelectTrigger className="text-xs h-8 mt-1"><SelectValue placeholder="Or pick from registered employees…" /></SelectTrigger>
+                  <SelectContent>
+                    {registeredEmps.map(r => (
+                      <SelectItem key={r.id} value={r.uan!}>{r.employeeName ?? r.employeeCode} — {r.uan}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
+            <div className="space-y-1">
+              <Label>KYC Type</Label>
+              <Select value={kycType} onValueChange={v => setKycType(v as "aadhaar" | "pan" | "bank")}>
+                <SelectTrigger data-testid="select-kyc-type"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="aadhaar">Aadhaar</SelectItem>
+                  <SelectItem value="pan">PAN</SelectItem>
+                  <SelectItem value="bank">Bank Account</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {kycType === "aadhaar" && (
+              <div className="space-y-1">
+                <Label>Aadhaar Number</Label>
+                <Input value={aadhaarNo} onChange={e => setAadhaarNo(e.target.value.replace(/\D/g,""))} placeholder="12-digit Aadhaar" maxLength={12} data-testid="input-kyc-aadhaar" />
+              </div>
+            )}
+            {kycType === "pan" && (
+              <div className="space-y-1">
+                <Label>PAN Number</Label>
+                <Input value={panNo} onChange={e => setPanNo(e.target.value.toUpperCase())} placeholder="ABCDE1234F" maxLength={10} data-testid="input-kyc-pan" />
+              </div>
+            )}
+            {kycType === "bank" && (<>
+              <div className="space-y-1">
+                <Label>Account Number</Label>
+                <Input value={accountNo} onChange={e => setAccountNo(e.target.value)} placeholder="Bank account number" data-testid="input-kyc-account" />
+              </div>
+              <div className="space-y-1">
+                <Label>IFSC Code</Label>
+                <Input value={ifsc} onChange={e => setIfsc(e.target.value.toUpperCase())} placeholder="SBIN0001234" maxLength={11} data-testid="input-kyc-ifsc" />
+              </div>
+              <div className="space-y-1">
+                <Label>Bank Name</Label>
+                <Input value={bankName} onChange={e => setBankName(e.target.value)} placeholder="e.g. State Bank of India" data-testid="input-kyc-bankname" />
+              </div>
+            </>)}
+            <Button onClick={handleSubmit} disabled={!canSubmit} data-testid="btn-kyc-submit">
+              {isBusy ? "Updating on portal…" : "Update KYC on Portal"}
+            </Button>
+          </div>
+          {isBusy && activeJobId && (
+            <div className="mt-4"><LiveScreen jobId={activeJobId} active={polling} label="EPFO Portal — KYC Update" /></div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// ─── Member Tools Tab (TRRN / Passbook / Exit) ────────────────────────────────
+function MemberToolsTab({ companyId }: { companyId: string }) {
+  const { toast } = useToast();
+  const triggerJob = useTriggerJob();
+
+  // TRRN Track
+  const [trrn, setTrrn] = useState("");
+  const [trrnJobId, setTrrnJobId] = useState<string | null>(null);
+  const [trrnPolling, setTrrnPolling] = useState(false);
+  const [trrnResult, setTrrnResult] = useState<Record<string,unknown>|null>(null);
+
+  // Passbook
+  const [passUan, setPassUan] = useState("");
+  const [passJobId, setPassJobId] = useState<string | null>(null);
+  const [passPolling, setPassPolling] = useState(false);
+  const [passResult, setPassResult] = useState<Record<string,unknown>|null>(null);
+
+  // Exit Management
+  const [exitUan, setExitUan] = useState("");
+  const [exitDate, setExitDate] = useState("");
+  const [exitReason, setExitReason] = useState("Resignation");
+  const [exitJobId, setExitJobId] = useState<string | null>(null);
+  const [exitPolling, setExitPolling] = useState(false);
+
+  const { data: trrnJob } = useQuery<{ id: string; status: string; result?: Record<string,unknown>; errorMessage?: string }>({
+    queryKey: ["/api/automation/jobs", trrnJobId, "trrn"],
+    queryFn: async () => { const res = await apiRequest("GET", `/api/automation/jobs/${trrnJobId}`); return res.json(); },
+    enabled: !!trrnJobId && trrnPolling, refetchInterval: trrnPolling ? 3000 : false,
+  });
+  const { data: passJob } = useQuery<{ id: string; status: string; result?: Record<string,unknown>; errorMessage?: string }>({
+    queryKey: ["/api/automation/jobs", passJobId, "pass"],
+    queryFn: async () => { const res = await apiRequest("GET", `/api/automation/jobs/${passJobId}`); return res.json(); },
+    enabled: !!passJobId && passPolling, refetchInterval: passPolling ? 3000 : false,
+  });
+  const { data: exitJob } = useQuery<{ id: string; status: string; result?: Record<string,unknown>; errorMessage?: string }>({
+    queryKey: ["/api/automation/jobs", exitJobId, "exit"],
+    queryFn: async () => { const res = await apiRequest("GET", `/api/automation/jobs/${exitJobId}`); return res.json(); },
+    enabled: !!exitJobId && exitPolling, refetchInterval: exitPolling ? 3000 : false,
+  });
+
+  useEffect(() => {
+    if (!trrnJob) return;
+    if (trrnJob.status === "completed") { setTrrnPolling(false); setTrrnJobId(null); setTrrnResult(trrnJob.result ?? null); }
+    else if (trrnJob.status === "failed") { setTrrnPolling(false); setTrrnJobId(null); toast({ title: "TRRN tracking failed", description: trrnJob.errorMessage ?? "Error", variant: "destructive" }); }
+  }, [trrnJob?.status]);
+
+  useEffect(() => {
+    if (!passJob) return;
+    if (passJob.status === "completed") { setPassPolling(false); setPassJobId(null); setPassResult(passJob.result ?? null); }
+    else if (passJob.status === "failed") { setPassPolling(false); setPassJobId(null); toast({ title: "Passbook check failed", description: passJob.errorMessage ?? "Error", variant: "destructive" }); }
+  }, [passJob?.status]);
+
+  useEffect(() => {
+    if (!exitJob) return;
+    if (exitJob.status === "completed") { setExitPolling(false); setExitJobId(null); toast({ title: "Exit recorded", description: `Exit for UAN ${exitUan} submitted on portal` }); }
+    else if (exitJob.status === "failed") { setExitPolling(false); setExitJobId(null); toast({ title: "Exit management failed", description: exitJob.errorMessage ?? "Error", variant: "destructive" }); }
+  }, [exitJob?.status]);
+
+  return (
+    <div className="space-y-5">
+      {/* TRRN Tracker */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Activity className="h-4 w-4 text-blue-600" />
+            TRRN Status Tracker
+          </CardTitle>
+          <CardDescription>Check payment status of a TRRN (Temporary Return Receipt Number) on the EPFO portal</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex gap-3 max-w-md">
+            <Input value={trrn} onChange={e => setTrrn(e.target.value)} placeholder="Enter TRRN" data-testid="input-trrn" />
+            <Button
+              onClick={() => triggerJob.mutate(
+                { jobType: "epfo_trrn_track", companyId, payload: { trrn } },
+                { onSuccess: j => { setTrrnJobId(j.id); setTrrnPolling(true); setTrrnResult(null); } }
+              )}
+              disabled={!trrn || trrnPolling || triggerJob.isPending}
+              data-testid="btn-trrn-track"
+            >
+              {trrnPolling ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+              <span className="ml-1">Track</span>
+            </Button>
+          </div>
+          {trrnPolling && trrnJobId && <LiveScreen jobId={trrnJobId} active={trrnPolling} label="EPFO Portal — TRRN Tracking" />}
+          {trrnResult && (
+            <div className="rounded border bg-muted/40 p-4 text-sm space-y-1 max-w-md">
+              <p><span className="font-medium">TRRN:</span> {String(trrnResult.trrn ?? "—")}</p>
+              <p><span className="font-medium">Status:</span> {String(trrnResult.status ?? "—")}</p>
+              <p><span className="font-medium">Amount:</span> {String(trrnResult.amount ?? "—")}</p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Passbook Status */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <FileText className="h-4 w-4 text-blue-600" />
+            Passbook Status
+          </CardTitle>
+          <CardDescription>Check PF passbook and contribution history for a member by UAN</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex gap-3 max-w-md">
+            <Input value={passUan} onChange={e => setPassUan(e.target.value)} placeholder="Enter UAN" data-testid="input-passbook-uan" />
+            <Button
+              onClick={() => triggerJob.mutate(
+                { jobType: "epfo_passbook_status", companyId, payload: { uan: passUan } },
+                { onSuccess: j => { setPassJobId(j.id); setPassPolling(true); setPassResult(null); } }
+              )}
+              disabled={!passUan || passPolling || triggerJob.isPending}
+              data-testid="btn-passbook-check"
+            >
+              {passPolling ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+              <span className="ml-1">Check</span>
+            </Button>
+          </div>
+          {passPolling && passJobId && <LiveScreen jobId={passJobId} active={passPolling} label="EPFO Portal — Passbook Status" />}
+          {passResult && (
+            <div className="rounded border bg-muted/40 p-4 text-sm space-y-2 max-w-2xl">
+              <p><span className="font-medium">UAN:</span> {String(passResult.uan ?? "—")}</p>
+              <p><span className="font-medium">Status:</span> {String(passResult.status ?? "—")}</p>
+              {Array.isArray(passResult.tableRows) && (passResult.tableRows as string[][]).length > 0 && (
+                <div className="overflow-x-auto mt-2">
+                  <table className="w-full text-xs border-collapse">
+                    <tbody>
+                      {(passResult.tableRows as string[][]).map((row, i) => (
+                        <tr key={i} className="border-b">
+                          {row.map((cell, j) => <td key={j} className="px-2 py-1.5">{cell}</td>)}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Exit Management */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Clock className="h-4 w-4 text-blue-600" />
+            Exit Management
+          </CardTitle>
+          <CardDescription>Record an employee's date of exit on the EPFO portal</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-3 max-w-md">
+            <div className="space-y-1">
+              <Label>UAN</Label>
+              <Input value={exitUan} onChange={e => setExitUan(e.target.value)} placeholder="Member UAN" data-testid="input-exit-uan" />
+            </div>
+            <div className="space-y-1">
+              <Label>Date of Exit</Label>
+              <Input type="date" value={exitDate} onChange={e => setExitDate(e.target.value)} data-testid="input-exit-date" />
+            </div>
+            <div className="space-y-1">
+              <Label>Exit Reason</Label>
+              <Select value={exitReason} onValueChange={setExitReason}>
+                <SelectTrigger data-testid="select-exit-reason"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {["Resignation","Superannuation","Retrenchment","Retirement Under EPS","Permanent Total Disablement","Death"].map(r => (
+                    <SelectItem key={r} value={r}>{r}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <Button
+              onClick={() => triggerJob.mutate(
+                { jobType: "epfo_exit_management", companyId, payload: { uan: exitUan, exitDate, exitReason } },
+                { onSuccess: j => { setExitJobId(j.id); setExitPolling(true); } }
+              )}
+              disabled={!exitUan || !exitDate || exitPolling || triggerJob.isPending}
+              data-testid="btn-exit-submit"
+            >
+              {exitPolling ? "Processing on portal…" : "Submit Exit"}
+            </Button>
+          </div>
+          {exitPolling && exitJobId && (
+            <div className="mt-4"><LiveScreen jobId={exitJobId} active={exitPolling} label="EPFO Portal — Exit Management" /></div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 // ─── Employee List Tab ────────────────────────────────────────────────────────
 function EmployeeListTab({ companyId }: { companyId: string }) {
   const { toast } = useToast();
@@ -1177,9 +1502,11 @@ export default function EpfoPage() {
           <TabsList className="flex flex-wrap gap-0.5">
             <TabsTrigger value="dashboard" data-testid="tab-epfo-dashboard">Dashboard</TabsTrigger>
             <TabsTrigger value="registration" data-testid="tab-epfo-registration">Registration</TabsTrigger>
+            <TabsTrigger value="kyc" data-testid="tab-epfo-kyc">KYC</TabsTrigger>
             <TabsTrigger value="returns" data-testid="tab-epfo-returns">Return Filing</TabsTrigger>
             <TabsTrigger value="challans" data-testid="tab-epfo-challans">Challans</TabsTrigger>
             <TabsTrigger value="bulk" data-testid="tab-epfo-bulk">Bulk Upload</TabsTrigger>
+            <TabsTrigger value="tools" data-testid="tab-epfo-tools">Member Tools</TabsTrigger>
             <TabsTrigger value="employees" data-testid="tab-epfo-employees">Employee List</TabsTrigger>
             <TabsTrigger value="portal" data-testid="tab-epfo-portal">Portal Settings</TabsTrigger>
           </TabsList>
@@ -1188,7 +1515,9 @@ export default function EpfoPage() {
           <TabsContent value="registration" className="mt-4"><RegistrationTab companyId={companyId} /></TabsContent>
           <TabsContent value="returns" className="mt-4"><ReturnFilingTab companyId={companyId} /></TabsContent>
           <TabsContent value="challans" className="mt-4"><ChallanTab companyId={companyId} /></TabsContent>
+          <TabsContent value="kyc" className="mt-4"><KycTab companyId={companyId} /></TabsContent>
           <TabsContent value="bulk" className="mt-4"><BulkUploadTab companyId={companyId} /></TabsContent>
+          <TabsContent value="tools" className="mt-4"><MemberToolsTab companyId={companyId} /></TabsContent>
           <TabsContent value="employees" className="mt-4"><EmployeeListTab companyId={companyId} /></TabsContent>
           <TabsContent value="portal" className="mt-4"><PortalSettingsTab companyId={companyId} isSuperAdmin={isSuperAdmin} companies={companies} /></TabsContent>
         </Tabs>
