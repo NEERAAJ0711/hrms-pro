@@ -7239,6 +7239,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Register all EPFO / ESIC routes (jobs, portal sessions, registrations, returns, reports)
   registerEpfoEsicRoutes(app, requireAuth, requireRole);
 
+  // ─── Automation: live browser screenshot ──────────────────────────────────────
+  app.get("/api/automation/jobs/:id/live-screenshot", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const { activePages } = await import("./automation/queue-worker");
+      const page = activePages.get(req.params.id);
+      if (!page) return res.status(404).json({ error: "No active browser for this job" });
+      const buf = await page.screenshot({ fullPage: false }).catch(() => null);
+      if (!buf) return res.status(503).json({ error: "Screenshot failed" });
+      res.setHeader("Content-Type", "image/png");
+      res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+      res.send(buf);
+    } catch (err) {
+      res.status(500).json({ error: "Screenshot error" });
+    }
+  });
+
   // ─── Automation: resume a paused job (OTP / CAPTCHA answer) ─────────────────
   app.post("/api/automation/jobs/:id/resume", requireAuth, async (req: Request, res: Response) => {
     try {

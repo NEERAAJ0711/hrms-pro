@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { LiveScreen } from "@/components/automation/live-screen";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
@@ -874,12 +875,15 @@ function PortalSettingsTab({ companyId, isSuperAdmin, companies = [] }: {
 
           {/* Step 1: running — filling credentials on portal */}
           {testPhase === "running" && (
-            <div className="flex items-center justify-between gap-2 p-3 rounded-lg bg-blue-50 border border-blue-200 text-sm text-blue-800">
-              <div className="flex items-center gap-2">
-                <Loader2 className="h-4 w-4 animate-spin shrink-0" />
-                <span>Opening ESIC portal and filling username &amp; password automatically…</span>
+            <div className="space-y-3">
+              <div className="flex items-center justify-between gap-2 p-3 rounded-lg bg-blue-50 border border-blue-200 text-sm text-blue-800">
+                <div className="flex items-center gap-2">
+                  <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+                  <span>Opening ESIC portal and filling username &amp; password automatically…</span>
+                </div>
+                <button onClick={cancelTest} className="text-xs text-blue-600 underline hover:no-underline shrink-0" data-testid="button-cancel-esic-test">Cancel</button>
               </div>
-              <button onClick={cancelTest} className="text-xs text-blue-600 underline hover:no-underline shrink-0" data-testid="button-cancel-esic-test">Cancel</button>
+              <LiveScreen jobId={testJobId} active={testPhase === "running"} label="ESIC Portal — Live View" />
             </div>
           )}
 
@@ -892,14 +896,10 @@ function PortalSettingsTab({ companyId, isSuperAdmin, companies = [] }: {
                   ? "CAPTCHA required — portal is showing a verification image"
                   : "OTP required — check the mobile number registered with ESIC"}
               </div>
-              {screenshotUrl && (
-                <div className="rounded-md overflow-hidden border border-orange-200 bg-white">
-                  <img src={screenshotUrl} alt="Portal screenshot showing CAPTCHA" className="w-full object-contain max-h-64" />
-                </div>
-              )}
+              <LiveScreen jobId={testJobId} active={testPhase === "captcha" || testPhase === "otp"} label="ESIC Portal — Live View" />
               <div className="space-y-2">
                 <Label className="text-orange-900 text-sm font-medium">
-                  {testPhase === "captcha" ? "Enter the CAPTCHA text shown in the image above:" : "Enter the OTP sent to your registered mobile:"}
+                  {testPhase === "captcha" ? "Enter the CAPTCHA text shown above:" : "Enter the OTP sent to your registered mobile:"}
                 </Label>
                 <div className="flex gap-2">
                   <Input

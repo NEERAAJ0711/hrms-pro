@@ -36,6 +36,12 @@ const BACKOFF_SECONDS = [30, 120, 300]; // delay after 1st, 2nd, 3rd failure
  */
 export const resumeResolvers = new Map<string, (answer: string) => void>();
 
+/**
+ * In-memory map from jobId → live Playwright Page.
+ * The live-screenshot API route uses this to capture the current browser state.
+ */
+export const activePages = new Map<string, import("playwright").Page>();
+
 // ─── AutomationContext ─────────────────────────────────────────────────────────
 /** Passed to every automation function. Provides logging, screenshots, pausing. */
 export interface AutomationContext {
@@ -329,6 +335,8 @@ async function processJob(job: JobRecord): Promise<void> {
     // Cap every individual page action at 25s so a missing selector
     // fails quickly instead of hanging for the Playwright default (30s).
     page.setDefaultTimeout(25_000);
+    // Register page so the live-screenshot API can capture it
+    activePages.set(job.id, page);
 
     // Build context with page bound for real screenshots
     const baseCtx = buildContext(job, screenshotDir);
@@ -495,6 +503,8 @@ async function processJob(job: JobRecord): Promise<void> {
       ).catch(() => {});
     }
   } finally {
+    // Deregister live page before closing
+    activePages.delete(job.id);
     // Clean up browser resources
     try { await page?.close(); } catch { /* ignore */ }
     try { await context?.close(); } catch { /* ignore */ }

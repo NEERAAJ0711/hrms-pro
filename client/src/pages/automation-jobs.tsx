@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { LiveScreen } from "@/components/automation/live-screen";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
@@ -291,21 +292,15 @@ function PausedJobsTab() {
                 </p>
               </div>
 
-              {/* Right: large screenshot */}
-              {job.screenshotPath && (
-                <div className="lg:w-[520px] flex-shrink-0">
-                  <p className="text-xs font-medium text-muted-foreground mb-2">Portal screenshot (captcha visible):</p>
-                  <img
-                    src={job.screenshotPath.includes("/uploads/")
-                      ? "/uploads/" + job.screenshotPath.split("/uploads/")[1]
-                      : `/uploads/automation-screenshots/${job.screenshotPath.split("/").pop()}`}
-                    alt="Portal screenshot"
-                    className="w-full rounded-lg border border-orange-200 shadow-md object-contain bg-white"
-                    style={{ maxHeight: "480px" }}
-                    data-testid={`img-screenshot-${job.id}`}
-                  />
-                </div>
-              )}
+              {/* Right: live browser screen */}
+              <div className="lg:w-[540px] flex-shrink-0">
+                <LiveScreen
+                  jobId={job.id}
+                  active={true}
+                  label="Live Portal View"
+                  data-testid={`live-screen-${job.id}`}
+                />
+              </div>
             </div>
           </CardContent>
         </Card>
