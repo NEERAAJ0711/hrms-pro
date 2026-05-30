@@ -222,6 +222,21 @@ jobs:
             chmod 600 "$APP_DIR/.env"
             echo "▶ .env written"
 
+            # ── Check disk space before heavy operations ──────────────────────
+            AVAIL_KB=$(df -k "$HOME" | awk 'NR==2{print $4}')
+            echo "▶ Disk available: $((AVAIL_KB/1024)) MB"
+            if [ "$AVAIL_KB" -lt 524288 ]; then   # less than 512 MB
+              echo "⚠️  Low disk space — cleaning npm cache and old backups..."
+              npm cache clean --force 2>/dev/null || true
+              ls -dt "$HOME"/hrms-app-backup-* 2>/dev/null | tail -n +2 | xargs rm -rf 2>/dev/null || true
+              ls -dt "$HOME"/hrms-pro-backup-* 2>/dev/null | xargs rm -rf 2>/dev/null || true
+              AVAIL_KB=$(df -k "$HOME" | awk 'NR==2{print $4}')
+              echo "▶ Disk after cleanup: $((AVAIL_KB/1024)) MB"
+              if [ "$AVAIL_KB" -lt 262144 ]; then  # still less than 256 MB
+                echo "❌ Not enough disk space ($((AVAIL_KB/1024)) MB). SSH in and free space first."; exit 1
+              fi
+            fi
+
             # ── Install production dependencies ───────────────────────────────
             cd "$APP_DIR"
             # Add nvm node to PATH if present
