@@ -334,44 +334,47 @@ async function processJob(job: JobRecord): Promise<void> {
     const baseCtx = buildContext(job, screenshotDir);
     const ctx = bindPageToContext(baseCtx, page);
 
-    // Restore saved session cookies (skip re-login if session is valid)
-    const hadSession = await sessionManager.restoreSession(job.companyId, portal, context);
+    // Login-test jobs ARE the login — they call esicLogin/epfoLogin inside dispatch().
+    // All other job types need a valid session before dispatch runs.
+    const isLoginTestJob = job.jobType === "epfo_login_test" || job.jobType === "esic_login_test";
 
     // Take before-screenshot
     await ctx.takeScreenshot("before");
 
-    // If no valid session, log in first
-    if (!hadSession) {
-      const creds = await portalSessionService.getCredentials(job.companyId, portal);
-      if (!creds) {
-        throw new Error(`No ${portal.toUpperCase()} credentials saved for company ${job.companyId}`);
-      }
-      if (portal === "epfo") {
-        await epfo.epfoLogin(page, creds, ctx);
-      } else {
-        await esic.esicLogin(page, creds, ctx);
-      }
-      await sessionManager.saveSession(job.companyId, portal, context);
-    } else {
-      // Verify the session is still active (not redirected to login)
-      await page.goto(
-        portal === "epfo"
-          ? "https://unifiedportal-emp.epfindia.gov.in/epfo/"
-          : "https://portal.esic.gov.in/EmployerPortal/ESICInsurancePortal/Portal_Loginnew.aspx",
-        { waitUntil: "domcontentloaded", timeout: 20000 }
-      ).catch(() => {});
+    if (!isLoginTestJob) {
+      // Restore saved session cookies (skip re-login if session is still valid)
+      const hadSession = await sessionManager.restoreSession(job.companyId, portal, context);
 
-      if (sessionManager.isLoginPage(page.url(), portal)) {
-        await ctx.log("info", "Session expired — re-logging in");
-        await sessionManager.clearSession(job.companyId, portal);
+      if (!hadSession) {
         const creds = await portalSessionService.getCredentials(job.companyId, portal);
-        if (!creds) throw new Error(`No ${portal.toUpperCase()} credentials after session expiry`);
+        if (!creds) {
+          throw new Error(`No ${portal.toUpperCase()} credentials saved for company ${job.companyId}`);
+        }
         if (portal === "epfo") {
           await epfo.epfoLogin(page, creds, ctx);
         } else {
           await esic.esicLogin(page, creds, ctx);
         }
         await sessionManager.saveSession(job.companyId, portal, context);
+      } else {
+        // Navigate to the portal dashboard (NOT the login page) to check session validity
+        const dashboardUrl = portal === "epfo"
+          ? "https://unifiedportal-emp.epfindia.gov.in/epfo/"
+          : "https://portal.esic.gov.in/EmployerPortal/ESICInsurancePortal/Default.aspx";
+        await page.goto(dashboardUrl, { waitUntil: "domcontentloaded", timeout: 20000 }).catch(() => {});
+
+        if (sessionManager.isLoginPage(page.url(), portal)) {
+          await ctx.log("info", "Session expired — re-logging in");
+          await sessionManager.clearSession(job.companyId, portal);
+          const creds = await portalSessionService.getCredentials(job.companyId, portal);
+          if (!creds) throw new Error(`No ${portal.toUpperCase()} credentials after session expiry`);
+          if (portal === "epfo") {
+            await epfo.epfoLogin(page, creds, ctx);
+          } else {
+            await esic.esicLogin(page, creds, ctx);
+          }
+          await sessionManager.saveSession(job.companyId, portal, context);
+        }
       }
     }
 

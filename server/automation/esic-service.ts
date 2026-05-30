@@ -114,7 +114,7 @@ const SEL = {
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 async function hasCaptcha(page: Page): Promise<boolean> {
   try {
-    return await page.isVisible(SEL.captchaImage, { timeout: 2000 });
+    return await page.isVisible(SEL.captchaImage, { timeout: 5000 });
   } catch {
     return false;
   }
