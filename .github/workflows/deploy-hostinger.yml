@@ -188,16 +188,17 @@ jobs:
             echo "▶ Deploying as: $(whoami)"
             echo "▶ App directory: $APP_DIR"
 
-            # ── Backup ────────────────────────────────────────────────────────
+            # ── Backup by moving the whole dir ───────────────────────────────
+            # We move (not copy) the existing dir to the backup location.
+            # Moving operates on the PARENT directory (htdocs/), which the
+            # deploy user owns — this avoids "Permission denied" errors that
+            # occur when individual files inside were created by another user.
             if [ -d "$APP_DIR" ]; then
-              cp -r "$APP_DIR" "$BACKUP_DIR"
-              echo "▶ Backup created: $BACKUP_DIR"
+              mv "$APP_DIR" "$BACKUP_DIR"
+              echo "▶ Backup moved to: $BACKUP_DIR"
             fi
 
-            # ── Extract new build ─────────────────────────────────────────────
-            # Remove old dist/scripts/migrations so tar never hits a
-            # "File exists / cannot change mode" error on re-deploy.
-            rm -rf "$APP_DIR/dist" "$APP_DIR/scripts" "$APP_DIR/migrations"
+            # ── Extract new build into a fresh directory ──────────────────────
             mkdir -p "$APP_DIR"
             tar -xzf "$DEPLOY_TAR" -C "$APP_DIR"
             rm -f "$DEPLOY_TAR"
