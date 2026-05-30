@@ -13,7 +13,7 @@ import * as path from "path";
 import { execSync, spawn } from "child_process";
 import { chromium, type Browser } from "playwright";
 
-const MAX_BROWSERS_PER_PORTAL = 3;
+const MAX_BROWSERS_PER_PORTAL = 1;
 const PLAYWRIGHT_HEADLESS = process.env.PLAYWRIGHT_HEADLESS !== "false";
 
 /** Resolve the best available Chromium executable path at startup */
