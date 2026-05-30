@@ -262,17 +262,32 @@ jobs:
             echo "▶ Dependencies installed"
 
             # ── Install Playwright Chromium browser ───────────────────────────
-            # Required by EPFO/ESIC automation. No --with-deps (needs sudo).
-            # We pin the exact binary path into .env so browser-pool.ts always
-            # finds the right revision regardless of chromium.executablePath() quirks.
+            # Required by EPFO/ESIC automation.
+            # The deploy user has no sudo, so system library deps must be
+            # pre-installed by root using:
+            #   playwright install-deps chromium
+            # (see queue-worker.ts error message for the exact command).
             npx playwright install chromium
             CHROMIUM_BIN=$(find "$HOME/.cache/ms-playwright" -type f -name "chrome" 2>/dev/null \
                            | sort -r | head -1 || true)
             if [ -n "$CHROMIUM_BIN" ] && [ -x "$CHROMIUM_BIN" ]; then
+              # Remove stale entry, write fresh path
+              sed -i '/^PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/d' "$APP_DIR/.env" 2>/dev/null || true
               printf 'PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=%s\n' "$CHROMIUM_BIN" >> "$APP_DIR/.env"
               echo "▶ Playwright Chromium at: $CHROMIUM_BIN"
+              # Self-test: binary prints "Chromium X.Y.Z" on success
+              CHROME_VER=$("$CHROMIUM_BIN" --version 2>&1 || true)
+              if echo "$CHROME_VER" | grep -qiE "^Chromium |^Google Chrome "; then
+                echo "▶ Binary OK: $CHROME_VER"
+              else
+                echo "⚠️  Binary cannot execute (missing system libs)."
+                echo "    As root on the VPS run:"
+                echo "    export PATH=\"\$HOME/.nvm/versions/node/\$(ls \$HOME/.nvm/versions/node | tail -1)/bin:\$PATH\""
+                echo "    cd $APP_DIR && node_modules/.bin/playwright install-deps chromium"
+                echo "    su - workeazy-hrms -c 'pm2 restart hrms-pro --update-env'"
+              fi
             else
-              echo "⚠️  Chromium binary not found after install — automation features may not work"
+              echo "⚠️  Chromium binary not found after install"
               find "$HOME/.cache/ms-playwright" 2>/dev/null | head -20 || echo "(ms-playwright cache empty)"
             fi
 

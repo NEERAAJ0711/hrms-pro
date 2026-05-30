@@ -392,12 +392,32 @@ async function processJob(job: JobRecord): Promise<void> {
     const portal = job.jobType.startsWith("epfo") ? "EPFO" : "ESIC";
 
     // Translate cryptic Playwright / network errors into plain-language messages.
-    if (errorMessage.includes("Executable doesn't exist") || errorMessage.includes("browserType.launch")) {
-      // ── Chromium binary missing ────────────────────────────────────────────
+    if (errorMessage.includes("Executable doesn't exist at")) {
+      // ── Chromium binary file literally missing ─────────────────────────────
       errorMessage =
         "Chromium browser not found on server. " +
-        `SSH in and run (from the app directory):  cd ${process.cwd()} && npx playwright install chromium  — then restart the server. ` +
-        "Do NOT add --with-deps (that requires sudo and will fail).";
+        `SSH in and run (from the app directory):  cd ${process.cwd()} && npx playwright install chromium  — then restart the server.`;
+    } else if (
+      errorMessage.includes("browserType.launch") ||
+      errorMessage.includes("Failed to launch") ||
+      errorMessage.includes("error while loading shared libraries")
+    ) {
+      // ── Binary found but cannot execute — missing system shared libraries ──
+      // On Ubuntu 24.04 the t64 package transition means apt-get names changed.
+      // `playwright install-deps` knows the exact package list for the installed
+      // Chromium revision and handles the t64 naming automatically.
+      const firstUsefulLine = errorMessage
+        .split(/\n/)
+        .find(l => l.includes("error") || l.includes("cannot") || l.includes("No such") || l.includes("SIGSEGV"))
+        ?? errorMessage.substring(0, 300);
+      const appDir = process.cwd();
+      errorMessage =
+        "Chromium is installed but cannot launch — missing system libraries on the server.\n" +
+        "SSH in as root and run:\n" +
+        `  export PATH="/home/workeazy-hrms/.nvm/versions/node/$(ls /home/workeazy-hrms/.nvm/versions/node | tail -1)/bin:$PATH"\n` +
+        `  cd ${appDir} && node_modules/.bin/playwright install-deps chromium\n` +
+        `  su - workeazy-hrms -c "pm2 restart hrms-pro --update-env"\n` +
+        `Details: ${firstUsefulLine.trim()}`;
     } else if (
       errorMessage.includes("net::ERR_NAME_NOT_RESOLVED") ||
       errorMessage.includes("ERR_NAME_NOT_RESOLVED")
