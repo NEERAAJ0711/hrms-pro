@@ -51,11 +51,13 @@ const ESIC_LOGIN_URL = "https://portal.esic.gov.in/EmployerPortal/ESICInsuranceP
 
 // ─── Selector constants ───────────────────────────────────────────────────────
 const SEL = {
-  // Login page
-  username:           '#txtUserid, input[name*="UserId" i], input[name*="username" i]',
+  // Login page — verified against portal.esic.gov.in/EmployerPortal/ESICInsurancePortal/Portal_Loginnew.aspx
+  username:           '#txtUserName, #txtUserid, input[name*="UserName" i], input[name*="UserId" i], input[name*="username" i]',
   password:           '#txtPassword, input[type="password"]',
-  captchaInput:       '#txtCaptcha, input[name*="captcha" i], input[id*="captcha" i]',
-  captchaImage:       'img[id*="Captcha" i], img[alt*="captcha" i]',
+  // Captcha input: actual id is txtChallanCaptcha on the ESIC employer login page
+  captchaInput:       '#txtChallanCaptcha, #txtCaptcha, input[name*="captcha" i], input[id*="captcha" i]',
+  // Captcha image: actual id is "img1" with src="../ChallanHandler.ashx"
+  captchaImage:       '#img1, img[src*="ChallanHandler"], img[src*="Captcha" i], img[id*="Captcha" i], img[alt*="captcha" i]',
   loginBtn:           '#btnLogin, button[type="submit"], input[type="submit"]',
 
   // OTP
