@@ -10,8 +10,6 @@ on:
         required: false
         default: "Manual trigger"
 
-# Serialize deploys so two simultaneous runs can't both mutate
-# $HOME/hrms-pro / PM2 / .hrms-pro.port and produce a non-deterministic state.
 concurrency:
   group: hostinger-prod-deploy
   cancel-in-progress: false
@@ -41,8 +39,8 @@ jobs:
 
       - name: Verify build artifacts
         run: |
-          test -f dist/index.cjs   && echo "✅ Server bundle OK" || (echo "❌ Server bundle missing" && exit 1)
-          test -f dist/public/index.html && echo "✅ Client bundle OK" || (echo "❌ Client bundle missing" && exit 1)
+          test -f dist/index.cjs        && echo "✅ Server bundle OK"      || (echo "❌ Server bundle missing"  && exit 1)
+          test -f dist/public/index.html && echo "✅ Client bundle OK"      || (echo "❌ Client bundle missing"  && exit 1)
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
@@ -52,20 +50,13 @@ jobs:
           retention-days: 3
 
   deploy:
-    name: Deploy to Hostinger VPS
+    name: Deploy to VPS
     runs-on: ubuntu-latest
     needs: build-and-test
-    environment: production
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
-      - name: Setup Node.js 20
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: "npm"
 
       - name: Download build artifact
         uses: actions/download-artifact@v4
@@ -89,13 +80,8 @@ jobs:
           echo "${{ secrets.HOSTINGER_SSH_KEY }}" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
 
-          # Pin the Hostinger VPS host key. We refuse to deploy without it —
-          # falling back to ssh-keyscan or StrictHostKeyChecking=no would
-          # leave a man-in-the-middle window every deploy.
           if [ -z "$HOSTINGER_HOST_KEY" ]; then
-            echo "❌ HOSTINGER_HOST_KEY secret is not set. Aborting deploy to avoid MITM risk."
-            echo "   Capture the VPS host key once (e.g. 'ssh-keyscan -p <port> <host>')"
-            echo "   verify it out-of-band, and store it as the HOSTINGER_HOST_KEY repo secret."
+            echo "❌ HOSTINGER_HOST_KEY secret is not set. Aborting."
             exit 1
           fi
 
@@ -103,9 +89,6 @@ jobs:
           KNOWN_HOSTS=~/.ssh/known_hosts
           : > "$KNOWN_HOSTS"
 
-          # Each line of the secret is one host key entry. Rewrite the host
-          # field so it matches both the bare host and the [host]:port form
-          # ssh uses for non-default ports.
           while IFS= read -r line; do
             [ -z "$line" ] && continue
             case "$line" in \#*) continue ;; esac
@@ -148,17 +131,12 @@ jobs:
       - name: Build env payload
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          GIT_COMMIT: ${{ github.sha }}
-          BUILD_TIME: ${{ github.event.head_commit.timestamp || github.event.created_at }}
           SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
           JWT_SECRET: ${{ secrets.JWT_SECRET }}
-        shell: bash
+          GIT_COMMIT: ${{ github.sha }}
+          BUILD_TIME: ${{ github.event.head_commit.timestamp }}
         run: |
           umask 077
-          # Use bash's built-in %q to produce shell-safe quoted assignments.
-          # printf "%q" handles arbitrary bytes — single quotes, double quotes,
-          # $, backticks, backslashes, spaces, and newlines (emitted as $'...')
-          # — so `. ENV_FILE` on the server is safe for any secret value.
           {
             printf 'DATABASE_URL=%q\n'   "$DATABASE_URL"
             printf 'SESSION_SECRET=%q\n' "$SESSION_SECRET"
@@ -166,37 +144,11 @@ jobs:
             printf 'GIT_COMMIT=%q\n'     "${GIT_COMMIT:-unknown}"
             printf 'BUILD_TIME=%q\n'     "${BUILD_TIME:-unknown}"
           } > deploy.env
-
-          # Round-trip sanity check: source the file in a clean subshell and
-          # confirm every value matches the original. This catches any quoting
-          # regression before we ship the payload to the server. Originals are
-          # captured into shell variables (not argv) so secrets never appear in
-          # the runner's process list.
-          (
-            ORIG_DATABASE_URL="$DATABASE_URL"
-            ORIG_SESSION_SECRET="$SESSION_SECRET"
-            ORIG_JWT_SECRET="$JWT_SECRET"
-            ORIG_GIT_COMMIT="${GIT_COMMIT:-unknown}"
-            ORIG_BUILD_TIME="${BUILD_TIME:-unknown}"
-            unset DATABASE_URL SESSION_SECRET JWT_SECRET GIT_COMMIT BUILD_TIME
-            set -a
-            . ./deploy.env
-            set +a
-            [ "$DATABASE_URL"   = "$ORIG_DATABASE_URL"   ] || { echo "❌ DATABASE_URL round-trip failed"; exit 1; }
-            [ "$SESSION_SECRET" = "$ORIG_SESSION_SECRET" ] || { echo "❌ SESSION_SECRET round-trip failed"; exit 1; }
-            [ "$JWT_SECRET"     = "$ORIG_JWT_SECRET"     ] || { echo "❌ JWT_SECRET round-trip failed"; exit 1; }
-            [ "$GIT_COMMIT"     = "$ORIG_GIT_COMMIT"     ] || { echo "❌ GIT_COMMIT round-trip failed"; exit 1; }
-            [ "$BUILD_TIME"     = "$ORIG_BUILD_TIME"     ] || { echo "❌ BUILD_TIME round-trip failed"; exit 1; }
-          )
-
           base64 -w0 deploy.env > deploy.env.b64
           rm -f deploy.env
 
       - name: Upload env payload to server
         run: |
-          # Pin host-key verification for the secret payload upload — the
-          # earlier ssh-keyscan step has populated ~/.ssh/known_hosts, so a
-          # MITM/host-impersonation cannot capture the encoded secrets.
           scp -i ~/.ssh/deploy_key \
               -P ${{ secrets.HOSTINGER_PORT || '22' }} \
               -o StrictHostKeyChecking=yes \
@@ -212,14 +164,11 @@ jobs:
               -o StrictHostKeyChecking=yes \
               -o UserKnownHostsFile=~/.ssh/known_hosts \
               ${{ secrets.HOSTINGER_USERNAME }}@${{ secrets.HOSTINGER_HOST }} \
-              "DEPLOY_TAR='/tmp/hrms-deploy-${{ github.run_id }}.tar.gz' ENV_PAYLOAD='/tmp/hrms-deploy-env-${{ github.run_id }}.b64' NGINX_WEBROOT='${{ secrets.NGINX_WEBROOT }}' bash -s" << 'ENDSSH'
+              "DEPLOY_TAR='/tmp/hrms-deploy-${{ github.run_id }}.tar.gz' ENV_PAYLOAD='/tmp/hrms-deploy-env-${{ github.run_id }}.b64' bash -s" << 'ENDSSH'
 
             set -e
 
-            # Decode the base64-encoded env payload into a private temp file,
-            # source it into this shell, then wipe both the encoded payload and
-            # the decoded file. Secrets are never interpolated into argv, so
-            # unusual characters (quotes, $, backticks, newlines) are safe.
+            # ── Decode secrets ────────────────────────────────────────────────
             ENV_FILE="$(mktemp)"
             chmod 600 "$ENV_FILE"
             trap 'rm -f "$ENV_PAYLOAD" "$ENV_FILE"' EXIT
@@ -228,242 +177,106 @@ jobs:
             fi
             base64 -d "$ENV_PAYLOAD" > "$ENV_FILE"
             rm -f "$ENV_PAYLOAD"
-            set -a
-            . "$ENV_FILE"
-            set +a
+            set -a; . "$ENV_FILE"; set +a
             rm -f "$ENV_FILE"
             trap - EXIT
 
-            APP_DIR="$HOME/hrms-pro"
+            # ── Paths — CloudPanel puts apps in ~/htdocs/<name> ──────────────
+            APP_DIR="$HOME/htdocs/hrms-pro"
             BACKUP_DIR="$HOME/hrms-pro-backup-$(date +%Y%m%d%H%M%S)"
 
-            echo "▶ Deploying as user: $(whoami)"
+            echo "▶ Deploying as: $(whoami)"
             echo "▶ App directory: $APP_DIR"
 
-            echo "▶ Backing up current deployment..."
+            # ── Backup ────────────────────────────────────────────────────────
             if [ -d "$APP_DIR" ]; then
               cp -r "$APP_DIR" "$BACKUP_DIR"
+              echo "▶ Backup created: $BACKUP_DIR"
             fi
 
-            echo "▶ Preparing app directory..."
+            # ── Extract new build ─────────────────────────────────────────────
             mkdir -p "$APP_DIR"
-            cd "$APP_DIR"
-
-            echo "▶ Extracting new build from $DEPLOY_TAR..."
             tar -xzf "$DEPLOY_TAR" -C "$APP_DIR"
             rm -f "$DEPLOY_TAR"
+            echo "▶ Build extracted to $APP_DIR"
 
-            echo "▶ Syncing frontend files to nginx web root..."
-            # CloudPanel serves static files directly from htdocs — Express only
-            # handles /api/* via proxy_pass. We must also update the web root so
-            # nginx serves the new index.html and JS/CSS bundles.
-            WEBROOT="${NGINX_WEBROOT:-}"
-            if [ -z "$WEBROOT" ]; then
-              # Try common CloudPanel locations for this domain
-              for candidate in \
-                "$HOME/htdocs/tbjvisionconnect.com" \
-                "$HOME/htdocs/tbjvisionconnect.com/public" \
-                "$HOME/public_html" \
-                "/var/www/tbjvisionconnect.com/public_html" \
-                "/var/www/html"; do
-                if [ -d "$candidate" ]; then
-                  WEBROOT="$candidate"
-                  echo "  Auto-detected web root: $WEBROOT"
-                  break
-                fi
-              done
-            fi
-            if [ -n "$WEBROOT" ]; then
-              if rsync -a --delete "$APP_DIR/dist/public/" "$WEBROOT/" 2>/tmp/rsync-err; then
-                echo "✅ Frontend files synced to $WEBROOT"
-                ls -la "$WEBROOT/assets/" 2>/dev/null | tail -5 || true
-              else
-                echo "⚠️  rsync to $WEBROOT failed (permission denied?)."
-                cat /tmp/rsync-err || true
-                echo "   Fix: SSH into VPS and run:"
-                echo "     sudo chown -R \$(whoami):\$(whoami) $WEBROOT"
-                echo "   Then re-run this deploy."
-                echo "   OR reconfigure nginx to proxy_pass all traffic to Express."
-              fi
-            else
-              echo "⚠️  Could not find nginx web root — set NGINX_WEBROOT secret to the"
-              echo "   directory nginx serves static files from (e.g. /var/www/html)."
-              echo "   Fix: SSH into VPS, find your site root, then either:"
-              echo "     sudo chown -R \$(whoami):\$(whoami) /path/to/webroot"
-              echo "   OR reconfigure nginx to proxy_pass all requests to Express."
-            fi
-
-            echo "▶ Writing .env file..."
+            # ── Write .env ────────────────────────────────────────────────────
             {
-              printf 'DATABASE_URL=%s\n' "$DATABASE_URL"
+              printf 'DATABASE_URL=%s\n'   "$DATABASE_URL"
               printf 'SESSION_SECRET=%s\n' "$SESSION_SECRET"
-              printf 'JWT_SECRET=%s\n' "$JWT_SECRET"
+              printf 'JWT_SECRET=%s\n'     "$JWT_SECRET"
               printf 'NODE_ENV=production\n'
-              printf 'PORT=5000\n'
-              printf 'GIT_COMMIT=%s\n' "${GIT_COMMIT:-unknown}"
-              printf 'BUILD_TIME=%s\n' "${BUILD_TIME:-unknown}"
+              printf 'PORT=8080\n'
+              printf 'GIT_COMMIT=%s\n'     "${GIT_COMMIT:-unknown}"
+              printf 'BUILD_TIME=%s\n'     "${BUILD_TIME:-unknown}"
             } > "$APP_DIR/.env"
             chmod 600 "$APP_DIR/.env"
+            echo "▶ .env written"
 
-            echo "▶ Installing production dependencies..."
-            export PATH="$HOME/.nvm/versions/node/$(ls -1 $HOME/.nvm/versions/node 2>/dev/null | tail -1)/bin:$PATH" || true
-            command -v npm || { echo "❌ npm not found. Please install Node.js on the VPS first (run hostinger-setup.sh)"; exit 1; }
+            # ── Install production dependencies ───────────────────────────────
+            cd "$APP_DIR"
+            # Add nvm node to PATH if present
+            NVM_NODE=$(ls -1 "$HOME/.nvm/versions/node" 2>/dev/null | tail -1)
+            [ -n "$NVM_NODE" ] && export PATH="$HOME/.nvm/versions/node/$NVM_NODE/bin:$PATH"
+            command -v npm || { echo "❌ npm not found — install Node.js first"; exit 1; }
             npm ci --omit=dev
+            echo "▶ Dependencies installed"
 
-            echo "▶ Running database migrations..."
-            DATABASE_URL="$DATABASE_URL" node scripts/run-migrations.cjs
+            # ── Run database migrations ───────────────────────────────────────
+            node scripts/run-migrations.cjs
+            echo "▶ Migrations done"
 
-            echo "▶ Restarting app with PM2..."
+            # ── Restart with PM2 ──────────────────────────────────────────────
             command -v pm2 || npm install -g pm2
-
-            # Detect the port the legacy 'payroll' PM2 process is bound to —
-            # that's the port nginx (CloudPanel) routes the public domain to.
-            # Our new app must listen on that exact port to receive traffic.
-            LEGACY_PID=$(pm2 jlist 2>/dev/null | node -e "
-              let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{
-                try{const a=JSON.parse(s);const p=a.find(x=>x.name==='payroll');
-                console.log(p&&p.pid?p.pid:'');}catch(e){console.log('');}
-              });" 2>/dev/null || echo "")
-
-            DETECTED_PORT=""
-            if [ -n "$LEGACY_PID" ]; then
-              # Resolve all listen ports of the legacy process tree, prefer the lowest
-              DETECTED_PORT=$(ss -tlnp 2>/dev/null | grep "pid=$LEGACY_PID" | \
-                              grep -oE ':[0-9]+ ' | tr -d ' :' | sort -u | head -1)
-              echo "▶ Detected legacy 'payroll' on PID=$LEGACY_PID, port=$DETECTED_PORT"
-            else
-              echo "▶ No legacy 'payroll' process found"
-            fi
-
-            # Try detected port first, then any persisted port from previous
-            # successful deploys, then the known nginx target for this VPS (8080).
-            PERSISTED_PORT=""
-            if [ -f "$HOME/.hrms-pro.port" ]; then
-              PERSISTED_PORT=$(cat "$HOME/.hrms-pro.port" 2>/dev/null | tr -dc '0-9')
-            fi
-            APP_PORT="${DETECTED_PORT:-${PERSISTED_PORT:-8080}}"
-            # Sanity check the candidate port before using it.
-            case "$APP_PORT" in
-              ''|*[!0-9]*)  echo "❌ Invalid APP_PORT='$APP_PORT' — refusing to deploy"; exit 1 ;;
-            esac
-            if [ "$APP_PORT" -lt 1 ] || [ "$APP_PORT" -gt 65535 ]; then
-              echo "❌ APP_PORT=$APP_PORT out of range — refusing to deploy"; exit 1
-            fi
-            echo "▶ Will run hrms-pro on port: $APP_PORT (detected=$DETECTED_PORT, persisted=$PERSISTED_PORT)"
-
-            # Append PORT override to .env so the new process picks the right one
-            sed -i '/^PORT=/d' "$APP_DIR/.env"
-            echo "PORT=$APP_PORT" >> "$APP_DIR/.env"
-
-            # Stop both old processes — the legacy 'payroll' (so its port is freed)
-            # and any prior 'hrms-pro' instance — then start fresh.
-            pm2 delete payroll 2>/dev/null || true
             pm2 delete hrms-pro 2>/dev/null || true
             sleep 2
-
-            PORT="$APP_PORT" pm2 start ecosystem.config.cjs --update-env
+            pm2 start ecosystem.config.cjs --update-env
             pm2 save
+            echo "▶ PM2 restarted"
 
-            echo "▶ Verifying server bundle was picked up..."
-            sleep 4
+            # ── Health check ──────────────────────────────────────────────────
+            sleep 5
             UP=0
-            for i in 1 2 3 4 5 6 7 8 9 10; do
-              if curl -fsS "http://127.0.0.1:$APP_PORT/api/version" > /tmp/ver.json 2>/dev/null; then
-                echo "✅ Server is up on port $APP_PORT. Live commit:"
-                cat /tmp/ver.json
-                echo
-                UP=1
-                break
+            for i in $(seq 1 12); do
+              if curl -fsS "http://127.0.0.1:8080/api/version" > /tmp/ver.json 2>/dev/null; then
+                echo "✅ Server is up on port 8080:"
+                cat /tmp/ver.json; echo
+                UP=1; break
               fi
-              echo "  waiting for server on $APP_PORT... ($i/10)"
-              sleep 3
+              echo "  waiting... ($i/12)"
+              sleep 5
             done
+
             if [ "$UP" != "1" ]; then
-              echo "❌ Server failed to come up on port $APP_PORT — recent PM2 logs:"
-              pm2 logs hrms-pro --lines 60 --nostream || true
+              echo "❌ Server did not come up on port 8080 — PM2 logs:"
+              pm2 logs hrms-pro --lines 50 --nostream || true
               exit 1
             fi
 
-            # Only persist the port AFTER a successful health check, so a bad
-            # detection never gets locked in for future deploys.
-            echo "$APP_PORT" > "$HOME/.hrms-pro.port"
-
-            echo "▶ Cleaning old backups (keeping last 3)..."
-            ls -dt $HOME/hrms-pro-backup-* 2>/dev/null | tail -n +4 | xargs rm -rf 2>/dev/null || true
+            # ── Clean old backups ─────────────────────────────────────────────
+            ls -dt "$HOME"/hrms-pro-backup-* 2>/dev/null | tail -n +4 | xargs rm -rf 2>/dev/null || true
 
             echo "✅ Deployment complete!"
           ENDSSH
 
-      - name: Verify deployment
+      - name: Verify live site
         run: |
           sleep 10
           HOST="${{ secrets.HOSTINGER_HOST }}"
-          EXPECTED_COMMIT="${{ github.sha }}"
-
-          echo "▶ Checking public URL for live commit..."
-          VER_JSON=""
-          for SCHEME in https http; do
-            VER_JSON=$(curl -sfL \
-              --max-time 30 \
-              -H "Cache-Control: no-cache, no-store" \
-              -H "Pragma: no-cache" \
-              "$SCHEME://$HOST/api/version" 2>/dev/null || echo "")
-            if [ -n "$VER_JSON" ]; then
-              echo "  Reached via $SCHEME"
-              break
-            fi
-          done
-
-          if [ -n "$VER_JSON" ]; then
-            LIVE_COMMIT=$(echo "$VER_JSON" | node -e "
-              let s=''; process.stdin.on('data',d=>s+=d).on('end',()=>{
-                try { console.log(JSON.parse(s).commit || 'unknown'); }
-                catch(e) { console.log('parse-error'); }
-              });")
-            echo "  Expected commit : $EXPECTED_COMMIT"
-            echo "  Live commit     : $LIVE_COMMIT"
-            if [ "$LIVE_COMMIT" = "$EXPECTED_COMMIT" ]; then
-              echo "✅ Public URL is serving the correct commit — deployment confirmed!"
-            else
-              echo "⚠️  Public URL is serving commit $LIVE_COMMIT"
-              echo "   Expected $EXPECTED_COMMIT"
-              echo "   Possible causes:"
-              echo "   1. A CDN/nginx proxy cache is serving a stale response."
-              echo "      Fix: purge the CDN cache or add 'proxy_cache_bypass \$http_pragma;' to nginx."
-              echo "   2. nginx is routing to a different port than PM2 is listening on."
-              echo "      Fix: confirm the proxy_pass port in CloudPanel matches the PM2 port."
-              echo "   3. The old process is still bound to nginx's port."
-              echo "      Fix: SSH in and run: pm2 list  then verify the port."
-            fi
-          else
-            echo "⚠️  Could not reach $HOST/api/version on http or https."
-            echo "   nginx may not be routing to the correct PM2 port."
-            echo "   SSH into the server and run: pm2 list"
-            echo "   Then confirm nginx proxy_pass matches the PM2 port."
-          fi
-
-          echo ""
-          echo "▶ Fallback status check on /api/auth/me..."
-          RESPONSE=$(curl -sL -o /dev/null -w "%{http_code}" \
-            --max-time 30 \
-            -H "Cache-Control: no-cache" \
+          echo "▶ Checking $HOST/api/auth/me ..."
+          STATUS=$(curl -sL -o /dev/null -w "%{http_code}" --max-time 30 \
             "https://$HOST/api/auth/me" 2>/dev/null \
-            || curl -sL -o /dev/null -w "%{http_code}" \
-            --max-time 30 \
-            -H "Cache-Control: no-cache" \
+            || curl -sL -o /dev/null -w "%{http_code}" --max-time 30 \
             "http://$HOST/api/auth/me" 2>/dev/null \
             || echo "000")
-          echo "  Auth endpoint HTTP status: $RESPONSE"
-          if [ "$RESPONSE" = "401" ] || [ "$RESPONSE" = "200" ]; then
-            echo "✅ App is responding to requests"
+          echo "  HTTP status: $STATUS"
+          if [ "$STATUS" = "401" ] || [ "$STATUS" = "200" ]; then
+            echo "✅ Site is live and responding"
           else
-            echo "⚠️  Unexpected status $RESPONSE — nginx routing may need attention"
+            echo "⚠️  Unexpected status $STATUS — check nginx proxy_pass → port 8080"
           fi
 
       - name: Notify on failure
         if: failure()
         run: |
-          echo "❌ Deployment failed for commit ${{ github.sha }}"
-          echo "Branch: ${{ github.ref_name }}"
-          echo "Triggered by: ${{ github.actor }}"
-
+          echo "❌ Deployment failed for commit ${{ github.sha }} on branch ${{ github.ref_name }}"

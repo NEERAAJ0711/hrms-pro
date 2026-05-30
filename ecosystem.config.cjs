@@ -9,10 +9,6 @@ module.exports = {
       env_file: ".env",
       env: {
         NODE_ENV: "production",
-        PORT: 5000,
-      },
-      env_production: {
-        NODE_ENV: "production",
       },
       watch: false,
       max_memory_restart: "500M",
