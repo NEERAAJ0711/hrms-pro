@@ -643,7 +643,11 @@ function BulkUploadTab({ companyId }: { companyId: string }) {
 }
 
 // ─── Portal Settings Dialog ───────────────────────────────────────────────────
-function PortalSettingsTab({ companyId }: { companyId: string }) {
+function PortalSettingsTab({ companyId, isSuperAdmin, companies = [] }: {
+  companyId: string;
+  isSuperAdmin?: boolean;
+  companies?: { id: string; name: string }[];
+}) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [showPw, setShowPw] = useState(false);
@@ -653,14 +657,22 @@ function PortalSettingsTab({ companyId }: { companyId: string }) {
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
   const [captchaAnswer, setCaptchaAnswer] = useState("");
   const [testPhase, setTestPhase] = useState<"idle" | "running" | "captcha" | "otp" | "done">("idle");
+  const [selectedCid, setSelectedCid] = useState(companyId);
+
+  useEffect(() => { setSelectedCid(companyId); }, [companyId]);
+
+  const effectiveCid = isSuperAdmin ? selectedCid : companyId;
+
+  const resetTest = () => { setTestPhase("idle"); setTestResult(null); setTestJobId(null); setCaptchaAnswer(""); };
 
   const { data: session } = useQuery<{ configured: boolean; username?: string; lastLoginAt?: string }>({
-    queryKey: ["/api/automation/portal-session/epfo", companyId],
+    queryKey: ["/api/automation/portal-session/epfo", effectiveCid],
     queryFn: async () => {
-      const res = await fetch(`/api/automation/portal-session/epfo?companyId=${companyId}`, { credentials: "include" });
+      const res = await fetch(`/api/automation/portal-session/epfo?companyId=${effectiveCid}`, { credentials: "include" });
       if (!res.ok) throw new Error("Failed");
       return res.json();
     },
+    enabled: !!effectiveCid,
   });
 
   const { data: polledJob } = useQuery<{ id: string; status: string; errorMessage?: string | null; screenshotPath?: string | null }>({
@@ -699,7 +711,7 @@ function PortalSettingsTab({ companyId }: { companyId: string }) {
 
   const saveMutation = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/automation/portal-session", { portal: "epfo", username, password, companyId });
+      const res = await apiRequest("POST", "/api/automation/portal-session", { portal: "epfo", username, password, companyId: effectiveCid });
       return res.json();
     },
     onSuccess: () => {
@@ -712,7 +724,7 @@ function PortalSettingsTab({ companyId }: { companyId: string }) {
 
   const testMutation = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/automation/portal-session/test", { portal: "epfo", companyId });
+      const res = await apiRequest("POST", "/api/automation/portal-session/test", { portal: "epfo", companyId: effectiveCid });
       return res.json();
     },
     onSuccess: (data) => {
@@ -754,12 +766,7 @@ function PortalSettingsTab({ companyId }: { companyId: string }) {
     return () => clearTimeout(timer);
   }, [testPhase]);
 
-  const cancelTest = () => {
-    setTestPhase("idle");
-    setTestResult(null);
-    setTestJobId(null);
-    setCaptchaAnswer("");
-  };
+  const cancelTest = resetTest;
 
   const isTestActive = testMutation.isPending || !!testJobId;
 
@@ -771,6 +778,25 @@ function PortalSettingsTab({ companyId }: { companyId: string }) {
           <CardDescription>Credentials are AES-256-GCM encrypted before storage. Never stored in plain text.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
+          {isSuperAdmin && (
+            <div className="flex items-center gap-2">
+              <Label className="text-sm font-medium whitespace-nowrap shrink-0">Company</Label>
+              <Select value={selectedCid} onValueChange={(v) => { setSelectedCid(v); resetTest(); }} data-testid="select-portal-epfo-company">
+                <SelectTrigger className="flex-1">
+                  <SelectValue placeholder="Select a company…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {companies.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+          {isSuperAdmin && !effectiveCid ? (
+            <p className="text-sm text-muted-foreground text-center py-4">Select a company above to manage its EPFO credentials.</p>
+          ) : (
+          <>
           {session?.configured && (
             <div className="flex items-center gap-2 p-3 rounded-lg bg-green-50 border border-green-200 text-sm text-green-800">
               <CheckCircle2 className="h-4 w-4" />
@@ -877,6 +903,8 @@ function PortalSettingsTab({ companyId }: { companyId: string }) {
               <span>{testResult.message}</span>
             </div>
           )}
+          </>
+          )}
         </CardContent>
       </Card>
     </div>
@@ -960,7 +988,7 @@ export default function EpfoPage() {
           <TabsContent value="returns" className="mt-4"><ReturnFilingTab companyId={companyId} /></TabsContent>
           <TabsContent value="challans" className="mt-4"><ChallanTab companyId={companyId} /></TabsContent>
           <TabsContent value="bulk" className="mt-4"><BulkUploadTab companyId={companyId} /></TabsContent>
-          <TabsContent value="portal" className="mt-4"><PortalSettingsTab companyId={companyId} /></TabsContent>
+          <TabsContent value="portal" className="mt-4"><PortalSettingsTab companyId={companyId} isSuperAdmin={isSuperAdmin} companies={companies} /></TabsContent>
         </Tabs>
       )}
     </div>
