@@ -10,7 +10,7 @@
  */
 import * as fs from "fs";
 import * as path from "path";
-import { execSync, spawnSync } from "child_process";
+import { execSync, spawn } from "child_process";
 import { chromium, type Browser } from "playwright";
 
 const MAX_BROWSERS_PER_PORTAL = 3;
@@ -111,24 +111,41 @@ export function ensurePlaywrightBinary(): Promise<void> {
   console.log(`[BrowserPool] Playwright Chromium binary not found — running: ${cmd} ${args.join(" ")} (may take ~1 min)...`);
 
   _playwrightInstallPromise = new Promise<void>((resolve, reject) => {
-    const result = spawnSync(cmd, args, { stdio: "inherit", timeout: 5 * 60_000 });
+    // Use async spawn — NOT spawnSync — so the Node.js event loop stays free
+    // while Chromium (~120 MB) downloads. spawnSync would freeze the server and
+    // cause deploy health-checks to time out.
+    const child = spawn(cmd, args, { stdio: "inherit" });
 
-    if (result.status === 0) {
-      console.log("[BrowserPool] Playwright Chromium installed successfully.");
-      resolve();
-      return;
-    }
+    const timer = setTimeout(() => {
+      child.kill();
+      _playwrightInstallPromise = null;
+      reject(new Error("Chromium install timed out after 5 minutes."));
+    }, 5 * 60_000);
 
-    // Install failed — clear promise so next job can retry, then give up with a
-    // clear actionable message that surfaces directly in the Test Login banner.
-    _playwrightInstallPromise = null;
-    const reason = result.error ? result.error.message : `exit code ${result.status}`;
-    reject(new Error(
-      `Chromium could not be installed automatically (${reason}). ` +
-      `Please SSH into the server and run:\n` +
-      `  cd ${process.cwd()} && npx playwright install chromium\n` +
-      `Then restart the server.`
-    ));
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      if (code === 0) {
+        console.log("[BrowserPool] Playwright Chromium installed successfully.");
+        resolve();
+      } else {
+        _playwrightInstallPromise = null;
+        reject(new Error(
+          `Chromium could not be installed automatically (exit code ${code}). ` +
+          `Please SSH into the server and run:\n` +
+          `  cd ${process.cwd()} && npx playwright install chromium\n` +
+          `Then restart the server.`
+        ));
+      }
+    });
+
+    child.on("error", (err) => {
+      clearTimeout(timer);
+      _playwrightInstallPromise = null;
+      reject(new Error(
+        `Chromium install failed: ${err.message}. ` +
+        `Run manually:  cd ${process.cwd()} && npx playwright install chromium`
+      ));
+    });
   });
 
   return _playwrightInstallPromise;
