@@ -250,6 +250,18 @@ jobs:
             node scripts/run-migrations.cjs
             echo "▶ Migrations done"
 
+            # ── Free port 8080 ────────────────────────────────────────────────
+            # Kill any orphaned process holding 8080 (e.g. old node apps,
+            # failed deploys, other PM2 instances from a different user).
+            OLD_PID=$(ss -tlnp 2>/dev/null | grep ':8080 ' | grep -oP 'pid=\K[0-9]+' | head -1 || true)
+            if [ -n "$OLD_PID" ]; then
+              echo "▶ Killing process $OLD_PID on port 8080"
+              kill -9 "$OLD_PID" 2>/dev/null || true
+              sleep 2
+            fi
+            # Belt-and-suspenders: fuser if available
+            fuser -k 8080/tcp 2>/dev/null || true
+
             # ── Restart with PM2 ──────────────────────────────────────────────
             command -v pm2 || npm install -g pm2
             pm2 delete hrms-pro 2>/dev/null || true
@@ -275,6 +287,61 @@ jobs:
               echo "❌ Server did not come up on port 8080 — PM2 logs:"
               pm2 logs hrms-pro --lines 50 --nostream || true
               exit 1
+            fi
+
+            # ── Debug: PM2 status + ports ─────────────────────────────────────
+            echo "=== PM2 STATUS ==="
+            pm2 list
+            echo "=== PORTS (80/443/3000/8080) ==="
+            ss -tlnp | grep -E ':80 |:443 |:3000 |:8080 ' || echo "(none of those ports)"
+            echo "=== ALL LISTENING PORTS ==="
+            ss -tlnp
+
+            # ── Detect web server ─────────────────────────────────────────────
+            echo "=== WEB SERVER DETECTION ==="
+            which nginx   2>/dev/null && echo "nginx: $(nginx -v 2>&1)"   || echo "nginx: not in PATH"
+            which apache2 2>/dev/null && echo "apache2 present"           || echo "apache2: not found"
+            which lsws    2>/dev/null && echo "lsws: present"             || echo "lsws: not found"
+            ls /usr/local/lsws/bin/lswsctrl 2>/dev/null && echo "OpenLiteSpeed present" || echo "OpenLiteSpeed: not found"
+            systemctl list-units --type=service --state=running 2>/dev/null | grep -iE "nginx|apache|lsws|litespeed|caddy" || true
+            ps aux | grep -iE "nginx|apache|lsws|litespeed" | grep -v grep | head -5 || echo "(no web server processes)"
+
+            # ── Dump merged nginx config (shows all proxy_pass, server blocks) ─
+            echo "=== NGINX -T DUMP (proxy_pass / server_name / listen) ==="
+            nginx -T 2>/dev/null | grep -E "proxy_pass|server_name|listen|root|include" | head -60 || echo "nginx -T failed (not running or not in PATH)"
+
+            # ── Broad search for domain in ALL config files ───────────────────
+            DOMAIN="tbjvisionconnect.com"
+            echo "=== SEARCH: $DOMAIN in all configs ==="
+            grep -rl "$DOMAIN" /etc /usr/local /home 2>/dev/null | grep -v ".bak\|.log\|binary" | head -20 || echo "Domain not found in any config file"
+
+            # ── List all web server config files ──────────────────────────────
+            echo "=== NGINX CONF FILES ==="
+            find /etc/nginx /usr/local/nginx 2>/dev/null -name "*.conf" | head -20 || echo "(no nginx conf dirs found)"
+            echo "=== LSWS CONF FILES ==="
+            find /usr/local/lsws /etc/lsws 2>/dev/null -name "*.conf" | head -20 || echo "(no lsws conf dirs found)"
+            echo "=== APACHE CONF FILES ==="
+            find /etc/apache2 /etc/httpd 2>/dev/null -name "*.conf" | head -20 || echo "(no apache conf dirs found)"
+            echo "=== HOME CONF DIRS ==="
+            find /home -maxdepth 4 -name "*.conf" 2>/dev/null | head -20 || true
+
+            # ── If nginx is found, try to fix proxy_pass for the domain ───────
+            NGINX_CONF=$(grep -rl "$DOMAIN" /etc /usr/local /home 2>/dev/null | grep -iE "\.conf$" | grep -v ".bak" | head -1 || true)
+            if [ -n "$NGINX_CONF" ]; then
+              echo "=== FOUND CONFIG: $NGINX_CONF ==="
+              cat "$NGINX_CONF"
+              echo "=== END CONFIG ==="
+              if ! grep -q "8080" "$NGINX_CONF"; then
+                echo "▶ Fixing proxy_pass → http://127.0.0.1:8080"
+                sed -i 's|proxy_pass http://[^;]*;|proxy_pass http://127.0.0.1:8080;|g' "$NGINX_CONF"
+                nginx -t 2>&1 && { systemctl reload nginx 2>/dev/null || service nginx reload 2>/dev/null || true; }
+                echo "▶ Web server config reloaded"
+              else
+                echo "▶ Config already has 8080 — reloading web server"
+                nginx -s reload 2>/dev/null || systemctl reload nginx 2>/dev/null || service nginx reload 2>/dev/null || true
+              fi
+            else
+              echo "▶ Could not find a config file for $DOMAIN — manual nginx setup required"
             fi
 
             # ── Clean old backups ─────────────────────────────────────────────

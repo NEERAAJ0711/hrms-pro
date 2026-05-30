@@ -1,0 +1,2 @@
+- [VPS 502 root cause](vps-502.md) — nginx config for tbjvisionconnect.com NOT in /etc/nginx/; web server identity unknown
+- [EPFO/ESIC TS fixes](epfo-esic-ts.md) — patterns that fixed all TS errors in the 1800-line epfo-esic-routes.ts

@@ -249,7 +249,7 @@ class BrowserPool {
 
   /** Close all browsers gracefully (call on server shutdown) */
   async closeAll(): Promise<void> {
-    for (const pool of this.pools.values()) {
+    for (const pool of Array.from(this.pools.values())) {
       for (const slot of pool) {
         if (slot.browser) {
           try { await slot.browser.close(); } catch { /* ignore */ }

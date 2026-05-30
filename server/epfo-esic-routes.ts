@@ -187,13 +187,13 @@ function parseBody<T>(schema: z.ZodSchema<T>, body: unknown, res: Response): T |
 }
 
 /** Validate query with Zod, send 400 on failure */
-function parseQuery<T>(schema: z.ZodSchema<T>, query: unknown, res: Response): T | null {
+function parseQuery<S extends z.ZodTypeAny>(schema: S, query: unknown, res: Response): z.output<S> | null {
   const result = schema.safeParse(query);
   if (!result.success) {
     res.status(400).json({ error: "Invalid query parameters", details: result.error.flatten() });
     return null;
   }
-  return result.data;
+  return result.data as z.output<S>;
 }
 
 // ─── Compliance calendar: seed upcoming events ────────────────────────────────
@@ -389,7 +389,7 @@ export function registerEpfoEsicRoutes(
   app.get("/api/automation/jobs/:id", requireAuth, adminRoles, async (req: Request, res: Response) => {
     try {
       const user = (req as any).user;
-      const job = await queueService.getJob(req.params.id);
+      const job = await queueService.getJob(req.params.id as string);
       if (!job) return res.status(404).json({ error: "Job not found" });
       if (isForbidden(user, job.companyId)) return res.status(403).json({ error: "Access denied" });
       const logs = await queueService.getLogs(job.id, 500);
@@ -403,7 +403,7 @@ export function registerEpfoEsicRoutes(
   app.post("/api/automation/jobs/:id/retry", requireAuth, adminRoles, async (req: Request, res: Response) => {
     try {
       const user = (req as any).user;
-      const job = await queueService.getJob(req.params.id);
+      const job = await queueService.getJob(req.params.id as string);
       if (!job) return res.status(404).json({ error: "Job not found" });
       if (isForbidden(user, job.companyId)) return res.status(403).json({ error: "Access denied" });
       if (!["failed", "cancelled"].includes(job.status)) {
@@ -420,7 +420,7 @@ export function registerEpfoEsicRoutes(
   app.delete("/api/automation/jobs/:id", requireAuth, adminRoles, async (req: Request, res: Response) => {
     try {
       const user = (req as any).user;
-      const job = await queueService.getJob(req.params.id);
+      const job = await queueService.getJob(req.params.id as string);
       if (!job) return res.status(404).json({ error: "Job not found" });
       if (isForbidden(user, job.companyId)) return res.status(403).json({ error: "Access denied" });
       if (job.status !== "pending") {
@@ -614,7 +614,7 @@ export function registerEpfoEsicRoutes(
       const user = (req as any).user;
       const [row] = await db
         .select().from(epfoRegistrations)
-        .where(eq(epfoRegistrations.employeeId, req.params.employeeId))
+        .where(eq(epfoRegistrations.employeeId, req.params.employeeId as string))
         .limit(1);
       if (!row) return res.status(404).json({ error: "No EPFO registration found" });
       if (isForbidden(user, row.companyId)) return res.status(403).json({ error: "Access denied" });
@@ -702,7 +702,7 @@ export function registerEpfoEsicRoutes(
       const user = (req as any).user;
       const rows = await db
         .select().from(epfoKycRecords)
-        .where(eq(epfoKycRecords.employeeId, req.params.employeeId))
+        .where(eq(epfoKycRecords.employeeId, req.params.employeeId as string))
         .orderBy(desc(epfoKycRecords.createdAt));
       if (rows.length > 0 && isForbidden(user, rows[0].companyId)) {
         return res.status(403).json({ error: "Access denied" });
@@ -1012,7 +1012,7 @@ export function registerEpfoEsicRoutes(
     try {
       const user = (req as any).user;
       const [row] = await db.select().from(esicRegistrations)
-        .where(eq(esicRegistrations.employeeId, req.params.employeeId)).limit(1);
+        .where(eq(esicRegistrations.employeeId, req.params.employeeId as string)).limit(1);
       if (!row) return res.status(404).json({ error: "No ESIC registration found" });
       if (isForbidden(user, row.companyId)) return res.status(403).json({ error: "Access denied" });
       res.json(row);
@@ -1452,19 +1452,23 @@ export function registerEpfoEsicRoutes(
       if ("error" in cidResult) return res.status(cidResult.status).json({ error: cidResult.error });
 
       const now = new Date().toISOString();
-      const [row] = await db.insert(complianceCalendarEvents).values({
-        id: randomUUID(),
+      const insertId = randomUUID();
+      await db.insert(complianceCalendarEvents).values({
+        id: insertId,
         companyId: cidResult.companyId,
         eventType: data.eventType,
         title: data.title,
-        description: data.description ?? null,
+        description: data.description,
         dueDate: data.dueDate,
-        periodMonth: data.periodMonth ?? null,
-        periodYear: data.periodYear ?? null,
+        periodMonth: data.periodMonth,
+        periodYear: data.periodYear,
         status: new Date(data.dueDate) < new Date() ? "overdue" : "upcoming",
-        createdBy: user.id,
+        createdBy: user.id as string,
         createdAt: now, updatedAt: now,
-      }).returning();
+      } as any);
+      const [row] = await db.select().from(complianceCalendarEvents)
+        .where(eq(complianceCalendarEvents.companyId, cidResult.companyId))
+        .orderBy(desc(complianceCalendarEvents.createdAt)).limit(1);
       res.status(201).json(row);
     } catch (err: any) {
       res.status(500).json({ error: err?.message || "Failed to create calendar event" });
@@ -1477,20 +1481,24 @@ export function registerEpfoEsicRoutes(
       const user = (req as any).user;
       const data = parseBody(calendarEventPatchSchema, req.body, res);
       if (!data) return;
+      const eventId = req.params.id as string;
 
       const [existing] = await db.select().from(complianceCalendarEvents)
-        .where(eq(complianceCalendarEvents.id, req.params.id)).limit(1);
+        .where(eq(complianceCalendarEvents.id, eventId)).limit(1);
       if (!existing) return res.status(404).json({ error: "Event not found" });
       if (isForbidden(user, existing.companyId)) return res.status(403).json({ error: "Access denied" });
 
-      const updates: Record<string, unknown> = { updatedAt: new Date().toISOString() };
-      if (data.status) updates.status = data.status;
-      if (data.title) updates.title = data.title;
-      if (data.description !== undefined) updates.description = data.description;
-      if (data.dueDate) updates.dueDate = data.dueDate;
+      const set: { status?: string; title?: string; description?: string | null; dueDate?: string; updatedAt: string } = {
+        updatedAt: new Date().toISOString(),
+      };
+      if (data.status) set.status = data.status;
+      if (data.title) set.title = data.title;
+      if (data.description !== undefined) set.description = data.description ?? null;
+      if (data.dueDate) set.dueDate = data.dueDate;
 
-      const [updated] = await db.update(complianceCalendarEvents)
-        .set(updates).where(eq(complianceCalendarEvents.id, req.params.id)).returning();
+      await db.update(complianceCalendarEvents).set(set).where(eq(complianceCalendarEvents.id, eventId));
+      const [updated] = await db.select().from(complianceCalendarEvents)
+        .where(eq(complianceCalendarEvents.id, eventId)).limit(1);
       res.json(updated);
     } catch (err: any) {
       res.status(500).json({ error: err?.message || "Failed to update event" });
@@ -1501,11 +1509,12 @@ export function registerEpfoEsicRoutes(
   app.delete("/api/compliance-calendar/:id", requireAuth, adminRoles, async (req: Request, res: Response) => {
     try {
       const user = (req as any).user;
+      const eventId = req.params.id as string;
       const [existing] = await db.select().from(complianceCalendarEvents)
-        .where(eq(complianceCalendarEvents.id, req.params.id)).limit(1);
+        .where(eq(complianceCalendarEvents.id, eventId)).limit(1);
       if (!existing) return res.status(404).json({ error: "Event not found" });
       if (isForbidden(user, existing.companyId)) return res.status(403).json({ error: "Access denied" });
-      await db.delete(complianceCalendarEvents).where(eq(complianceCalendarEvents.id, req.params.id));
+      await db.delete(complianceCalendarEvents).where(eq(complianceCalendarEvents.id, eventId));
       res.json({ ok: true });
     } catch (err: any) {
       res.status(500).json({ error: err?.message || "Failed to delete event" });
@@ -1743,7 +1752,7 @@ export function registerEpfoEsicRoutes(
       const data = parseBody(z.object({ answer: z.string().min(1, "answer is required") }), req.body, res);
       if (!data) return;
 
-      const { id } = req.params;
+      const id = req.params.id as string;
       const worker = await import("./automation/queue-worker");
       const job = await worker.queueService.getJob(id);
       if (!job) return res.status(404).json({ error: "Job not found" });
