@@ -261,6 +261,21 @@ jobs:
             npm install --omit=dev --prefer-offline 2>&1 | tail -20
             echo "▶ Dependencies installed"
 
+            # ── Install Playwright Chromium browser ───────────────────────────
+            # Required by EPFO/ESIC automation. No --with-deps (needs sudo).
+            # We pin the exact binary path into .env so browser-pool.ts always
+            # finds the right revision regardless of chromium.executablePath() quirks.
+            npx playwright install chromium
+            CHROMIUM_BIN=$(find "$HOME/.cache/ms-playwright" -type f -name "chrome" 2>/dev/null \
+                           | sort -r | head -1 || true)
+            if [ -n "$CHROMIUM_BIN" ] && [ -x "$CHROMIUM_BIN" ]; then
+              printf 'PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=%s\n' "$CHROMIUM_BIN" >> "$APP_DIR/.env"
+              echo "▶ Playwright Chromium at: $CHROMIUM_BIN"
+            else
+              echo "⚠️  Chromium binary not found after install — automation features may not work"
+              find "$HOME/.cache/ms-playwright" 2>/dev/null | head -20 || echo "(ms-playwright cache empty)"
+            fi
+
             # ── Run database migrations ───────────────────────────────────────
             node scripts/run-migrations.cjs
             echo "▶ Migrations done"
