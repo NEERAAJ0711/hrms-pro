@@ -196,11 +196,27 @@ jobs:
             echo "▶ Deploying as: $(whoami)"
             echo "▶ App directory: $APP_DIR"
 
+            # ── Add nvm node to PATH early ────────────────────────────────────
+            NVM_NODE=$(ls -1 "$HOME/.nvm/versions/node" 2>/dev/null | tail -1)
+            [ -n "$NVM_NODE" ] && export PATH="$HOME/.nvm/versions/node/$NVM_NODE/bin:$PATH"
+            command -v npm || { echo "❌ npm not found — install Node.js first"; exit 1; }
+
+            # ── Rescue node_modules from previous deploy ──────────────────────
+            # @tensorflow/tfjs-node downloads a 344 MB native binary on first install.
+            # Moving node_modules instead of re-extracting avoids ENOSPC errors.
+            SAVED_NM=""
+            if [ -d "$APP_DIR/node_modules" ]; then
+              SAVED_NM="$HOME/hrms-nm-rescue-$(date +%s)"
+              echo "▶ Saving node_modules → $SAVED_NM"
+              mv "$APP_DIR/node_modules" "$SAVED_NM"
+            fi
+
+            # ── Purge old backups NOW to free disk before extract ─────────────
+            ls -dt "$HOME"/hrms-app-backup-* 2>/dev/null | tail -n +2 | xargs rm -rf 2>/dev/null || true
+            ls -dt "$HOME"/hrms-pro-backup-* 2>/dev/null | xargs rm -rf 2>/dev/null || true
+            npm cache clean --force 2>/dev/null || true
+
             # ── Backup by moving the whole dir ───────────────────────────────
-            # We move (not copy) the existing dir to the backup location.
-            # Moving operates on the PARENT directory (htdocs/), which the
-            # deploy user owns — this avoids "Permission denied" errors that
-            # occur when individual files inside were created by another user.
             if [ -d "$APP_DIR" ]; then
               mv "$APP_DIR" "$BACKUP_DIR"
               echo "▶ Backup moved to: $BACKUP_DIR"
@@ -211,6 +227,12 @@ jobs:
             tar -xzf "$DEPLOY_TAR" -C "$APP_DIR"
             rm -f "$DEPLOY_TAR"
             echo "▶ Build extracted to $APP_DIR"
+
+            # ── Restore rescued node_modules ──────────────────────────────────
+            if [ -n "$SAVED_NM" ] && [ -d "$SAVED_NM" ]; then
+              echo "▶ Restoring node_modules from rescue copy"
+              mv "$SAVED_NM" "$APP_DIR/node_modules"
+            fi
 
             # ── Write .env ────────────────────────────────────────────────────
             {
@@ -225,28 +247,18 @@ jobs:
             chmod 600 "$APP_DIR/.env"
             echo "▶ .env written"
 
-            # ── Check disk space before heavy operations ──────────────────────
+            # ── Check disk space ──────────────────────────────────────────────
             AVAIL_KB=$(df -k "$HOME" | awk 'NR==2{print $4}')
             echo "▶ Disk available: $((AVAIL_KB/1024)) MB"
-            if [ "$AVAIL_KB" -lt 524288 ]; then   # less than 512 MB
-              echo "⚠️  Low disk space — cleaning npm cache and old backups..."
-              npm cache clean --force 2>/dev/null || true
-              ls -dt "$HOME"/hrms-app-backup-* 2>/dev/null | tail -n +2 | xargs rm -rf 2>/dev/null || true
-              ls -dt "$HOME"/hrms-pro-backup-* 2>/dev/null | xargs rm -rf 2>/dev/null || true
-              AVAIL_KB=$(df -k "$HOME" | awk 'NR==2{print $4}')
-              echo "▶ Disk after cleanup: $((AVAIL_KB/1024)) MB"
-              if [ "$AVAIL_KB" -lt 262144 ]; then  # still less than 256 MB
-                echo "❌ Not enough disk space ($((AVAIL_KB/1024)) MB). SSH in and free space first."; exit 1
-              fi
+            if [ "$AVAIL_KB" -lt 262144 ]; then   # less than 256 MB
+              echo "❌ Not enough disk space ($((AVAIL_KB/1024)) MB) even after cleanup. SSH in and free space."; exit 1
             fi
 
             # ── Install production dependencies ───────────────────────────────
+            # Use npm install (not npm ci) so pre-existing packages are reused.
+            # npm ci would wipe node_modules and re-download everything (→ ENOSPC).
             cd "$APP_DIR"
-            # Add nvm node to PATH if present
-            NVM_NODE=$(ls -1 "$HOME/.nvm/versions/node" 2>/dev/null | tail -1)
-            [ -n "$NVM_NODE" ] && export PATH="$HOME/.nvm/versions/node/$NVM_NODE/bin:$PATH"
-            command -v npm || { echo "❌ npm not found — install Node.js first"; exit 1; }
-            npm ci --omit=dev
+            npm install --omit=dev --prefer-offline 2>&1 | tail -20
             echo "▶ Dependencies installed"
 
             # ── Run database migrations ───────────────────────────────────────
@@ -292,59 +304,58 @@ jobs:
               exit 1
             fi
 
-            # ── Debug: PM2 status + ports ─────────────────────────────────────
+            # ── PM2 status ────────────────────────────────────────────────────
             echo "=== PM2 STATUS ==="
             pm2 list
-            echo "=== PORTS (80/443/3000/8080) ==="
-            ss -tlnp | grep -E ':80 |:443 |:3000 |:8080 ' || echo "(none of those ports)"
-            echo "=== ALL LISTENING PORTS ==="
-            ss -tlnp
 
-            # ── Detect web server ─────────────────────────────────────────────
-            echo "=== WEB SERVER DETECTION ==="
-            which nginx   2>/dev/null && echo "nginx: $(nginx -v 2>&1)"   || echo "nginx: not in PATH"
-            which apache2 2>/dev/null && echo "apache2 present"           || echo "apache2: not found"
-            which lsws    2>/dev/null && echo "lsws: present"             || echo "lsws: not found"
-            ls /usr/local/lsws/bin/lswsctrl 2>/dev/null && echo "OpenLiteSpeed present" || echo "OpenLiteSpeed: not found"
-            systemctl list-units --type=service --state=running 2>/dev/null | grep -iE "nginx|apache|lsws|litespeed|caddy" || true
-            ps aux | grep -iE "nginx|apache|lsws|litespeed" | grep -v grep | head -5 || echo "(no web server processes)"
-
-            # ── Dump merged nginx config (shows all proxy_pass, server blocks) ─
-            echo "=== NGINX -T DUMP (proxy_pass / server_name / listen) ==="
-            nginx -T 2>/dev/null | grep -E "proxy_pass|server_name|listen|root|include" | head -60 || echo "nginx -T failed (not running or not in PATH)"
-
-            # ── Broad search for domain in ALL config files ───────────────────
+            # ── Fix nginx proxy_pass for tbjvisionconnect.com ─────────────────
+            # nginx runs via clp-nginx.service using /home/clp/services/nginx/nginx.conf
+            # Domain vhosts live under that same directory tree.
             DOMAIN="tbjvisionconnect.com"
-            echo "=== SEARCH: $DOMAIN in all configs ==="
-            grep -rl "$DOMAIN" /etc /usr/local /home 2>/dev/null | grep -v ".bak\|.log\|binary" | head -20 || echo "Domain not found in any config file"
+            CLP_NGINX_DIR="/home/clp/services/nginx"
 
-            # ── List all web server config files ──────────────────────────────
-            echo "=== NGINX CONF FILES ==="
-            find /etc/nginx /usr/local/nginx 2>/dev/null -name "*.conf" | head -20 || echo "(no nginx conf dirs found)"
-            echo "=== LSWS CONF FILES ==="
-            find /usr/local/lsws /etc/lsws 2>/dev/null -name "*.conf" | head -20 || echo "(no lsws conf dirs found)"
-            echo "=== APACHE CONF FILES ==="
-            find /etc/apache2 /etc/httpd 2>/dev/null -name "*.conf" | head -20 || echo "(no apache conf dirs found)"
-            echo "=== HOME CONF DIRS ==="
-            find /home -maxdepth 4 -name "*.conf" 2>/dev/null | head -20 || true
+            echo "=== CLP NGINX DIR ==="
+            ls "$CLP_NGINX_DIR" 2>/dev/null || echo "(not found)"
 
-            # ── If nginx is found, try to fix proxy_pass for the domain ───────
-            NGINX_CONF=$(grep -rl "$DOMAIN" /etc /usr/local /home 2>/dev/null | grep -iE "\.conf$" | grep -v ".bak" | head -1 || true)
+            # Search ONLY in the clp nginx directory — fast, no filesystem scan
+            NGINX_CONF=$(grep -rl "$DOMAIN" "$CLP_NGINX_DIR" 2>/dev/null | grep -v "\.bak" | head -1 || true)
+
+            # Fallback: check standard /etc/nginx and sites-available
+            if [ -z "$NGINX_CONF" ]; then
+              NGINX_CONF=$(grep -rl "$DOMAIN" /etc/nginx 2>/dev/null | grep -v "\.bak" | head -1 || true)
+            fi
+
             if [ -n "$NGINX_CONF" ]; then
               echo "=== FOUND CONFIG: $NGINX_CONF ==="
               cat "$NGINX_CONF"
               echo "=== END CONFIG ==="
+
               if ! grep -q "8080" "$NGINX_CONF"; then
-                echo "▶ Fixing proxy_pass → http://127.0.0.1:8080"
+                echo "▶ proxy_pass not pointing to 8080 — fixing..."
+                cp "$NGINX_CONF" "${NGINX_CONF}.bak.$(date +%s)"
                 sed -i 's|proxy_pass http://[^;]*;|proxy_pass http://127.0.0.1:8080;|g' "$NGINX_CONF"
-                nginx -t 2>&1 && { systemctl reload nginx 2>/dev/null || service nginx reload 2>/dev/null || true; }
-                echo "▶ Web server config reloaded"
+                # Test and reload using the clp-nginx service config
+                if nginx -t -c "$CLP_NGINX_DIR/nginx.conf" 2>&1; then
+                  systemctl reload clp-nginx 2>/dev/null \
+                    || systemctl reload nginx 2>/dev/null \
+                    || nginx -s reload 2>/dev/null \
+                    || true
+                  echo "▶ nginx reloaded"
+                else
+                  echo "❌ nginx config test failed — restoring backup"
+                  cp "${NGINX_CONF}.bak.$(date +%s -d '1 second ago')" "$NGINX_CONF" 2>/dev/null || true
+                fi
               else
-                echo "▶ Config already has 8080 — reloading web server"
-                nginx -s reload 2>/dev/null || systemctl reload nginx 2>/dev/null || service nginx reload 2>/dev/null || true
+                echo "▶ proxy_pass already has 8080 — reloading nginx to pick up any other changes"
+                systemctl reload clp-nginx 2>/dev/null \
+                  || systemctl reload nginx 2>/dev/null \
+                  || nginx -s reload 2>/dev/null \
+                  || true
               fi
             else
-              echo "▶ Could not find a config file for $DOMAIN — manual nginx setup required"
+              echo "▶ No config file found for $DOMAIN in $CLP_NGINX_DIR or /etc/nginx"
+              echo "=== CLP NGINX CONF FILES ==="
+              find "$CLP_NGINX_DIR" /etc/nginx 2>/dev/null -name "*.conf" | head -30
             fi
 
             # ── Clean old backups ─────────────────────────────────────────────
