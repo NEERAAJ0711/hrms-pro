@@ -921,9 +921,22 @@ function PortalSettingsTab({ companyId, isSuperAdmin, companies = [] }: {
 
           {/* Step 3: final result */}
           {testPhase === "done" && testResult && (
-            <div className={`flex items-start gap-2 p-3 rounded-lg border text-sm ${testResult.ok ? "bg-green-50 border-green-200 text-green-800" : "bg-red-50 border-red-200 text-red-800"}`}>
-              {testResult.ok ? <CheckCircle2 className="h-4 w-4 mt-0.5 shrink-0" /> : <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />}
-              <span>{testResult.message}</span>
+            <div className={`p-3 rounded-lg border text-sm ${testResult.ok ? "bg-green-50 border-green-200 text-green-800" : "bg-red-50 border-red-200 text-red-800"}`}>
+              <div className="flex items-start gap-2">
+                {testResult.ok
+                  ? <CheckCircle2 className="h-4 w-4 mt-0.5 shrink-0" />
+                  : <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />}
+                <div className="min-w-0 flex-1">
+                  <p className="font-medium">
+                    {testResult.ok ? "Login successful — credentials verified and working." : "Login failed"}
+                  </p>
+                  {!testResult.ok && (
+                    <p className="mt-1 break-words whitespace-pre-wrap text-xs opacity-90" data-testid="esic-test-error-message">
+                      {testResult.message}
+                    </p>
+                  )}
+                </div>
+              </div>
             </div>
           )}
           </>
