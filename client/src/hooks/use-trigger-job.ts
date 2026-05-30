@@ -19,7 +19,10 @@ export type AutomationJobType =
   | "esic_monthly_file"
   | "esic_challan_download"
   | "esic_employee_search"
-  | "esic_login_test";
+  | "esic_employee_list"
+  | "esic_login_test"
+  | "epfo_employee_list"
+  | "epfo_trrn_track";
 
 export interface TriggerJobOptions {
   jobType: AutomationJobType;

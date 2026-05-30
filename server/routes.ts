@@ -7239,6 +7239,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Register all EPFO / ESIC routes (jobs, portal sessions, registrations, returns, reports)
   registerEpfoEsicRoutes(app, requireAuth, requireRole);
 
+  // ─── Automation: latest portal employee list result ───────────────────────────
+  app.get("/api/automation/portal-employee-list/:portal", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const user = (req as any).user;
+      const portal = req.params.portal as "esic" | "epfo";
+      if (portal !== "esic" && portal !== "epfo") return res.status(400).json({ error: "portal must be esic or epfo" });
+
+      const companyId = req.query.companyId as string | undefined;
+      const effectiveCid = user.role === "super_admin" ? companyId : user.companyId;
+      if (!effectiveCid) return res.status(400).json({ error: "companyId required" });
+
+      const jobType = portal === "esic" ? "esic_employee_list" : "epfo_employee_list";
+      const jobs = await queueService.listJobs({ companyId: effectiveCid, jobType, status: "completed", limit: 1 });
+      if (!jobs.length) return res.json({ data: null, job: null });
+      const job = jobs[0];
+      res.json({ data: job.result ?? null, job: { id: job.id, completedAt: job.completedAt, createdAt: job.createdAt } });
+    } catch (err) {
+      res.status(500).json({ error: "Failed to fetch employee list" });
+    }
+  });
+
   // ─── Automation: live browser screenshot ──────────────────────────────────────
   app.get("/api/automation/jobs/:id/live-screenshot", requireAuth, async (req: Request, res: Response) => {
     try {

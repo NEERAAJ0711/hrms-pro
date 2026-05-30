@@ -643,6 +643,175 @@ function BulkUploadTab({ companyId }: { companyId: string }) {
   );
 }
 
+// ─── Employee List Tab ────────────────────────────────────────────────────────
+function EmployeeListTab({ companyId }: { companyId: string }) {
+  const { toast } = useToast();
+  const triggerJob = useTriggerJob(["/api/automation/portal-employee-list/epfo"]);
+  const [activeJobId, setActiveJobId] = useState<string | null>(null);
+  const [polling, setPolling] = useState(false);
+  const queryClient = useQueryClient();
+
+  // Latest saved result
+  const { data: saved, isLoading: loadingSaved } = useQuery<{
+    data: { employees: Record<string, string>[]; count: number; fetchedAt: string } | null;
+    job: { id: string; completedAt: string } | null;
+  }>({
+    queryKey: ["/api/automation/portal-employee-list/epfo", companyId],
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/automation/portal-employee-list/epfo?companyId=${companyId}`);
+      return res.json();
+    },
+    refetchInterval: false,
+  });
+
+  // Poll active job
+  const { data: activeJob } = useQuery<{ id: string; status: string; result?: { employees: Record<string, string>[]; count: number; fetchedAt: string } }>({
+    queryKey: ["/api/automation/jobs", activeJobId],
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/automation/jobs/${activeJobId}`);
+      return res.json();
+    },
+    enabled: !!activeJobId && polling,
+    refetchInterval: polling ? 3000 : false,
+  });
+
+  useEffect(() => {
+    if (!activeJob) return;
+    if (activeJob.status === "completed") {
+      setPolling(false);
+      setActiveJobId(null);
+      queryClient.invalidateQueries({ queryKey: ["/api/automation/portal-employee-list/epfo", companyId] });
+      toast({ title: "Member list fetched", description: `${activeJob.result?.count ?? 0} members loaded from EPFO portal` });
+    } else if (activeJob.status === "failed") {
+      setPolling(false);
+      setActiveJobId(null);
+      toast({ title: "Fetch failed", description: "Could not fetch member list from EPFO portal.", variant: "destructive" });
+    }
+  }, [activeJob?.status]);
+
+  const handleFetch = () => {
+    triggerJob.mutate(
+      { jobType: "epfo_employee_list", companyId, payload: {} },
+      {
+        onSuccess: (job) => {
+          setActiveJobId(job.id);
+          setPolling(true);
+        },
+      }
+    );
+  };
+
+  const employees = saved?.data?.employees ?? [];
+  const columns = employees.length > 0 ? Object.keys(employees[0]) : [];
+  const [search, setSearch] = useState("");
+  const filtered = search
+    ? employees.filter((e) => Object.values(e).some((v) => v.toLowerCase().includes(search.toLowerCase())))
+    : employees;
+
+  const handleExport = () => {
+    if (!employees.length) return;
+    const ws = XLSX.utils.json_to_sheet(employees);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "EPFO Members");
+    XLSX.writeFile(wb, `epfo-members-${new Date().toISOString().slice(0, 10)}.xlsx`);
+  };
+
+  const isBusy = triggerJob.isPending || polling;
+
+  return (
+    <div className="space-y-5">
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Users className="h-4 w-4 text-blue-600" />
+            EPFO Member List
+          </CardTitle>
+          <CardDescription>
+            Fetch the latest registered member list from the EPFO Unified Portal.
+            {saved?.data && (
+              <span className="ml-2 text-blue-600 font-medium">
+                Last fetched: {new Date(saved.data.fetchedAt).toLocaleString()} — {saved.data.count} members
+              </span>
+            )}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex gap-3 flex-wrap">
+            <Button onClick={handleFetch} disabled={isBusy} data-testid="btn-epfo-fetch-employee-list">
+              {isBusy ? "Fetching from portal…" : "Fetch from Portal"}
+            </Button>
+            {employees.length > 0 && (
+              <Button variant="outline" onClick={handleExport} data-testid="btn-epfo-export-employee-list">
+                Export to Excel
+              </Button>
+            )}
+          </div>
+
+          {isBusy && activeJobId && (
+            <LiveScreen jobId={activeJobId} active={polling} label="EPFO Portal — Fetching Member List" />
+          )}
+        </CardContent>
+      </Card>
+
+      {employees.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm font-medium">
+              {filtered.length} of {employees.length} members
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <Input
+              placeholder="Search by name, UAN, status…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              data-testid="input-epfo-member-search"
+              className="max-w-sm"
+            />
+            <div className="overflow-x-auto rounded border text-sm">
+              <table className="w-full">
+                <thead className="bg-muted">
+                  <tr>
+                    {columns.map((col) => (
+                      <th key={col} className="text-left px-3 py-2 whitespace-nowrap font-medium text-muted-foreground">
+                        {col}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.slice(0, 500).map((emp, i) => (
+                    <tr key={i} className="border-t hover:bg-muted/40" data-testid={`row-epfo-member-${i}`}>
+                      {columns.map((col) => (
+                        <td key={col} className="px-3 py-2 whitespace-nowrap">
+                          {emp[col] ?? "—"}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {filtered.length > 500 && (
+                <p className="text-xs text-muted-foreground px-3 py-2">
+                  Showing first 500 of {filtered.length}. Export to Excel for full list.
+                </p>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {!loadingSaved && !employees.length && !isBusy && (
+        <Card>
+          <CardContent className="py-10 text-center text-muted-foreground">
+            No data yet. Click "Fetch from Portal" to load the member list from EPFO.
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
 // ─── Portal Settings Dialog ───────────────────────────────────────────────────
 function PortalSettingsTab({ companyId, isSuperAdmin, companies = [] }: {
   companyId: string;
@@ -1011,6 +1180,7 @@ export default function EpfoPage() {
             <TabsTrigger value="returns" data-testid="tab-epfo-returns">Return Filing</TabsTrigger>
             <TabsTrigger value="challans" data-testid="tab-epfo-challans">Challans</TabsTrigger>
             <TabsTrigger value="bulk" data-testid="tab-epfo-bulk">Bulk Upload</TabsTrigger>
+            <TabsTrigger value="employees" data-testid="tab-epfo-employees">Employee List</TabsTrigger>
             <TabsTrigger value="portal" data-testid="tab-epfo-portal">Portal Settings</TabsTrigger>
           </TabsList>
 
@@ -1019,6 +1189,7 @@ export default function EpfoPage() {
           <TabsContent value="returns" className="mt-4"><ReturnFilingTab companyId={companyId} /></TabsContent>
           <TabsContent value="challans" className="mt-4"><ChallanTab companyId={companyId} /></TabsContent>
           <TabsContent value="bulk" className="mt-4"><BulkUploadTab companyId={companyId} /></TabsContent>
+          <TabsContent value="employees" className="mt-4"><EmployeeListTab companyId={companyId} /></TabsContent>
           <TabsContent value="portal" className="mt-4"><PortalSettingsTab companyId={companyId} isSuperAdmin={isSuperAdmin} companies={companies} /></TabsContent>
         </Tabs>
       )}

@@ -1216,8 +1216,11 @@ export const automationJobTypes = [
   "esic_temp_card_download",
   "esic_pehchan_card_download",
   "esic_employee_search",
+  "esic_employee_list",
   "esic_bulk_register",
   "esic_login_test",
+  // EPFO
+  "epfo_employee_list",
 ] as const;
 export type AutomationJobType = typeof automationJobTypes[number];
 

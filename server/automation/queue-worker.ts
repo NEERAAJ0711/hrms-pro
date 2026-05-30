@@ -178,6 +178,8 @@ async function dispatch(
       return epfo.passbookStatus(page, p as any, ctx);
     case "epfo_exit_management":
       return epfo.exitManagement(page, p as any, ctx);
+    case "epfo_employee_list":
+      return epfo.epfoEmployeeList(page, p as any, ctx);
 
     // ── EPFO bulk fan-out (no browser — just enqueue child jobs) ──────────
     case "epfo_bulk_register": {
@@ -224,6 +226,8 @@ async function dispatch(
       return esic.esicChallanDownload(page, { ...(p as any), downloadDir: ctx.screenshotDir }, ctx);
     case "esic_employee_search":
       return esic.esicEmployeeSearch(page, p as any, ctx);
+    case "esic_employee_list":
+      return esic.esicEmployeeList(page, p as any, ctx);
     case "esic_contribution_tracking":
       return esic.contributionTracking(page, p as any, ctx);
 

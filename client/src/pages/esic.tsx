@@ -674,6 +674,175 @@ function BulkUploadTab({ companyId }: { companyId: string }) {
   );
 }
 
+// ─── Employee List Tab ────────────────────────────────────────────────────────
+function EmployeeListTab({ companyId }: { companyId: string }) {
+  const { toast } = useToast();
+  const triggerJob = useTriggerJob(["/api/automation/portal-employee-list/esic"]);
+  const [activeJobId, setActiveJobId] = useState<string | null>(null);
+  const [polling, setPolling] = useState(false);
+  const queryClient = useQueryClient();
+
+  // Latest saved result
+  const { data: saved, isLoading: loadingSaved } = useQuery<{
+    data: { employees: Record<string, string>[]; count: number; fetchedAt: string } | null;
+    job: { id: string; completedAt: string } | null;
+  }>({
+    queryKey: ["/api/automation/portal-employee-list/esic", companyId],
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/automation/portal-employee-list/esic?companyId=${companyId}`);
+      return res.json();
+    },
+    refetchInterval: false,
+  });
+
+  // Poll active job
+  const { data: activeJob } = useQuery<{ id: string; status: string; result?: { employees: Record<string, string>[]; count: number; fetchedAt: string } }>({
+    queryKey: ["/api/automation/jobs", activeJobId],
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/automation/jobs/${activeJobId}`);
+      return res.json();
+    },
+    enabled: !!activeJobId && polling,
+    refetchInterval: polling ? 3000 : false,
+  });
+
+  useEffect(() => {
+    if (!activeJob) return;
+    if (activeJob.status === "completed") {
+      setPolling(false);
+      setActiveJobId(null);
+      queryClient.invalidateQueries({ queryKey: ["/api/automation/portal-employee-list/esic", companyId] });
+      toast({ title: "Employee list fetched", description: `${activeJob.result?.count ?? 0} employees loaded from ESIC portal` });
+    } else if (activeJob.status === "failed") {
+      setPolling(false);
+      setActiveJobId(null);
+      toast({ title: "Fetch failed", description: "Could not fetch employee list from ESIC portal.", variant: "destructive" });
+    }
+  }, [activeJob?.status]);
+
+  const handleFetch = () => {
+    triggerJob.mutate(
+      { jobType: "esic_employee_list", companyId, payload: {} },
+      {
+        onSuccess: (job) => {
+          setActiveJobId(job.id);
+          setPolling(true);
+        },
+      }
+    );
+  };
+
+  const employees = saved?.data?.employees ?? [];
+  const columns = employees.length > 0 ? Object.keys(employees[0]) : [];
+  const [search, setSearch] = useState("");
+  const filtered = search
+    ? employees.filter((e) => Object.values(e).some((v) => v.toLowerCase().includes(search.toLowerCase())))
+    : employees;
+
+  const handleExport = () => {
+    if (!employees.length) return;
+    const ws = XLSX.utils.json_to_sheet(employees);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "ESIC Employees");
+    XLSX.writeFile(wb, `esic-employees-${new Date().toISOString().slice(0, 10)}.xlsx`);
+  };
+
+  const isBusy = triggerJob.isPending || polling;
+
+  return (
+    <div className="space-y-5">
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Users className="h-4 w-4 text-emerald-600" />
+            ESIC Employee List
+          </CardTitle>
+          <CardDescription>
+            Fetch the latest registered employee list from the ESIC portal (FormThree).
+            {saved?.data && (
+              <span className="ml-2 text-emerald-600 font-medium">
+                Last fetched: {new Date(saved.data.fetchedAt).toLocaleString()} — {saved.data.count} employees
+              </span>
+            )}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex gap-3 flex-wrap">
+            <Button onClick={handleFetch} disabled={isBusy} data-testid="btn-esic-fetch-employee-list">
+              {isBusy ? "Fetching from portal…" : "Fetch from Portal"}
+            </Button>
+            {employees.length > 0 && (
+              <Button variant="outline" onClick={handleExport} data-testid="btn-esic-export-employee-list">
+                Export to Excel
+              </Button>
+            )}
+          </div>
+
+          {isBusy && activeJobId && (
+            <LiveScreen jobId={activeJobId} active={polling} label="ESIC Portal — Fetching Employee List" />
+          )}
+        </CardContent>
+      </Card>
+
+      {employees.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm font-medium">
+              {filtered.length} of {employees.length} employees
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <Input
+              placeholder="Search by name, IP number, code…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              data-testid="input-esic-employee-search"
+              className="max-w-sm"
+            />
+            <div className="overflow-x-auto rounded border text-sm">
+              <table className="w-full">
+                <thead className="bg-muted">
+                  <tr>
+                    {columns.map((col) => (
+                      <th key={col} className="text-left px-3 py-2 whitespace-nowrap font-medium text-muted-foreground">
+                        {col}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.slice(0, 500).map((emp, i) => (
+                    <tr key={i} className="border-t hover:bg-muted/40" data-testid={`row-esic-employee-${i}`}>
+                      {columns.map((col) => (
+                        <td key={col} className="px-3 py-2 whitespace-nowrap">
+                          {emp[col] ?? "—"}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {filtered.length > 500 && (
+                <p className="text-xs text-muted-foreground px-3 py-2">
+                  Showing first 500 of {filtered.length}. Export to Excel for full list.
+                </p>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {!loadingSaved && !employees.length && !isBusy && (
+        <Card>
+          <CardContent className="py-10 text-center text-muted-foreground">
+            No data yet. Click "Fetch from Portal" to load the employee list from ESIC.
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
 // ─── Portal Settings Tab ──────────────────────────────────────────────────────
 function PortalSettingsTab({ companyId, isSuperAdmin, companies = [] }: {
   companyId: string;
@@ -1035,6 +1204,7 @@ export default function EsicPage() {
             <TabsTrigger value="returns" data-testid="tab-esic-returns">Monthly Filing</TabsTrigger>
             <TabsTrigger value="challans" data-testid="tab-esic-challans">Challans</TabsTrigger>
             <TabsTrigger value="bulk" data-testid="tab-esic-bulk">Bulk Upload</TabsTrigger>
+            <TabsTrigger value="employees" data-testid="tab-esic-employees">Employee List</TabsTrigger>
             <TabsTrigger value="portal" data-testid="tab-esic-portal">Portal Settings</TabsTrigger>
           </TabsList>
 
@@ -1044,6 +1214,7 @@ export default function EsicPage() {
           <TabsContent value="returns" className="mt-4"><MonthlyFilingTab companyId={companyId} /></TabsContent>
           <TabsContent value="challans" className="mt-4"><ChallanTab companyId={companyId} /></TabsContent>
           <TabsContent value="bulk" className="mt-4"><BulkUploadTab companyId={companyId} /></TabsContent>
+          <TabsContent value="employees" className="mt-4"><EmployeeListTab companyId={companyId} /></TabsContent>
           <TabsContent value="portal" className="mt-4"><PortalSettingsTab companyId={companyId} isSuperAdmin={isSuperAdmin} companies={companies} /></TabsContent>
         </Tabs>
       )}

@@ -682,6 +682,85 @@ export function getBulkRegisterJobs(
  * Fan out bulk ECR filing into one epfo_ecr_file job per entry.
  * Each entry should contain { wageMonth, wageYear, ecrFilePath }.
  */
+// ─── Employee List ────────────────────────────────────────────────────────────
+/**
+ * Fetches the full member list from the EPFO Unified Portal.
+ * Navigates to the member management section and scrapes all registered members.
+ * Handles pagination automatically (up to 50 pages).
+ */
+export async function epfoEmployeeList(
+  page: Page,
+  payload: Record<string, unknown>,
+  ctx: AutomationContext
+): Promise<Record<string, unknown>> {
+  await ctx.log("info", "Fetching EPFO member list");
+
+  // Navigate to the member search page and search without criteria to get all members
+  await gotoWithRetry(page, `${EPFO_BASE}/employer/member/memberSearch.html`, {
+    waitUntil: "domcontentloaded",
+    timeout: 60000,
+  });
+  await ctx.takeScreenshot("epfo-member-list-page");
+
+  // Try clicking "Search" without filling any criteria to get the full list
+  await page.click('button[type="submit"], input[value*="Search" i], button:has-text("Search")').catch(() => {});
+  await page.waitForLoadState("domcontentloaded", { timeout: 15000 }).catch(() => {});
+  await ctx.takeScreenshot("epfo-member-list-results");
+
+  const allEmployees: Record<string, string>[] = [];
+
+  async function scrapeTable(): Promise<number> {
+    const headers = await page.$$eval(
+      "table thead tr th, table tr:first-child th",
+      (ths) => ths.map((th) => th.textContent?.trim().replace(/\s+/g, " ") ?? "")
+    ).catch(() => [] as string[]);
+
+    const rows = await page.$$eval("table tbody tr, table tr", (trs) =>
+      trs
+        .map((tr) => Array.from(tr.querySelectorAll("td")).map((td) => td.textContent?.trim().replace(/\s+/g, " ") ?? ""))
+        .filter((r) => r.some((c) => c !== ""))
+    ).catch(() => [] as string[][]);
+
+    for (const row of rows) {
+      const emp: Record<string, string> = {};
+      if (headers.length > 0) {
+        headers.forEach((h, i) => { if (h) emp[h] = row[i] ?? ""; });
+      } else {
+        const keys = ["SNo", "UAN", "Name", "DOJ", "DOE", "Status"];
+        row.forEach((cell, i) => { emp[keys[i] ?? `col${i + 1}`] = cell; });
+      }
+      allEmployees.push(emp);
+    }
+    return rows.length;
+  }
+
+  await scrapeTable();
+
+  // Follow pagination
+  let pageNum = 1;
+  while (pageNum < 50) {
+    const nextLink = await page.$(
+      'a:has-text("Next >"), a:has-text(">>"), a[id*="Next" i]:not([disabled]), li.next:not(.disabled) a'
+    );
+    if (!nextLink) break;
+    const ariaDisabled = await nextLink.getAttribute("aria-disabled");
+    if (ariaDisabled === "true") break;
+    await nextLink.click();
+    await page.waitForLoadState("domcontentloaded", { timeout: 15000 }).catch(() => {});
+    const count = await scrapeTable();
+    pageNum++;
+    if (count === 0) break;
+  }
+
+  await ctx.log("info", `EPFO member list complete: ${allEmployees.length} members across ${pageNum} page(s)`);
+  return {
+    employees: allEmployees,
+    count: allEmployees.length,
+    pages: pageNum,
+    fetchedAt: new Date().toISOString(),
+  };
+}
+
 export function getBulkEcrJobs(
   payload: { filings: Array<Record<string, unknown>> }
 ): Array<{ jobType: string; payload: Record<string, unknown> }> {

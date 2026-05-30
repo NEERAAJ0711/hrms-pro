@@ -462,6 +462,83 @@ export async function esicEmployeeSearch(
   return { searchVal, details, tableRows: rows.slice(0, 20) };
 }
 
+// ─── Employee List (FormThree) ────────────────────────────────────────────────
+/**
+ * Fetches the full list of registered employees from the ESIC portal.
+ * Navigates to FormThree.aspx which lists all insured persons under the employer.
+ * Handles pagination automatically (up to 50 pages).
+ */
+export async function esicEmployeeList(
+  page: Page,
+  payload: Record<string, unknown>,
+  ctx: AutomationContext
+): Promise<Record<string, unknown>> {
+  await ctx.log("info", "Fetching ESIC employee list (FormThree)");
+
+  await gotoWithRetry(page, "https://portal.esic.gov.in/ESICInsurance1/Employee/FormThree.aspx", {
+    waitUntil: "domcontentloaded",
+    timeout: 60000,
+  });
+  await ctx.takeScreenshot("esic-employee-list-page");
+
+  const allEmployees: Record<string, string>[] = [];
+
+  async function scrapeTable(): Promise<number> {
+    // Extract headers from the first header row
+    const headers = await page.$$eval(
+      "table thead tr th, table tr:first-child th",
+      (ths) => ths.map((th) => th.textContent?.trim().replace(/\s+/g, " ") ?? "")
+    ).catch(() => [] as string[]);
+
+    // Extract data rows — skip empty rows
+    const rows = await page.$$eval("table tbody tr, table tr", (trs) =>
+      trs
+        .map((tr) => Array.from(tr.querySelectorAll("td")).map((td) => td.textContent?.trim().replace(/\s+/g, " ") ?? ""))
+        .filter((r) => r.some((c) => c !== ""))
+    ).catch(() => [] as string[][]);
+
+    for (const row of rows) {
+      const emp: Record<string, string> = {};
+      if (headers.length > 0) {
+        headers.forEach((h, i) => { if (h) emp[h] = row[i] ?? ""; });
+      } else {
+        // Fallback: use positional keys matching common ESIC columns
+        const keys = ["SNo", "IPNo", "EmployeeCode", "Name", "FatherName", "DOB", "DOJ", "Wages", "Status"];
+        row.forEach((cell, i) => { emp[keys[i] ?? `col${i + 1}`] = cell; });
+      }
+      allEmployees.push(emp);
+    }
+    return rows.length;
+  }
+
+  await scrapeTable();
+
+  // Follow pagination links
+  let pageNum = 1;
+  while (pageNum < 50) {
+    const nextLink = await page.$(
+      'a:has-text("Next >"), a:has-text(">>"), a[id*="Next" i]:not([disabled]), input[value="Next >"]'
+    );
+    if (!nextLink) break;
+    const ariaDisabled = await nextLink.getAttribute("aria-disabled");
+    const disabled = await nextLink.getAttribute("disabled");
+    if (ariaDisabled === "true" || disabled !== null) break;
+    await nextLink.click();
+    await page.waitForLoadState("domcontentloaded", { timeout: 15000 }).catch(() => {});
+    const count = await scrapeTable();
+    pageNum++;
+    if (count === 0) break;
+  }
+
+  await ctx.log("info", `ESIC employee list complete: ${allEmployees.length} employees across ${pageNum} page(s)`);
+  return {
+    employees: allEmployees,
+    count: allEmployees.length,
+    pages: pageNum,
+    fetchedAt: new Date().toISOString(),
+  };
+}
+
 // ─── Contribution Tracking ────────────────────────────────────────────────────
 export async function contributionTracking(
   page: Page,
