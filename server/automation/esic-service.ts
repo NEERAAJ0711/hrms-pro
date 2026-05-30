@@ -114,7 +114,7 @@ export async function esicLogin(
   ctx: AutomationContext
 ): Promise<void> {
   await ctx.log("info", "Navigating to ESIC login page");
-  await page.goto(ESIC_LOGIN_URL, { waitUntil: "domcontentloaded", timeout: 30000 });
+  await page.goto(ESIC_LOGIN_URL, { waitUntil: "domcontentloaded", timeout: 60000 });
   await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {});
 
   await page.fill(SEL.username, payload.username);
@@ -166,7 +166,7 @@ export async function ipNumberGenerate(
 
   await page.goto(`${ESIC_BASE}/IPRegistration.aspx`, {
     waitUntil: "domcontentloaded",
-    timeout: 30000,
+    timeout: 60000,
   });
   await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {});
   await ctx.takeScreenshot("ip-generate-start");
@@ -223,7 +223,7 @@ export async function familyDeclaration(
 
   await page.goto(`${ESIC_BASE}/FamilyDeclaration.aspx`, {
     waitUntil: "domcontentloaded",
-    timeout: 30000,
+    timeout: 60000,
   });
   await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {});
 
@@ -271,7 +271,7 @@ export async function monthlyContributionFiling(
 
   await page.goto(`${ESIC_BASE}/MonthlyContribution.aspx`, {
     waitUntil: "domcontentloaded",
-    timeout: 30000,
+    timeout: 60000,
   });
   await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {});
   await ctx.takeScreenshot("contribution-filing-start");
@@ -292,7 +292,7 @@ export async function monthlyContributionFiling(
   }
 
   await page.click(SEL.contribUploadBtn);
-  await page.waitForLoadState("networkidle", { timeout: 30000 }).catch(() => {});
+  await page.waitForLoadState("networkidle", { timeout: 60000 }).catch(() => {});
   await ctx.takeScreenshot("contribution-filing-after-upload");
 
   if (await hasOtp(page)) {
@@ -319,7 +319,7 @@ export async function esicChallanDownload(
 
   await page.goto(`${ESIC_BASE}/ChallanDownload.aspx`, {
     waitUntil: "domcontentloaded",
-    timeout: 30000,
+    timeout: 60000,
   });
   await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {});
 
@@ -329,7 +329,7 @@ export async function esicChallanDownload(
   await ctx.takeScreenshot("esic-challan-download-start");
 
   const [download] = await Promise.all([
-    page.waitForEvent("download", { timeout: 30000 }),
+    page.waitForEvent("download", { timeout: 60000 }),
     page.click(SEL.challanDownBtn),
   ]);
 
@@ -353,7 +353,7 @@ export async function esicEmployeeSearch(
 
   await page.goto(`${ESIC_BASE}/IPSearch.aspx`, {
     waitUntil: "domcontentloaded",
-    timeout: 30000,
+    timeout: 60000,
   });
   await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {});
 
@@ -383,7 +383,7 @@ export async function contributionTracking(
 
   await page.goto(`${ESIC_BASE}/ContributionHistory.aspx`, {
     waitUntil: "domcontentloaded",
-    timeout: 30000,
+    timeout: 60000,
   });
   await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {});
 

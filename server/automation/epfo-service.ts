@@ -137,7 +137,7 @@ export async function epfoLogin(
   ctx: AutomationContext
 ): Promise<void> {
   await ctx.log("info", "Navigating to EPFO login page");
-  await page.goto(EPFO_LOGIN_URL, { waitUntil: "domcontentloaded", timeout: 30000 });
+  await page.goto(EPFO_LOGIN_URL, { waitUntil: "domcontentloaded", timeout: 60000 });
   await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {});
 
   // Fill credentials
@@ -197,7 +197,7 @@ export async function uanGenerate(
   // Navigate to member registration
   await page.goto(`${EPFO_BASE}/employer/member/memberRegistration.html`, {
     waitUntil: "domcontentloaded",
-    timeout: 30000,
+    timeout: 60000,
   });
   await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {});
   await safeScreenshot(page, ctx, "uan-generate-start");
@@ -260,7 +260,7 @@ export async function aadhaarKyc(
 
   await page.goto(`${EPFO_BASE}/employer/member/kycUpdate.html`, {
     waitUntil: "domcontentloaded",
-    timeout: 30000,
+    timeout: 60000,
   });
   await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {});
   await safeScreenshot(page, ctx, "aadhaar-kyc-start");
@@ -311,7 +311,7 @@ export async function panKyc(
 
   await page.goto(`${EPFO_BASE}/employer/member/kycUpdate.html`, {
     waitUntil: "domcontentloaded",
-    timeout: 30000,
+    timeout: 60000,
   });
   await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {});
   await safeScreenshot(page, ctx, "pan-kyc-start");
@@ -359,7 +359,7 @@ export async function bankKyc(
 
   await page.goto(`${EPFO_BASE}/employer/member/kycUpdate.html`, {
     waitUntil: "domcontentloaded",
-    timeout: 30000,
+    timeout: 60000,
   });
   await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {});
   await safeScreenshot(page, ctx, "bank-kyc-start");
@@ -413,7 +413,7 @@ export async function ecrFiling(
 
   await page.goto(`${EPFO_BASE}/employer/ecr/ecrUpload.html`, {
     waitUntil: "domcontentloaded",
-    timeout: 30000,
+    timeout: 60000,
   });
   await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {});
   await safeScreenshot(page, ctx, "ecr-filing-start");
@@ -440,7 +440,7 @@ export async function ecrFiling(
   }
 
   await page.click(SEL.ecrSubmitBtn);
-  await page.waitForLoadState("networkidle", { timeout: 30000 }).catch(() => {});
+  await page.waitForLoadState("networkidle", { timeout: 60000 }).catch(() => {});
   await safeScreenshot(page, ctx, "ecr-filing-after-upload");
 
   if (await hasOtp(page)) {
@@ -468,7 +468,7 @@ export async function challanDownload(
 
   await page.goto(`${EPFO_BASE}/employer/ecr/challanDetails.html`, {
     waitUntil: "domcontentloaded",
-    timeout: 30000,
+    timeout: 60000,
   });
   await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {});
   await safeScreenshot(page, ctx, "challan-download-start");
@@ -479,7 +479,7 @@ export async function challanDownload(
 
   // Trigger download
   const [download] = await Promise.all([
-    page.waitForEvent("download", { timeout: 30000 }),
+    page.waitForEvent("download", { timeout: 60000 }),
     page.click(SEL.challanDownBtn),
   ]);
 
@@ -503,7 +503,7 @@ export async function trrnTrack(
 
   await page.goto(`${EPFO_BASE}/employer/ecr/challanDetails.html`, {
     waitUntil: "domcontentloaded",
-    timeout: 30000,
+    timeout: 60000,
   });
   await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {});
 
@@ -533,7 +533,7 @@ export async function passbookStatus(
 
   await page.goto(`${EPFO_BASE}/employer/member/passbookStatus.html`, {
     waitUntil: "domcontentloaded",
-    timeout: 30000,
+    timeout: 60000,
   });
   await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {});
 
@@ -568,7 +568,7 @@ export async function exitManagement(
 
   await page.goto(`${EPFO_BASE}/employer/member/exitMgmt.html`, {
     waitUntil: "domcontentloaded",
-    timeout: 30000,
+    timeout: 60000,
   });
   await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {});
   await safeScreenshot(page, ctx, "exit-mgmt-start");
