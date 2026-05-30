@@ -254,7 +254,7 @@ async function esicCardDownload(
   cardType: string,
   ctx: AutomationContext
 ): Promise<Record<string, unknown>> {
-  const ESIC_BASE = "https://esic.gov.in/EmployerPortal";
+  const ESIC_BASE = "https://portal.esic.gov.in/EmployerPortal/ESICInsurancePortal";
   const urlMap: Record<string, string> = {
     temp_card: `${ESIC_BASE}/TempCard.aspx`,
     pehchan_card: `${ESIC_BASE}/PehchanCard.aspx`,
@@ -357,7 +357,7 @@ async function processJob(job: JobRecord): Promise<void> {
       await page.goto(
         portal === "epfo"
           ? "https://unifiedportal-emp.epfindia.gov.in/epfo/"
-          : "https://www.esic.in/EmployerPortal/",
+          : "https://portal.esic.gov.in/EmployerPortal/ESICInsurancePortal/Portal_Loginnew.aspx",
         { waitUntil: "domcontentloaded", timeout: 20000 }
       ).catch(() => {});
 

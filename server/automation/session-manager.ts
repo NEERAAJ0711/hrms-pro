@@ -18,9 +18,9 @@ export type Portal = "epfo" | "esic";
  */
 const LOGIN_URL_MARKERS: Record<Portal, string[]> = {
   epfo: ["login", "globalutilities-web/appId"],
-  // Note: ESIC employer portal lives at www.esic.in/EmployerPortal/
+  // Note: ESIC employer portal lives at portal.esic.gov.in/EmployerPortal/ESICInsurancePortal/
   // Any URL fragment that signals the login page (not a post-login dashboard page)
-  esic: ["login.aspx", "LoginPage", "EmployerPortal/$", "/EmployerPortal/Default"],
+  esic: ["Portal_Loginnew.aspx", "LoginPage", "/EmployerPortal/Default"],
 };
 
 export class SessionManager {

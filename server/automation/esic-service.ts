@@ -2,7 +2,7 @@
  * ESIC Automation Service
  *
  * Implements browser automation for the ESIC Employer Portal
- * (https://www.esic.in/EmployerPortal/).
+ * (https://portal.esic.gov.in/EmployerPortal/ESICInsurancePortal/).
  *
  * Each exported function receives a Playwright Page already navigated
  * to the ESIC portal. If CAPTCHA or OTP is required, ctx.pause() is called
@@ -43,11 +43,11 @@ async function gotoWithRetry(
 }
 
 // ─── Portal URLs ──────────────────────────────────────────────────────────────
-// Canonical ESIC Employer Portal — www.esic.in, NOT esic.gov.in (which redirects).
+// Canonical ESIC Employer Portal — portal.esic.gov.in.
 // The "ESICInsuredPersonPortal" path is for employees (insured persons) and must
-// NOT be used here. Employers log in at the root EmployerPortal URL.
-const ESIC_BASE = "https://www.esic.in/EmployerPortal";
-const ESIC_LOGIN_URL = "https://www.esic.in/EmployerPortal/";
+// NOT be used here. Employers log in at ESICInsurancePortal/Portal_Loginnew.aspx.
+const ESIC_BASE = "https://portal.esic.gov.in/EmployerPortal/ESICInsurancePortal";
+const ESIC_LOGIN_URL = "https://portal.esic.gov.in/EmployerPortal/ESICInsurancePortal/Portal_Loginnew.aspx";
 
 // ─── Selector constants ───────────────────────────────────────────────────────
 const SEL = {
@@ -205,8 +205,7 @@ export async function esicLogin(
 
   const currentUrl = page.url();
   // Login failure: still on a login or default-redirect URL
-  if (currentUrl.toLowerCase().includes("login") || currentUrl.toLowerCase().includes("employerportal/$")
-      || currentUrl === ESIC_LOGIN_URL) {
+  if (currentUrl.toLowerCase().includes("login") || currentUrl === ESIC_LOGIN_URL) {
     // 3-tier error classification:
     // 1. Try to extract a visible error message from the portal using specific selectors
     const portalError = await page
