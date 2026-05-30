@@ -7239,6 +7239,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Register all EPFO / ESIC routes (jobs, portal sessions, registrations, returns, reports)
   registerEpfoEsicRoutes(app, requireAuth, requireRole);
 
+  // ─── Automation: resume a paused job (OTP / CAPTCHA answer) ─────────────────
+  app.post("/api/automation/jobs/:id/resume", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const { answer } = req.body as { answer?: string };
+      if (!answer || typeof answer !== "string") {
+        return res.status(400).json({ error: "answer is required" });
+      }
+      const { resumeResolvers } = await import("./automation/queue-worker");
+      const resolver = resumeResolvers.get(id);
+      if (!resolver) {
+        return res.status(404).json({ error: "Job is not waiting for input or does not exist" });
+      }
+      resumeResolvers.delete(id);
+      resolver(answer);
+      res.json({ success: true });
+    } catch (err) {
+      console.error("[Routes] Resume job error:", err);
+      res.status(500).json({ error: "Failed to resume job" });
+    }
+  });
+
   // Start the automation queue worker (fire-and-forget background process)
   try {
     const { startQueueWorker } = await import("./automation/queue-worker");
