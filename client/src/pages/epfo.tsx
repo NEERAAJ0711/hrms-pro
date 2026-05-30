@@ -908,9 +908,22 @@ function PortalSettingsTab({ companyId, isSuperAdmin, companies = [] }: {
                     {testResult.ok ? "Login successful — credentials verified and working." : "Login failed"}
                   </p>
                   {!testResult.ok && (
-                    <p className="mt-1 break-words whitespace-pre-wrap text-xs opacity-90" data-testid="epfo-test-error-message">
-                      {testResult.message}
-                    </p>
+                    <>
+                      <p className="mt-1 break-words whitespace-pre-wrap text-xs opacity-90" data-testid="epfo-test-error-message">
+                        {testResult.message}
+                      </p>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="mt-2 h-7 px-3 text-xs border-red-300 text-red-700 hover:bg-red-100"
+                        onClick={() => { resetTest(); testMutation.mutate(); }}
+                        disabled={isTestActive}
+                        data-testid="button-epfo-retry-login"
+                      >
+                        <RefreshCw className="h-3 w-3 mr-1" />
+                        Try again
+                      </Button>
+                    </>
                   )}
                 </div>
               </div>
