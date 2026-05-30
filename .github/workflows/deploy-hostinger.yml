@@ -33,6 +33,8 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
 
       - name: Build for production
         run: npm run build
@@ -45,7 +47,7 @@ jobs:
           test -f dist/public/index.html && echo "✅ Client bundle OK" || (echo "❌ Client bundle missing" && exit 1)
 
       - name: Upload build artifact
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v4
         with:
           name: dist-${{ github.sha }}
           path: dist/
@@ -68,7 +70,7 @@ jobs:
           cache: "npm"
 
       - name: Download build artifact
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v4
         with:
           name: dist-${{ github.sha }}
           path: dist/
@@ -308,7 +310,11 @@ jobs:
             echo "▶ Installing production dependencies..."
             export PATH="$HOME/.nvm/versions/node/$(ls -1 $HOME/.nvm/versions/node 2>/dev/null | tail -1)/bin:$PATH" || true
             command -v npm || { echo "❌ npm not found. Please install Node.js on the VPS first (run hostinger-setup.sh)"; exit 1; }
-            npm ci --omit=dev
+            # PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 prevents playwright's postinstall
+            # from downloading ~150 MB of Chromium during npm ci, which was causing
+            # the deploy to fail with exit code 243 (playwright downloader error).
+            # The server downloads Chromium lazily on first automation job instead.
+            PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm ci --omit=dev
 
             echo "▶ Running database migrations..."
             DATABASE_URL="$DATABASE_URL" node scripts/run-migrations.cjs
