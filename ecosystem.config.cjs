@@ -6,6 +6,7 @@ module.exports = {
       instances: 1,
       exec_mode: "fork",
       node_args: "--max-old-space-size=512",
+      env_file: ".env",
       env: {
         NODE_ENV: "production",
         PORT: 5000,
