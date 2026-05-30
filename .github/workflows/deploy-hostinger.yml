@@ -308,54 +308,32 @@ jobs:
             echo "=== PM2 STATUS ==="
             pm2 list
 
-            # ── Fix nginx proxy_pass for tbjvisionconnect.com ─────────────────
-            # nginx runs via clp-nginx.service using /home/clp/services/nginx/nginx.conf
-            # Domain vhosts live under that same directory tree.
+            # ── Ensure nginx proxy_pass → port 8080 for tbjvisionconnect.com ──
+            # Config lives at /etc/nginx/sites-enabled/hrms.workeazy.in.conf
+            # (server_name tbjvisionconnect.com, proxies to 8080)
             DOMAIN="tbjvisionconnect.com"
-            CLP_NGINX_DIR="/home/clp/services/nginx"
-
-            echo "=== CLP NGINX DIR ==="
-            ls "$CLP_NGINX_DIR" 2>/dev/null || echo "(not found)"
-
-            # Search ONLY in the clp nginx directory — fast, no filesystem scan
-            NGINX_CONF=$(grep -rl "$DOMAIN" "$CLP_NGINX_DIR" 2>/dev/null | grep -v "\.bak" | head -1 || true)
-
-            # Fallback: check standard /etc/nginx and sites-available
-            if [ -z "$NGINX_CONF" ]; then
-              NGINX_CONF=$(grep -rl "$DOMAIN" /etc/nginx 2>/dev/null | grep -v "\.bak" | head -1 || true)
-            fi
+            NGINX_CONF=$(grep -rl "$DOMAIN" /etc/nginx/sites-enabled /etc/nginx/sites-available 2>/dev/null \
+                         | grep -v "\.bak" | head -1 || true)
 
             if [ -n "$NGINX_CONF" ]; then
               echo "=== FOUND CONFIG: $NGINX_CONF ==="
-              cat "$NGINX_CONF"
-              echo "=== END CONFIG ==="
-
               if ! grep -q "8080" "$NGINX_CONF"; then
                 echo "▶ proxy_pass not pointing to 8080 — fixing..."
                 cp "$NGINX_CONF" "${NGINX_CONF}.bak.$(date +%s)"
-                sed -i 's|proxy_pass http://[^;]*;|proxy_pass http://127.0.0.1:8080;|g' "$NGINX_CONF"
-                # Test and reload using the clp-nginx service config
-                if nginx -t -c "$CLP_NGINX_DIR/nginx.conf" 2>&1; then
-                  systemctl reload clp-nginx 2>/dev/null \
-                    || systemctl reload nginx 2>/dev/null \
-                    || nginx -s reload 2>/dev/null \
-                    || true
+                sed -i 's|proxy_pass http://127\.0\.0\.1:[0-9]*/;|proxy_pass http://127.0.0.1:8080/;|g' "$NGINX_CONF"
+                if nginx -t 2>&1; then
+                  systemctl reload nginx 2>/dev/null || nginx -s reload 2>/dev/null || true
                   echo "▶ nginx reloaded"
                 else
                   echo "❌ nginx config test failed — restoring backup"
-                  cp "${NGINX_CONF}.bak.$(date +%s -d '1 second ago')" "$NGINX_CONF" 2>/dev/null || true
+                  cp "${NGINX_CONF}.bak."* "$NGINX_CONF" 2>/dev/null || true
                 fi
               else
-                echo "▶ proxy_pass already has 8080 — reloading nginx to pick up any other changes"
-                systemctl reload clp-nginx 2>/dev/null \
-                  || systemctl reload nginx 2>/dev/null \
-                  || nginx -s reload 2>/dev/null \
-                  || true
+                echo "▶ proxy_pass already points to 8080 — OK"
               fi
             else
-              echo "▶ No config file found for $DOMAIN in $CLP_NGINX_DIR or /etc/nginx"
-              echo "=== CLP NGINX CONF FILES ==="
-              find "$CLP_NGINX_DIR" /etc/nginx 2>/dev/null -name "*.conf" | head -30
+              echo "⚠️  No nginx config found for $DOMAIN — check /etc/nginx/sites-enabled/ manually"
+              ls /etc/nginx/sites-enabled/ 2>/dev/null || true
             fi
 
             # ── Clean old backups ─────────────────────────────────────────────
