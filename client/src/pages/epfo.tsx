@@ -675,6 +675,11 @@ function PortalSettingsTab({ companyId, isSuperAdmin, companies = [] }: {
     enabled: !!effectiveCid,
   });
 
+  // Pre-populate username whenever saved session data loads / changes
+  useEffect(() => {
+    if (session?.username) setUsername(session.username);
+  }, [session?.username]);
+
   const { data: polledJob } = useQuery<{ id: string; status: string; errorMessage?: string | null; screenshotPath?: string | null }>({
     queryKey: ["/api/automation/jobs", testJobId],
     queryFn: async () => {
@@ -716,7 +721,7 @@ function PortalSettingsTab({ companyId, isSuperAdmin, companies = [] }: {
     },
     onSuccess: () => {
       toast({ title: "EPFO credentials saved", description: "Credentials encrypted and stored securely." });
-      setPassword(""); setUsername("");
+      setPassword("");               // clear password only — keep username visible
       queryClient.invalidateQueries({ queryKey: ["/api/automation/portal-session/epfo"] });
     },
     onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
@@ -815,7 +820,7 @@ function PortalSettingsTab({ companyId, isSuperAdmin, companies = [] }: {
               <Input
                 type={showPw ? "text" : "password"}
                 value={password} onChange={e => setPassword(e.target.value)}
-                placeholder="Enter EPFO password"
+                placeholder={session?.configured ? "Saved — type to change" : "Enter EPFO password"}
                 className="pr-10"
                 data-testid="input-epfo-password"
               />
@@ -826,7 +831,7 @@ function PortalSettingsTab({ companyId, isSuperAdmin, companies = [] }: {
           </div>
 
           <div className="flex flex-wrap gap-3">
-            <Button onClick={() => saveMutation.mutate()} disabled={!username || !password || saveMutation.isPending} data-testid="button-save-epfo-credentials">
+            <Button onClick={() => saveMutation.mutate()} disabled={!username || saveMutation.isPending} data-testid="button-save-epfo-credentials">
               {saveMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Settings className="h-4 w-4 mr-2" />}
               Save Credentials
             </Button>

@@ -702,6 +702,11 @@ function PortalSettingsTab({ companyId, isSuperAdmin, companies = [] }: {
     enabled: !!effectiveCid,
   });
 
+  // Pre-populate username whenever saved session data loads / changes
+  useEffect(() => {
+    if (session?.username) setUsername(session.username);
+  }, [session?.username]);
+
   const saveMutation = useMutation({
     mutationFn: async () => {
       const res = await apiRequest("POST", "/api/automation/portal-session", { portal: "esic", username, password, companyId: effectiveCid });
@@ -709,7 +714,7 @@ function PortalSettingsTab({ companyId, isSuperAdmin, companies = [] }: {
     },
     onSuccess: () => {
       toast({ title: "ESIC credentials saved" });
-      setPassword(""); setUsername("");
+      setPassword("");               // clear password only — keep username visible
       queryClient.invalidateQueries({ queryKey: ["/api/automation/portal-session/esic"] });
     },
     onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
@@ -842,14 +847,14 @@ function PortalSettingsTab({ companyId, isSuperAdmin, companies = [] }: {
           <div>
             <Label className="mb-1.5 block">Password</Label>
             <div className="relative">
-              <Input type={showPw ? "text" : "password"} value={password} onChange={e => setPassword(e.target.value)} placeholder="Enter ESIC password" className="pr-10" data-testid="input-esic-password" />
+              <Input type={showPw ? "text" : "password"} value={password} onChange={e => setPassword(e.target.value)} placeholder={session?.configured ? "Saved — type to change" : "Enter ESIC password"} className="pr-10" data-testid="input-esic-password" />
               <button className="absolute right-3 top-2.5 text-muted-foreground" onClick={() => setShowPw(p => !p)}>
                 {showPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
               </button>
             </div>
           </div>
           <div className="flex flex-wrap gap-3">
-            <Button onClick={() => saveMutation.mutate()} disabled={!username || !password || saveMutation.isPending} data-testid="button-save-esic-credentials">
+            <Button onClick={() => saveMutation.mutate()} disabled={!username || saveMutation.isPending} data-testid="button-save-esic-credentials">
               {saveMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Settings className="h-4 w-4 mr-2" />}
               Save Credentials
             </Button>

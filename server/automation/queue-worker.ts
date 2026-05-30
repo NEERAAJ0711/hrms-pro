@@ -124,7 +124,7 @@ function bindPageToContext(ctx: AutomationContext, page: Page): AutomationContex
       const filename = `${String(screenshotIndex++).padStart(3, "0")}-${label}.png`;
       const filePath = path.join(ctx.screenshotDir, filename);
       try {
-        await page.screenshot({ path: filePath, fullPage: false });
+        await page.screenshot({ path: filePath, fullPage: true });
       } catch {
         // Page may already be closed — non-fatal
       }

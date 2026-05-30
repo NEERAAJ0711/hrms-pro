@@ -35,7 +35,7 @@ async function gotoWithRetry(
     } catch (err) {
       lastErr = err;
       if (attempt < retries) {
-        await page.waitForTimeout(3000);
+        await page.waitForTimeout(1000);
       }
     }
   }
@@ -148,7 +148,6 @@ export async function esicLogin(
 ): Promise<void> {
   await ctx.log("info", "Navigating to ESIC Employer Portal login page");
   await gotoWithRetry(page, ESIC_LOGIN_URL, { waitUntil: "domcontentloaded", timeout: 60000 });
-  await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {});
 
   // Screenshot of the raw login page — useful for verifying selectors match the real portal
   await ctx.takeScreenshot("esic-login-page");
@@ -261,7 +260,6 @@ export async function ipNumberGenerate(
     waitUntil: "domcontentloaded",
     timeout: 60000,
   });
-  await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {});
   await ctx.takeScreenshot("ip-generate-start");
 
   // Fill employee details
@@ -318,11 +316,10 @@ export async function familyDeclaration(
     waitUntil: "domcontentloaded",
     timeout: 60000,
   });
-  await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {});
 
   await page.fill(SEL.ipNoInput, payload.ipNumber);
   await page.click(SEL.familySearchBtn);
-  await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {});
+  await page.waitForLoadState("domcontentloaded", { timeout: 10000 }).catch(() => {});
   await ctx.takeScreenshot("family-decl-start");
 
   const results: Array<Record<string, unknown>> = [];
@@ -366,7 +363,6 @@ export async function monthlyContributionFiling(
     waitUntil: "domcontentloaded",
     timeout: 60000,
   });
-  await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {});
   await ctx.takeScreenshot("contribution-filing-start");
 
   await page.selectOption(SEL.contribMonth, { value: payload.month }).catch(() => {});
