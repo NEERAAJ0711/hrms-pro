@@ -8,6 +8,7 @@ module.exports = {
       node_args: "--max-old-space-size=512",
       env: {
         NODE_ENV: "production",
+        PORT: 5000,
       },
       env_production: {
         NODE_ENV: "production",
