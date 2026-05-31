@@ -171,6 +171,61 @@ async function solveOtp(page: Page, ctx: AutomationContext, label = "otp"): Prom
   return answer;
 }
 
+// ─── Popup dismissal ──────────────────────────────────────────────────────────
+/**
+ * Dismisses ALL notification / alert popups on the current EPFO page.
+ * Loops until no dismissible button is found (handles stacked modals).
+ */
+async function dismissAllPopups(page: Page, ctx: AutomationContext, tag = ""): Promise<void> {
+  const selectors = [
+    'button:has-text("OK")',
+    'button:has-text("Ok")',
+    'button:has-text("ok")',
+    'button:has-text("Okay")',
+    'button:has-text("Close")',
+    'button:has-text("Accept")',
+    'button:has-text("Yes")',
+    'button:has-text("Proceed")',
+    'button:has-text("Continue")',
+    '#btnOk',
+    '#btnOK',
+    '#btnClose',
+    '.btn-ok',
+    '.btn-primary[data-dismiss]',
+    '.modal-footer button',
+    'button[data-dismiss="modal"]',
+    '.alert-dialog button',
+    '[id*="btnOk" i]',
+    '[id*="btnClose" i]',
+    '[id*="btnAlert" i]',
+    '.ui-dialog-buttonpane button',
+    '.modal.show .modal-footer button',
+    '.modal.in .modal-footer button',
+  ];
+
+  let round = 0;
+  const MAX_ROUNDS = 10;
+
+  while (round < MAX_ROUNDS) {
+    let dismissed = false;
+    for (const sel of selectors) {
+      try {
+        const btn = page.locator(sel).first();
+        await btn.waitFor({ state: "visible", timeout: 1500 });
+        await btn.click();
+        await ctx.log("info", `[${tag}] Dismissed popup with selector: ${sel} (round ${round + 1})`);
+        await page.waitForTimeout(600);
+        dismissed = true;
+        break;
+      } catch {
+        // not present — try next selector
+      }
+    }
+    if (!dismissed) break;
+    round++;
+  }
+}
+
 // ─── Login ────────────────────────────────────────────────────────────────────
 /**
  * Log in to the EPFO Unified Employer Portal.
@@ -185,38 +240,8 @@ export async function epfoLogin(
   await gotoWithRetry(page, EPFO_LOGIN_URL, { waitUntil: "domcontentloaded", timeout: 60000 });
   await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {});
 
-  // ── Dismiss notification popup (EPFO shows a modal on first load) ──────────
-  // Try every known selector the "OK" / "Close" button can have on the portal.
-  // Use a short timeout so we don't stall when the popup is absent.
-  const popupSelectors = [
-    'button:has-text("OK")',
-    'button:has-text("Ok")',
-    'button:has-text("ok")',
-    'button:has-text("Okay")',
-    'button:has-text("Close")',
-    '#btnOk',
-    '#btnOK',
-    '.btn-ok',
-    '.modal-footer button',
-    '.modal button[data-dismiss="modal"]',
-    'button[data-dismiss="modal"]',
-    '.alert-dialog button',
-    '.popup-ok',
-    '[id*="btnOk" i]',
-    '[id*="btnClose" i]',
-  ];
-  for (const sel of popupSelectors) {
-    try {
-      const btn = page.locator(sel).first();
-      await btn.waitFor({ state: "visible", timeout: 2000 });
-      await btn.click();
-      await ctx.log("info", `Dismissed EPFO popup with selector: ${sel}`);
-      await page.waitForTimeout(500);
-      break;
-    } catch {
-      // popup not present with this selector — try next
-    }
-  }
+  // ── Dismiss ALL notification popups (EPFO can stack multiple modals) ────────
+  await dismissAllPopups(page, ctx, "epfo-pre-login");
 
   // Screenshot of the raw login page — useful for verifying selectors match
   await safeScreenshot(page, ctx, "epfo-login-page");
@@ -271,6 +296,9 @@ export async function epfoLogin(
     await page.click(SEL.otpVerifyBtn);
     await page.waitForLoadState("networkidle", { timeout: 20000 }).catch(() => {});
   }
+
+  // Dismiss any popups that appear immediately after login
+  await dismissAllPopups(page, ctx, "epfo-post-login");
 
   // Screenshot after login attempt — captures the result page for debugging
   await safeScreenshot(page, ctx, "epfo-login-result");

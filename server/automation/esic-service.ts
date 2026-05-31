@@ -158,6 +158,62 @@ async function solveOtp(page: Page, ctx: AutomationContext, label: string): Prom
 }
 
 // ─── Login ────────────────────────────────────────────────────────────────────
+// ─── Popup dismissal ──────────────────────────────────────────────────────────
+/**
+ * Dismisses ALL notification / alert popups on the current ESIC page.
+ * Loops until no dismissible button is found (handles portals that stack
+ * multiple modals one after another).
+ */
+async function dismissAllPopups(page: Page, ctx: AutomationContext, tag = ""): Promise<void> {
+  const selectors = [
+    'button:has-text("OK")',
+    'button:has-text("Ok")',
+    'button:has-text("ok")',
+    'button:has-text("Okay")',
+    'button:has-text("Close")',
+    'button:has-text("Accept")',
+    'button:has-text("Yes")',
+    'button:has-text("Proceed")',
+    'button:has-text("Continue")',
+    '#btnOk',
+    '#btnOK',
+    '#btnClose',
+    '.btn-ok',
+    '.btn-primary[data-dismiss]',
+    '.modal-footer button',
+    'button[data-dismiss="modal"]',
+    '.alert-dialog button',
+    '[id*="btnOk" i]',
+    '[id*="btnClose" i]',
+    '[id*="btnAlert" i]',
+    '.ui-dialog-buttonpane button',
+    '.modal.show .modal-footer button',
+    '.modal.in .modal-footer button',
+  ];
+
+  let round = 0;
+  const MAX_ROUNDS = 10; // safety cap — government portals won't have more than 10 stacked popups
+
+  while (round < MAX_ROUNDS) {
+    let dismissed = false;
+    for (const sel of selectors) {
+      try {
+        const btn = page.locator(sel).first();
+        await btn.waitFor({ state: "visible", timeout: 1500 });
+        await btn.click();
+        await ctx.log("info", `[${tag}] Dismissed popup with selector: ${sel} (round ${round + 1})`);
+        await page.waitForTimeout(600);
+        dismissed = true;
+        break; // restart outer loop after each dismissal
+      } catch {
+        // not present — try next selector
+      }
+    }
+    if (!dismissed) break; // no more popups found
+    round++;
+  }
+}
+
 export async function esicLogin(
   page: Page,
   payload: { username: string; password: string },
@@ -165,6 +221,9 @@ export async function esicLogin(
 ): Promise<void> {
   await ctx.log("info", "Navigating to ESIC Employer Portal login page");
   await gotoWithRetry(page, ESIC_LOGIN_URL, { waitUntil: "domcontentloaded", timeout: 60000 });
+
+  // Dismiss any notification popups that appear on first load
+  await dismissAllPopups(page, ctx, "esic-pre-login");
 
   // Screenshot of the raw login page — useful for verifying selectors match the real portal
   await ctx.takeScreenshot("esic-login-page");
@@ -217,6 +276,9 @@ export async function esicLogin(
     await page.click(SEL.otpSubmitBtn);
     await page.waitForLoadState("networkidle", { timeout: 20000 }).catch(() => {});
   }
+
+  // Dismiss any popups that appear immediately after login (ESIC stacks multiple alerts)
+  await dismissAllPopups(page, ctx, "esic-post-login");
 
   // Screenshot of post-login page — captures success dashboard or error message
   await ctx.takeScreenshot("esic-login-result");
