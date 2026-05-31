@@ -233,6 +233,23 @@ app.use((req, res, next) => {
         ) THEN
           ALTER TABLE payroll ADD COLUMN vpf_amount integer DEFAULT 0;
         END IF;
+        -- Create esic_fetched_employees table if missing
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.tables
+          WHERE table_name = 'esic_fetched_employees'
+        ) THEN
+          CREATE TABLE esic_fetched_employees (
+            id varchar(36) PRIMARY KEY,
+            company_id varchar(36) NOT NULL,
+            ip_no text NOT NULL,
+            name text NOT NULL,
+            date_of_registration text,
+            job_id varchar(36),
+            fetched_at text NOT NULL,
+            created_at text NOT NULL
+          );
+          CREATE INDEX ON esic_fetched_employees (company_id);
+        END IF;
       END;
       $$
     `);

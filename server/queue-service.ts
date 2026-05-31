@@ -174,6 +174,23 @@ export class QueueService {
     return (result as any).rowCount ?? 0;
   }
 
+  /**
+   * Cancel ONLY paused (stuck) jobs for a portal — preserves pending jobs so
+   * they can execute immediately after login completes.
+   * Returns the number of rows cancelled.
+   */
+  async cancelStuckPortalJobs(companyId: string, portal: string): Promise<number> {
+    const now = new Date().toISOString();
+    const result = await db.execute(sql`
+      UPDATE automation_jobs
+      SET status = 'cancelled', updated_at = ${now}
+      WHERE company_id = ${companyId}
+        AND status = 'paused'
+        AND job_type LIKE ${portal + "_%"}
+    `);
+    return (result as any).rowCount ?? 0;
+  }
+
   /** Permanently delete a job and all its logs. Running/paused jobs cannot be deleted. */
   async deleteJob(id: string): Promise<{ deleted: boolean; reason?: string }> {
     const rows = await db.select().from(automationJobs).where(eq(automationJobs.id, id));

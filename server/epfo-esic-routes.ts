@@ -22,6 +22,7 @@ import {
   epfoEcrReturns,
   esicRegistrations,
   esicMonthlyReturns,
+  esicFetchedEmployees,
   challans,
   complianceCalendarEvents,
   employees,
@@ -577,8 +578,9 @@ export function registerEpfoEsicRoutes(
         .filter(j => j.jobType.startsWith(portal + "_"))
         .map(j => j.id);
 
-      // 2. Cancel ALL pending + paused jobs for this portal in the DB
-      const cancelled = await queueService.cancelPortalJobs(companyId, portal);
+      // 2. Cancel ONLY paused (stuck / waiting for CAPTCHA) jobs for this portal.
+      //    Pending jobs are preserved so they run immediately after login.
+      const cancelled = await queueService.cancelStuckPortalJobs(companyId, portal);
 
       // 3. Unblock any in-memory CAPTCHA/OTP resolvers so the queue worker isn't
       //    left hanging on a job that is now cancelled.
@@ -1828,6 +1830,28 @@ export function registerEpfoEsicRoutes(
   // ═══════════════════════════════════════════════════════════════════════════
   // SUMMARY DASHBOARD
   // ═══════════════════════════════════════════════════════════════════════════
+
+  // GET /api/automation/esic-employees — fetched employee list stored in DB
+  app.get("/api/automation/esic-employees", requireAuth, adminRoles, async (req: Request, res: Response) => {
+    try {
+      const user = (req as any).user;
+      const { companyId: qCid } = req.query as Record<string, string>;
+      const cid = user.role === "super_admin" && qCid ? qCid : user.companyId;
+      if (!cid) return res.status(400).json({ error: "companyId required" });
+
+      const rows = await db
+        .select()
+        .from(esicFetchedEmployees)
+        .where(eq(esicFetchedEmployees.companyId, cid))
+        .orderBy(esicFetchedEmployees.ipNo);
+
+      // Get the fetchedAt from the first row (all same batch)
+      const fetchedAt = rows[0]?.fetchedAt ?? null;
+      res.json({ employees: rows, count: rows.length, fetchedAt });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || "Failed to fetch ESIC employees" });
+    }
+  });
 
   app.get("/api/automation/summary", requireAuth, adminRoles, async (req: Request, res: Response) => {
     try {

@@ -961,14 +961,15 @@ function EmployeeListTab({ companyId }: { companyId: string }) {
   const [polling, setPolling] = useState(false);
   const queryClient = useQueryClient();
 
-  // Latest saved result
+  // Latest saved result — from dedicated DB table
   const { data: saved, isLoading: loadingSaved } = useQuery<{
-    data: { employees: Record<string, string>[]; count: number; fetchedAt: string } | null;
-    job: { id: string; completedAt: string } | null;
+    employees: { id: string; ipNo: string; name: string; dateOfRegistration: string | null; fetchedAt: string }[];
+    count: number;
+    fetchedAt: string | null;
   }>({
-    queryKey: ["/api/automation/portal-employee-list/esic", companyId],
+    queryKey: ["/api/automation/esic-employees", companyId],
     queryFn: async () => {
-      const res = await apiRequest("GET", `/api/automation/portal-employee-list/esic?companyId=${companyId}`);
+      const res = await apiRequest("GET", `/api/automation/esic-employees?companyId=${companyId}`);
       return res.json();
     },
     refetchInterval: false,
@@ -1001,8 +1002,8 @@ function EmployeeListTab({ companyId }: { companyId: string }) {
     if (activeJob.status === "completed") {
       setPolling(false);
       setActiveJobId(null);
-      queryClient.invalidateQueries({ queryKey: ["/api/automation/portal-employee-list/esic", companyId] });
-      toast({ title: "Employee list fetched", description: `${activeJob.result?.count ?? 0} employees loaded from ESIC portal` });
+      queryClient.invalidateQueries({ queryKey: ["/api/automation/esic-employees", companyId] });
+      toast({ title: "Employee list fetched", description: `${activeJob.result?.count ?? 0} employees saved from ESIC portal` });
     } else if (activeJob.status === "failed") {
       setPolling(false);
       setActiveJobId(null);
@@ -1022,16 +1023,21 @@ function EmployeeListTab({ companyId }: { companyId: string }) {
     );
   };
 
-  const employees = saved?.data?.employees ?? [];
-  const columns = employees.length > 0 ? Object.keys(employees[0]) : [];
+  const employees = saved?.employees ?? [];
   const [search, setSearch] = useState("");
   const filtered = search
-    ? employees.filter((e) => Object.values(e).some((v) => v.toLowerCase().includes(search.toLowerCase())))
+    ? employees.filter((e) =>
+        e.ipNo.toLowerCase().includes(search.toLowerCase()) ||
+        e.name.toLowerCase().includes(search.toLowerCase()) ||
+        (e.dateOfRegistration ?? "").toLowerCase().includes(search.toLowerCase())
+      )
     : employees;
 
   const handleExport = () => {
     if (!employees.length) return;
-    const ws = XLSX.utils.json_to_sheet(employees);
+    const ws = XLSX.utils.json_to_sheet(
+      employees.map((e) => ({ "IP No": e.ipNo, "Name": e.name, "Date of Registration": e.dateOfRegistration ?? "" }))
+    );
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "ESIC Employees");
     XLSX.writeFile(wb, `esic-employees-${new Date().toISOString().slice(0, 10)}.xlsx`);
@@ -1048,10 +1054,10 @@ function EmployeeListTab({ companyId }: { companyId: string }) {
             ESIC Employee List
           </CardTitle>
           <CardDescription>
-            Fetch the latest registered employee list from the ESIC portal (FormThree).
-            {saved?.data && (
+            Fetch the latest registered employee list from the ESIC portal. Columns: IP No., Name, Date of Registration.
+            {saved?.fetchedAt && (
               <span className="ml-2 text-emerald-600 font-medium">
-                Last fetched: {new Date(saved.data.fetchedAt).toLocaleString()} — {saved.data.count} employees
+                Last fetched: {new Date(saved.fetchedAt).toLocaleString()} — {saved.count} employees
               </span>
             )}
           </CardDescription>
@@ -1096,21 +1102,17 @@ function EmployeeListTab({ companyId }: { companyId: string }) {
               <table className="w-full">
                 <thead className="bg-muted">
                   <tr>
-                    {columns.map((col) => (
-                      <th key={col} className="text-left px-3 py-2 whitespace-nowrap font-medium text-muted-foreground">
-                        {col}
-                      </th>
-                    ))}
+                    <th className="text-left px-3 py-2 whitespace-nowrap font-medium text-muted-foreground">IP No.</th>
+                    <th className="text-left px-3 py-2 whitespace-nowrap font-medium text-muted-foreground">Name</th>
+                    <th className="text-left px-3 py-2 whitespace-nowrap font-medium text-muted-foreground">Date of Registration</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filtered.slice(0, 500).map((emp, i) => (
-                    <tr key={i} className="border-t hover:bg-muted/40" data-testid={`row-esic-employee-${i}`}>
-                      {columns.map((col) => (
-                        <td key={col} className="px-3 py-2 whitespace-nowrap">
-                          {emp[col] ?? "—"}
-                        </td>
-                      ))}
+                    <tr key={emp.id ?? i} className="border-t hover:bg-muted/40" data-testid={`row-esic-employee-${i}`}>
+                      <td className="px-3 py-2 whitespace-nowrap font-mono text-xs">{emp.ipNo || "—"}</td>
+                      <td className="px-3 py-2 whitespace-nowrap">{emp.name || "—"}</td>
+                      <td className="px-3 py-2 whitespace-nowrap text-muted-foreground">{emp.dateOfRegistration || "—"}</td>
                     </tr>
                   ))}
                 </tbody>

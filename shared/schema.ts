@@ -1490,3 +1490,18 @@ export const outdoorEntries = pgTable("outdoor_entries", {
 export const insertOutdoorEntrySchema = createInsertSchema(outdoorEntries).omit({ id: true, approvedBy: true, approvedAt: true });
 export type InsertOutdoorEntry = z.infer<typeof insertOutdoorEntrySchema>;
 export type OutdoorEntry = typeof outdoorEntries.$inferSelect;
+
+// ─── ESIC Fetched Employees (from portal) ─────────────────────────────────────
+export const esicFetchedEmployees = pgTable("esic_fetched_employees", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  companyId: varchar("company_id", { length: 36 }).notNull(),
+  ipNo: text("ip_no").notNull(),
+  name: text("name").notNull(),
+  dateOfRegistration: text("date_of_registration"),
+  jobId: varchar("job_id", { length: 36 }),
+  fetchedAt: text("fetched_at").notNull(),
+  createdAt: text("created_at").notNull(),
+});
+export const insertEsicFetchedEmployeeSchema = createInsertSchema(esicFetchedEmployees).omit({ id: true });
+export type InsertEsicFetchedEmployee = z.infer<typeof insertEsicFetchedEmployeeSchema>;
+export type EsicFetchedEmployee = typeof esicFetchedEmployees.$inferSelect;

@@ -863,7 +863,23 @@ export async function esicEmployeeList(
   await ctx.takeScreenshot("esic-employee-list-page");
   await ctx.log("info", "On employee list page: " + page.url());
 
-  const allEmployees: Record<string, string>[] = [];
+  /** Normalize raw scraped row → standard { ipNo, name, dateOfRegistration } */
+  function normalizeEmployee(raw: Record<string, string>): { ipNo: string; name: string; dateOfRegistration: string } {
+    const pick = (...keys: string[]) => {
+      for (const k of keys) {
+        const val = Object.entries(raw).find(([key]) => key.toLowerCase().replace(/[\s.]/g, "") === k.toLowerCase())?.[1]?.trim();
+        if (val) return val;
+      }
+      return "";
+    };
+    return {
+      ipNo: pick("ipno", "ipnumber", "insuranceno", "ipno.", "ip no", "ip_no", "ino") || pick(...Object.keys(raw).filter(k => /ip/i.test(k))),
+      name: pick("name", "employeename", "insuredpersonname", "empname", "fullname"),
+      dateOfRegistration: pick("dateofregistration", "registrationdate", "doj", "dateofjoining", "regdate", "date"),
+    };
+  }
+
+  const allEmployees: { ipNo: string; name: string; dateOfRegistration: string }[] = [];
 
   async function scrapeTable(): Promise<number> {
     // Extract headers from the first header row
@@ -880,15 +896,16 @@ export async function esicEmployeeList(
     ).catch(() => [] as string[][]);
 
     for (const row of rows) {
-      const emp: Record<string, string> = {};
+      const raw: Record<string, string> = {};
       if (headers.length > 0) {
-        headers.forEach((h, i) => { if (h) emp[h] = row[i] ?? ""; });
+        headers.forEach((h, i) => { if (h) raw[h] = row[i] ?? ""; });
       } else {
         // Fallback: use positional keys matching common ESIC columns
-        const keys = ["SNo", "IPNo", "EmployeeCode", "Name", "FatherName", "DOB", "DOJ", "Wages", "Status"];
-        row.forEach((cell, i) => { emp[keys[i] ?? `col${i + 1}`] = cell; });
+        const keys = ["SNo", "IP No", "EmployeeCode", "Name", "FatherName", "DOB", "Date of Registration", "Wages", "Status"];
+        row.forEach((cell, i) => { raw[keys[i] ?? `col${i + 1}`] = cell; });
       }
-      allEmployees.push(emp);
+      const normalized = normalizeEmployee(raw);
+      if (normalized.ipNo || normalized.name) allEmployees.push(normalized);
     }
     return rows.length;
   }

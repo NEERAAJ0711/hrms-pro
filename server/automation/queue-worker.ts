@@ -18,7 +18,7 @@ import { sessionManager, type Portal } from "./session-manager";
 import * as epfo from "./epfo-service";
 import * as esic from "./esic-service";
 import { db } from "../db";
-import { automationJobs } from "../../shared/schema";
+import { automationJobs, esicFetchedEmployees } from "../../shared/schema";
 import { eq, sql } from "drizzle-orm";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -361,6 +361,7 @@ async function processJob(job: JobRecord): Promise<void> {
   let page: Page | null = null;
   let jobSucceeded = false;
   let contextIsReused = false; // true when we borrowed an existing idle context
+  const isLoginTestJob = job.jobType === "epfo_login_test" || job.jobType === "esic_login_test";
 
   try {
     await queueService.addLog(job.id, job.companyId, "info", `Starting job: ${job.jobType}`, {
@@ -502,6 +503,27 @@ async function processJob(job: JobRecord): Promise<void> {
 
     // Execute the job
     const result = await dispatch(job, page, ctx);
+
+    // After esic_employee_list: persist normalized employees to DB
+    if (job.jobType === "esic_employee_list" && Array.isArray(result?.employees) && result.employees.length > 0) {
+      try {
+        const fetchedAt = (result.fetchedAt as string) ?? new Date().toISOString();
+        const now = new Date().toISOString();
+        const emps = result.employees as Array<{ ipNo: string; name: string; dateOfRegistration: string }>;
+        // Replace all previous records for this company with the fresh list
+        await db.execute(sql`DELETE FROM esic_fetched_employees WHERE company_id = ${job.companyId}`);
+        for (const emp of emps) {
+          if (!emp.ipNo && !emp.name) continue;
+          await db.execute(sql`
+            INSERT INTO esic_fetched_employees (id, company_id, ip_no, name, date_of_registration, job_id, fetched_at, created_at)
+            VALUES (${randomUUID()}, ${job.companyId}, ${emp.ipNo ?? ""}, ${emp.name ?? ""}, ${emp.dateOfRegistration ?? null}, ${job.id}, ${fetchedAt}, ${now})
+          `);
+        }
+        await ctx.log("info", `Saved ${emps.length} ESIC employees to DB`);
+      } catch (saveErr) {
+        await ctx.log("warn", `Failed to save ESIC employees to DB: ${saveErr}`);
+      }
+    }
 
     // After-screenshot
     await ctx.takeScreenshot("after");
@@ -652,6 +674,9 @@ async function processJob(job: JobRecord): Promise<void> {
       idleSessions.set(job.id, { page, context, browser, portal, timer: idleTimer });
       idleByPortal.set(portalKey, job.id);
       // Don't release the browser — it's still in use by the idle session
+    } else if (jobSucceeded) {
+      // Job succeeded but no page/context — shouldn't happen; clean up defensively
+      activePages.delete(job.id);
     } else {
       // Job failed — clean up page. Keep context alive if it was reused
       // (so a future retry can still use the same session).
@@ -692,6 +717,11 @@ async function processJob(job: JobRecord): Promise<void> {
       }
     }
     activeJobCount--;
+    // Login-test jobs complete with a live browser ready — immediately trigger
+    // the next poll so any pre-queued operations run without the 5s delay.
+    if (isLoginTestJob && jobSucceeded) {
+      setImmediate(() => poll().catch(() => {}));
+    }
   }
 }
 
