@@ -458,6 +458,18 @@ async function processJob(job: JobRecord): Promise<void> {
       errorMessage =
         `${portal} portal could not be reached — the server lost its internet connection. Try again in a few minutes.`;
     } else if (
+      errorMessage.includes("ERR_HTTP_RESPONSE_CODE_FAILURE") ||
+      errorMessage.includes("HTTP 404") ||
+      errorMessage.includes("HTTP 40") ||
+      errorMessage.includes("HTTP 50")
+    ) {
+      // ── HTTP error response from portal (4xx / 5xx) ────────────────────────
+      const is404 = errorMessage.includes("404");
+      errorMessage = is404
+        ? `${portal} portal returned "Page Not Found" (HTTP 404). The portal URL may have changed or the server is temporarily unavailable. ` +
+          "Please verify the portal is accessible from the server and try again."
+        : `${portal} portal returned a server error. The portal may be temporarily down. Try again in a few minutes.`;
+    } else if (
       errorMessage.includes("net::ERR_") ||
       errorMessage.includes("ERR_CONNECTION") ||
       errorMessage.includes("ERR_TIMED_OUT")

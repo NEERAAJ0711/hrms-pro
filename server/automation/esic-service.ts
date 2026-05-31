@@ -30,10 +30,27 @@ async function gotoWithRetry(
   let lastErr: unknown;
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
-      await page.goto(url, { waitUntil, timeout });
+      const response = await page.goto(url, { waitUntil, timeout });
+      if (response) {
+        const status = response.status();
+        if (status === 404) {
+          throw new Error(
+            `ESIC portal page not found (HTTP 404) — the URL may have changed or the portal is temporarily unavailable. URL: ${url}`
+          );
+        }
+        if (status >= 500) {
+          throw new Error(
+            `ESIC portal server error (HTTP ${status}) — the portal may be temporarily down. URL: ${url}`
+          );
+        }
+      }
       return;
     } catch (err) {
       lastErr = err;
+      // Don't retry explicit HTTP errors — retrying the same URL won't fix them
+      if ((err as Error).message?.includes("HTTP 404") || (err as Error).message?.includes("HTTP 5")) {
+        throw err;
+      }
       if (attempt < retries) {
         await page.waitForTimeout(1000);
       }
