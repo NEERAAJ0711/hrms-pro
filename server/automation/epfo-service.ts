@@ -214,53 +214,44 @@ async function solveOtp(page: Page, ctx: AutomationContext, label = "otp"): Prom
  * Dismisses ALL notification / alert popups on the current EPFO page.
  * Loops until no dismissible button is found (handles stacked modals).
  */
+const POPUP_SEL = [
+  // Input buttons (EPFO uses ASP.NET WebForms patterns too)
+  'input[type="button"][value="X"]', 'input[type="button"][value="x"]',
+  'input[type="button"][value="Close"]', 'input[type="button"][value="close"]',
+  'input[type="button"][value="I Agree"]', 'input[type="button"][value="Agree"]',
+  'input[type="button"][value="OK"]', 'input[type="button"][value="Ok"]',
+  'input[type="submit"][value="Close"]', 'input[type="submit"][value="I Agree"]',
+  'input[type="submit"][value="OK"]', 'input[type="submit"][value="Ok"]',
+  // Session-warning "X" rendered as a table cell
+  'td:has-text("X")', 'span:has-text("X")',
+  // Standard HTML buttons
+  'button:has-text("OK")', 'button:has-text("Ok")', 'button:has-text("ok")',
+  'button:has-text("Close")', 'button:has-text("close")',
+  'button:has-text("I Agree")', 'button:has-text("Agree")',
+  'button:has-text("Accept")', 'button:has-text("Yes")',
+  'button:has-text("Proceed")', 'button:has-text("Continue")', 'button:has-text("Okay")',
+  // Links
+  'a:has-text("Close")', 'a:has-text("I Agree")', 'a:has-text("OK")',
+  // ID / class patterns
+  '#btnOk', '#btnOK', '#btnClose', '#btnAgree', '#btnIAgree',
+  '[id*="btnOk" i]', '[id*="btnClose" i]', '[id*="btnAlert" i]', '[id*="btnAgree" i]',
+  '.btn-ok', 'button[data-dismiss="modal"]', 'button.close', 'a.close',
+  '.modal-footer button', '.ui-dialog-buttonpane button', '.ui-dialog-titlebar-close',
+].join(', ');
+
 async function dismissAllPopups(page: Page, ctx: AutomationContext, tag = ""): Promise<void> {
-  const selectors = [
-    'button:has-text("OK")',
-    'button:has-text("Ok")',
-    'button:has-text("ok")',
-    'button:has-text("Okay")',
-    'button:has-text("Close")',
-    'button:has-text("Accept")',
-    'button:has-text("Yes")',
-    'button:has-text("Proceed")',
-    'button:has-text("Continue")',
-    '#btnOk',
-    '#btnOK',
-    '#btnClose',
-    '.btn-ok',
-    '.btn-primary[data-dismiss]',
-    '.modal-footer button',
-    'button[data-dismiss="modal"]',
-    '.alert-dialog button',
-    '[id*="btnOk" i]',
-    '[id*="btnClose" i]',
-    '[id*="btnAlert" i]',
-    '.ui-dialog-buttonpane button',
-    '.modal.show .modal-footer button',
-    '.modal.in .modal-footer button',
-  ];
-
-  let round = 0;
-  const MAX_ROUNDS = 10;
-
-  while (round < MAX_ROUNDS) {
-    let dismissed = false;
-    for (const sel of selectors) {
-      try {
-        const btn = page.locator(sel).first();
-        await btn.waitFor({ state: "visible", timeout: 1500 });
-        await btn.click();
-        await ctx.log("info", `[${tag}] Dismissed popup with selector: ${sel} (round ${round + 1})`);
-        await page.waitForTimeout(600);
-        dismissed = true;
-        break;
-      } catch {
-        // not present — try next selector
-      }
+  for (let round = 0; round < 20; round++) {
+    await page.keyboard.press('Escape').catch(() => {});
+    try {
+      const btn = page.locator(POPUP_SEL).first();
+      await btn.waitFor({ state: "visible", timeout: 300 });
+      const label = await btn.innerText().catch(() => await btn.getAttribute("value").catch(() => "?"));
+      await btn.click({ force: true });
+      await ctx.log("info", `[${tag}] Popup dismissed: "${String(label).trim()}" (round ${round + 1})`);
+      await page.waitForTimeout(150);
+    } catch {
+      break;
     }
-    if (!dismissed) break;
-    round++;
   }
 }
 

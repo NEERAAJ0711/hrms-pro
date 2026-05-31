@@ -195,53 +195,53 @@ async function solveOtp(page: Page, ctx: AutomationContext, label: string): Prom
  * Loops until no dismissible button is found (handles portals that stack
  * multiple modals one after another).
  */
+/**
+ * Single combined selector that covers every known ESIC/government portal popup.
+ * Playwright evaluates this as one CSS selector-list query, so it finds the
+ * first visible match across ALL patterns simultaneously — no serial waiting.
+ */
+const POPUP_SEL = [
+  // ── ASP.NET WebForms input buttons (ESIC uses these) ─────────────────────
+  'input[type="button"][value="X"]', 'input[type="button"][value="x"]',
+  'input[type="button"][value="Close"]', 'input[type="button"][value="close"]',
+  'input[type="button"][value="I Agree"]', 'input[type="button"][value="Agree"]',
+  'input[type="button"][value="OK"]', 'input[type="button"][value="Ok"]',
+  'input[type="submit"][value="Close"]', 'input[type="submit"][value="I Agree"]',
+  'input[type="submit"][value="OK"]', 'input[type="submit"][value="Ok"]',
+  // ── ESIC session-warning "X" — rendered as a plain table cell ────────────
+  'td:has-text("X")', 'span:has-text("X")',
+  // ── Standard HTML buttons ─────────────────────────────────────────────────
+  'button:has-text("OK")', 'button:has-text("Ok")', 'button:has-text("ok")',
+  'button:has-text("Close")', 'button:has-text("close")',
+  'button:has-text("I Agree")', 'button:has-text("Agree")',
+  'button:has-text("Accept")', 'button:has-text("Yes")',
+  'button:has-text("Proceed")', 'button:has-text("Continue")',
+  'button:has-text("Okay")',
+  // ── Links used as popup dismiss ───────────────────────────────────────────
+  'a:has-text("Close")', 'a:has-text("I Agree")', 'a:has-text("OK")',
+  // ── ID / class patterns ───────────────────────────────────────────────────
+  '#btnOk', '#btnOK', '#btnClose', '#btnAgree', '#btnIAgree',
+  '[id*="btnOk" i]', '[id*="btnClose" i]', '[id*="btnAlert" i]', '[id*="btnAgree" i]',
+  '.btn-ok', 'button[data-dismiss="modal"]', 'button.close', 'a.close',
+  '.modal-footer button', '.ui-dialog-buttonpane button', '.ui-dialog-titlebar-close',
+].join(', ');
+
 async function dismissAllPopups(page: Page, ctx: AutomationContext, tag = ""): Promise<void> {
-  const selectors = [
-    'button:has-text("OK")',
-    'button:has-text("Ok")',
-    'button:has-text("ok")',
-    'button:has-text("Okay")',
-    'button:has-text("Close")',
-    'button:has-text("Accept")',
-    'button:has-text("Yes")',
-    'button:has-text("Proceed")',
-    'button:has-text("Continue")',
-    '#btnOk',
-    '#btnOK',
-    '#btnClose',
-    '.btn-ok',
-    '.btn-primary[data-dismiss]',
-    '.modal-footer button',
-    'button[data-dismiss="modal"]',
-    '.alert-dialog button',
-    '[id*="btnOk" i]',
-    '[id*="btnClose" i]',
-    '[id*="btnAlert" i]',
-    '.ui-dialog-buttonpane button',
-    '.modal.show .modal-footer button',
-    '.modal.in .modal-footer button',
-  ];
+  for (let round = 0; round < 20; round++) {
+    // Press Escape — closes many overlay/dialog patterns instantly
+    await page.keyboard.press('Escape').catch(() => {});
 
-  let round = 0;
-  const MAX_ROUNDS = 10; // safety cap — government portals won't have more than 10 stacked popups
-
-  while (round < MAX_ROUNDS) {
-    let dismissed = false;
-    for (const sel of selectors) {
-      try {
-        const btn = page.locator(sel).first();
-        await btn.waitFor({ state: "visible", timeout: 1500 });
-        await btn.click();
-        await ctx.log("info", `[${tag}] Dismissed popup with selector: ${sel} (round ${round + 1})`);
-        await page.waitForTimeout(600);
-        dismissed = true;
-        break; // restart outer loop after each dismissal
-      } catch {
-        // not present — try next selector
-      }
+    try {
+      // One combined query — finds the first visible dismiss button across ALL patterns at once
+      const btn = page.locator(POPUP_SEL).first();
+      await btn.waitFor({ state: "visible", timeout: 300 }); // fast timeout
+      const label = await btn.innerText().catch(() => await btn.getAttribute("value").catch(() => "?"));
+      await btn.click({ force: true }); // force skips actionability checks
+      await ctx.log("info", `[${tag}] Popup dismissed: "${String(label).trim()}" (round ${round + 1})`);
+      await page.waitForTimeout(150); // minimal animation wait
+    } catch {
+      break; // no visible dismiss button — all popups gone
     }
-    if (!dismissed) break; // no more popups found
-    round++;
   }
 }
 

@@ -387,6 +387,9 @@ async function processJob(job: JobRecord): Promise<void> {
     // Cap every individual page action at 25s so a missing selector
     // fails quickly instead of hanging for the Playwright default (30s).
     page.setDefaultTimeout(25_000);
+    // Auto-dismiss any browser-native JS alert/confirm/prompt dialogs immediately.
+    // Government portals sometimes use alert() for session warnings.
+    page.on("dialog", dialog => { dialog.dismiss().catch(() => {}); });
     // Register page so the live-screenshot API can capture it
     activePages.set(job.id, page);
 

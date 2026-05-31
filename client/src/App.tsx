@@ -38,6 +38,7 @@ import BillingPage from "@/pages/billing";
 import KraKpiPage from "@/pages/kra-kpi";
 import EpfoPage from "@/pages/epfo";
 import EsicPage from "@/pages/esic";
+import LiveViewPage from "@/pages/live-view";
 import ComplianceCalendarPage from "@/pages/compliance-calendar";
 import AutomationJobsPage from "@/pages/automation-jobs";
 import NotFound from "@/pages/not-found";
@@ -135,6 +136,7 @@ function ProtectedRouter() {
       <Route path="/compliances" component={CompliancesPage} />
       <Route path="/epfo" component={EpfoPage} />
       <Route path="/esic" component={EsicPage} />
+      <Route path="/live-view" component={LiveViewPage} />
       <Route path="/compliance-calendar" component={ComplianceCalendarPage} />
       <Route path="/automation-jobs" component={AutomationJobsPage} />
       <Route path="/billing" component={BillingPage} />
