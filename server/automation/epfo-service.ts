@@ -267,7 +267,6 @@ export async function epfoLogin(
 ): Promise<void> {
   await ctx.log("info", "Navigating to EPFO login page");
   await gotoWithRetry(page, EPFO_LOGIN_URL, { waitUntil: "domcontentloaded", timeout: 60000 });
-  await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {});
 
   // ── Dismiss ALL notification popups (EPFO can stack multiple modals) ────────
   await dismissAllPopups(page, ctx, "epfo-pre-login");
@@ -283,7 +282,7 @@ export async function epfoLogin(
 
   // Small pause — EPFO can render the captcha image asynchronously.
   // Without this, hasCaptcha() can fire before the image appears.
-  await page.waitForTimeout(1500);
+  await page.waitForTimeout(800);
 
   // Handle CAPTCHA if present — retry up to 3 times if the portal rejects the answer
   const captchaVisible = await hasCaptcha(page);
@@ -299,7 +298,7 @@ export async function epfoLogin(
 
       await page.click(SEL.loginBtn);
       await ctx.log("info", "Clicked login button");
-      await page.waitForLoadState("networkidle", { timeout: 20000 }).catch(() => {});
+      await page.waitForLoadState("domcontentloaded", { timeout: 15000 }).catch(() => {});
 
       // If a CAPTCHA is still visible the portal rejected the answer and showed a new one
       if (await hasCaptcha(page)) {
@@ -319,7 +318,7 @@ export async function epfoLogin(
     await safeScreenshot(page, ctx, "epfo-login-no-captcha");
     await page.click(SEL.loginBtn);
     await ctx.log("info", "Clicked login button");
-    await page.waitForLoadState("networkidle", { timeout: 20000 }).catch(() => {});
+    await page.waitForLoadState("domcontentloaded", { timeout: 15000 }).catch(() => {});
   }
 
   // Check for OTP challenge
@@ -327,7 +326,7 @@ export async function epfoLogin(
     const otp = await solveOtp(page, ctx, "login-otp");
     await page.fill(SEL.otpInput, otp);
     await page.click(SEL.otpVerifyBtn);
-    await page.waitForLoadState("networkidle", { timeout: 20000 }).catch(() => {});
+    await page.waitForLoadState("domcontentloaded", { timeout: 15000 }).catch(() => {});
   }
 
   // Dismiss any popups that appear immediately after login

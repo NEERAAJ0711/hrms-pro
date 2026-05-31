@@ -74,7 +74,7 @@ export function LiveScreen({ jobId, active, className = "", label = "Live Browse
         setConnected(false);
       }
       if (!cancelledRef.current) {
-        timerRef.current = setTimeout(poll, 2000);
+        timerRef.current = setTimeout(poll, 1000);
       }
     }
 

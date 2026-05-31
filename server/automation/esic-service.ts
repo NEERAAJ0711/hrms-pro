@@ -266,7 +266,7 @@ export async function esicLogin(
 
   // Small pause — some portals render the captcha image asynchronously after the
   // page loads. Without this, hasCaptcha() can fire before the image appears.
-  await page.waitForTimeout(1500);
+  await page.waitForTimeout(800);
 
   // Handle CAPTCHA if present — retry up to 3 times if the portal rejects the answer
   const captchaVisible = await hasCaptcha(page);
@@ -282,7 +282,7 @@ export async function esicLogin(
 
       await page.click(SEL.loginBtn);
       await ctx.log("info", "Clicked ESIC login button");
-      await page.waitForLoadState("networkidle", { timeout: 20000 }).catch(() => {});
+      await page.waitForLoadState("domcontentloaded", { timeout: 15000 }).catch(() => {});
 
       // If a CAPTCHA is still visible the portal rejected the answer and showed a new one
       if (await hasCaptcha(page)) {
@@ -302,14 +302,14 @@ export async function esicLogin(
     await ctx.takeScreenshot("esic-login-no-captcha");
     await page.click(SEL.loginBtn);
     await ctx.log("info", "Clicked ESIC login button");
-    await page.waitForLoadState("networkidle", { timeout: 20000 }).catch(() => {});
+    await page.waitForLoadState("domcontentloaded", { timeout: 15000 }).catch(() => {});
   }
 
   if (await hasOtp(page)) {
     const otp = await solveOtp(page, ctx, "esic-login-otp");
     await page.fill(SEL.otpInput, otp);
     await page.click(SEL.otpSubmitBtn);
-    await page.waitForLoadState("networkidle", { timeout: 20000 }).catch(() => {});
+    await page.waitForLoadState("domcontentloaded", { timeout: 15000 }).catch(() => {});
   }
 
   // Dismiss any popups that appear immediately after login (ESIC stacks multiple alerts)

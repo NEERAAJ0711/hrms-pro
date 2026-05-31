@@ -22,7 +22,7 @@ import { automationJobs } from "../../shared/schema";
 import { eq, sql } from "drizzle-orm";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-const POLL_INTERVAL_MS = 30_000;
+const POLL_INTERVAL_MS = 5_000;
 const RECOVERY_INTERVAL_MS = 5 * 60_000;
 const MAX_CONCURRENT = 1;
 const JOB_TIMEOUT_MS = 10 * 60_000; // 10-minute hard ceiling per job (govt portals are slow)
