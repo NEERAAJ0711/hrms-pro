@@ -917,7 +917,7 @@ function MemberToolsTab({ companyId }: { companyId: string }) {
                     <tbody>
                       {(searchResult.tableRows as string[][]).map((row, i) => (
                         <tr key={i} className="border-b">
-                          {(row as string[]).map((cell, j) => <td key={j} className="px-2 py-1">{cell}</td>)}
+                          {(row as string[]).map((cell, j) => <td key={j} className="px-2 py-1">{String(cell)}</td>)}
                         </tr>
                       ))}
                     </tbody>
@@ -969,7 +969,7 @@ function MemberToolsTab({ companyId }: { companyId: string }) {
                 <tbody>
                   {Array.isArray(ctResult.rows) && (ctResult.rows as string[][]).map((row, i) => (
                     <tr key={i} className="border-b hover:bg-muted/40">
-                      {(row as string[]).map((cell, j) => <td key={j} className="px-3 py-2 text-xs">{cell}</td>)}
+                      {(row as string[]).map((cell, j) => <td key={j} className="px-3 py-2 text-xs">{String(cell)}</td>)}
                     </tr>
                   ))}
                 </tbody>
@@ -1386,11 +1386,10 @@ function PortalSettingsTab({ companyId, isSuperAdmin, companies = [] }: {
   useEffect(() => { setSelectedCid(companyId); }, [companyId]);
 
   const effectiveCid = isSuperAdmin ? selectedCid : companyId;
-  const lastJobIdRef = useRef<string | null>(null);
 
   const [changingCreds, setChangingCreds] = useState(false);
 
-  const resetTest = () => { setTestPhase("idle"); setTestResult(null); setTestJobId(null); setCaptchaAnswer(""); lastJobIdRef.current = null; };
+  const resetTest = () => { setTestPhase("idle"); setTestResult(null); setTestJobId(null); setCaptchaAnswer(""); };
 
   const { data: session } = useQuery<{ configured: boolean; username?: string; lastLoginAt?: string }>({
     queryKey: ["/api/automation/portal-session/esic", effectiveCid],
@@ -1489,38 +1488,6 @@ function PortalSettingsTab({ companyId, isSuperAdmin, companies = [] }: {
   const cancelTest = resetTest;
 
   const isTestActive = loginMutation.isPending || !!testJobId;
-
-  const { data: runningJobs = [] } = useQuery<Array<{ id: string; status: string; jobType: string }>>({
-    queryKey: ["/api/automation/jobs/running-esic", effectiveCid],
-    queryFn: async () => {
-      const res = await fetch(`/api/automation/jobs?companyId=${effectiveCid}&limit=10`, { credentials: "include" });
-      if (!res.ok) return [];
-      const raw = await res.json();
-      const list: Array<{ id: string; status: string; jobType: string }> = Array.isArray(raw) ? raw : (raw.data ?? []);
-      return list.filter(j => (j.status === "running" || j.status === "paused") && j.jobType.startsWith("esic_"));
-    },
-    enabled: !!effectiveCid,
-    refetchInterval: testJobId ? false : 3000,
-  });
-  const latestRunningJob = testJobId ? null : (runningJobs[0] ?? null);
-  const activeScreenJobId: string | null = testJobId ?? latestRunningJob?.id ?? null;
-  const activeScreenActive = !!activeScreenJobId && (
-    testJobId
-      ? (testPhase === "running" || testPhase === "captcha" || testPhase === "otp")
-      : !!latestRunningJob
-  );
-  const activeScreenLabel = testJobId
-    ? (testPhase === "captcha" ? "CAPTCHA Required" : testPhase === "otp" ? "OTP Required" : "ESIC Portal — Live View")
-    : latestRunningJob
-      ? latestRunningJob.jobType.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())
-      : "ESIC Portal — Live View";
-
-  if (activeScreenJobId) lastJobIdRef.current = activeScreenJobId;
-  const displayJobId = activeScreenJobId ?? lastJobIdRef.current;
-  // Keep polling active as long as we have a job to show — after job completes
-  // the backend keeps the browser page open for 5 min (idle session) so the
-  // live screen stays live instead of freezing on the last frame.
-  const displayActive = activeScreenActive || !!displayJobId;
 
   return (
     <div className="space-y-5">
@@ -1663,28 +1630,6 @@ function PortalSettingsTab({ companyId, isSuperAdmin, companies = [] }: {
         </CardContent>
       </Card>
 
-      {/* ── Portal Live Monitor — ONE screen, always visible ── */}
-      {displayJobId ? (
-        <LiveScreen jobId={displayJobId} active={displayActive} label={activeScreenLabel} />
-      ) : (
-        <div className="rounded-xl overflow-hidden border-2 border-slate-700 bg-slate-950 shadow-xl">
-          <div className="flex items-center justify-between px-3 py-2 bg-slate-900 border-b border-slate-800">
-            <div className="flex items-center gap-2">
-              <Monitor className="h-3.5 w-3.5 text-slate-400" />
-              <span className="text-xs text-slate-300 font-medium">ESIC Portal — Live View</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <div className="h-2 w-2 rounded-full bg-slate-600" />
-              <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">IDLE</span>
-            </div>
-          </div>
-          <div className="flex flex-col items-center justify-center py-24 gap-3 text-slate-600">
-            <Monitor className="h-10 w-10" />
-            <p className="text-sm">No automation running</p>
-            <p className="text-xs text-center max-w-xs">Start any portal operation to see the live browser view here</p>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -1694,6 +1639,7 @@ export default function EsicPage() {
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState("dashboard");
   const [selectedCompanyId, setSelectedCompanyId] = useState("");
+  const lastJobIdRef = useRef<string | null>(null);
 
   const isSuperAdmin = user?.role === "super_admin";
 
@@ -1707,7 +1653,34 @@ export default function EsicPage() {
     enabled: isSuperAdmin,
   });
 
+  // Compute companyId early so hooks can use it before the role-guard return
   const ALLOWED = ["super_admin", "company_admin", "hr_admin"];
+  const effectiveCompanyId = user && ALLOWED.includes(user.role ?? "")
+    ? (isSuperAdmin ? selectedCompanyId : (user.companyId ?? ""))
+    : "";
+
+  // Reset live-screen state when company changes
+  useEffect(() => { lastJobIdRef.current = null; }, [effectiveCompanyId]);
+
+  // Page-level poll: find any running/paused ESIC job for the selected company
+  const { data: esicJobList = [] } = useQuery<Array<{ id: string; status: string; jobType: string }>>({
+    queryKey: ["/api/automation/jobs/page-live", effectiveCompanyId],
+    queryFn: async () => {
+      const res = await fetch(`/api/automation/jobs?companyId=${effectiveCompanyId}&limit=10`, { credentials: "include" });
+      if (!res.ok) return [];
+      const raw = await res.json();
+      const list = Array.isArray(raw) ? raw : (raw.data ?? []);
+      return (list as Array<{ id: string; status: string; jobType: string }>)
+        .filter(j => j.jobType?.startsWith("esic_") && (j.status === "running" || j.status === "paused"));
+    },
+    enabled: !!effectiveCompanyId,
+    refetchInterval: 3000,
+  });
+  const pageActiveJob = esicJobList[0] ?? null;
+  const pageActiveJobId = pageActiveJob?.id ?? null;
+  if (pageActiveJobId) lastJobIdRef.current = pageActiveJobId;
+  const displayJobId = pageActiveJobId ?? lastJobIdRef.current;
+
   if (!user || !ALLOWED.includes(user.role)) {
     return <div className="p-6 text-center text-muted-foreground">You do not have permission to view this page.</div>;
   }
@@ -1751,34 +1724,79 @@ export default function EsicPage() {
           </CardContent>
         </Card>
       ) : (
-        <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="flex flex-wrap gap-0.5">
-            <TabsTrigger value="dashboard" data-testid="tab-esic-dashboard">Dashboard</TabsTrigger>
-            <TabsTrigger value="registration" data-testid="tab-esic-registration">Registration</TabsTrigger>
-            <TabsTrigger value="contributions" data-testid="tab-esic-contributions">Contributions</TabsTrigger>
-            <TabsTrigger value="returns" data-testid="tab-esic-returns">Monthly Filing</TabsTrigger>
-            <TabsTrigger value="challans" data-testid="tab-esic-challans">Challans</TabsTrigger>
-            <TabsTrigger value="bulk" data-testid="tab-esic-bulk">Bulk Upload</TabsTrigger>
-            <TabsTrigger value="contrib-history" data-testid="tab-esic-contrib-history">Contribution History</TabsTrigger>
-            <TabsTrigger value="tools" data-testid="tab-esic-tools">Member Tools</TabsTrigger>
-            <TabsTrigger value="employees" data-testid="tab-esic-employees">Employee List</TabsTrigger>
-            <TabsTrigger value="portal" data-testid="tab-esic-portal">Portal Settings</TabsTrigger>
-          </TabsList>
+        <>
+          <Tabs value={activeTab} onValueChange={setActiveTab}>
+            <TabsList className="flex flex-wrap gap-0.5">
+              <TabsTrigger value="dashboard" data-testid="tab-esic-dashboard">Dashboard</TabsTrigger>
+              <TabsTrigger value="registration" data-testid="tab-esic-registration">Registration</TabsTrigger>
+              <TabsTrigger value="contributions" data-testid="tab-esic-contributions">Contributions</TabsTrigger>
+              <TabsTrigger value="returns" data-testid="tab-esic-returns">Monthly Filing</TabsTrigger>
+              <TabsTrigger value="challans" data-testid="tab-esic-challans">Challans</TabsTrigger>
+              <TabsTrigger value="bulk" data-testid="tab-esic-bulk">Bulk Upload</TabsTrigger>
+              <TabsTrigger value="contrib-history" data-testid="tab-esic-contrib-history">Contribution History</TabsTrigger>
+              <TabsTrigger value="tools" data-testid="tab-esic-tools">Member Tools</TabsTrigger>
+              <TabsTrigger value="employees" data-testid="tab-esic-employees">Employee List</TabsTrigger>
+              <TabsTrigger value="portal" data-testid="tab-esic-portal">Portal Settings</TabsTrigger>
+            </TabsList>
 
-          <TabsContent value="dashboard" className="mt-4"><DashboardTab companyId={companyId} onTabChange={setActiveTab} /></TabsContent>
-          <TabsContent value="registration" className="mt-4"><RegistrationTab companyId={companyId} /></TabsContent>
-          <TabsContent value="contributions" className="mt-4"><ContributionsTab companyId={companyId} /></TabsContent>
-          <TabsContent value="returns" className="mt-4"><MonthlyFilingTab companyId={companyId} /></TabsContent>
-          <TabsContent value="challans" className="mt-4"><ChallanTab companyId={companyId} /></TabsContent>
-          <TabsContent value="bulk" className="mt-4"><BulkUploadTab companyId={companyId} /></TabsContent>
-          <TabsContent value="contrib-history" className="mt-4"><ContributionHistoryTab companyId={companyId} /></TabsContent>
-          <TabsContent value="tools" className="mt-4"><MemberToolsTab companyId={companyId} /></TabsContent>
-          <TabsContent value="employees" className="mt-4"><EmployeeListTab companyId={companyId} /></TabsContent>
-          {/* Portal tab stays mounted always so live browser state survives tab switches */}
-          <div className={`mt-4 ${activeTab !== "portal" ? "hidden" : ""}`}>
-            <PortalSettingsTab companyId={companyId} isSuperAdmin={isSuperAdmin} companies={companies} />
+            <TabsContent value="dashboard" className="mt-4"><DashboardTab companyId={companyId} onTabChange={setActiveTab} /></TabsContent>
+            <TabsContent value="registration" className="mt-4"><RegistrationTab companyId={companyId} /></TabsContent>
+            <TabsContent value="contributions" className="mt-4"><ContributionsTab companyId={companyId} /></TabsContent>
+            <TabsContent value="returns" className="mt-4"><MonthlyFilingTab companyId={companyId} /></TabsContent>
+            <TabsContent value="challans" className="mt-4"><ChallanTab companyId={companyId} /></TabsContent>
+            <TabsContent value="bulk" className="mt-4"><BulkUploadTab companyId={companyId} /></TabsContent>
+            <TabsContent value="contrib-history" className="mt-4"><ContributionHistoryTab companyId={companyId} /></TabsContent>
+            <TabsContent value="tools" className="mt-4"><MemberToolsTab companyId={companyId} /></TabsContent>
+            <TabsContent value="employees" className="mt-4"><EmployeeListTab companyId={companyId} /></TabsContent>
+            {/* Portal tab stays mounted always so live browser state survives tab switches */}
+            <div className={`mt-4 ${activeTab !== "portal" ? "hidden" : ""}`}>
+              <PortalSettingsTab companyId={companyId} isSuperAdmin={isSuperAdmin} companies={companies} />
+            </div>
+          </Tabs>
+
+          {/* ── Page-level Live Monitor — visible from every tab ── */}
+          <div className="mt-4">
+            {pageActiveJob?.status === "paused" && (
+              <div className="mb-3 flex items-center gap-2 p-3 rounded-lg bg-orange-50 border border-orange-200 text-sm text-orange-800">
+                <AlertTriangle className="h-4 w-4 shrink-0" />
+                <span>
+                  Portal paused — <strong>CAPTCHA or OTP required</strong>. Go to the{" "}
+                  <button onClick={() => setActiveTab("portal")} className="underline font-medium hover:no-underline">
+                    Portal Settings
+                  </button>{" "}
+                  tab to continue.
+                </span>
+              </div>
+            )}
+            {displayJobId ? (
+              <LiveScreen
+                jobId={displayJobId}
+                active={!!pageActiveJobId}
+                label={pageActiveJob
+                  ? pageActiveJob.jobType.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())
+                  : "ESIC Portal — Live View"}
+              />
+            ) : (
+              <div className="rounded-xl overflow-hidden border-2 border-slate-700 bg-slate-950 shadow-xl">
+                <div className="flex items-center justify-between px-3 py-2 bg-slate-900 border-b border-slate-800">
+                  <div className="flex items-center gap-2">
+                    <Monitor className="h-3.5 w-3.5 text-slate-400" />
+                    <span className="text-xs text-slate-300 font-medium">ESIC Portal — Live View</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <div className="h-2 w-2 rounded-full bg-slate-600" />
+                    <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">IDLE</span>
+                  </div>
+                </div>
+                <div className="flex flex-col items-center justify-center py-16 gap-3 text-slate-600">
+                  <Monitor className="h-10 w-10" />
+                  <p className="text-sm">No automation running</p>
+                  <p className="text-xs text-center max-w-xs">Trigger any portal operation to see the live browser here</p>
+                </div>
+              </div>
+            )}
           </div>
-        </Tabs>
+        </>
       )}
     </div>
   );
