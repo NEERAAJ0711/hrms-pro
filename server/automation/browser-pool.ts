@@ -263,3 +263,27 @@ class BrowserPool {
 }
 
 export const browserPool = new BrowserPool();
+
+/**
+ * Pre-warm: launch one Chromium per portal in the background at server startup
+ * so the very first job finds a ready browser and starts in <1 s instead of
+ * waiting 5–10 s for a cold Chromium launch.
+ *
+ * acquire → release leaves the browser alive in the slot (inUse = false) so
+ * the next acquireBrowser() call skips the launch step entirely.
+ */
+export function prewarmBrowsers(portals: string[] = ["esic", "epfo"]): void {
+  for (const portal of portals) {
+    browserPool
+      .acquireBrowser(portal)
+      .then((browser) => {
+        browserPool.releaseBrowser(portal, browser);
+        console.log(`[BrowserPool] Pre-warm complete: ${portal} browser ready`);
+      })
+      .catch((err: unknown) => {
+        console.warn(
+          `[BrowserPool] Pre-warm failed for ${portal}: ${(err as Error).message ?? err}`
+        );
+      });
+  }
+}

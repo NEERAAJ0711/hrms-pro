@@ -7261,11 +7261,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ─── Automation: live browser screenshot ──────────────────────────────────────
+  // Returns the current Playwright screenshot as PNG.
+  // While the browser is still cold-starting (page not open yet), serves a slim
+  // SVG placeholder so the live-screen shows "Launching…" instead of the empty
+  // "Waiting for browser" state.
   app.get("/api/automation/jobs/:id/live-screenshot", requireAuth, async (req: Request, res: Response) => {
     try {
       const { activePages } = await import("./automation/queue-worker");
       const page = activePages.get(req.params.id);
-      if (!page) return res.status(404).json({ error: "No active browser for this job" });
+
+      if (!page) {
+        // Browser hasn't opened its page yet — check if this job is actually active
+        const job = await queueService.getJob(req.params.id).catch(() => null);
+        if (job && (job.status === "running" || job.status === "paused" || job.status === "pending")) {
+          // Serve a styled placeholder so the live-screen renders immediately
+          const label = job.status === "pending"
+            ? "Job queued — waiting to start…"
+            : "Launching browser — please wait…";
+          const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720">
+  <rect width="1280" height="720" fill="#020617"/>
+  <rect x="490" y="310" width="300" height="100" rx="12" fill="#0f172a" stroke="#1e293b" stroke-width="1.5"/>
+  <text x="640" y="354" text-anchor="middle" font-family="ui-monospace,Menlo,monospace" font-size="15" fill="#94a3b8">\u23f3 ${label}</text>
+  <text x="640" y="384" text-anchor="middle" font-family="ui-monospace,Menlo,monospace" font-size="12" fill="#334155">Chromium will appear here once it starts</text>
+</svg>`;
+          res.setHeader("Content-Type", "image/svg+xml");
+          res.setHeader("Cache-Control", "no-store");
+          return res.send(svg);
+        }
+        return res.status(404).json({ error: "No active browser for this job" });
+      }
+
       const buf = await page.screenshot({ fullPage: false }).catch(() => null);
       if (!buf) return res.status(503).json({ error: "Screenshot failed" });
       res.setHeader("Content-Type", "image/png");

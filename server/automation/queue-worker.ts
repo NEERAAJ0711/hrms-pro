@@ -13,7 +13,7 @@ import { randomUUID } from "crypto";
 import type { BrowserContext, Page } from "playwright";
 import { queueService, type JobRecord } from "../queue-service";
 import { portalSessionService } from "../portal-session-service";
-import { browserPool } from "./browser-pool";
+import { browserPool, prewarmBrowsers } from "./browser-pool";
 import { sessionManager, type Portal } from "./session-manager";
 import * as epfo from "./epfo-service";
 import * as esic from "./esic-service";
@@ -726,6 +726,10 @@ export function startQueueWorker(): void {
   console.log(`[QueueWorker] Starting — poll interval ${POLL_INTERVAL_MS / 1000}s, max concurrent: ${MAX_CONCURRENT}`);
   setTimeout(poll, 2000);       // slight delay to let the server finish starting
   setTimeout(runRecovery, 5000); // first recovery check after 5s
+
+  // Pre-warm both portal browsers in the background so the first job
+  // gets an already-running Chromium instead of waiting for a cold launch.
+  setTimeout(() => prewarmBrowsers(["esic", "epfo"]), 3000);
 }
 
 export { queueService };
