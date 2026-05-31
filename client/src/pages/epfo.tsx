@@ -1304,7 +1304,10 @@ function PortalSettingsTab({ companyId, isSuperAdmin, companies = [] }: {
 
   if (activeScreenJobId) lastJobIdRef.current = activeScreenJobId;
   const displayJobId = activeScreenJobId ?? lastJobIdRef.current;
-  const displayActive = !!activeScreenJobId && activeScreenActive;
+  // Keep polling active as long as we have a job to show — after job completes
+  // the backend keeps the browser page open for 5 min (idle session) so the
+  // live screen stays live instead of freezing on the last frame.
+  const displayActive = activeScreenActive || !!displayJobId;
 
   return (
     <div className="space-y-5">

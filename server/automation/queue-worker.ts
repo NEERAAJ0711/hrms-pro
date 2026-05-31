@@ -42,6 +42,18 @@ export const resumeResolvers = new Map<string, (answer: string) => void>();
  */
 export const activePages = new Map<string, import("playwright").Page>();
 
+/**
+ * Pages kept alive after a job succeeds so the live screen stays active.
+ * Automatically cleaned up after IDLE_TTL_MS.
+ */
+const IDLE_TTL_MS = 5 * 60_000; // 5 minutes
+interface IdleSession {
+  page: import("playwright").Page;
+  context: BrowserContext;
+  timer: ReturnType<typeof setTimeout>;
+}
+const idleSessions = new Map<string, IdleSession>();
+
 // ─── AutomationContext ─────────────────────────────────────────────────────────
 /** Passed to every automation function. Provides logging, screenshots, pausing. */
 export interface AutomationContext {
@@ -311,6 +323,7 @@ async function processJob(job: JobRecord): Promise<void> {
   let browser: import("playwright").Browser | null = null;
   let context: BrowserContext | null = null;
   let page: Page | null = null;
+  let jobSucceeded = false;
 
   try {
     await queueService.addLog(job.id, job.companyId, "info", `Starting job: ${job.jobType}`, {
@@ -401,6 +414,7 @@ async function processJob(job: JobRecord): Promise<void> {
 
     await queueService.markJobCompleted(job.id, result);
     await queueService.addLog(job.id, job.companyId, "info", "Job completed successfully", result);
+    jobSucceeded = true;
   } catch (err: unknown) {
     let errorMessage = err instanceof Error ? err.message : String(err);
 
@@ -519,11 +533,26 @@ async function processJob(job: JobRecord): Promise<void> {
       ).catch(() => {});
     }
   } finally {
-    // Deregister live page before closing
-    activePages.delete(job.id);
-    // Clean up browser resources
-    try { await page?.close(); } catch { /* ignore */ }
-    try { await context?.close(); } catch { /* ignore */ }
+    if (jobSucceeded && page && context) {
+      // Keep browser open so the live screen stays active after login.
+      // activePages entry is intentionally NOT deleted — live-screenshot
+      // keeps serving frames for the next IDLE_TTL_MS milliseconds.
+      const capturedPage = page;
+      const capturedCtx = context;
+      const idleTimer = setTimeout(async () => {
+        idleSessions.delete(job.id);
+        activePages.delete(job.id);
+        try { await capturedPage.close(); } catch { /* ignore */ }
+        try { await capturedCtx.close(); } catch { /* ignore */ }
+      }, IDLE_TTL_MS);
+      idleSessions.set(job.id, { page, context, timer: idleTimer });
+    } else {
+      // Job failed or no page — clean up immediately
+      activePages.delete(job.id);
+      try { await page?.close(); } catch { /* ignore */ }
+      try { await context?.close(); } catch { /* ignore */ }
+    }
+    // Always release the browser slot so the next job can acquire it
     if (browser && portal) {
       browserPool.releaseBrowser(portal, browser);
     }
