@@ -1,3 +1,4 @@
 - [VPS 502 root cause](vps-502.md) — nginx config for tbjvisionconnect.com at /etc/nginx/sites-enabled/hrms.workeazy.in.conf, proxy_pass → 8080
 - [EPFO/ESIC TS fixes](epfo-esic-ts.md) — patterns that fixed all TS errors in the 1800-line epfo-esic-routes.ts
 - [VPS Playwright system libs](vps-playwright-libs.md) — Ubuntu 24.04 t64 package names needed for Playwright Chromium headless
+- [GitHub push method](github-push.md) — use node -e + git push --force via GITHUB_PERSONAL_ACCESS_TOKEN (not GITHUB_PAT)
