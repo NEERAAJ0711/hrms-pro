@@ -1263,7 +1263,7 @@ function PortalSettingsTab({ companyId, isSuperAdmin, companies = [] }: {
       if (!res.ok) return [];
       const raw = await res.json();
       const list: Array<{ id: string; status: string; jobType: string }> = Array.isArray(raw) ? raw : (raw.data ?? []);
-      return list.filter(j => j.status === "running" || j.status === "paused");
+      return list.filter(j => (j.status === "running" || j.status === "paused") && j.jobType.startsWith("esic_"));
     },
     enabled: !!effectiveCid,
     refetchInterval: testJobId ? false : 3000,
