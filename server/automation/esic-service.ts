@@ -235,7 +235,7 @@ async function dismissAllPopups(page: Page, ctx: AutomationContext, tag = ""): P
       // One combined query — finds the first visible dismiss button across ALL patterns at once
       const btn = page.locator(POPUP_SEL).first();
       await btn.waitFor({ state: "visible", timeout: 300 }); // fast timeout
-      const label = await btn.innerText().catch(() => await btn.getAttribute("value").catch(() => "?"));
+      const label = await btn.evaluate((el: Element) => (el as HTMLInputElement).value || el.textContent || "?").catch(() => "?");
       await btn.click({ force: true }); // force skips actionability checks
       await ctx.log("info", `[${tag}] Popup dismissed: "${String(label).trim()}" (round ${round + 1})`);
       await page.waitForTimeout(150); // minimal animation wait

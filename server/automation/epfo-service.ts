@@ -245,7 +245,7 @@ async function dismissAllPopups(page: Page, ctx: AutomationContext, tag = ""): P
     try {
       const btn = page.locator(POPUP_SEL).first();
       await btn.waitFor({ state: "visible", timeout: 300 });
-      const label = await btn.innerText().catch(() => await btn.getAttribute("value").catch(() => "?"));
+      const label = await btn.evaluate((el: Element) => (el as HTMLInputElement).value || el.textContent || "?").catch(() => "?");
       await btn.click({ force: true });
       await ctx.log("info", `[${tag}] Popup dismissed: "${String(label).trim()}" (round ${round + 1})`);
       await page.waitForTimeout(150);
