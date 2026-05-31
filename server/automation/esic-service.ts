@@ -72,9 +72,24 @@ const SEL = {
   username:           '#txtUserName, #txtUserid, input[name*="UserName" i], input[name*="UserId" i], input[name*="username" i]',
   password:           '#txtPassword, input[type="password"]',
   // Captcha input: actual id is txtChallanCaptcha on the ESIC employer login page
-  captchaInput:       '#txtChallanCaptcha, #txtCaptcha, input[name*="captcha" i], input[id*="captcha" i]',
-  // Captcha image: actual id is "img1" with src="../ChallanHandler.ashx"
-  captchaImage:       '#img1, img[src*="ChallanHandler"], img[src*="Captcha" i], img[id*="Captcha" i], img[alt*="captcha" i]',
+  captchaInput:       [
+    '#txtChallanCaptcha', '#txtCaptcha', '#txtcaptcha',
+    'input[name*="captcha" i]', 'input[id*="captcha" i]',
+    // Placeholder patterns — covers "Enter Captcha" shown on the login form
+    'input[placeholder*="captcha" i]', 'input[placeholder*="verification" i]',
+    'input[placeholder*="code" i][type="text"]',
+  ].join(', '),
+  // Captcha image: #img1 with src="../ChallanHandler.ashx" on Portal_Loginnew.aspx
+  captchaImage:       [
+    '#img1',
+    'img[src*="ChallanHandler"]', 'img[src*="Captcha" i]',
+    'img[id*="Captcha" i]', 'img[alt*="captcha" i]',
+    // ASP.NET WebForms common patterns
+    'img[src*="CaptchaImage"]', 'img[src*="GetCaptcha"]', 'img[src*="captcha"]',
+    '#imgCaptcha', '#CaptchaImage', 'img[id*="captcha" i]',
+    // Fallback: any image in a captcha wrapper
+    '.captcha img', '[class*="captcha" i] img', '[id*="captcha" i] img',
+  ].join(', '),
   loginBtn:           '#btnLogin, button[type="submit"], input[type="submit"]',
 
   // OTP
@@ -131,7 +146,23 @@ const SEL = {
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 async function hasCaptcha(page: Page): Promise<boolean> {
   try {
-    return await page.isVisible(SEL.captchaImage, { timeout: 5000 });
+    // 1. Check for a visible captcha image (covers #img1 / ChallanHandler)
+    const imageVisible = await page.isVisible(SEL.captchaImage, { timeout: 5000 }).catch(() => false);
+    if (imageVisible) return true;
+
+    // 2. Fallback — check for a visible captcha input field.
+    //    "Enter Captcha" placeholder is enough to confirm a captcha is required.
+    const inputVisible = await page.isVisible(SEL.captchaInput, { timeout: 2000 }).catch(() => false);
+    if (inputVisible) return true;
+
+    // 3. Last resort — scan body text for captcha keywords
+    const bodyText = await page.textContent("body", { timeout: 1000 }).catch(() => "");
+    if (/captcha|verification.?code|enter.?code|security.?code/i.test(bodyText ?? "")) {
+      const anyInput = await page.isVisible('input[type="text"], input[type="tel"]', { timeout: 500 }).catch(() => false);
+      if (anyInput) return true;
+    }
+
+    return false;
   } catch {
     return false;
   }
@@ -232,6 +263,10 @@ export async function esicLogin(
   await ctx.log("info", "Filled ESIC username");
   await page.fill(SEL.password, payload.password);
   await ctx.log("info", "Filled ESIC password");
+
+  // Small pause — some portals render the captcha image asynchronously after the
+  // page loads. Without this, hasCaptcha() can fire before the image appears.
+  await page.waitForTimeout(1500);
 
   // Handle CAPTCHA if present — retry up to 3 times if the portal rejects the answer
   const captchaVisible = await hasCaptcha(page);

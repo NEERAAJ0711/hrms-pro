@@ -157,12 +157,12 @@ async function waitFor(page: Page, selector: string, timeout = 15000): Promise<b
 /** Check if current page looks like a CAPTCHA challenge */
 async function hasCaptcha(page: Page): Promise<boolean> {
   try {
-    // 1. Check for a visible captcha image or canvas
-    const imageVisible = await page.isVisible(SEL.captchaImage, { timeout: 2000 }).catch(() => false);
+    // 1. Check for a visible captcha image or canvas (give slow portals time to load)
+    const imageVisible = await page.isVisible(SEL.captchaImage, { timeout: 5000 }).catch(() => false);
     if (imageVisible) return true;
 
     // 2. Check for a visible captcha input field (if input exists, captcha is required)
-    const inputVisible = await page.isVisible(SEL.captchaInput, { timeout: 1000 }).catch(() => false);
+    const inputVisible = await page.isVisible(SEL.captchaInput, { timeout: 3000 }).catch(() => false);
     if (inputVisible) return true;
 
     // 3. Scan page text for captcha keywords — some portals just show a text prompt
@@ -289,6 +289,10 @@ export async function epfoLogin(
   await ctx.log("info", "Filled username");
   await page.fill(SEL.password, payload.password);
   await ctx.log("info", "Filled password");
+
+  // Small pause — EPFO can render the captcha image asynchronously.
+  // Without this, hasCaptcha() can fire before the image appears.
+  await page.waitForTimeout(1500);
 
   // Handle CAPTCHA if present — retry up to 3 times if the portal rejects the answer
   const captchaVisible = await hasCaptcha(page);
