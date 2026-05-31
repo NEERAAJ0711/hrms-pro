@@ -232,6 +232,8 @@ class BrowserPool {
             "--disable-dev-shm-usage",
             "--disable-gpu",
             "--disable-extensions",
+            "--ignore-certificate-errors",          // bypass NET::ERR_CERT_AUTHORITY_INVALID
+            "--ignore-certificate-errors-spki-list",
           ],
         });
         const timeoutPromise = new Promise<never>((_, reject) =>

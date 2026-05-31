@@ -344,6 +344,7 @@ async function processJob(job: JobRecord): Promise<void> {
     browser = await browserPool.acquireBrowser(portal);
     context = await browser.newContext({
       acceptDownloads: true,
+      ignoreHTTPSErrors: true,   // EPFO/ESIC portals have self-signed / authority-invalid certs
       userAgent:
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
         "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
