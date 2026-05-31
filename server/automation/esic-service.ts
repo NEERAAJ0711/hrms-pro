@@ -589,51 +589,116 @@ export async function dismissEsicPopups(page: Page, ctx: AutomationContext): Pro
 /**
  * Fetches the full list of registered employees from the ESIC portal.
  *
- * Navigation strategy:
- *  1. Kill any lingering popups first (session-welcome / notification alerts).
- *  2. Navigate directly to FormThree.aspx inside the employer portal.
- *  3. If the portal rejects the direct URL (404 / login-redirect), fall back
- *     to the dashboard and click "List of Employees" from the menu.
+ * Navigation strategy — NO direct URL jumps, only clicks:
+ *  1. Kill ALL popup stacks (ESIC shows up to 3 overlapping alerts after login).
+ *  2. Click "List of Employees" from the left-hand Employee menu.
+ *     If the link is inside a collapsed accordion, click the section header first.
+ *  3. Kill any new popups that appear after the page loads.
+ *  4. Scrape the employee table with automatic pagination.
+ *
+ * The browser context is NEVER closed here — it is returned to the idle pool
+ * by queue-worker after this function returns so the session stays live for
+ * subsequent operations.
  */
 export async function esicEmployeeList(
   page: Page,
   payload: Record<string, unknown>,
   ctx: AutomationContext
 ): Promise<Record<string, unknown>> {
-  await ctx.log("info", "Fetching ESIC employee list (FormThree)");
+  await ctx.log("info", "Fetching ESIC employee list via menu click");
 
-  // ── Step 1: kill popups before navigating ───────────────────────────────────
-  await dismissAllPopups(page, ctx, "esic-pre-employee-list");
+  // ── Step 1: Kill ALL popups — ESIC stacks up to 3 overlapping alerts ────────
+  // Run three full dismiss passes so every popup layer is cleared.
+  await ctx.log("info", "Dismissing all portal popups (pass 1/3)");
+  await dismissAllPopups(page, ctx, "popup-pass-1");
+  await page.waitForTimeout(400);
 
-  // ── Step 2: navigate to the employee list page ──────────────────────────────
-  const EMPLOYEE_LIST_URL = `${ESIC_BASE}/Employee/FormThree.aspx`;
-  await gotoWithRetry(page, EMPLOYEE_LIST_URL, {
-    waitUntil: "domcontentloaded",
-    timeout: 45000,
-  });
+  await ctx.log("info", "Dismissing all portal popups (pass 2/3)");
+  await dismissAllPopups(page, ctx, "popup-pass-2");
+  await page.waitForTimeout(400);
 
-  // Kill any popups that appear after navigation (ESIC stacks session alerts)
-  await dismissAllPopups(page, ctx, "esic-post-nav-employee-list");
+  await ctx.log("info", "Dismissing all portal popups (pass 3/3)");
+  await dismissAllPopups(page, ctx, "popup-pass-3");
+  await page.waitForTimeout(300);
 
-  // ── Step 3: fallback — navigate via menu if URL was wrong or session-gated ──
-  const urlAfterNav = page.url().toLowerCase();
-  if (
-    urlAfterNav.includes("login") ||
-    urlAfterNav.includes("loginnew") ||
-    urlAfterNav.includes("default.aspx") && !urlAfterNav.includes("employee")
-  ) {
-    await ctx.log("warn", "Direct URL redirected — navigating via dashboard menu");
-    // Go to dashboard and dismiss popups there too
-    await gotoWithRetry(page, `${ESIC_BASE}/Default.aspx`, { waitUntil: "domcontentloaded", timeout: 30000 });
-    await dismissAllPopups(page, ctx, "esic-dashboard-fallback");
+  await ctx.takeScreenshot("esic-dashboard-clean");
+  await ctx.log("info", "All popups cleared — current page: " + page.url());
 
-    // Click "List of Employees" from the Employee menu
-    await page.click('a:has-text("List of Employees")', { timeout: 15000 });
-    await page.waitForLoadState("domcontentloaded", { timeout: 20000 }).catch(() => {});
-    await dismissAllPopups(page, ctx, "esic-list-menu-click");
+  // ── Step 2: Click "List of Employees" from the Employee menu ────────────────
+  // The ESIC left-nav has an "EMPLOYEE (INSURED PERSON)" accordion section.
+  // "List of Employees" is a direct link inside it.  We try the link first;
+  // if it is not yet visible (collapsed accordion), we open the section first.
+
+  const LIST_OF_EMP_SEL = [
+    'a:has-text("List of Employees")',
+    'a[href*="FormThree"]',
+    'a[href*="ListofEmployees"]',
+    'a[href*="listofemployees" i]',
+  ].join(", ");
+
+  const EMPLOYEE_SECTION_SEL = [
+    'a:has-text("EMPLOYEE")',
+    'a:has-text("Employee")',
+    'li:has-text("EMPLOYEE") > a',
+    'span:has-text("EMPLOYEE (INSURED")',
+    'a[href*="Employee" i][href*="Menu" i]',
+  ].join(", ");
+
+  // First attempt — click directly if link is already visible
+  let clicked = false;
+  try {
+    await page.locator(LIST_OF_EMP_SEL).first().waitFor({ state: "visible", timeout: 5000 });
+    await page.locator(LIST_OF_EMP_SEL).first().click();
+    clicked = true;
+    await ctx.log("info", "Clicked 'List of Employees' directly");
+  } catch {
+    // Link not yet visible — try expanding the Employee accordion section first
+    await ctx.log("info", "Link not visible — expanding Employee section in menu");
+    try {
+      await page.locator(EMPLOYEE_SECTION_SEL).first().click({ timeout: 8000 });
+      await page.waitForTimeout(600);
+      await dismissAllPopups(page, ctx, "after-section-expand");
+    } catch {
+      // Accordion click failed — menu might already be open
+    }
+
+    // Second attempt after expanding
+    try {
+      await page.locator(LIST_OF_EMP_SEL).first().waitFor({ state: "visible", timeout: 8000 });
+      await page.locator(LIST_OF_EMP_SEL).first().click();
+      clicked = true;
+      await ctx.log("info", "Clicked 'List of Employees' after expanding section");
+    } catch {
+      // Last resort: scroll the full page and try any matching link
+      await ctx.log("warn", "Trying page-wide link search as last resort");
+      const links = await page.$$("a");
+      for (const link of links) {
+        const text = (await link.textContent().catch(() => "")).trim().toLowerCase();
+        if (text.includes("list of employee") || text.includes("listofemployee")) {
+          await link.click().catch(() => {});
+          clicked = true;
+          break;
+        }
+      }
+    }
   }
 
+  if (!clicked) {
+    await ctx.takeScreenshot("esic-employee-list-nav-failed");
+    throw new Error(
+      "Could not find 'List of Employees' link on the ESIC portal. " +
+      "Please log in first and make sure you are on the employer dashboard."
+    );
+  }
+
+  // ── Step 3: Wait for the list page and kill new popups ───────────────────────
+  await page.waitForLoadState("domcontentloaded", { timeout: 20000 }).catch(() => {});
+  await page.waitForTimeout(500);
+  await dismissAllPopups(page, ctx, "after-list-nav");
+  await dismissAllPopups(page, ctx, "after-list-nav-2");
+
   await ctx.takeScreenshot("esic-employee-list-page");
+  await ctx.log("info", "On employee list page: " + page.url());
 
   const allEmployees: Record<string, string>[] = [];
 
