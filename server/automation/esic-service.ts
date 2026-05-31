@@ -218,16 +218,29 @@ async function solveOtp(page: Page, ctx: AutomationContext, label: string): Prom
  */
 async function dismissAllPopups(page: Page, ctx: AutomationContext, tag = ""): Promise<void> {
   let emptyRounds = 0;
+  let dumpedDom = false;
 
   for (let round = 0; round < 15; round++) {
     // Press Escape — handles native browser dialogs and some overlay patterns
     await page.keyboard.press("Escape").catch(() => {});
 
+    // On first round, dump visible text so we can see what popup says in logs
+    if (!dumpedDom) {
+      dumpedDom = true;
+      const visibleText = await page.evaluate(function() {
+        return (document.body?.innerText || "").replace(/\s+/g, " ").slice(0, 600);
+      }).catch(() => "");
+      await ctx.log("info", `[${tag}] Page visible text: ${visibleText}`);
+    }
+
     // One JavaScript call scans the entire live DOM — no CSS polling delays
     const result = await page.evaluate(function() {
       // Values that mean "dismiss this popup" — exact match, case-insensitive
-      var CLOSE_VALUES = ["x", "close", "ok", "okay", "i agree", "agree", "accept",
-                          "\u00d7", "\u2715", "\u2716"];
+      var CLOSE_VALUES = [
+        "x", "close", "ok", "okay", "i agree", "agree", "accept",
+        "yes", "proceed", "continue", "dismiss", "got it",
+        "\u00d7", "\u2715", "\u2716", "\u2713"
+      ];
 
       function isElVisible(el) {
         try {
@@ -301,8 +314,12 @@ export async function esicLogin(
   await ctx.log("info", "Navigating to ESIC Employer Portal login page");
   await gotoWithRetry(page, ESIC_LOGIN_URL, { waitUntil: "domcontentloaded", timeout: 60000 });
 
-  // Dismiss any notification popups that appear on first load
-  await dismissAllPopups(page, ctx, "esic-pre-login");
+  // Wait for any JS-rendered notification popups on the login page itself
+  await ctx.log("info", "Waiting 2.5s for ESIC login-page popups to render...");
+  await page.waitForTimeout(2500);
+  await dismissAllPopups(page, ctx, "esic-pre-login-1");
+  await page.waitForTimeout(600);
+  await dismissAllPopups(page, ctx, "esic-pre-login-2");
 
   // Screenshot of the raw login page — useful for verifying selectors match the real portal
   await ctx.takeScreenshot("esic-login-page");

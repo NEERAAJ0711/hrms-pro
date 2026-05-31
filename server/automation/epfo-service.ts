@@ -212,45 +212,110 @@ async function solveOtp(page: Page, ctx: AutomationContext, label = "otp"): Prom
 // ─── Popup dismissal ──────────────────────────────────────────────────────────
 /**
  * Dismisses ALL notification / alert popups on the current EPFO page.
- * Loops until no dismissible button is found (handles stacked modals).
+ *
+ * Uses a single JS evaluate call per round (same approach as ESIC service):
+ *  - Scans inputs first (government portals use input[type=button] for close)
+ *  - Then buttons, then short <a> links
+ *  - Stops after 3 consecutive empty rounds
+ *  - Does NOT break on first miss (old bug) — waits up to ~5s total
+ *
+ * Also dumps visible page text on first run so logs show what popup says.
  */
-const POPUP_SEL = [
-  // Input buttons (EPFO uses ASP.NET WebForms patterns too)
-  'input[type="button"][value="X"]', 'input[type="button"][value="x"]',
-  'input[type="button"][value="Close"]', 'input[type="button"][value="close"]',
-  'input[type="button"][value="I Agree"]', 'input[type="button"][value="Agree"]',
-  'input[type="button"][value="OK"]', 'input[type="button"][value="Ok"]',
-  'input[type="submit"][value="Close"]', 'input[type="submit"][value="I Agree"]',
-  'input[type="submit"][value="OK"]', 'input[type="submit"][value="Ok"]',
-  // Session-warning "X" rendered as a table cell
-  'td:has-text("X")', 'span:has-text("X")',
-  // Standard HTML buttons
-  'button:has-text("OK")', 'button:has-text("Ok")', 'button:has-text("ok")',
-  'button:has-text("Close")', 'button:has-text("close")',
-  'button:has-text("I Agree")', 'button:has-text("Agree")',
-  'button:has-text("Accept")', 'button:has-text("Yes")',
-  'button:has-text("Proceed")', 'button:has-text("Continue")', 'button:has-text("Okay")',
-  // Links
-  'a:has-text("Close")', 'a:has-text("I Agree")', 'a:has-text("OK")',
-  // ID / class patterns
-  '#btnOk', '#btnOK', '#btnClose', '#btnAgree', '#btnIAgree',
-  '[id*="btnOk" i]', '[id*="btnClose" i]', '[id*="btnAlert" i]', '[id*="btnAgree" i]',
-  '.btn-ok', 'button[data-dismiss="modal"]', 'button.close', 'a.close',
-  '.modal-footer button', '.ui-dialog-buttonpane button', '.ui-dialog-titlebar-close',
-].join(', ');
-
 async function dismissAllPopups(page: Page, ctx: AutomationContext, tag = ""): Promise<void> {
-  for (let round = 0; round < 20; round++) {
-    await page.keyboard.press('Escape').catch(() => {});
-    try {
-      const btn = page.locator(POPUP_SEL).first();
-      await btn.waitFor({ state: "visible", timeout: 300 });
-      const label = await btn.evaluate((el: Element) => (el as HTMLInputElement).value || el.textContent || "?").catch(() => "?");
-      await btn.click({ force: true });
-      await ctx.log("info", `[${tag}] Popup dismissed: "${String(label).trim()}" (round ${round + 1})`);
-      await page.waitForTimeout(150);
-    } catch {
-      break;
+  let emptyRounds = 0;
+  let dumpedDom = false;
+
+  for (let round = 0; round < 15; round++) {
+    // Escape handles some native dialogs
+    await page.keyboard.press("Escape").catch(() => {});
+
+    // On first round, dump visible text so we can see what the popup says in logs
+    if (!dumpedDom) {
+      dumpedDom = true;
+      const visibleText = await page.evaluate(function() {
+        return (document.body?.innerText || "").replace(/\s+/g, " ").slice(0, 600);
+      }).catch(() => "");
+      await ctx.log("info", `[${tag}] Page visible text: ${visibleText}`);
+    }
+
+    const result = await page.evaluate(function() {
+      var CLOSE_VALUES = [
+        "x", "close", "ok", "okay", "i agree", "agree", "accept",
+        "yes", "proceed", "continue", "okay", "dismiss", "got it",
+        "\u00d7", "\u2715", "\u2716", "\u2713"
+      ];
+
+      function isElVisible(el) {
+        try {
+          var rect = el.getBoundingClientRect();
+          if (rect.width === 0 && rect.height === 0) return false;
+          var s = window.getComputedStyle(el);
+          return s.display !== "none" && s.visibility !== "hidden" && s.opacity !== "0";
+        } catch(e) { return false; }
+      }
+
+      // 1. input[type=button] / input[type=submit] — government portals love these
+      var inputs = document.querySelectorAll('input[type="button"], input[type="submit"]');
+      for (var i = 0; i < inputs.length; i++) {
+        var inp = inputs[i];
+        if (!isElVisible(inp)) continue;
+        var val = (inp.value || "").trim().toLowerCase();
+        if (CLOSE_VALUES.indexOf(val) !== -1) {
+          inp.click();
+          return { clicked: inp.value, elTag: "INPUT", id: inp.id || "(no id)", html: inp.outerHTML.slice(0, 200) };
+        }
+      }
+
+      // 2. <button> elements
+      var btns = document.querySelectorAll("button");
+      for (var j = 0; j < btns.length; j++) {
+        var btn = btns[j];
+        if (!isElVisible(btn)) continue;
+        var txt = (btn.textContent || "").trim().toLowerCase();
+        if (CLOSE_VALUES.indexOf(txt) !== -1) {
+          btn.click();
+          return { clicked: btn.textContent.trim(), elTag: "BUTTON", id: btn.id || "(no id)", html: btn.outerHTML.slice(0, 200) };
+        }
+      }
+
+      // 3. Short <a> links (navigation links have long text — skip them)
+      var links = document.querySelectorAll("a");
+      for (var k = 0; k < links.length; k++) {
+        var lnk = links[k];
+        if (!isElVisible(lnk)) continue;
+        var ltxt = (lnk.textContent || "").trim();
+        if (ltxt.length > 10) continue;
+        if (CLOSE_VALUES.indexOf(ltxt.toLowerCase()) !== -1) {
+          lnk.click();
+          return { clicked: ltxt, elTag: "A", id: lnk.id || "(no id)", html: lnk.outerHTML.slice(0, 200) };
+        }
+      }
+
+      // 4. ID-based close buttons (ASP.NET WebForms pattern)
+      var idPatterns = ["btnOk", "btnOK", "btnClose", "btnAgree", "btnIAgree", "btnAccept",
+                        "lnkClose", "lnkOk", "cmdClose", "cmdOk"];
+      for (var m = 0; m < idPatterns.length; m++) {
+        var el = document.getElementById(idPatterns[m]);
+        if (el && isElVisible(el)) {
+          el.click();
+          return { clicked: idPatterns[m], elTag: el.tagName, id: el.id, html: el.outerHTML.slice(0, 200) };
+        }
+      }
+
+      return null;
+    }).catch(function() { return null; });
+
+    if (result) {
+      await ctx.log(
+        "info",
+        `[${tag}] Popup dismissed: "${result.clicked}" <${result.elTag} id="${result.id}"> html="${result.html}" (round ${round + 1})`
+      );
+      emptyRounds = 0;
+      await page.waitForTimeout(500);
+    } else {
+      emptyRounds++;
+      if (emptyRounds >= 3) break;
+      await page.waitForTimeout(400);
     }
   }
 }
@@ -268,10 +333,19 @@ export async function epfoLogin(
   await ctx.log("info", "Navigating to EPFO login page");
   await gotoWithRetry(page, EPFO_LOGIN_URL, { waitUntil: "domcontentloaded", timeout: 60000 });
 
-  // ── Dismiss ALL notification popups (EPFO can stack multiple modals) ────────
-  await dismissAllPopups(page, ctx, "epfo-pre-login");
+  // ── CRITICAL: wait for JS-rendered notification popups ──────────────────────
+  // EPFO shows a "Notification" or "Important Notice" popup 1–3 seconds AFTER
+  // page load via JavaScript.  If we dismiss immediately (before it appears)
+  // the popup stays open and blocks the login form.
+  await ctx.log("info", "Waiting 2.5s for EPFO notification popup to render...");
+  await page.waitForTimeout(2500);
 
-  // Screenshot of the raw login page — useful for verifying selectors match
+  // First dismiss pass — clears any notification on the login page
+  await dismissAllPopups(page, ctx, "epfo-pre-login-1");
+  await page.waitForTimeout(600);
+  await dismissAllPopups(page, ctx, "epfo-pre-login-2");
+
+  // Screenshot of the login page — confirms popup was cleared
   await safeScreenshot(page, ctx, "epfo-login-page");
 
   // Fill credentials
@@ -280,9 +354,14 @@ export async function epfoLogin(
   await page.fill(SEL.password, payload.password);
   await ctx.log("info", "Filled password");
 
-  // Small pause — EPFO can render the captcha image asynchronously.
-  // Without this, hasCaptcha() can fire before the image appears.
+  // EPFO can render the captcha image asynchronously after page load
   await page.waitForTimeout(800);
+
+  // ── DISMISS AGAIN right before clicking Login ────────────────────────────────
+  // The notification popup can appear (or re-appear) while we were filling the
+  // form. If it's covering the login button the click will miss.
+  await dismissAllPopups(page, ctx, "epfo-pre-click");
+  await safeScreenshot(page, ctx, "epfo-before-click");
 
   // Handle CAPTCHA if present — retry up to 3 times if the portal rejects the answer
   const captchaVisible = await hasCaptcha(page);
@@ -295,6 +374,9 @@ export async function epfoLogin(
       const captchaAnswer = await solveCaptcha(page, ctx, label);
       await page.fill(SEL.captchaInput, captchaAnswer);
       await ctx.log("info", `Filled CAPTCHA answer (attempt ${attempt}/${MAX_CAPTCHA_ATTEMPTS})`);
+
+      // Dismiss one more time right before the actual click
+      await dismissAllPopups(page, ctx, `epfo-pre-loginbtn-${attempt}`);
 
       await page.click(SEL.loginBtn);
       await ctx.log("info", "Clicked login button");
@@ -314,8 +396,9 @@ export async function epfoLogin(
       break;
     }
   } else {
-    // No CAPTCHA found — take a screenshot anyway so we can see the form state
+    // No CAPTCHA — screenshot for debugging, then click
     await safeScreenshot(page, ctx, "epfo-login-no-captcha");
+    await dismissAllPopups(page, ctx, "epfo-pre-loginbtn-nocaptcha");
     await page.click(SEL.loginBtn);
     await ctx.log("info", "Clicked login button");
     await page.waitForLoadState("domcontentloaded", { timeout: 15000 }).catch(() => {});
@@ -329,8 +412,15 @@ export async function epfoLogin(
     await page.waitForLoadState("domcontentloaded", { timeout: 15000 }).catch(() => {});
   }
 
-  // Dismiss any popups that appear immediately after login
-  await dismissAllPopups(page, ctx, "epfo-post-login");
+  // ── Wait for post-login JS-rendered popups, then dismiss all ────────────────
+  // EPFO shows session/notification popups 1–3 seconds after landing on dashboard
+  await ctx.log("info", "Waiting 2.5s for EPFO post-login popups to render...");
+  await page.waitForTimeout(2500);
+  await dismissAllPopups(page, ctx, "epfo-post-login-1");
+  await page.waitForTimeout(600);
+  await dismissAllPopups(page, ctx, "epfo-post-login-2");
+  await page.waitForTimeout(600);
+  await dismissAllPopups(page, ctx, "epfo-post-login-3");
 
   // Screenshot after login attempt — captures the result page for debugging
   await safeScreenshot(page, ctx, "epfo-login-result");
