@@ -47,7 +47,7 @@ export const activePages = new Map<string, import("playwright").Page>();
  * Reused by subsequent jobs for the same company+portal so the user never
  * has to re-login between operations.  Auto-cleaned after IDLE_TTL_MS.
  */
-const IDLE_TTL_MS = 30 * 60_000; // 30 minutes — keeps session alive across operations
+const IDLE_TTL_MS = 4 * 60 * 60_000; // 4 hours — keeps browser alive through a full work session
 interface IdleSession {
   page: import("playwright").Page;
   context: BrowserContext;
