@@ -1,8 +1,14 @@
 import { useEffect, useRef, useState } from "react";
-import { Monitor } from "lucide-react";
+import { Monitor, Loader2, AlertTriangle, CheckCircle2, Clock } from "lucide-react";
 
 function useSearchParam(key: string) {
   return new URLSearchParams(window.location.search).get(key);
+}
+
+interface JobStatus {
+  status: string;
+  errorMessage?: string | null;
+  jobType?: string;
 }
 
 export default function LiveViewPage() {
@@ -12,6 +18,7 @@ export default function LiveViewPage() {
   const [imgSrc, setImgSrc] = useState<string | null>(null);
   const [connected, setConnected] = useState(false);
   const [lastTick, setLastTick] = useState<string | null>(null);
+  const [jobStatus, setJobStatus] = useState<JobStatus | null>(null);
   const urlRef = useRef<string | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cancelledRef = useRef(false);
@@ -24,6 +31,16 @@ export default function LiveViewPage() {
   useEffect(() => {
     if (!jobId) return;
     cancelledRef.current = false;
+
+    async function fetchJobStatus() {
+      try {
+        const res = await fetch(`/api/automation/jobs/${jobId}`, { credentials: "include", cache: "no-store" });
+        if (res.ok) {
+          const data = await res.json();
+          setJobStatus({ status: data.status, errorMessage: data.errorMessage, jobType: data.jobType });
+        }
+      } catch { /* ignore */ }
+    }
 
     async function poll() {
       if (cancelledRef.current) return;
@@ -42,16 +59,22 @@ export default function LiveViewPage() {
           });
           setConnected(true);
           setLastTick(new Date().toLocaleTimeString());
-        } else {
+          setJobStatus(null);
+        } else if (!cancelledRef.current) {
           setConnected(false);
+          await fetchJobStatus();
         }
       } catch {
-        setConnected(false);
+        if (!cancelledRef.current) {
+          setConnected(false);
+          await fetchJobStatus();
+        }
       }
       if (!cancelledRef.current) {
-        timerRef.current = setTimeout(poll, 2000);
+        timerRef.current = setTimeout(poll, 1000);
       }
     }
+
     poll();
     return () => {
       cancelledRef.current = true;
@@ -67,16 +90,102 @@ export default function LiveViewPage() {
     );
   }
 
-  const statusDot = connected ? "bg-green-400 animate-pulse" : "bg-yellow-400";
-  const statusLabel = connected ? "LIVE" : "Connecting…";
-  const statusColor = connected ? "text-green-400" : "text-yellow-400";
+  const statusDot = connected ? "bg-green-400 animate-pulse" : "bg-yellow-400 animate-pulse";
+  const statusLabel = connected ? "LIVE" : (jobStatus?.status ?? "Connecting…");
+  const statusColor = connected ? "text-green-400" :
+    jobStatus?.status === "failed" ? "text-red-400" :
+    jobStatus?.status === "completed" ? "text-green-400" :
+    "text-yellow-400";
+
+  function renderPlaceholder() {
+    if (!jobStatus) {
+      return (
+        <div className="flex flex-col items-center gap-3 text-slate-500">
+          <Loader2 className="h-12 w-12 animate-spin" />
+          <p className="text-sm">Connecting to browser…</p>
+        </div>
+      );
+    }
+
+    const s = jobStatus.status;
+
+    if (s === "pending") return (
+      <div className="flex flex-col items-center gap-3">
+        <Clock className="h-12 w-12 text-yellow-500" />
+        <p className="text-base font-semibold text-yellow-400">Job queued — waiting to start</p>
+        <p className="text-sm text-slate-500">Browser will appear here once the job begins</p>
+      </div>
+    );
+
+    if (s === "running") return (
+      <div className="flex flex-col items-center gap-3">
+        <Loader2 className="h-12 w-12 animate-spin text-blue-400" />
+        <p className="text-base font-semibold text-blue-400">Browser starting…</p>
+        <p className="text-sm text-slate-500">Opening portal in Chromium</p>
+      </div>
+    );
+
+    if (s === "paused") return (
+      <div className="flex flex-col items-center gap-3">
+        <Loader2 className="h-12 w-12 animate-spin text-orange-400" />
+        <p className="text-base font-semibold text-orange-400">Paused — waiting for CAPTCHA / OTP</p>
+        <p className="text-sm text-slate-500">Submit the answer in the HRMS portal</p>
+      </div>
+    );
+
+    if (s === "failed") return (
+      <div className="flex flex-col items-center gap-4 max-w-md text-center">
+        <AlertTriangle className="h-12 w-12 text-red-500" />
+        <p className="text-base font-semibold text-red-400">Job failed</p>
+        {jobStatus.errorMessage && (
+          <p className="text-sm text-slate-300 leading-relaxed bg-slate-900 rounded-lg px-4 py-3 border border-red-900/50">
+            {jobStatus.errorMessage}
+          </p>
+        )}
+        <p className="text-xs text-slate-600">Retry the job in the HRMS portal → Automation Jobs → Failed tab</p>
+      </div>
+    );
+
+    if (s === "completed") return (
+      <div className="flex flex-col items-center gap-3">
+        <CheckCircle2 className="h-12 w-12 text-green-500" />
+        <p className="text-base font-semibold text-green-400">Job completed successfully</p>
+      </div>
+    );
+
+    if (s === "cancelled") return (
+      <div className="flex flex-col items-center gap-3 text-slate-500">
+        <Monitor className="h-12 w-12" />
+        <p className="text-sm">Job was cancelled</p>
+      </div>
+    );
+
+    return (
+      <div className="flex flex-col items-center gap-2 text-slate-600">
+        <Monitor className="h-12 w-12" />
+        <p className="text-sm">Status: {s}</p>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-950 flex flex-col">
+      {/* Header bar */}
       <div className="flex items-center justify-between px-4 py-2 bg-slate-900 border-b border-slate-800">
         <div className="flex items-center gap-2">
           <Monitor className="h-4 w-4 text-slate-400" />
           <span className="text-sm text-slate-200 font-medium">{label}</span>
+          {jobStatus && (
+            <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${
+              jobStatus.status === "failed" ? "bg-red-900/50 text-red-400" :
+              jobStatus.status === "completed" ? "bg-green-900/50 text-green-400" :
+              jobStatus.status === "pending" ? "bg-yellow-900/50 text-yellow-400" :
+              jobStatus.status === "running" ? "bg-blue-900/50 text-blue-400" :
+              "bg-slate-800 text-slate-400"
+            }`}>
+              {jobStatus.status}
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-2">
           {lastTick && <span className="text-[11px] text-slate-500 font-mono">{lastTick}</span>}
@@ -86,13 +195,14 @@ export default function LiveViewPage() {
           </div>
         </div>
       </div>
+
+      {/* Main content */}
       <div className="flex-1 flex items-start justify-center p-4">
         {imgSrc ? (
           <img src={imgSrc} alt="Live browser view" className="max-w-full rounded shadow-2xl" style={{ imageRendering: "auto" }} />
         ) : (
-          <div className="flex flex-col items-center justify-center min-h-[400px] gap-3 text-slate-600">
-            <Monitor className="h-12 w-12" />
-            <p className="text-sm">Waiting for browser to start…</p>
+          <div className="flex flex-col items-center justify-center min-h-[400px]">
+            {renderPlaceholder()}
           </div>
         )}
       </div>

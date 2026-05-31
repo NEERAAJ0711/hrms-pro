@@ -294,7 +294,7 @@ async function dismissAllPopups(page: Page, ctx: AutomationContext, tag = ""): P
     if (result) {
       await ctx.log(
         "info",
-        `[${tag}] Popup dismissed: "${result.clicked}" <${result.tag} id="${result.id}"> (round ${round + 1})`
+        `[${tag}] Popup dismissed: "${result.clicked}" <${result.elTag} id="${result.id}"> html="${result.html}" (round ${round + 1})`
       );
       emptyRounds = 0;
       await page.waitForTimeout(500); // wait for animation / next popup to render

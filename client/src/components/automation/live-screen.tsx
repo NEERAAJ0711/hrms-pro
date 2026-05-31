@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Monitor, ExternalLink } from "lucide-react";
+import { Monitor, ExternalLink, Loader2, AlertTriangle, CheckCircle2, Clock } from "lucide-react";
 
 interface LiveScreenProps {
   jobId: string | null;
@@ -8,33 +8,38 @@ interface LiveScreenProps {
   label?: string;
 }
 
+interface JobStatus {
+  status: string;
+  errorMessage?: string | null;
+  jobType?: string;
+}
+
 /**
- * Polls /api/automation/jobs/:id/live-screenshot every 2 seconds and
- * renders the resulting image. Shows a "LIVE" indicator while connected,
- * "DONE" with last frame after the job completes, and stops rendering
- * only when there is nothing to show.
- *
- * The "⧉ Pop out" button opens the same view in a dedicated popup window so
- * EPFO and ESIC can be monitored side-by-side simultaneously.
+ * Polls /api/automation/jobs/:id/live-screenshot every 1 second.
+ * When the screenshot endpoint returns 404 (job not active), falls back to
+ * fetching real job status and shows a meaningful message instead of the
+ * generic "Waiting for browser to start…".
  */
 export function LiveScreen({ jobId, active, className = "", label = "Live Browser Screen" }: LiveScreenProps) {
   const [imgSrc, setImgSrc] = useState<string | null>(null);
   const [connected, setConnected] = useState(false);
   const [lastTick, setLastTick] = useState<string | null>(null);
+  const [jobStatus, setJobStatus] = useState<JobStatus | null>(null);
   const urlRef = useRef<string | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cancelledRef = useRef(false);
 
-  // When jobId changes (new job), clear the previous frame
+  // When jobId changes, reset all state
   useEffect(() => {
+    setImgSrc(null);
+    setConnected(false);
+    setLastTick(null);
+    setJobStatus(null);
     return () => {
       if (urlRef.current) {
         URL.revokeObjectURL(urlRef.current);
         urlRef.current = null;
       }
-      setImgSrc(null);
-      setConnected(false);
-      setLastTick(null);
     };
   }, [jobId]);
 
@@ -49,6 +54,16 @@ export function LiveScreen({ jobId, active, className = "", label = "Live Browse
     }
 
     cancelledRef.current = false;
+
+    async function fetchJobStatus() {
+      try {
+        const res = await fetch(`/api/automation/jobs/${jobId}`, { credentials: "include", cache: "no-store" });
+        if (res.ok) {
+          const data = await res.json();
+          setJobStatus({ status: data.status, errorMessage: data.errorMessage, jobType: data.jobType });
+        }
+      } catch { /* ignore */ }
+    }
 
     async function poll() {
       if (cancelledRef.current) return;
@@ -67,13 +82,20 @@ export function LiveScreen({ jobId, active, className = "", label = "Live Browse
           });
           setConnected(true);
           setLastTick(new Date().toLocaleTimeString());
-        } else {
+          setJobStatus(null); // clear status overlay once we have a live image
+        } else if (!cancelledRef.current) {
           setConnected(false);
+          // Screenshot not available — fetch actual job status for a real message
+          await fetchJobStatus();
         }
       } catch {
-        setConnected(false);
+        if (!cancelledRef.current) {
+          setConnected(false);
+          await fetchJobStatus();
+        }
       }
       if (!cancelledRef.current) {
+        // Poll faster when still waiting (1s), slower once connected (1s too — portal actions need fast updates)
         timerRef.current = setTimeout(poll, 1000);
       }
     }
@@ -83,7 +105,6 @@ export function LiveScreen({ jobId, active, className = "", label = "Live Browse
     return () => {
       cancelledRef.current = true;
       if (timerRef.current) clearTimeout(timerRef.current);
-      // Do NOT revoke urlRef here — keep last frame visible when job completes
     };
   }, [jobId, active]);
 
@@ -91,7 +112,7 @@ export function LiveScreen({ jobId, active, className = "", label = "Live Browse
   if (!jobId || (!imgSrc && !active)) return null;
 
   const statusDot = active
-    ? (connected ? "bg-green-400 animate-pulse" : "bg-yellow-400")
+    ? (connected ? "bg-green-400 animate-pulse" : "bg-yellow-400 animate-pulse")
     : "bg-slate-500";
   const statusLabel = active ? (connected ? "LIVE" : "connecting…") : "DONE";
   const statusColor = active ? (connected ? "text-green-400" : "text-yellow-400") : "text-slate-400";
@@ -101,6 +122,92 @@ export function LiveScreen({ jobId, active, className = "", label = "Live Browse
     window.open(url, `live_${jobId}`, "width=960,height=700,popup=yes,resizable=yes");
   }
 
+  // ── Status overlay when no screenshot yet ────────────────────────────────────
+  function renderStatusPlaceholder() {
+    if (!jobStatus) {
+      // Still waiting for first status fetch
+      return (
+        <div className="flex flex-col items-center justify-center min-h-[400px] gap-3 text-slate-500">
+          <Loader2 className="h-8 w-8 animate-spin" />
+          <span className="text-xs">Browser starting — checking status…</span>
+        </div>
+      );
+    }
+
+    const s = jobStatus.status;
+
+    if (s === "pending") {
+      return (
+        <div className="flex flex-col items-center justify-center min-h-[400px] gap-3 text-slate-400">
+          <Clock className="h-8 w-8 text-yellow-500" />
+          <span className="text-sm font-medium text-yellow-400">Job queued — waiting to start</span>
+          <span className="text-xs text-slate-500">The browser will appear here once the job begins</span>
+        </div>
+      );
+    }
+
+    if (s === "running") {
+      return (
+        <div className="flex flex-col items-center justify-center min-h-[400px] gap-3 text-slate-400">
+          <Loader2 className="h-8 w-8 animate-spin text-blue-400" />
+          <span className="text-sm font-medium text-blue-400">Browser starting…</span>
+          <span className="text-xs text-slate-500">Opening portal in Chromium</span>
+        </div>
+      );
+    }
+
+    if (s === "paused") {
+      return (
+        <div className="flex flex-col items-center justify-center min-h-[400px] gap-3 text-slate-400">
+          <Loader2 className="h-8 w-8 animate-spin text-orange-400" />
+          <span className="text-sm font-medium text-orange-400">Paused — waiting for CAPTCHA / OTP</span>
+        </div>
+      );
+    }
+
+    if (s === "failed") {
+      return (
+        <div className="flex flex-col items-center justify-center min-h-[400px] gap-3 px-6">
+          <AlertTriangle className="h-8 w-8 text-red-500" />
+          <span className="text-sm font-semibold text-red-400">Job failed</span>
+          {jobStatus.errorMessage && (
+            <p className="text-xs text-slate-400 text-center max-w-sm leading-relaxed">
+              {jobStatus.errorMessage}
+            </p>
+          )}
+          <span className="text-xs text-slate-600">Check the Logs tab for full details</span>
+        </div>
+      );
+    }
+
+    if (s === "completed") {
+      return (
+        <div className="flex flex-col items-center justify-center min-h-[400px] gap-3">
+          <CheckCircle2 className="h-8 w-8 text-green-500" />
+          <span className="text-sm font-semibold text-green-400">Job completed successfully</span>
+          {imgSrc && <span className="text-xs text-slate-500">Last frame shown above</span>}
+        </div>
+      );
+    }
+
+    if (s === "cancelled") {
+      return (
+        <div className="flex flex-col items-center justify-center min-h-[400px] gap-3 text-slate-500">
+          <Monitor className="h-8 w-8" />
+          <span className="text-sm">Job was cancelled</span>
+        </div>
+      );
+    }
+
+    // Unknown state
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] gap-2 text-slate-600">
+        <Monitor className="h-8 w-8" />
+        <span className="text-xs">Status: {s}</span>
+      </div>
+    );
+  }
+
   return (
     <div className={`rounded-xl overflow-hidden border-2 border-slate-700 bg-slate-950 shadow-xl ${className}`}>
       {/* Header bar */}
@@ -108,6 +215,16 @@ export function LiveScreen({ jobId, active, className = "", label = "Live Browse
         <div className="flex items-center gap-2">
           <Monitor className="h-3.5 w-3.5 text-slate-400" />
           <span className="text-xs text-slate-300 font-medium">{label}</span>
+          {jobStatus && (
+            <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${
+              jobStatus.status === "failed" ? "bg-red-900/50 text-red-400" :
+              jobStatus.status === "completed" ? "bg-green-900/50 text-green-400" :
+              jobStatus.status === "pending" ? "bg-yellow-900/50 text-yellow-400" :
+              "bg-slate-800 text-slate-400"
+            }`}>
+              {jobStatus.status}
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-3">
           {lastTick && (
@@ -119,7 +236,6 @@ export function LiveScreen({ jobId, active, className = "", label = "Live Browse
               {statusLabel}
             </span>
           </div>
-          {/* Pop-out button — opens this view in a separate window for side-by-side use */}
           <button
             onClick={popOut}
             title="Pop out into separate window"
@@ -140,10 +256,7 @@ export function LiveScreen({ jobId, active, className = "", label = "Live Browse
           style={{ imageRendering: "auto" }}
         />
       ) : (
-        <div className="flex flex-col items-center justify-center min-h-[400px] gap-2 text-slate-600">
-          <Monitor className="h-8 w-8" />
-          <span className="text-xs">Waiting for browser to start…</span>
-        </div>
+        renderStatusPlaceholder()
       )}
     </div>
   );
