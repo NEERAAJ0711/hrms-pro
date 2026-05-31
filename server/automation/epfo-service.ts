@@ -185,6 +185,39 @@ export async function epfoLogin(
   await gotoWithRetry(page, EPFO_LOGIN_URL, { waitUntil: "domcontentloaded", timeout: 60000 });
   await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {});
 
+  // ── Dismiss notification popup (EPFO shows a modal on first load) ──────────
+  // Try every known selector the "OK" / "Close" button can have on the portal.
+  // Use a short timeout so we don't stall when the popup is absent.
+  const popupSelectors = [
+    'button:has-text("OK")',
+    'button:has-text("Ok")',
+    'button:has-text("ok")',
+    'button:has-text("Okay")',
+    'button:has-text("Close")',
+    '#btnOk',
+    '#btnOK',
+    '.btn-ok',
+    '.modal-footer button',
+    '.modal button[data-dismiss="modal"]',
+    'button[data-dismiss="modal"]',
+    '.alert-dialog button',
+    '.popup-ok',
+    '[id*="btnOk" i]',
+    '[id*="btnClose" i]',
+  ];
+  for (const sel of popupSelectors) {
+    try {
+      const btn = page.locator(sel).first();
+      await btn.waitFor({ state: "visible", timeout: 2000 });
+      await btn.click();
+      await ctx.log("info", `Dismissed EPFO popup with selector: ${sel}`);
+      await page.waitForTimeout(500);
+      break;
+    } catch {
+      // popup not present with this selector — try next
+    }
+  }
+
   // Screenshot of the raw login page — useful for verifying selectors match
   await safeScreenshot(page, ctx, "epfo-login-page");
 
