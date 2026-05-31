@@ -1538,7 +1538,10 @@ export default function EsicPage() {
           <TabsContent value="bulk" className="mt-4"><BulkUploadTab companyId={companyId} /></TabsContent>
           <TabsContent value="tools" className="mt-4"><MemberToolsTab companyId={companyId} /></TabsContent>
           <TabsContent value="employees" className="mt-4"><EmployeeListTab companyId={companyId} /></TabsContent>
-          <TabsContent value="portal" className="mt-4"><PortalSettingsTab companyId={companyId} isSuperAdmin={isSuperAdmin} companies={companies} /></TabsContent>
+          {/* Portal tab stays mounted always so live browser state survives tab switches */}
+          <div className={`mt-4 ${activeTab !== "portal" ? "hidden" : ""}`}>
+            <PortalSettingsTab companyId={companyId} isSuperAdmin={isSuperAdmin} companies={companies} />
+          </div>
         </Tabs>
       )}
     </div>
