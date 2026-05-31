@@ -1154,6 +1154,8 @@ function PortalSettingsTab({ companyId, isSuperAdmin, companies = [] }: {
   const effectiveCid = isSuperAdmin ? selectedCid : companyId;
   const lastJobIdRef = useRef<string | null>(null);
 
+  const [changingCreds, setChangingCreds] = useState(false);
+
   const resetTest = () => { setTestPhase("idle"); setTestResult(null); setTestJobId(null); setCaptchaAnswer(""); lastJobIdRef.current = null; };
 
   const { data: session } = useQuery<{ configured: boolean; username?: string; lastLoginAt?: string }>({
@@ -1170,19 +1172,6 @@ function PortalSettingsTab({ companyId, isSuperAdmin, companies = [] }: {
   useEffect(() => {
     if (session?.username) setUsername(session.username);
   }, [session?.username]);
-
-  const saveMutation = useMutation({
-    mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/automation/portal-session", { portal: "esic", username, password, companyId: effectiveCid });
-      return res.json();
-    },
-    onSuccess: () => {
-      toast({ title: "ESIC credentials saved" });
-      setPassword("");               // clear password only — keep username visible
-      queryClient.invalidateQueries({ queryKey: ["/api/automation/portal-session/esic"] });
-    },
-    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
-  });
 
   const [testJobId, setTestJobId] = useState<string | null>(null);
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
@@ -1223,8 +1212,16 @@ function PortalSettingsTab({ companyId, isSuperAdmin, companies = [] }: {
     }
   }, [polledJob?.status, polledJob?.screenshotPath]);
 
-  const testMutation = useMutation({
+  const loginMutation = useMutation({
     mutationFn: async () => {
+      if (!session?.configured || changingCreds) {
+        if (!username || !password) throw new Error("Enter both username and password.");
+        const saveRes = await apiRequest("POST", "/api/automation/portal-session", { portal: "esic", username, password, companyId: effectiveCid });
+        await saveRes.json();
+        await queryClient.invalidateQueries({ queryKey: ["/api/automation/portal-session/esic"] });
+        setPassword("");
+        setChangingCreds(false);
+      }
       const res = await apiRequest("POST", "/api/automation/portal-session/test", { portal: "esic", companyId: effectiveCid });
       return res.json();
     },
@@ -1234,7 +1231,7 @@ function PortalSettingsTab({ companyId, isSuperAdmin, companies = [] }: {
       setTestPhase("running");
       setTestJobId(data.jobId);
     },
-    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+    onError: (e: any) => toast({ title: "Login failed", description: e.message, variant: "destructive" }),
   });
 
   const resumeMutation = useMutation({
@@ -1255,21 +1252,9 @@ function PortalSettingsTab({ companyId, isSuperAdmin, companies = [] }: {
         : `/uploads/automation-screenshots/${polledJob.screenshotPath.split("/").pop()}`)
     : null;
 
-  // Client-side 90s safety net: if the job is still "running" after 90 seconds
-  // (portal unreachable, Chromium can't start, etc.) stop the spinner and tell the user.
-  useEffect(() => {
-    if (testPhase !== "running") return;
-    const timer = setTimeout(() => {
-      setTestPhase("done");
-      setTestResult({ ok: false, message: "Portal automation timed out after 90 seconds. The ESIC portal may be slow or unreachable from the server. Try again or click 'Open Portal' to log in manually." });
-      setTestJobId(null);
-    }, 90_000);
-    return () => clearTimeout(timer);
-  }, [testPhase]);
-
   const cancelTest = resetTest;
 
-  const isTestActive = testMutation.isPending || !!testJobId;
+  const isTestActive = loginMutation.isPending || !!testJobId;
 
   const { data: runningJobs = [] } = useQuery<Array<{ id: string; status: string; jobType: string }>>({
     queryKey: ["/api/automation/jobs/running-esic", effectiveCid],
@@ -1307,147 +1292,138 @@ function PortalSettingsTab({ companyId, isSuperAdmin, companies = [] }: {
     <div className="space-y-5">
       <Card className="max-w-xl">
         <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2"><Lock className="h-4 w-4" /> ESIC Portal Credentials</CardTitle>
-          <CardDescription>Credentials are AES-256-GCM encrypted before storage.</CardDescription>
+          <CardTitle className="text-base flex items-center gap-2"><Lock className="h-4 w-4" /> ESIC Portal Login</CardTitle>
+          <CardDescription>Credentials are AES-256-GCM encrypted. Login to start automating portal operations.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           {isSuperAdmin && (
             <div className="flex items-center gap-2">
               <Label className="text-sm font-medium whitespace-nowrap shrink-0">Company</Label>
-              <Select value={selectedCid} onValueChange={(v) => { setSelectedCid(v); resetTest(); }} data-testid="select-portal-esic-company">
-                <SelectTrigger className="flex-1">
-                  <SelectValue placeholder="Select a company…" />
-                </SelectTrigger>
+              <Select value={selectedCid} onValueChange={(v) => { setSelectedCid(v); resetTest(); setChangingCreds(false); }} data-testid="select-portal-esic-company">
+                <SelectTrigger className="flex-1"><SelectValue placeholder="Select a company…" /></SelectTrigger>
                 <SelectContent>
-                  {companies.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
-                  ))}
+                  {companies.map((c) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
           )}
+
           {isSuperAdmin && !effectiveCid ? (
             <p className="text-sm text-muted-foreground text-center py-4">Select a company above to manage its ESIC credentials.</p>
           ) : (
           <>
-          {session?.configured && (
-            <div className="flex items-center gap-2 p-3 rounded-lg bg-green-50 border border-green-200 text-sm text-green-800">
-              <CheckCircle2 className="h-4 w-4" />
-              Portal configured — username: {session.username}
-            </div>
-          )}
-          <div>
-            <Label className="mb-1.5 block">ESIC Portal Username / Employer Code</Label>
-            <Input value={username} onChange={e => setUsername(e.target.value)} placeholder="Enter ESIC username" data-testid="input-esic-username" />
-          </div>
-          <div>
-            <Label className="mb-1.5 block">Password</Label>
-            <div className="relative">
-              <Input type={showPw ? "text" : "password"} value={password} onChange={e => setPassword(e.target.value)} placeholder={session?.configured ? "Saved — type to change" : "Enter ESIC password"} className="pr-10" data-testid="input-esic-password" />
-              <button className="absolute right-3 top-2.5 text-muted-foreground" onClick={() => setShowPw(p => !p)}>
-                {showPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-              </button>
-            </div>
-          </div>
-          <div className="flex flex-wrap gap-3">
-            <Button onClick={() => saveMutation.mutate()} disabled={!username || saveMutation.isPending} data-testid="button-save-esic-credentials">
-              {saveMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Settings className="h-4 w-4 mr-2" />}
-              Save Credentials
-            </Button>
-            {session?.configured && (
-              <Button variant="outline" onClick={() => { setTestResult(null); setTestPhase("idle"); testMutation.mutate(); }} disabled={isTestActive} data-testid="button-test-esic-login">
-                {isTestActive && testPhase === "running" ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Activity className="h-4 w-4 mr-2" />}
-                {isTestActive ? "Testing…" : "Test Login"}
+            {/* Saved-credentials banner */}
+            {session?.configured && !changingCreds && (
+              <div className="flex items-center justify-between p-3 rounded-lg bg-green-50 border border-green-200 text-sm">
+                <div className="flex items-center gap-2 text-green-800">
+                  <CheckCircle2 className="h-4 w-4 shrink-0" />
+                  <span>Saved as <strong>{session.username}</strong></span>
+                  {session.lastLoginAt && <span className="text-green-600">(last login: {fmtDate(session.lastLoginAt)})</span>}
+                </div>
+                <button className="text-xs text-muted-foreground underline hover:no-underline shrink-0" onClick={() => { setChangingCreds(true); resetTest(); }} data-testid="button-esic-change-creds">
+                  Change
+                </button>
+              </div>
+            )}
+
+            {/* Credential fields — only when not saved OR user is changing */}
+            {(!session?.configured || changingCreds) && (
+              <div className="space-y-3">
+                <div>
+                  <Label className="mb-1.5 block">ESIC Portal Username / Employer Code</Label>
+                  <Input value={username} onChange={e => setUsername(e.target.value)} placeholder="Enter ESIC username" data-testid="input-esic-username" />
+                </div>
+                <div>
+                  <Label className="mb-1.5 block">Password</Label>
+                  <div className="relative">
+                    <Input type={showPw ? "text" : "password"} value={password} onChange={e => setPassword(e.target.value)} placeholder="Enter ESIC password" className="pr-10" data-testid="input-esic-password" />
+                    <button className="absolute right-3 top-2.5 text-muted-foreground" onClick={() => setShowPw(p => !p)}>
+                      {showPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </button>
+                  </div>
+                </div>
+                {changingCreds && (
+                  <button className="text-xs text-muted-foreground underline hover:no-underline" onClick={() => { setChangingCreds(false); setPassword(""); }}>
+                    Cancel
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* Single Login button */}
+            {(testPhase === "idle" || testPhase === "done") && (
+              <Button
+                className="w-full"
+                onClick={() => { resetTest(); loginMutation.mutate(); }}
+                disabled={isTestActive || loginMutation.isPending || ((!session?.configured || changingCreds) && (!username || !password))}
+                data-testid="button-esic-login"
+              >
+                {loginMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Activity className="h-4 w-4 mr-2" />}
+                {loginMutation.isPending ? "Connecting…" : "Login to ESIC Portal"}
               </Button>
             )}
-            <a href="https://esic.gov.in/" target="_blank" rel="noopener noreferrer">
-              <Button variant="ghost" type="button" data-testid="button-open-esic-portal">
-                <Download className="h-4 w-4 mr-2 rotate-180" />
-                Open Portal
-              </Button>
-            </a>
-          </div>
 
-          {/* Step 1: running — filling credentials on portal */}
-          {testPhase === "running" && (
-            <div className="flex items-center justify-between gap-2 p-3 rounded-lg bg-blue-50 border border-blue-200 text-sm text-blue-800">
-              <div className="flex items-center gap-2">
-                <Loader2 className="h-4 w-4 animate-spin shrink-0" />
-                <span>Opening ESIC portal and filling username &amp; password automatically…</span>
-              </div>
-              <button onClick={cancelTest} className="text-xs text-blue-600 underline hover:no-underline shrink-0" data-testid="button-cancel-esic-test">Cancel</button>
-            </div>
-          )}
-
-          {/* Step 2: CAPTCHA or OTP required */}
-          {(testPhase === "captcha" || testPhase === "otp") && (
-            <div className="rounded-lg border-2 border-orange-300 bg-orange-50 p-4 space-y-3">
-              <div className="flex items-center gap-2 text-orange-800 font-semibold text-sm">
-                <AlertTriangle className="h-4 w-4 shrink-0" />
-                {testPhase === "captcha"
-                  ? "CAPTCHA required — see the Live View below for the verification image"
-                  : "OTP required — check the mobile number registered with ESIC"}
-              </div>
-              <div className="space-y-2">
-                <Label className="text-orange-900 text-sm font-medium">
-                  {testPhase === "captcha" ? "Enter the CAPTCHA shown in the Live View below:" : "Enter the OTP sent to your registered mobile:"}
-                </Label>
-                <div className="flex gap-2">
-                  <Input
-                    value={captchaAnswer}
-                    onChange={e => setCaptchaAnswer(e.target.value)}
-                    onKeyDown={e => { if (e.key === "Enter" && captchaAnswer.trim()) resumeMutation.mutate(); }}
-                    placeholder={testPhase === "captcha" ? "e.g. AB12CD" : "e.g. 123456"}
-                    className="font-mono tracking-widest text-lg"
-                    autoFocus
-                    data-testid="input-esic-captcha"
-                  />
-                  <Button
-                    onClick={() => resumeMutation.mutate()}
-                    disabled={!captchaAnswer.trim() || resumeMutation.isPending}
-                    data-testid="button-esic-submit-captcha"
-                  >
-                    {resumeMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Submit"}
-                  </Button>
+            {/* Running */}
+            {testPhase === "running" && (
+              <div className="flex items-center justify-between gap-2 p-3 rounded-lg bg-blue-50 border border-blue-200 text-sm text-blue-800">
+                <div className="flex items-center gap-2">
+                  <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+                  <span>Logging in to ESIC portal…</span>
                 </div>
-                <p className="text-xs text-orange-700">Press Enter or click Submit — automation will continue automatically.</p>
+                <button onClick={cancelTest} className="text-xs text-blue-600 underline hover:no-underline shrink-0" data-testid="button-cancel-esic-test">Cancel</button>
               </div>
-            </div>
-          )}
+            )}
 
-          {/* Step 3: final result */}
-          {testPhase === "done" && testResult && (
-            <div className={`p-3 rounded-lg border text-sm ${testResult.ok ? "bg-green-50 border-green-200 text-green-800" : "bg-red-50 border-red-200 text-red-800"}`}>
-              <div className="flex items-start gap-2">
-                {testResult.ok
-                  ? <CheckCircle2 className="h-4 w-4 mt-0.5 shrink-0" />
-                  : <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />}
-                <div className="min-w-0 flex-1">
-                  <p className="font-medium">
-                    {testResult.ok ? "Login successful — credentials verified and working." : "Login failed"}
-                  </p>
-                  {!testResult.ok && (
-                    <>
-                      <p className="mt-1 break-words whitespace-pre-wrap text-xs opacity-90" data-testid="esic-test-error-message">
-                        {testResult.message}
-                      </p>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="mt-2 h-7 px-3 text-xs border-red-300 text-red-700 hover:bg-red-100"
-                        onClick={() => { resetTest(); testMutation.mutate(); }}
-                        disabled={isTestActive}
-                        data-testid="button-esic-retry-login"
-                      >
-                        <RefreshCw className="h-3 w-3 mr-1" />
-                        Try again
-                      </Button>
-                    </>
-                  )}
+            {/* CAPTCHA or OTP */}
+            {(testPhase === "captcha" || testPhase === "otp") && (
+              <div className="rounded-lg border-2 border-orange-300 bg-orange-50 p-4 space-y-3">
+                <div className="flex items-center gap-2 text-orange-800 font-semibold text-sm">
+                  <AlertTriangle className="h-4 w-4 shrink-0" />
+                  {testPhase === "captcha" ? "CAPTCHA required — see Live View below" : "OTP required — check your registered mobile"}
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-orange-900 text-sm font-medium">
+                    {testPhase === "captcha" ? "Enter the CAPTCHA:" : "Enter the OTP:"}
+                  </Label>
+                  <div className="flex gap-2">
+                    <Input
+                      value={captchaAnswer}
+                      onChange={e => setCaptchaAnswer(e.target.value)}
+                      onKeyDown={e => { if (e.key === "Enter" && captchaAnswer.trim()) resumeMutation.mutate(); }}
+                      placeholder={testPhase === "captcha" ? "e.g. AB12CD" : "e.g. 123456"}
+                      className="font-mono tracking-widest text-lg"
+                      autoFocus
+                      data-testid="input-esic-captcha"
+                    />
+                    <Button onClick={() => resumeMutation.mutate()} disabled={!captchaAnswer.trim() || resumeMutation.isPending} data-testid="button-esic-submit-captcha">
+                      {resumeMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Submit"}
+                    </Button>
+                  </div>
+                  <p className="text-xs text-orange-700">Press Enter or click Submit to continue.</p>
                 </div>
               </div>
-            </div>
-          )}
+            )}
+
+            {/* Result */}
+            {testPhase === "done" && testResult && (
+              <div className={`p-3 rounded-lg border text-sm ${testResult.ok ? "bg-green-50 border-green-200 text-green-800" : "bg-red-50 border-red-200 text-red-800"}`}>
+                <div className="flex items-start gap-2">
+                  {testResult.ok ? <CheckCircle2 className="h-4 w-4 mt-0.5 shrink-0" /> : <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />}
+                  <div className="min-w-0 flex-1">
+                    <p className="font-medium">{testResult.ok ? "Login successful — portal is ready." : "Login failed"}</p>
+                    {!testResult.ok && (
+                      <>
+                        <p className="mt-1 break-words whitespace-pre-wrap text-xs opacity-90" data-testid="esic-test-error-message">{testResult.message}</p>
+                        <Button variant="outline" size="sm" className="mt-2 h-7 px-3 text-xs border-red-300 text-red-700 hover:bg-red-100"
+                          onClick={() => { resetTest(); loginMutation.mutate(); }} disabled={isTestActive} data-testid="button-esic-retry-login">
+                          <RefreshCw className="h-3 w-3 mr-1" /> Try again
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
           </>
           )}
         </CardContent>
