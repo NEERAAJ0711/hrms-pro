@@ -164,7 +164,7 @@ function DashboardTab({ companyId, onTabChange }: { companyId: string; onTabChan
             {triggerJob.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : <FileText className="h-4 w-4 mr-1.5" />}
             File Monthly ({prevMonth} {prevYear})
           </Button>
-          <Button size="sm" onClick={() => triggerJob.mutate({ jobType: "esic_challan_download", companyId })} disabled={triggerJob.isPending} variant="outline" data-testid="qaction-esic-sync-challans">
+          <Button size="sm" onClick={() => onTabChange("challans")} variant="outline" data-testid="qaction-esic-sync-challans">
             <Download className="h-4 w-4 mr-1.5" /> Sync Challans
           </Button>
           <Button size="sm" onClick={() => onTabChange("portal")} variant="outline" data-testid="qaction-esic-portal-settings">
@@ -533,6 +533,16 @@ function ChallanTab({ companyId }: { companyId: string }) {
   const [month, setMonth] = useState(MONTHS[prevMonth]);
   const [year,  setYear]  = useState(prevYear);
 
+  const { data: portalSession } = useQuery<{ configured: boolean }>({
+    queryKey: ["/api/automation/portal-session/esic", companyId],
+    queryFn: async () => {
+      const res = await fetch(`/api/automation/portal-session/esic?companyId=${companyId}`, { credentials: "include" });
+      if (!res.ok) return { configured: false };
+      return res.json();
+    },
+    enabled: !!companyId,
+  });
+
   const { data, isLoading } = useQuery<{ data: Challan[] }>({
     queryKey: ["/api/esic/challans", companyId],
     queryFn: async () => {
@@ -542,8 +552,16 @@ function ChallanTab({ companyId }: { companyId: string }) {
     },
   });
 
+  const credsMissing = portalSession !== undefined && !portalSession.configured;
+
   return (
     <div className="space-y-4">
+      {credsMissing && (
+        <div className="flex items-center gap-2 p-3 rounded-lg bg-amber-50 border border-amber-200 text-sm text-amber-800">
+          <AlertTriangle className="h-4 w-4 shrink-0" />
+          <span>ESIC portal not configured — go to the <strong>Portal Settings</strong> tab to add credentials before syncing challans.</span>
+        </div>
+      )}
       <div className="flex items-center gap-2 justify-end flex-wrap">
         <Select value={month} onValueChange={setMonth} data-testid="select-challan-month">
           <SelectTrigger className="w-36" data-testid="trigger-challan-month"><SelectValue /></SelectTrigger>
@@ -553,7 +571,7 @@ function ChallanTab({ companyId }: { companyId: string }) {
           <SelectTrigger className="w-24" data-testid="trigger-challan-year"><SelectValue /></SelectTrigger>
           <SelectContent>{YEARS.map(y => <SelectItem key={y} value={String(y)}>{y}</SelectItem>)}</SelectContent>
         </Select>
-        <Button variant="outline" onClick={() => triggerJob.mutate({ jobType: "esic_challan_download", companyId, payload: { month, year } })} disabled={triggerJob.isPending} data-testid="button-esic-sync-challans">
+        <Button variant="outline" onClick={() => triggerJob.mutate({ jobType: "esic_challan_download", companyId, payload: { month, year } })} disabled={triggerJob.isPending || credsMissing} data-testid="button-esic-sync-challans">
           {triggerJob.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <RefreshCw className="h-4 w-4 mr-2" />}
           Sync Challans from Portal
         </Button>
@@ -971,6 +989,16 @@ function ContributionHistoryTab({ companyId }: { companyId: string }) {
   const triggerFetch = useTriggerJob();
   const triggerPdf   = useTriggerJob();
 
+  const { data: portalSession } = useQuery<{ configured: boolean }>({
+    queryKey: ["/api/automation/portal-session/esic", companyId],
+    queryFn: async () => {
+      const res = await fetch(`/api/automation/portal-session/esic?companyId=${companyId}`, { credentials: "include" });
+      if (!res.ok) return { configured: false };
+      return res.json();
+    },
+    enabled: !!companyId,
+  });
+
   const defaultFrom = () => {
     const d = new Date(); d.setMonth(d.getMonth() - 3);
     return d.toISOString().split("T")[0];
@@ -1044,9 +1072,16 @@ function ContributionHistoryTab({ companyId }: { companyId: string }) {
   const rows = (fetchResult?.rows as string[][]) ?? [];
   const headers = rows[0] ?? [];
   const dataRows = rows.slice(1);
+  const credsMissing = portalSession !== undefined && !portalSession.configured;
 
   return (
     <div className="space-y-4">
+      {credsMissing && (
+        <div className="flex items-center gap-2 p-3 rounded-lg bg-amber-50 border border-amber-200 text-sm text-amber-800">
+          <AlertTriangle className="h-4 w-4 shrink-0" />
+          <span>ESIC portal not configured — go to the <strong>Portal Settings</strong> tab to add credentials first.</span>
+        </div>
+      )}
       {/* Filters */}
       <div className="flex flex-wrap gap-3 items-end">
         <div className="w-44">
@@ -1069,7 +1104,7 @@ function ContributionHistoryTab({ companyId }: { companyId: string }) {
             { jobType: "esic_contribution_tracking", companyId, payload: { ipNumber: ip, fromDate, toDate } },
             { onSuccess: j => { setFetchJobId(j.id); setFetchPoll(true); setFetchResult(null); setPdfUrl(null); } }
           )}
-          disabled={!ip || fetchPoll || triggerFetch.isPending}
+          disabled={!ip || fetchPoll || triggerFetch.isPending || credsMissing}
           data-testid="btn-ch-fetch"
         >
           {fetchPoll ? <><Loader2 className="h-4 w-4 animate-spin mr-2" />Fetching…</> : "Fetch from Portal"}
@@ -1267,7 +1302,7 @@ function EmployeeListTab({ companyId }: { companyId: string }) {
             </div>
           )}
           <div className="flex gap-3 flex-wrap">
-            <Button onClick={handleFetch} disabled={isBusy} data-testid="btn-esic-fetch-employee-list">
+            <Button onClick={handleFetch} disabled={isBusy || !portalSession?.configured} data-testid="btn-esic-fetch-employee-list">
               {isBusy ? "Fetching from portal…" : "Fetch from Portal"}
             </Button>
             {employees.length > 0 && (
