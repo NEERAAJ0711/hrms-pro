@@ -566,15 +566,51 @@ export function registerEpfoEsicRoutes(
       const cidResult = getCompanyId(user, data.companyId);
       if ("error" in cidResult) return res.status(cidResult.status).json({ error: cidResult.error });
 
-      const jobType = data.portal === "epfo" ? "epfo_login_test" : "esic_login_test";
+      const companyId = cidResult.companyId;
+      const portal = data.portal;
+
+      // ── Clean slate before fresh login ───────────────────────────────────────
+      // 1. Find jobs currently paused (waiting for CAPTCHA/OTP) for this portal
+      //    so we can unblock their in-memory resolvers after cancelling.
+      const pausedJobs = await queueService.listJobs({ companyId, status: "paused", limit: 50 });
+      const portalPausedIds = pausedJobs
+        .filter(j => j.jobType.startsWith(portal + "_"))
+        .map(j => j.id);
+
+      // 2. Cancel ALL pending + paused jobs for this portal in the DB
+      const cancelled = await queueService.cancelPortalJobs(companyId, portal);
+
+      // 3. Unblock any in-memory CAPTCHA/OTP resolvers so the queue worker isn't
+      //    left hanging on a job that is now cancelled.
+      const { resumeResolvers, killIdleSession } = await import("./automation/queue-worker");
+      for (const pid of portalPausedIds) {
+        const resolver = resumeResolvers.get(pid);
+        if (resolver) {
+          resumeResolvers.delete(pid);
+          resolver("__cancelled__"); // unblocks the promise; automation will error quickly
+        }
+      }
+
+      // 4. Kill the existing idle browser session so the next login starts fresh.
+      killIdleSession(companyId, portal);
+
+      if (cancelled > 0) {
+        await queueService.addLog(
+          "system", companyId, "info",
+          `Re-login initiated: ${cancelled} stale ${portal.toUpperCase()} job(s) cancelled before fresh login`
+        ).catch(() => {});
+      }
+
+      // 5. Enqueue the fresh login test
+      const jobType = portal === "epfo" ? "epfo_login_test" : "esic_login_test";
       const job = await queueService.enqueueJob({
         jobType,
-        companyId: cidResult.companyId,
-        payload: { portal: data.portal },
+        companyId,
+        payload: { portal },
         createdBy: user.id,
         maxRetries: 0,
       });
-      res.json({ ok: true, jobId: job.id });
+      res.json({ ok: true, jobId: job.id, cancelledJobs: cancelled });
     } catch (err: any) {
       res.status(500).json({ error: err?.message || "Failed to enqueue portal test" });
     }

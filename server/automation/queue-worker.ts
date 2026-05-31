@@ -60,6 +60,27 @@ const idleSessions = new Map<string, IdleSession>();
 /** Secondary index: "companyId:portal" → jobId — for fast lookup by portal */
 const idleByPortal = new Map<string, string>();
 
+/**
+ * Kill the idle browser session for a given company+portal.
+ * Called before a fresh login so the browser starts clean (no stale cookies/state).
+ */
+export function killIdleSession(companyId: string, portal: string): void {
+  const portalKey = `${companyId}:${portal}`;
+  const idleJobId = idleByPortal.get(portalKey);
+  if (!idleJobId) return;
+  const idle = idleSessions.get(idleJobId);
+  if (idle) {
+    clearTimeout(idle.timer);
+    activePages.delete(idleJobId);
+    // Close browser resources async — don't await to avoid blocking the route
+    idle.page.close().catch(() => {});
+    idle.context.close().catch(() => {});
+    browserPool.releaseBrowser(idle.portal, idle.browser);
+  }
+  idleSessions.delete(idleJobId);
+  idleByPortal.delete(portalKey);
+}
+
 // ─── AutomationContext ─────────────────────────────────────────────────────────
 /** Passed to every automation function. Provides logging, screenshots, pausing. */
 export interface AutomationContext {

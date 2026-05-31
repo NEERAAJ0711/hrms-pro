@@ -156,6 +156,24 @@ export class QueueService {
       .where(and(eq(automationJobs.id, id), eq(automationJobs.status, "pending")));
   }
 
+  /**
+   * Cancel ALL pending + paused jobs for a given company whose jobType starts
+   * with the portal prefix (e.g. "epfo" cancels all epfo_* jobs).
+   * Called before a fresh login test so the queue is clean.
+   * Returns the number of rows cancelled.
+   */
+  async cancelPortalJobs(companyId: string, portal: string): Promise<number> {
+    const now = new Date().toISOString();
+    const result = await db.execute(sql`
+      UPDATE automation_jobs
+      SET status = 'cancelled', updated_at = ${now}
+      WHERE company_id = ${companyId}
+        AND status IN ('pending', 'paused')
+        AND job_type LIKE ${portal + "_%"}
+    `);
+    return (result as any).rowCount ?? 0;
+  }
+
   /** Permanently delete a job and all its logs. Running/paused jobs cannot be deleted. */
   async deleteJob(id: string): Promise<{ deleted: boolean; reason?: string }> {
     const rows = await db.select().from(automationJobs).where(eq(automationJobs.id, id));
