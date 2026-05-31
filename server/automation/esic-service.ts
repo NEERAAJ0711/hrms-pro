@@ -863,51 +863,76 @@ export async function esicEmployeeList(
   await ctx.takeScreenshot("esic-employee-list-page");
   await ctx.log("info", "On employee list page: " + page.url());
 
-  /** Normalize raw scraped row → standard { ipNo, name, dateOfRegistration } */
-  function normalizeEmployee(raw: Record<string, string>): { ipNo: string; name: string; dateOfRegistration: string } {
-    const pick = (...keys: string[]) => {
-      for (const k of keys) {
-        const val = Object.entries(raw).find(([key]) => key.toLowerCase().replace(/[\s.]/g, "") === k.toLowerCase())?.[1]?.trim();
-        if (val) return val;
-      }
-      return "";
-    };
-    return {
-      ipNo: pick("ipno", "ipnumber", "insuranceno", "ipno.", "ip no", "ip_no", "ino") || pick(...Object.keys(raw).filter(k => /ip/i.test(k))),
-      name: pick("name", "employeename", "insuredpersonname", "empname", "fullname"),
-      dateOfRegistration: pick("dateofregistration", "registrationdate", "doj", "dateofjoining", "regdate", "date"),
-    };
-  }
-
   const allEmployees: { ipNo: string; name: string; dateOfRegistration: string }[] = [];
 
+  /**
+   * Detect which column index corresponds to IP No / Name / Date of Registration
+   * by doing partial substring matching on the actual portal header text.
+   * Falls back to known positional defaults for ESIC Form-3 tables if headers
+   * aren't recognised (portal HTML may not expose <th> elements at all).
+   *
+   * Typical ESIC Form-3 column order:
+   *   0: S.No  |  1: IP No  |  2: Emp Code  |  3: Name  |  4: Father/Husband
+   *   5: DOB   |  6: Date of Registration  |  7: Wages  |  8: Status …
+   */
+  function detectColumns(headers: string[]): { ipNoIdx: number; nameIdx: number; dorIdx: number } {
+    let ipNoIdx = -1, nameIdx = -1, dorIdx = -1;
+    headers.forEach((h, i) => {
+      const hn = h.toLowerCase().replace(/[\s.\/]/g, "");
+      // IP number column — matches "ipno", "ipnum", "ipnumber", "insuranceno", "ino", etc.
+      if (ipNoIdx === -1 && (hn.includes("ipno") || hn.includes("ipnum") || hn.includes("insuranceno") || /\bino\b/.test(hn) || (h.toLowerCase().includes("ip") && h.toLowerCase().includes("no")))) {
+        ipNoIdx = i;
+      }
+      // Name column — must contain "name" but NOT be a father/husband/employer column
+      if (nameIdx === -1 && hn.includes("name") && !hn.includes("father") && !hn.includes("husband") && !hn.includes("employer") && !hn.includes("company")) {
+        nameIdx = i;
+      }
+      // Date of Registration / Date of Joining
+      if (dorIdx === -1 && (hn.includes("registration") || hn.includes("dor") || (hn.includes("date") && (hn.includes("join") || hn.includes("reg"))))) {
+        dorIdx = i;
+      }
+    });
+    // Positional defaults (ESIC Form-3 typical layout)
+    if (ipNoIdx === -1) ipNoIdx = 1;
+    if (nameIdx === -1) nameIdx = 3;
+    if (dorIdx === -1) dorIdx = 6;
+    return { ipNoIdx, nameIdx, dorIdx };
+  }
+
   async function scrapeTable(): Promise<number> {
-    // Extract headers from the first header row
+    // Extract headers — try <th> first, then first <tr> children
     const headers = await page.$$eval(
-      "table thead tr th, table tr:first-child th",
+      "table thead tr th, table tr:first-child th, table tr:first-child td",
       (ths) => ths.map((th) => th.textContent?.trim().replace(/\s+/g, " ") ?? "")
     ).catch(() => [] as string[]);
 
-    // Extract data rows — skip empty rows
+    await ctx.log("info", `ESIC table headers: [${headers.join(" | ")}]`);
+
+    const { ipNoIdx, nameIdx, dorIdx } = detectColumns(headers);
+    await ctx.log("info", `Column map → ipNo:${ipNoIdx}  name:${nameIdx}  dor:${dorIdx}`);
+
+    // Extract data rows
     const rows = await page.$$eval("table tbody tr, table tr", (trs) =>
       trs
         .map((tr) => Array.from(tr.querySelectorAll("td")).map((td) => td.textContent?.trim().replace(/\s+/g, " ") ?? ""))
         .filter((r) => r.some((c) => c !== ""))
     ).catch(() => [] as string[][]);
 
+    let added = 0;
     for (const row of rows) {
-      const raw: Record<string, string> = {};
-      if (headers.length > 0) {
-        headers.forEach((h, i) => { if (h) raw[h] = row[i] ?? ""; });
-      } else {
-        // Fallback: use positional keys matching common ESIC columns
-        const keys = ["SNo", "IP No", "EmployeeCode", "Name", "FatherName", "DOB", "Date of Registration", "Wages", "Status"];
-        row.forEach((cell, i) => { raw[keys[i] ?? `col${i + 1}`] = cell; });
-      }
-      const normalized = normalizeEmployee(raw);
-      if (normalized.ipNo || normalized.name) allEmployees.push(normalized);
+      if (row.length < 2) continue;
+      const ipNo = (row[ipNoIdx] ?? "").trim();
+      const name  = (row[nameIdx]  ?? "").trim();
+      const dor   = (row[dorIdx]   ?? "").trim();
+
+      // Skip header-like rows (text instead of data)
+      if (!ipNo && !name) continue;
+      if (ipNo.toLowerCase().replace(/[\s.]/g, "").includes("ipno") || name.toLowerCase() === "name") continue;
+
+      allEmployees.push({ ipNo, name, dateOfRegistration: dor });
+      added++;
     }
-    return rows.length;
+    return added;
   }
 
   await scrapeTable();
