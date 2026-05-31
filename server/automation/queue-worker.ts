@@ -439,6 +439,12 @@ async function processJob(job: JobRecord): Promise<void> {
             await esic.esicLogin(page, creds, ctx);
           }
           await sessionManager.saveSession(job.companyId, portal, context);
+        } else {
+          // Session is valid — dismiss any welcome / notification popups that appear
+          // on the dashboard before running the actual job (ESIC stacks multiple alerts).
+          if (portal === "esic") {
+            await esic.dismissEsicPopups(page, ctx);
+          }
         }
       }
     }

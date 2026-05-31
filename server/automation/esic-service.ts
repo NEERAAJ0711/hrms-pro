@@ -576,11 +576,24 @@ export async function esicEmployeeSearch(
   return { searchVal, details, tableRows: rows.slice(0, 20) };
 }
 
+// ─── Exported popup dismissal ─────────────────────────────────────────────────
+/**
+ * Public wrapper so queue-worker can dismiss ESIC popups after restoring a
+ * session / navigating to the dashboard (before dispatching any job).
+ */
+export async function dismissEsicPopups(page: Page, ctx: AutomationContext): Promise<void> {
+  await dismissAllPopups(page, ctx, "esic-session");
+}
+
 // ─── Employee List (FormThree) ────────────────────────────────────────────────
 /**
  * Fetches the full list of registered employees from the ESIC portal.
- * Navigates to FormThree.aspx which lists all insured persons under the employer.
- * Handles pagination automatically (up to 50 pages).
+ *
+ * Navigation strategy:
+ *  1. Kill any lingering popups first (session-welcome / notification alerts).
+ *  2. Navigate directly to FormThree.aspx inside the employer portal.
+ *  3. If the portal rejects the direct URL (404 / login-redirect), fall back
+ *     to the dashboard and click "List of Employees" from the menu.
  */
 export async function esicEmployeeList(
   page: Page,
@@ -589,10 +602,37 @@ export async function esicEmployeeList(
 ): Promise<Record<string, unknown>> {
   await ctx.log("info", "Fetching ESIC employee list (FormThree)");
 
-  await gotoWithRetry(page, "https://portal.esic.gov.in/ESICInsurance1/Employee/FormThree.aspx", {
+  // ── Step 1: kill popups before navigating ───────────────────────────────────
+  await dismissAllPopups(page, ctx, "esic-pre-employee-list");
+
+  // ── Step 2: navigate to the employee list page ──────────────────────────────
+  const EMPLOYEE_LIST_URL = `${ESIC_BASE}/Employee/FormThree.aspx`;
+  await gotoWithRetry(page, EMPLOYEE_LIST_URL, {
     waitUntil: "domcontentloaded",
-    timeout: 60000,
+    timeout: 45000,
   });
+
+  // Kill any popups that appear after navigation (ESIC stacks session alerts)
+  await dismissAllPopups(page, ctx, "esic-post-nav-employee-list");
+
+  // ── Step 3: fallback — navigate via menu if URL was wrong or session-gated ──
+  const urlAfterNav = page.url().toLowerCase();
+  if (
+    urlAfterNav.includes("login") ||
+    urlAfterNav.includes("loginnew") ||
+    urlAfterNav.includes("default.aspx") && !urlAfterNav.includes("employee")
+  ) {
+    await ctx.log("warn", "Direct URL redirected — navigating via dashboard menu");
+    // Go to dashboard and dismiss popups there too
+    await gotoWithRetry(page, `${ESIC_BASE}/Default.aspx`, { waitUntil: "domcontentloaded", timeout: 30000 });
+    await dismissAllPopups(page, ctx, "esic-dashboard-fallback");
+
+    // Click "List of Employees" from the Employee menu
+    await page.click('a:has-text("List of Employees")', { timeout: 15000 });
+    await page.waitForLoadState("domcontentloaded", { timeout: 20000 }).catch(() => {});
+    await dismissAllPopups(page, ctx, "esic-list-menu-click");
+  }
+
   await ctx.takeScreenshot("esic-employee-list-page");
 
   const allEmployees: Record<string, string>[] = [];
