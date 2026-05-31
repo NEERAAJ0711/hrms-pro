@@ -200,48 +200,108 @@ async function solveOtp(page: Page, ctx: AutomationContext, label: string): Prom
  * Playwright evaluates this as one CSS selector-list query, so it finds the
  * first visible match across ALL patterns simultaneously — no serial waiting.
  */
-const POPUP_SEL = [
-  // ── ASP.NET WebForms input buttons (ESIC uses these) ─────────────────────
-  'input[type="button"][value="X"]', 'input[type="button"][value="x"]',
-  'input[type="button"][value="Close"]', 'input[type="button"][value="close"]',
-  'input[type="button"][value="I Agree"]', 'input[type="button"][value="Agree"]',
-  'input[type="button"][value="OK"]', 'input[type="button"][value="Ok"]',
-  'input[type="submit"][value="Close"]', 'input[type="submit"][value="I Agree"]',
-  'input[type="submit"][value="OK"]', 'input[type="submit"][value="Ok"]',
-  // ── ESIC session-warning "X" — rendered as a plain table cell ────────────
-  'td:has-text("X")', 'span:has-text("X")',
-  // ── Standard HTML buttons ─────────────────────────────────────────────────
-  'button:has-text("OK")', 'button:has-text("Ok")', 'button:has-text("ok")',
-  'button:has-text("Close")', 'button:has-text("close")',
-  'button:has-text("I Agree")', 'button:has-text("Agree")',
-  'button:has-text("Accept")', 'button:has-text("Yes")',
-  'button:has-text("Proceed")', 'button:has-text("Continue")',
-  'button:has-text("Okay")',
-  // ── Links used as popup dismiss ───────────────────────────────────────────
-  'a:has-text("Close")', 'a:has-text("I Agree")', 'a:has-text("OK")',
-  // ── ID / class patterns ───────────────────────────────────────────────────
+// Each entry is tried in order — first visible match wins.
+// IMPORTANT: keep this list specific — broad selectors like td:has-text("X")
+// match regular table content and cause accidental clicks.
+const POPUP_DISMISS_CANDIDATES: string[] = [
+  // ── ESIC-specific IDs (observed on portal.esic.gov.in) ───────────────────
   '#btnOk', '#btnOK', '#btnClose', '#btnAgree', '#btnIAgree',
-  '[id*="btnOk" i]', '[id*="btnClose" i]', '[id*="btnAlert" i]', '[id*="btnAgree" i]',
-  '.btn-ok', 'button[data-dismiss="modal"]', 'button.close', 'a.close',
+  '#Button1', '#btnNotification', '#btnAlert',
+  '[id*="btnOk" i]', '[id*="btnClose" i]', '[id*="btnAlert" i]',
+  '[id*="btnAgree" i]', '[id*="btnNotif" i]', '[id*="btnDismiss" i]',
+  // ── ASP.NET WebForms input buttons (ESIC uses input[type=button]) ─────────
+  'input[type="button"][value="X"]',
+  'input[type="button"][value="x"]',
+  'input[type="button"][value="\u00d7"]',   // × (multiplication sign)
+  'input[type="button"][value="\u2715"]',   // ✕
+  'input[type="button"][value="\u2716"]',   // ✖
+  'input[type="button"][value="Close"]',
+  'input[type="button"][value="close"]',
+  'input[type="button"][value="I Agree"]',
+  'input[type="button"][value="Agree"]',
+  'input[type="button"][value="OK"]',
+  'input[type="button"][value="Ok"]',
+  'input[type="button"][value="Okay"]',
+  'input[type="submit"][value="Close"]',
+  'input[type="submit"][value="I Agree"]',
+  'input[type="submit"][value="OK"]',
+  'input[type="submit"][value="Ok"]',
+  // ── Standard HTML buttons ─────────────────────────────────────────────────
+  'button:has-text("OK")', 'button:has-text("Ok")', 'button:has-text("Okay")',
+  'button:has-text("Close")', 'button:has-text("I Agree")', 'button:has-text("Agree")',
+  'button:has-text("Accept")', 'button:has-text("Proceed")', 'button:has-text("Continue")',
+  // ── Bootstrap / jQuery UI close buttons ───────────────────────────────────
+  'button[data-dismiss="modal"]', 'button.close', 'a.close',
   '.modal-footer button', '.ui-dialog-buttonpane button', '.ui-dialog-titlebar-close',
-].join(', ');
+  // ── Links used as dismiss ─────────────────────────────────────────────────
+  'a:has-text("Close")', 'a:has-text("I Agree")', 'a:has-text("OK")',
+];
 
+/**
+ * Dismisses ALL notification / alert popups on the current ESIC page.
+ *
+ * Strategy per round:
+ *  1. Press Escape (handles overlay modals)
+ *  2. Try each selector individually with a 1s timeout (longer than before
+ *     because ESIC JS-renders its popup buttons 400–800ms after page load)
+ *  3. Also scan ALL visible <span> / <td> elements for a bare "X" close button
+ *     (some ESIC portals render close as a plain text cell with onclick)
+ *  4. Stop when no dismissible element is found in one full round.
+ */
 async function dismissAllPopups(page: Page, ctx: AutomationContext, tag = ""): Promise<void> {
   for (let round = 0; round < 20; round++) {
-    // Press Escape — closes many overlay/dialog patterns instantly
     await page.keyboard.press('Escape').catch(() => {});
 
-    try {
-      // One combined query — finds the first visible dismiss button across ALL patterns at once
-      const btn = page.locator(POPUP_SEL).first();
-      await btn.waitFor({ state: "visible", timeout: 300 }); // fast timeout
-      const label = await btn.evaluate((el: Element) => (el as HTMLInputElement).value || el.textContent || "?").catch(() => "?");
-      await btn.click({ force: true }); // force skips actionability checks
-      await ctx.log("info", `[${tag}] Popup dismissed: "${String(label).trim()}" (round ${round + 1})`);
-      await page.waitForTimeout(150); // minimal animation wait
-    } catch {
-      break; // no visible dismiss button — all popups gone
+    let dismissed = false;
+
+    // Try each known selector individually (1s timeout each)
+    for (const sel of POPUP_DISMISS_CANDIDATES) {
+      try {
+        const btn = page.locator(sel).first();
+        await btn.waitFor({ state: "visible", timeout: 1000 });
+        const label = await btn.evaluate(
+          (el: Element) => (el as HTMLInputElement).value || el.textContent?.trim() || "?"
+        ).catch(() => "?");
+        await btn.click({ force: true });
+        await ctx.log("info", `[${tag}] Popup dismissed: "${String(label).trim()}" via "${sel}" (round ${round + 1})`);
+        await page.waitForTimeout(300);
+        dismissed = true;
+        break; // restart the outer round after a successful dismiss
+      } catch {
+        // selector not visible — try next
+      }
     }
+
+    if (!dismissed) {
+      // Last-resort: scan every <span> and small <td> for a bare "X" close glyph
+      // (ESIC sometimes renders close as a clickable cell with text content "X")
+      try {
+        const xEl = await page.evaluateHandle(() => {
+          const candidates = Array.from(
+            document.querySelectorAll('span, td, div, a')
+          ) as HTMLElement[];
+          return candidates.find((el) => {
+            const txt = (el.textContent ?? "").trim();
+            // Only match single-character close glyphs in small elements
+            return (
+              (txt === "X" || txt === "x" || txt === "\u00d7" || txt === "\u2715" || txt === "\u2716") &&
+              el.offsetParent !== null &&  // visible
+              (el.tagName === "SPAN" || el.tagName === "A" ||
+               (el.tagName === "TD" && el.textContent!.trim().length <= 2))
+            );
+          }) ?? null;
+        });
+        const el = xEl.asElement();
+        if (el) {
+          await el.click({ force: true } as Parameters<typeof el.click>[0]).catch(() => {});
+          await ctx.log("info", `[${tag}] Popup dismissed: bare-X element (round ${round + 1})`);
+          await page.waitForTimeout(300);
+          dismissed = true;
+        }
+      } catch { /* ignore */ }
+    }
+
+    if (!dismissed) break; // no popup found this round — all clear
   }
 }
 
@@ -624,71 +684,161 @@ export async function esicEmployeeList(
   await ctx.takeScreenshot("esic-dashboard-clean");
   await ctx.log("info", "All popups cleared — current page: " + page.url());
 
-  // ── Step 2: Click "List of Employees" from the Employee menu ────────────────
-  // The ESIC left-nav has an "EMPLOYEE (INSURED PERSON)" accordion section.
-  // "List of Employees" is a direct link inside it.  We try the link first;
-  // if it is not yet visible (collapsed accordion), we open the section first.
+  // ── Debug: dump all links on the page so we can see what's available ────────
+  const allPageLinks = await page.$$eval("a", (anchors) =>
+    anchors
+      .filter((a) => (a.textContent ?? "").trim().length > 0)
+      .map((a) => ({
+        text: (a.textContent ?? "").trim().replace(/\s+/g, " ").slice(0, 60),
+        href: (a as HTMLAnchorElement).href?.slice(0, 100) ?? "",
+      }))
+  ).catch(() => [] as { text: string; href: string }[]);
+  await ctx.log("info", `Links on page (${allPageLinks.length}): ` +
+    allPageLinks.slice(0, 30).map((l) => `"${l.text}" → ${l.href}`).join(" | ")
+  );
 
-  const LIST_OF_EMP_SEL = [
+  // ── Step 2: Click "List of Employees" from the Employee menu ────────────────
+  // Try progressively broader strategies until one works.
+  // Strategy 1: direct text match
+  // Strategy 2: href fragment match (FormThree / ListofEmployees)
+  // Strategy 3: expand Employee accordion section first, then retry
+  // Strategy 4: full DOM scan (any link whose text contains the phrase)
+  // Strategy 5: click via onclick evaluation (last resort for JS-only links)
+
+  let clicked = false;
+  let clickedText = "";
+
+  // ── Strategy 1 & 2: direct selectors (text + href) ─────────────────────────
+  const DIRECT_SELS = [
     'a:has-text("List of Employees")',
+    'a:has-text("List Of Employees")',
+    'a:has-text("LIST OF EMPLOYEES")',
+    'a:has-text("Employees List")',
     'a[href*="FormThree"]',
     'a[href*="ListofEmployees"]',
     'a[href*="listofemployees" i]',
-  ].join(", ");
+    'a[href*="Employee/Form"]',
+    'a[href*="ListEmployee"]',
+    'a[href*="listemployee" i]',
+  ];
 
-  const EMPLOYEE_SECTION_SEL = [
-    'a:has-text("EMPLOYEE")',
-    'a:has-text("Employee")',
-    'li:has-text("EMPLOYEE") > a',
-    'span:has-text("EMPLOYEE (INSURED")',
-    'a[href*="Employee" i][href*="Menu" i]',
-  ].join(", ");
-
-  // First attempt — click directly if link is already visible
-  let clicked = false;
-  try {
-    await page.locator(LIST_OF_EMP_SEL).first().waitFor({ state: "visible", timeout: 5000 });
-    await page.locator(LIST_OF_EMP_SEL).first().click();
-    clicked = true;
-    await ctx.log("info", "Clicked 'List of Employees' directly");
-  } catch {
-    // Link not yet visible — try expanding the Employee accordion section first
-    await ctx.log("info", "Link not visible — expanding Employee section in menu");
+  for (const sel of DIRECT_SELS) {
     try {
-      await page.locator(EMPLOYEE_SECTION_SEL).first().click({ timeout: 8000 });
-      await page.waitForTimeout(600);
-      await dismissAllPopups(page, ctx, "after-section-expand");
-    } catch {
-      // Accordion click failed — menu might already be open
+      const loc = page.locator(sel).first();
+      await loc.waitFor({ state: "visible", timeout: 2000 });
+      clickedText = await loc.textContent().catch(() => sel) ?? sel;
+      await loc.click({ force: true });
+      clicked = true;
+      await ctx.log("info", `Clicked via direct selector "${sel}": "${clickedText.trim()}"`);
+      break;
+    } catch { /* try next */ }
+  }
+
+  // ── Strategy 3: expand Employee accordion, then retry ──────────────────────
+  if (!clicked) {
+    await ctx.log("info", "Direct selectors failed — expanding Employee menu section");
+    const SECTION_SELS = [
+      'a:has-text("EMPLOYEE")',
+      'a:has-text("Employee")',
+      'a:has-text("Insured Person")',
+      'li:has-text("EMPLOYEE") > a',
+      'li:has-text("Employee") > a',
+      'span:has-text("EMPLOYEE")',
+    ];
+    for (const sel of SECTION_SELS) {
+      try {
+        await page.locator(sel).first().click({ force: true, timeout: 3000 });
+        await page.waitForTimeout(800);
+        await ctx.log("info", `Clicked section header: "${sel}"`);
+        await dismissAllPopups(page, ctx, "after-section-expand");
+        break;
+      } catch { /* try next section selector */ }
     }
 
-    // Second attempt after expanding
-    try {
-      await page.locator(LIST_OF_EMP_SEL).first().waitFor({ state: "visible", timeout: 8000 });
-      await page.locator(LIST_OF_EMP_SEL).first().click();
-      clicked = true;
-      await ctx.log("info", "Clicked 'List of Employees' after expanding section");
-    } catch {
-      // Last resort: scroll the full page and try any matching link
-      await ctx.log("warn", "Trying page-wide link search as last resort");
-      const links = await page.$$("a");
-      for (const link of links) {
-        const text = (await link.textContent().catch(() => "")).trim().toLowerCase();
-        if (text.includes("list of employee") || text.includes("listofemployee")) {
-          await link.click().catch(() => {});
-          clicked = true;
-          break;
-        }
+    // Retry direct selectors after accordion open
+    for (const sel of DIRECT_SELS) {
+      try {
+        const loc = page.locator(sel).first();
+        await loc.waitFor({ state: "visible", timeout: 3000 });
+        clickedText = await loc.textContent().catch(() => sel) ?? sel;
+        await loc.click({ force: true });
+        clicked = true;
+        await ctx.log("info", `Clicked after accordion expand via "${sel}"`);
+        break;
+      } catch { /* try next */ }
+    }
+  }
+
+  // ── Strategy 4: full DOM text scan ─────────────────────────────────────────
+  if (!clicked) {
+    await ctx.log("warn", "Accordion expand failed — scanning all links by text");
+    const links = await page.$$("a, span[onclick], div[onclick], td[onclick]");
+    for (const link of links) {
+      const text = (await link.textContent().catch(() => "")).trim().toLowerCase();
+      if (
+        text.includes("list of employee") ||
+        text.includes("listofemployee") ||
+        text.includes("employee list") ||
+        text.includes("form three") ||
+        text.includes("formthree")
+      ) {
+        await link.click({ force: true } as Parameters<typeof link.click>[0]).catch(() => {});
+        clickedText = text;
+        clicked = true;
+        await ctx.log("info", `Clicked via full DOM scan: "${text}"`);
+        break;
       }
     }
   }
 
+  // ── Strategy 5: JS onclick evaluation ──────────────────────────────────────
   if (!clicked) {
+    await ctx.log("warn", "Text scan failed — trying JS onclick patterns");
+    try {
+      const found = await page.evaluate(() => {
+        const allEls = Array.from(document.querySelectorAll("[onclick]")) as HTMLElement[];
+        const target = allEls.find((el) => {
+          const oc = (el.getAttribute("onclick") ?? "").toLowerCase();
+          const tx = (el.textContent ?? "").toLowerCase();
+          return (
+            oc.includes("formthree") ||
+            oc.includes("listofemployee") ||
+            tx.includes("list of employee") ||
+            tx.includes("employee list")
+          );
+        });
+        if (target) {
+          target.click();
+          return target.textContent?.trim() ?? "found";
+        }
+        return null;
+      });
+      if (found) {
+        clicked = true;
+        clickedText = found;
+        await ctx.log("info", `Clicked via JS onclick evaluation: "${found}"`);
+      }
+    } catch { /* ignore */ }
+  }
+
+  if (!clicked) {
+    // Take a debug screenshot and return an error result WITHOUT throwing —
+    // this keeps the browser alive so the user can inspect it.
     await ctx.takeScreenshot("esic-employee-list-nav-failed");
-    throw new Error(
-      "Could not find 'List of Employees' link on the ESIC portal. " +
-      "Please log in first and make sure you are on the employer dashboard."
+    await ctx.log("error",
+      "Could not find 'List of Employees' link. " +
+      `Page URL: ${page.url()}. ` +
+      `Links found: ${allPageLinks.map((l) => `"${l.text}"`).join(", ") || "(none)"}`
     );
+    return {
+      employees: [],
+      count: 0,
+      pages: 0,
+      error: "Navigation failed: 'List of Employees' link not found on the portal. " +
+             "Please check the live view and try logging in again.",
+      pageUrl: page.url(),
+      linksFound: allPageLinks.map((l) => l.text),
+    };
   }
 
   // ── Step 3: Wait for the list page and kill new popups ───────────────────────

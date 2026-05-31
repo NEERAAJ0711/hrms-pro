@@ -430,12 +430,31 @@ async function processJob(job: JobRecord): Promise<void> {
           await esic.esicLogin(page, creds, ctx);
         }
         await sessionManager.saveSession(job.companyId, portal, context);
+        // Kill any popups that appeared right after login before handing off to dispatch
+        if (portal === "esic") {
+          await esic.dismissEsicPopups(page, ctx);
+          await page.waitForTimeout(500);
+          await esic.dismissEsicPopups(page, ctx);
+        }
+      } else if (contextIsReused) {
+        // ── Context reused from a completed login job ─────────────────────────
+        // The session is ALREADY live — no URL navigation needed.
+        // Just clear any popups that are still open on the current page.
+        await ctx.log("info", "Reused session — clearing popups on current page (no URL jump)");
+        if (portal === "esic") {
+          await esic.dismissEsicPopups(page, ctx);
+          await page.waitForTimeout(600);
+          await esic.dismissEsicPopups(page, ctx);
+          await page.waitForTimeout(600);
+          await esic.dismissEsicPopups(page, ctx);
+        }
       } else {
-        // Navigate to the portal dashboard (NOT the login page) to check session validity
+        // ── Cookies restored from DB — navigate to dashboard to validate session ─
         const dashboardUrl = portal === "epfo"
           ? "https://unifiedportal-emp.epfindia.gov.in/epfo/"
           : "https://portal.esic.gov.in/EmployerPortal/ESICInsurancePortal/Default.aspx";
-        await page.goto(dashboardUrl, { waitUntil: "domcontentloaded", timeout: 20000 }).catch(() => {});
+        await ctx.log("info", `Checking DB-restored session — navigating to dashboard`);
+        await page.goto(dashboardUrl, { waitUntil: "domcontentloaded", timeout: 25000 }).catch(() => {});
 
         if (sessionManager.isLoginPage(page.url(), portal)) {
           await ctx.log("info", "Session expired — re-logging in");
@@ -448,12 +467,14 @@ async function processJob(job: JobRecord): Promise<void> {
             await esic.esicLogin(page, creds, ctx);
           }
           await sessionManager.saveSession(job.companyId, portal, context);
-        } else {
-          // Session is valid — dismiss any welcome / notification popups that appear
-          // on the dashboard before running the actual job (ESIC stacks multiple alerts).
-          if (portal === "esic") {
-            await esic.dismissEsicPopups(page, ctx);
-          }
+        }
+        // Dismiss all popups on the dashboard (ESIC stacks 3 notification alerts)
+        if (portal === "esic") {
+          await esic.dismissEsicPopups(page, ctx);
+          await page.waitForTimeout(800);
+          await esic.dismissEsicPopups(page, ctx);
+          await page.waitForTimeout(800);
+          await esic.dismissEsicPopups(page, ctx);
         }
       }
     }
