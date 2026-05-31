@@ -200,108 +200,96 @@ async function solveOtp(page: Page, ctx: AutomationContext, label: string): Prom
  * Playwright evaluates this as one CSS selector-list query, so it finds the
  * first visible match across ALL patterns simultaneously — no serial waiting.
  */
-// Each entry is tried in order — first visible match wins.
-// IMPORTANT: keep this list specific — broad selectors like td:has-text("X")
-// match regular table content and cause accidental clicks.
-const POPUP_DISMISS_CANDIDATES: string[] = [
-  // ── ESIC-specific IDs (observed on portal.esic.gov.in) ───────────────────
-  '#btnOk', '#btnOK', '#btnClose', '#btnAgree', '#btnIAgree',
-  '#Button1', '#btnNotification', '#btnAlert',
-  '[id*="btnOk" i]', '[id*="btnClose" i]', '[id*="btnAlert" i]',
-  '[id*="btnAgree" i]', '[id*="btnNotif" i]', '[id*="btnDismiss" i]',
-  // ── ASP.NET WebForms input buttons (ESIC uses input[type=button]) ─────────
-  'input[type="button"][value="X"]',
-  'input[type="button"][value="x"]',
-  'input[type="button"][value="\u00d7"]',   // × (multiplication sign)
-  'input[type="button"][value="\u2715"]',   // ✕
-  'input[type="button"][value="\u2716"]',   // ✖
-  'input[type="button"][value="Close"]',
-  'input[type="button"][value="close"]',
-  'input[type="button"][value="I Agree"]',
-  'input[type="button"][value="Agree"]',
-  'input[type="button"][value="OK"]',
-  'input[type="button"][value="Ok"]',
-  'input[type="button"][value="Okay"]',
-  'input[type="submit"][value="Close"]',
-  'input[type="submit"][value="I Agree"]',
-  'input[type="submit"][value="OK"]',
-  'input[type="submit"][value="Ok"]',
-  // ── Standard HTML buttons ─────────────────────────────────────────────────
-  'button:has-text("OK")', 'button:has-text("Ok")', 'button:has-text("Okay")',
-  'button:has-text("Close")', 'button:has-text("I Agree")', 'button:has-text("Agree")',
-  'button:has-text("Accept")', 'button:has-text("Proceed")', 'button:has-text("Continue")',
-  // ── Bootstrap / jQuery UI close buttons ───────────────────────────────────
-  'button[data-dismiss="modal"]', 'button.close', 'a.close',
-  '.modal-footer button', '.ui-dialog-buttonpane button', '.ui-dialog-titlebar-close',
-  // ── Links used as dismiss ─────────────────────────────────────────────────
-  'a:has-text("Close")', 'a:has-text("I Agree")', 'a:has-text("OK")',
-];
-
 /**
- * Dismisses ALL notification / alert popups on the current ESIC page.
+ * Dismisses ALL ESIC portal notification/session-warning popups.
  *
- * Strategy per round:
- *  1. Press Escape (handles overlay modals)
- *  2. Try each selector individually with a 1s timeout (longer than before
- *     because ESIC JS-renders its popup buttons 400–800ms after page load)
- *  3. Also scan ALL visible <span> / <td> elements for a bare "X" close button
- *     (some ESIC portals render close as a plain text cell with onclick)
- *  4. Stop when no dismissible element is found in one full round.
+ * How ESIC popups actually work (observed from portal.esic.gov.in):
+ *  - A small floating div/table appears 1–3 seconds after page load via JS
+ *  - It contains a message and a plain <input type="button" value="X"> close button
+ *  - There may be 1–3 stacked popups dismissed one after another
+ *
+ * Strategy:
+ *  1. Run a JavaScript scan inside the browser (single call, fast) that:
+ *     a. Finds ALL visible elements whose value/text is a close glyph
+ *        (X, ×, Close, OK, I Agree — case-insensitive, trims whitespace)
+ *     b. Returns what it found (clicked + outerHTML snippet for logging)
+ *  2. Wait 500ms for animations, then repeat until nothing found.
+ *  3. After 3 consecutive empty rounds, stop.
  */
 async function dismissAllPopups(page: Page, ctx: AutomationContext, tag = ""): Promise<void> {
-  for (let round = 0; round < 20; round++) {
-    await page.keyboard.press('Escape').catch(() => {});
+  let emptyRounds = 0;
 
-    let dismissed = false;
+  for (let round = 0; round < 15; round++) {
+    // Press Escape — handles native browser dialogs and some overlay patterns
+    await page.keyboard.press("Escape").catch(() => {});
 
-    // Try each known selector individually (1s timeout each)
-    for (const sel of POPUP_DISMISS_CANDIDATES) {
-      try {
-        const btn = page.locator(sel).first();
-        await btn.waitFor({ state: "visible", timeout: 1000 });
-        const label = await btn.evaluate(
-          (el: Element) => (el as HTMLInputElement).value || el.textContent?.trim() || "?"
-        ).catch(() => "?");
-        await btn.click({ force: true });
-        await ctx.log("info", `[${tag}] Popup dismissed: "${String(label).trim()}" via "${sel}" (round ${round + 1})`);
-        await page.waitForTimeout(300);
-        dismissed = true;
-        break; // restart the outer round after a successful dismiss
-      } catch {
-        // selector not visible — try next
+    // One JavaScript call scans the entire live DOM — no CSS polling delays
+    const result = await page.evaluate(function() {
+      // Values that mean "dismiss this popup" — exact match, case-insensitive
+      var CLOSE_VALUES = ["x", "close", "ok", "okay", "i agree", "agree", "accept",
+                          "\u00d7", "\u2715", "\u2716"];
+
+      function isElVisible(el) {
+        try {
+          var rect = el.getBoundingClientRect();
+          if (rect.width === 0 && rect.height === 0) return false;
+          var s = window.getComputedStyle(el);
+          return s.display !== "none" && s.visibility !== "hidden" && s.opacity !== "0";
+        } catch(e) { return false; }
       }
-    }
 
-    if (!dismissed) {
-      // Last-resort: scan every <span> and small <td> for a bare "X" close glyph
-      // (ESIC sometimes renders close as a clickable cell with text content "X")
-      try {
-        const xEl = await page.evaluateHandle(() => {
-          const candidates = Array.from(
-            document.querySelectorAll('span, td, div, a')
-          ) as HTMLElement[];
-          return candidates.find((el) => {
-            const txt = (el.textContent ?? "").trim();
-            // Only match single-character close glyphs in small elements
-            return (
-              (txt === "X" || txt === "x" || txt === "\u00d7" || txt === "\u2715" || txt === "\u2716") &&
-              el.offsetParent !== null &&  // visible
-              (el.tagName === "SPAN" || el.tagName === "A" ||
-               (el.tagName === "TD" && el.textContent!.trim().length <= 2))
-            );
-          }) ?? null;
-        });
-        const el = xEl.asElement();
-        if (el) {
-          await el.click({ force: true } as Parameters<typeof el.click>[0]).catch(() => {});
-          await ctx.log("info", `[${tag}] Popup dismissed: bare-X element (round ${round + 1})`);
-          await page.waitForTimeout(300);
-          dismissed = true;
+      // Scan inputs first (ESIC uses input[type=button] for close buttons)
+      var inputs = document.querySelectorAll('input[type="button"], input[type="submit"]');
+      for (var i = 0; i < inputs.length; i++) {
+        var inp = inputs[i];
+        if (!isElVisible(inp)) continue;
+        var val = (inp.value || "").trim().toLowerCase();
+        if (CLOSE_VALUES.indexOf(val) !== -1) {
+          inp.click();
+          return { clicked: inp.value, elTag: "INPUT", id: inp.id || "(no id)", html: inp.outerHTML.slice(0, 200) };
         }
-      } catch { /* ignore */ }
-    }
+      }
 
-    if (!dismissed) break; // no popup found this round — all clear
+      // Then scan buttons
+      var btns = document.querySelectorAll("button");
+      for (var j = 0; j < btns.length; j++) {
+        var btn = btns[j];
+        if (!isElVisible(btn)) continue;
+        var txt = (btn.textContent || "").trim().toLowerCase();
+        if (CLOSE_VALUES.indexOf(txt) !== -1) {
+          btn.click();
+          return { clicked: btn.textContent.trim(), elTag: "BUTTON", id: btn.id || "(no id)", html: btn.outerHTML.slice(0, 200) };
+        }
+      }
+
+      // Scan <a> links (only short ones — long text = navigation link, not dismiss)
+      var links = document.querySelectorAll("a");
+      for (var k = 0; k < links.length; k++) {
+        var lnk = links[k];
+        if (!isElVisible(lnk)) continue;
+        var ltxt = (lnk.textContent || "").trim();
+        if (ltxt.length > 10) continue; // skip nav links
+        if (CLOSE_VALUES.indexOf(ltxt.toLowerCase()) !== -1) {
+          lnk.click();
+          return { clicked: ltxt, elTag: "A", id: lnk.id || "(no id)", html: lnk.outerHTML.slice(0, 200) };
+        }
+      }
+
+      return null;
+    }).catch(function() { return null; });
+
+    if (result) {
+      await ctx.log(
+        "info",
+        `[${tag}] Popup dismissed: "${result.clicked}" <${result.tag} id="${result.id}"> (round ${round + 1})`
+      );
+      emptyRounds = 0;
+      await page.waitForTimeout(500); // wait for animation / next popup to render
+    } else {
+      emptyRounds++;
+      if (emptyRounds >= 3) break; // 3 consecutive empty rounds → all clear
+      await page.waitForTimeout(400);
+    }
   }
 }
 
@@ -372,8 +360,19 @@ export async function esicLogin(
     await page.waitForLoadState("domcontentloaded", { timeout: 15000 }).catch(() => {});
   }
 
-  // Dismiss any popups that appear immediately after login (ESIC stacks multiple alerts)
-  await dismissAllPopups(page, ctx, "esic-post-login");
+  // ── CRITICAL: wait for JS-rendered popups to appear ─────────────────────────
+  // The ESIC session-warning popup ("Either last logged-in session was not
+  // closed...") is rendered by a JavaScript setTimeout 1–3 seconds AFTER the
+  // page finishes loading.  We must wait here or we dismiss before it exists.
+  await ctx.log("info", "Waiting for post-login popups to render (2.5s)...");
+  await page.waitForTimeout(2500);
+
+  // Dismiss all stacked popups — loop until none remain
+  await dismissAllPopups(page, ctx, "esic-post-login-1");
+  await page.waitForTimeout(800);
+  await dismissAllPopups(page, ctx, "esic-post-login-2");
+  await page.waitForTimeout(800);
+  await dismissAllPopups(page, ctx, "esic-post-login-3");
 
   // Screenshot of post-login page — captures success dashboard or error message
   await ctx.takeScreenshot("esic-login-result");
@@ -667,19 +666,16 @@ export async function esicEmployeeList(
 ): Promise<Record<string, unknown>> {
   await ctx.log("info", "Fetching ESIC employee list via menu click");
 
-  // ── Step 1: Kill ALL popups — ESIC stacks up to 3 overlapping alerts ────────
-  // Run three full dismiss passes so every popup layer is cleared.
-  await ctx.log("info", "Dismissing all portal popups (pass 1/3)");
+  // ── Step 1: Kill ALL popups ──────────────────────────────────────────────────
+  // ESIC session-warning popups are JS-rendered 1–3s after page load.
+  // Wait 2.5s first so the popup has time to appear, then dismiss.
+  await ctx.log("info", "Waiting 2.5s for JS-rendered popups to appear...");
+  await page.waitForTimeout(2500);
   await dismissAllPopups(page, ctx, "popup-pass-1");
-  await page.waitForTimeout(400);
-
-  await ctx.log("info", "Dismissing all portal popups (pass 2/3)");
+  await page.waitForTimeout(800);
   await dismissAllPopups(page, ctx, "popup-pass-2");
-  await page.waitForTimeout(400);
-
-  await ctx.log("info", "Dismissing all portal popups (pass 3/3)");
+  await page.waitForTimeout(800);
   await dismissAllPopups(page, ctx, "popup-pass-3");
-  await page.waitForTimeout(300);
 
   await ctx.takeScreenshot("esic-dashboard-clean");
   await ctx.log("info", "All popups cleared — current page: " + page.url());
