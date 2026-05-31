@@ -974,8 +974,19 @@ function EmployeeListTab({ companyId }: { companyId: string }) {
     refetchInterval: false,
   });
 
+  // Check portal credentials
+  const { data: portalSession } = useQuery<{ configured: boolean }>({
+    queryKey: ["/api/automation/portal-session/esic", companyId],
+    queryFn: async () => {
+      const res = await fetch(`/api/automation/portal-session/esic?companyId=${companyId}`, { credentials: "include" });
+      if (!res.ok) return { configured: false };
+      return res.json();
+    },
+    enabled: !!companyId,
+  });
+
   // Poll active job
-  const { data: activeJob } = useQuery<{ id: string; status: string; result?: { employees: Record<string, string>[]; count: number; fetchedAt: string } }>({
+  const { data: activeJob } = useQuery<{ id: string; status: string; errorMessage?: string | null; result?: { employees: Record<string, string>[]; count: number; fetchedAt: string } }>({
     queryKey: ["/api/automation/jobs", activeJobId],
     queryFn: async () => {
       const res = await apiRequest("GET", `/api/automation/jobs/${activeJobId}`);
@@ -995,7 +1006,7 @@ function EmployeeListTab({ companyId }: { companyId: string }) {
     } else if (activeJob.status === "failed") {
       setPolling(false);
       setActiveJobId(null);
-      toast({ title: "Fetch failed", description: "Could not fetch employee list from ESIC portal.", variant: "destructive" });
+      toast({ title: "Fetch failed", description: activeJob.errorMessage || "Could not fetch employee list from ESIC portal.", variant: "destructive" });
     }
   }, [activeJob?.status]);
 
@@ -1046,6 +1057,12 @@ function EmployeeListTab({ companyId }: { companyId: string }) {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
+          {portalSession && !portalSession.configured && (
+            <div className="flex items-center gap-2 p-3 rounded-lg bg-amber-50 border border-amber-200 text-sm text-amber-800">
+              <AlertTriangle className="h-4 w-4 shrink-0" />
+              <span>ESIC portal not configured — go to the <strong>Portal Settings</strong> tab to add credentials first.</span>
+            </div>
+          )}
           <div className="flex gap-3 flex-wrap">
             <Button onClick={handleFetch} disabled={isBusy} data-testid="btn-esic-fetch-employee-list">
               {isBusy ? "Fetching from portal…" : "Fetch from Portal"}
@@ -1135,8 +1152,9 @@ function PortalSettingsTab({ companyId, isSuperAdmin, companies = [] }: {
   useEffect(() => { setSelectedCid(companyId); }, [companyId]);
 
   const effectiveCid = isSuperAdmin ? selectedCid : companyId;
+  const lastJobIdRef = useRef<string | null>(null);
 
-  const resetTest = () => { setTestPhase("idle"); setTestResult(null); setTestJobId(null); setCaptchaAnswer(""); };
+  const resetTest = () => { setTestPhase("idle"); setTestResult(null); setTestJobId(null); setCaptchaAnswer(""); lastJobIdRef.current = null; };
 
   const { data: session } = useQuery<{ configured: boolean; username?: string; lastLoginAt?: string }>({
     queryKey: ["/api/automation/portal-session/esic", effectiveCid],
@@ -1277,6 +1295,10 @@ function PortalSettingsTab({ companyId, isSuperAdmin, companies = [] }: {
     : latestRunningJob
       ? latestRunningJob.jobType.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())
       : "ESIC Portal — Live View";
+
+  if (activeScreenJobId) lastJobIdRef.current = activeScreenJobId;
+  const displayJobId = activeScreenJobId ?? lastJobIdRef.current;
+  const displayActive = !!activeScreenJobId && activeScreenActive;
 
   return (
     <div className="space-y-5">
@@ -1429,8 +1451,8 @@ function PortalSettingsTab({ companyId, isSuperAdmin, companies = [] }: {
       </Card>
 
       {/* ── Portal Live Monitor — ONE screen, always visible ── */}
-      {activeScreenJobId ? (
-        <LiveScreen jobId={activeScreenJobId} active={activeScreenActive} label={activeScreenLabel} />
+      {displayJobId ? (
+        <LiveScreen jobId={displayJobId} active={displayActive} label={activeScreenLabel} />
       ) : (
         <div className="rounded-xl overflow-hidden border-2 border-slate-700 bg-slate-950 shadow-xl">
           <div className="flex items-center justify-between px-3 py-2 bg-slate-900 border-b border-slate-800">

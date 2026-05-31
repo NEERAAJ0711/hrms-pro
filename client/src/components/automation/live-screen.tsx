@@ -10,7 +10,9 @@ interface LiveScreenProps {
 
 /**
  * Polls /api/automation/jobs/:id/live-screenshot every 2 seconds and
- * renders the resulting image. Shows a "LIVE" indicator while connected.
+ * renders the resulting image. Shows a "LIVE" indicator while connected,
+ * "DONE" with last frame after the job completes, and stops rendering
+ * only when there is nothing to show.
  */
 export function LiveScreen({ jobId, active, className = "", label = "Live Browser Screen" }: LiveScreenProps) {
   const [imgSrc, setImgSrc] = useState<string | null>(null);
@@ -20,7 +22,24 @@ export function LiveScreen({ jobId, active, className = "", label = "Live Browse
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cancelledRef = useRef(false);
 
+  // When jobId changes (new job), clear the previous frame
   useEffect(() => {
+    return () => {
+      if (urlRef.current) {
+        URL.revokeObjectURL(urlRef.current);
+        urlRef.current = null;
+      }
+      setImgSrc(null);
+      setConnected(false);
+      setLastTick(null);
+    };
+  }, [jobId]);
+
+  // Poll for screenshots while the job is active
+  useEffect(() => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    cancelledRef.current = true;
+
     if (!active || !jobId) {
       setConnected(false);
       return;
@@ -61,14 +80,18 @@ export function LiveScreen({ jobId, active, className = "", label = "Live Browse
     return () => {
       cancelledRef.current = true;
       if (timerRef.current) clearTimeout(timerRef.current);
-      if (urlRef.current) {
-        URL.revokeObjectURL(urlRef.current);
-        urlRef.current = null;
-      }
+      // Do NOT revoke urlRef here — keep last frame visible when job completes
     };
   }, [jobId, active]);
 
-  if (!active || !jobId) return null;
+  // Don't render if there's nothing to show
+  if (!jobId || (!imgSrc && !active)) return null;
+
+  const statusDot = active
+    ? (connected ? "bg-green-400 animate-pulse" : "bg-yellow-400")
+    : "bg-slate-500";
+  const statusLabel = active ? (connected ? "LIVE" : "connecting…") : "DONE";
+  const statusColor = active ? (connected ? "text-green-400" : "text-yellow-400") : "text-slate-400";
 
   return (
     <div className={`rounded-xl overflow-hidden border-2 border-slate-700 bg-slate-950 shadow-xl ${className}`}>
@@ -79,13 +102,13 @@ export function LiveScreen({ jobId, active, className = "", label = "Live Browse
           <span className="text-xs text-slate-300 font-medium">{label}</span>
         </div>
         <div className="flex items-center gap-2">
-          {connected && lastTick && (
+          {lastTick && (
             <span className="text-[10px] text-slate-500 font-mono">{lastTick}</span>
           )}
           <div className="flex items-center gap-1.5">
-            <div className={`h-2 w-2 rounded-full ${connected ? "bg-green-400 animate-pulse" : "bg-yellow-400"}`} />
-            <span className={`text-[10px] font-semibold uppercase tracking-wider ${connected ? "text-green-400" : "text-yellow-400"}`}>
-              {connected ? "LIVE" : "connecting…"}
+            <div className={`h-2 w-2 rounded-full ${statusDot}`} />
+            <span className={`text-[10px] font-semibold uppercase tracking-wider ${statusColor}`}>
+              {statusLabel}
             </span>
           </div>
         </div>
@@ -100,7 +123,7 @@ export function LiveScreen({ jobId, active, className = "", label = "Live Browse
           style={{ imageRendering: "auto" }}
         />
       ) : (
-        <div className="flex flex-col items-center justify-center h-40 gap-2 text-slate-600">
+        <div className="flex flex-col items-center justify-center min-h-[400px] gap-2 text-slate-600">
           <Monitor className="h-8 w-8" />
           <span className="text-xs">Waiting for browser to start…</span>
         </div>
