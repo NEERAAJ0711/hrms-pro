@@ -69,8 +69,31 @@ const SEL = {
   // Login page
   username:          'input[name="username"], #username, input[placeholder*="User"], input[placeholder*="user"]',
   password:          'input[name="password"], #password, input[type="password"]',
-  captchaInput:      'input[name="captcha"], #captcha, input[placeholder*="captcha" i], input[placeholder*="Captcha"]',
-  captchaImage:      'img[id*="captcha" i], img[alt*="captcha" i], .captchaImg',
+  captchaInput:      [
+    // EPFO unified portal — known IDs
+    '#captchacode', '#captcha_code', '#Captcha', '#CaptchaCode',
+    // Generic name/id patterns
+    'input[name="captchacode"]', 'input[name="captcha"]', 'input[name="CaptchaCode"]',
+    'input[name="captcha_code"]', 'input[name="Captcha"]',
+    // ID patterns
+    '#captcha', 'input[id*="captcha" i]', 'input[id*="Captcha"]',
+    // Placeholder patterns
+    'input[placeholder*="captcha" i]', 'input[placeholder*="verification" i]',
+    'input[placeholder*="code" i][type="text"]',
+    // Class patterns
+    'input.captchaInput', 'input.captcha-input', '.captcha input[type="text"]',
+  ].join(', '),
+  captchaImage:      [
+    // Image elements
+    'img[id*="captcha" i]', 'img[alt*="captcha" i]', 'img[src*="captcha" i]',
+    'img[id*="CaptchaImage"]', '#imgCaptcha', '#captchaImage', '#CaptchaImage',
+    // Canvas (some portals render captcha on canvas)
+    'canvas[id*="captcha" i]', 'canvas[class*="captcha" i]',
+    // Div wrappers
+    '.captchaImg', '.captcha-img', '.captcha img', '[class*="captcha" i] img',
+    // EPFO specific
+    'img[id="imgCaptcha"]', '#captchaimageId',
+  ].join(', '),
   loginBtn:          'button[type="submit"], input[type="submit"], .loginBtn, #loginBtn',
 
   // Post-login employer home
@@ -134,8 +157,23 @@ async function waitFor(page: Page, selector: string, timeout = 15000): Promise<b
 /** Check if current page looks like a CAPTCHA challenge */
 async function hasCaptcha(page: Page): Promise<boolean> {
   try {
-    const visible = await page.isVisible(SEL.captchaImage, { timeout: 2000 });
-    return visible;
+    // 1. Check for a visible captcha image or canvas
+    const imageVisible = await page.isVisible(SEL.captchaImage, { timeout: 2000 }).catch(() => false);
+    if (imageVisible) return true;
+
+    // 2. Check for a visible captcha input field (if input exists, captcha is required)
+    const inputVisible = await page.isVisible(SEL.captchaInput, { timeout: 1000 }).catch(() => false);
+    if (inputVisible) return true;
+
+    // 3. Scan page text for captcha keywords — some portals just show a text prompt
+    const bodyText = await page.textContent("body", { timeout: 1000 }).catch(() => "");
+    if (/captcha|verification.?code|enter.?code|security.?code/i.test(bodyText ?? "")) {
+      // Only trigger if there's also a visible text input
+      const anyInput = await page.isVisible('input[type="text"], input[type="tel"]', { timeout: 500 }).catch(() => false);
+      if (anyInput) return true;
+    }
+
+    return false;
   } catch {
     return false;
   }
