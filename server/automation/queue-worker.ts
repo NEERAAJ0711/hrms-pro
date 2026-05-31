@@ -43,16 +43,22 @@ export const resumeResolvers = new Map<string, (answer: string) => void>();
 export const activePages = new Map<string, import("playwright").Page>();
 
 /**
- * Pages kept alive after a job succeeds so the live screen stays active.
- * Automatically cleaned up after IDLE_TTL_MS.
+ * Browser contexts kept alive after a job succeeds.
+ * Reused by subsequent jobs for the same company+portal so the user never
+ * has to re-login between operations.  Auto-cleaned after IDLE_TTL_MS.
  */
-const IDLE_TTL_MS = 5 * 60_000; // 5 minutes
+const IDLE_TTL_MS = 30 * 60_000; // 30 minutes — keeps session alive across operations
 interface IdleSession {
   page: import("playwright").Page;
   context: BrowserContext;
+  browser: import("playwright").Browser;
+  portal: string;
   timer: ReturnType<typeof setTimeout>;
 }
+/** Primary index: jobId → IdleSession */
 const idleSessions = new Map<string, IdleSession>();
+/** Secondary index: "companyId:portal" → jobId — for fast lookup by portal */
+const idleByPortal = new Map<string, string>();
 
 // ─── AutomationContext ─────────────────────────────────────────────────────────
 /** Passed to every automation function. Provides logging, screenshots, pausing. */
@@ -324,6 +330,7 @@ async function processJob(job: JobRecord): Promise<void> {
   let context: BrowserContext | null = null;
   let page: Page | null = null;
   let jobSucceeded = false;
+  let contextIsReused = false; // true when we borrowed an existing idle context
 
   try {
     await queueService.addLog(job.id, job.companyId, "info", `Starting job: ${job.jobType}`, {
@@ -341,14 +348,41 @@ async function processJob(job: JobRecord): Promise<void> {
     }
 
     portal = getPortal(job.jobType);
-    browser = await browserPool.acquireBrowser(portal);
-    context = await browser.newContext({
-      acceptDownloads: true,
-      ignoreHTTPSErrors: true,   // EPFO/ESIC portals have self-signed / authority-invalid certs
-      userAgent:
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
-        "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-    });
+
+    // ── Reuse existing idle session for this company+portal if available ────────
+    // This keeps ONE browser context alive across all operations so the user
+    // never has to re-login between actions.
+    const portalKey = `${job.companyId}:${portal}`;
+    const idleJobId = idleByPortal.get(portalKey);
+    if (idleJobId) {
+      const idle = idleSessions.get(idleJobId);
+      if (idle && idle.context) {
+        // Cancel the auto-close timer — we're taking over this context
+        clearTimeout(idle.timer);
+        idleSessions.delete(idleJobId);
+        idleByPortal.delete(portalKey);
+        activePages.delete(idleJobId);
+
+        browser = idle.browser;
+        context = idle.context;
+        contextIsReused = true;
+        await queueService.addLog(job.id, job.companyId, "info",
+          "Reusing existing browser session — no re-login needed");
+      }
+    }
+
+    if (!context) {
+      // No reusable session — acquire browser and create a fresh context
+      browser = await browserPool.acquireBrowser(portal);
+      context = await browser.newContext({
+        acceptDownloads: true,
+        ignoreHTTPSErrors: true,   // EPFO/ESIC portals have self-signed / authority-invalid certs
+        userAgent:
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+          "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+      });
+    }
+
     page = await context.newPage();
     // Cap every individual page action at 25s so a missing selector
     // fails quickly instead of hanging for the Playwright default (30s).
@@ -368,8 +402,10 @@ async function processJob(job: JobRecord): Promise<void> {
     await ctx.takeScreenshot("before");
 
     if (!isLoginTestJob) {
-      // Restore saved session cookies (skip re-login if session is still valid)
-      const hadSession = await sessionManager.restoreSession(job.companyId, portal, context);
+      // If context is reused it already has live cookies — skip DB restore
+      const hadSession = contextIsReused
+        ? true
+        : await sessionManager.restoreSession(job.companyId, portal, context);
 
       if (!hadSession) {
         const creds = await portalSessionService.getCredentials(job.companyId, portal);
@@ -534,28 +570,66 @@ async function processJob(job: JobRecord): Promise<void> {
       ).catch(() => {});
     }
   } finally {
-    if (jobSucceeded && page && context) {
-      // Keep browser open so the live screen stays active after login.
-      // activePages entry is intentionally NOT deleted — live-screenshot
-      // keeps serving frames for the next IDLE_TTL_MS milliseconds.
+    if (jobSucceeded && page && context && browser && portal) {
+      // ── Keep context alive for reuse by the next job ─────────────────────────
+      // activePages entry is kept so live-screenshot keeps serving frames.
+      // The secondary idleByPortal index lets the next job find this session.
       const capturedPage = page;
       const capturedCtx = context;
+      const capturedBrowser = browser;
+      const capturedPortal = portal;
+      const portalKey = `${job.companyId}:${portal}`;
+
       const idleTimer = setTimeout(async () => {
         idleSessions.delete(job.id);
+        idleByPortal.delete(portalKey);
         activePages.delete(job.id);
         try { await capturedPage.close(); } catch { /* ignore */ }
         try { await capturedCtx.close(); } catch { /* ignore */ }
+        browserPool.releaseBrowser(capturedPortal, capturedBrowser);
       }, IDLE_TTL_MS);
-      idleSessions.set(job.id, { page, context, timer: idleTimer });
+
+      idleSessions.set(job.id, { page, context, browser, portal, timer: idleTimer });
+      idleByPortal.set(portalKey, job.id);
+      // Don't release the browser — it's still in use by the idle session
     } else {
-      // Job failed or no page — clean up immediately
+      // Job failed — clean up page. Keep context alive if it was reused
+      // (so a future retry can still use the same session).
       activePages.delete(job.id);
       try { await page?.close(); } catch { /* ignore */ }
-      try { await context?.close(); } catch { /* ignore */ }
-    }
-    // Always release the browser slot so the next job can acquire it
-    if (browser && portal) {
-      browserPool.releaseBrowser(portal, browser);
+      if (!contextIsReused) {
+        // Fresh context we created — close it
+        try { await context?.close(); } catch { /* ignore */ }
+        // Release the browser slot
+        if (browser && portal) browserPool.releaseBrowser(portal, browser);
+      }
+      // If context was reused and job failed, put it back into idle so
+      // the next job can try again with the same session.
+      if (contextIsReused && context && browser && portal) {
+        const portalKey = `${job.companyId}:${portal}`;
+        const capturedCtx = context;
+        const capturedBrowser = browser;
+        const capturedPortal = portal;
+        // Create a blank idle page so live-screenshot still works
+        const idlePage = await context.newPage().catch(() => null);
+        if (idlePage) {
+          activePages.set(job.id + ":idle", idlePage);
+          const idleTimer = setTimeout(async () => {
+            idleSessions.delete(job.id);
+            idleByPortal.delete(portalKey);
+            activePages.delete(job.id + ":idle");
+            try { await idlePage.close(); } catch { /* ignore */ }
+            try { await capturedCtx.close(); } catch { /* ignore */ }
+            browserPool.releaseBrowser(capturedPortal, capturedBrowser);
+          }, IDLE_TTL_MS);
+          idleSessions.set(job.id, { page: idlePage, context, browser, portal, timer: idleTimer });
+          idleByPortal.set(portalKey, job.id);
+        } else {
+          // Couldn't create idle page — close everything
+          try { await capturedCtx.close(); } catch { /* ignore */ }
+          browserPool.releaseBrowser(capturedPortal, capturedBrowser);
+        }
+      }
     }
     activeJobCount--;
   }
