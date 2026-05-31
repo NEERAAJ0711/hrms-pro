@@ -129,9 +129,18 @@ function buildContext(job: JobRecord, screenshotDir: string): AutomationContext 
       await queueService.markJobPaused(job.id, screenshotPath);
       await queueService.addLog(job.id, job.companyId, "info", `Job paused: ${reason}`, { screenshotPath });
 
-      return new Promise<string>((resolve) => {
+      // ── Release the active slot so the rest of the queue keeps moving ────────
+      // Without this, a paused CAPTCHA/OTP job would block every other job
+      // because activeJobCount stays at MAX_CONCURRENT indefinitely.
+      activeJobCount--;
+
+      const answer = await new Promise<string>((resolve) => {
         resumeResolvers.set(job.id, resolve);
       });
+
+      // Reclaim the slot now that we are about to resume execution
+      activeJobCount++;
+      return answer;
     },
   };
 }
@@ -697,6 +706,22 @@ export function startQueueWorker(): void {
   workerRunning = true;
 
   ensureDir(SCREENSHOT_BASE);
+
+  // ── Startup recovery ────────────────────────────────────────────────────────
+  // On a fresh start all browser contexts from the previous process are gone.
+  // Reset any jobs that were left in "running" or "paused" state so they are
+  // re-queued and retried cleanly.  This fires immediately (0-minute cutoff)
+  // because no active jobs can exist yet in a brand-new process.
+  db.execute(sql`
+    UPDATE automation_jobs
+    SET status   = 'pending',
+        started_at = NULL,
+        updated_at = ${new Date().toISOString()}
+    WHERE status IN ('running', 'paused')
+  `).then((r: any) => {
+    const n = r.rowCount ?? 0;
+    if (n > 0) console.log(`[QueueWorker] Startup: reset ${n} orphaned running/paused job(s) to pending`);
+  }).catch(() => {});
 
   console.log(`[QueueWorker] Starting — poll interval ${POLL_INTERVAL_MS / 1000}s, max concurrent: ${MAX_CONCURRENT}`);
   setTimeout(poll, 2000);       // slight delay to let the server finish starting
