@@ -21,6 +21,7 @@ export type AutomationJobType =
   | "esic_employee_search"
   | "esic_employee_list"
   | "esic_contribution_tracking"
+  | "esic_contribution_pdf"
   | "esic_family_declaration"
   | "esic_temp_card_download"
   | "esic_pehchan_card_download"

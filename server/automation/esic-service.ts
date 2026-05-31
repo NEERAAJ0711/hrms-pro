@@ -1076,3 +1076,70 @@ export async function contributionTracking(
     total: totalRow ?? null,
   };
 }
+
+// ─── Contribution History PDF Download ───────────────────────────────────────
+// Navigates to ContributionHistory.aspx, fills the form, tries the portal's
+// own download button first, then falls back to page.pdf().
+export async function contributionHistoryPdf(
+  page: Page,
+  payload: { ipNumber: string; fromDate: string; toDate: string; reportDir: string },
+  ctx: AutomationContext
+): Promise<Record<string, unknown>> {
+  const { ipNumber, fromDate, toDate, reportDir } = payload;
+
+  await ctx.log("info", "Generating contribution history PDF", { ipNumber, fromDate, toDate });
+
+  await gotoWithRetry(page, `${ESIC_BASE}/ContributionHistory.aspx`, {
+    waitUntil: "domcontentloaded",
+    timeout: 60000,
+  });
+  await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {});
+
+  await page.fill(SEL.ipNoInput, ipNumber);
+  await page.fill(SEL.contribHistFrom, fromDate).catch(() => {});
+  await page.fill(SEL.contribHistTo, toDate).catch(() => {});
+  await page.click(SEL.contribHistSearch);
+  await page.waitForLoadState("networkidle", { timeout: 20000 }).catch(() => {});
+  await ctx.takeScreenshot("contrib-history-pdf-result");
+
+  const safe = (s: string) => s.replace(/[^a-zA-Z0-9\-]/g, "-");
+  const fileName = `contrib-history-${safe(ipNumber)}-${safe(fromDate)}-${safe(toDate)}.pdf`;
+  const filePath = `${reportDir}/${fileName}`;
+
+  // Try portal's own download/print button first
+  let downloaded = false;
+  const downloadSelectors = [
+    '#btnDownload', '#btnPrint', '#btnExport',
+    'button[id*="download" i]', 'button[id*="print" i]',
+    'input[value*="Download" i]', 'input[value*="Print" i]',
+    'a[href*="download" i]', 'a[href*="pdf" i]',
+  ].join(", ");
+
+  try {
+    const [dl] = await Promise.all([
+      page.waitForEvent("download", { timeout: 8000 }),
+      page.click(downloadSelectors, { timeout: 5000 }),
+    ]);
+    await dl.saveAs(filePath);
+    downloaded = true;
+    await ctx.log("info", "Contribution history downloaded via portal button", { filePath });
+  } catch {
+    // Portal download button not found — fall back to page.pdf()
+  }
+
+  if (!downloaded) {
+    await page.pdf({ path: filePath, format: "A4", printBackground: true });
+    await ctx.log("info", "Contribution history saved as PDF", { filePath });
+  }
+
+  await ctx.takeScreenshot("contrib-history-pdf-done");
+
+  return {
+    ipNumber,
+    fromDate,
+    toDate,
+    filePath,
+    fileName,
+    downloadUrl: `/api/esic/contribution-history/file?file=${encodeURIComponent(fileName)}`,
+  };
+}

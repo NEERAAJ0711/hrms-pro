@@ -297,6 +297,11 @@ async function dispatch(
       return esic.esicEmployeeList(page, p as any, ctx);
     case "esic_contribution_tracking":
       return esic.contributionTracking(page, p as any, ctx);
+    case "esic_contribution_pdf": {
+      const REPORT_DIR = path.join(process.cwd(), "uploads", "esic-reports");
+      if (!fs.existsSync(REPORT_DIR)) fs.mkdirSync(REPORT_DIR, { recursive: true });
+      return esic.contributionHistoryPdf(page, { ...(p as any), reportDir: REPORT_DIR }, ctx);
+    }
 
     // ── ESIC card downloads (stub — extend when portal selectors are known) ─
     case "esic_temp_card_download":

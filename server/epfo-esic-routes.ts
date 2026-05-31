@@ -12,6 +12,8 @@
  */
 
 import type { Express, Request, Response } from "express";
+import * as fs from "fs";
+import * as path from "path";
 import { db } from "./db";
 import {
   automationJobs,
@@ -1880,5 +1882,18 @@ export function registerEpfoEsicRoutes(
     } catch (err: any) {
       res.status(500).json({ error: err?.message || "Failed to fetch summary" });
     }
+  });
+
+  // ── GET /api/esic/contribution-history/file — serve a generated PDF ────────
+  app.get("/api/esic/contribution-history/file", requireAuth, adminRoles, (req: Request, res: Response) => {
+    const file = (req.query.file as string) ?? "";
+    if (!file || file.includes("..") || file.includes("/")) {
+      return res.status(400).json({ error: "Invalid file name" });
+    }
+    const abs = path.resolve("uploads", "esic-reports", file);
+    if (!fs.existsSync(abs)) {
+      return res.status(404).json({ error: "File not found. Run the Download PDF job first." });
+    }
+    res.download(abs, file);
   });
 }

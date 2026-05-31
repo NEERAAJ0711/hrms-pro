@@ -965,6 +965,191 @@ function MemberToolsTab({ companyId }: { companyId: string }) {
   );
 }
 
+// ─── Contribution History Tab ─────────────────────────────────────────────────
+function ContributionHistoryTab({ companyId }: { companyId: string }) {
+  const { toast } = useToast();
+  const triggerFetch = useTriggerJob();
+  const triggerPdf   = useTriggerJob();
+
+  const defaultFrom = () => {
+    const d = new Date(); d.setMonth(d.getMonth() - 3);
+    return d.toISOString().split("T")[0];
+  };
+
+  const [ip,       setIp]       = useState("");
+  const [fromDate, setFromDate] = useState(defaultFrom);
+  const [toDate,   setToDate]   = useState(new Date().toISOString().split("T")[0]);
+
+  const [fetchJobId,  setFetchJobId]  = useState<string | null>(null);
+  const [fetchPoll,   setFetchPoll]   = useState(false);
+  const [fetchResult, setFetchResult] = useState<Record<string, unknown> | null>(null);
+
+  const [pdfJobId,  setPdfJobId]  = useState<string | null>(null);
+  const [pdfPoll,   setPdfPoll]   = useState(false);
+  const [pdfUrl,    setPdfUrl]    = useState<string | null>(null);
+
+  const queryClient = useQueryClient();
+
+  // Poll fetch job
+  useEffect(() => {
+    if (!fetchPoll || !fetchJobId) return;
+    const iv = setInterval(async () => {
+      const res = await fetch(`/api/automation/jobs/${fetchJobId}`, { credentials: "include" });
+      const j = await res.json();
+      if (j.status === "completed") {
+        clearInterval(iv);
+        setFetchPoll(false);
+        setFetchResult(j.result ?? null);
+      } else if (j.status === "failed" || j.status === "cancelled") {
+        clearInterval(iv);
+        setFetchPoll(false);
+        toast({ title: "Fetch failed", description: j.error ?? "Portal error", variant: "destructive" });
+      }
+    }, 4000);
+    return () => clearInterval(iv);
+  }, [fetchPoll, fetchJobId, toast]);
+
+  // Poll PDF job
+  useEffect(() => {
+    if (!pdfPoll || !pdfJobId) return;
+    const iv = setInterval(async () => {
+      const res = await fetch(`/api/automation/jobs/${pdfJobId}`, { credentials: "include" });
+      const j = await res.json();
+      if (j.status === "completed") {
+        clearInterval(iv);
+        setPdfPoll(false);
+        setPdfUrl((j.result?.downloadUrl as string) ?? null);
+        toast({ title: "PDF ready", description: "Click Download PDF to save the file." });
+      } else if (j.status === "failed" || j.status === "cancelled") {
+        clearInterval(iv);
+        setPdfPoll(false);
+        toast({ title: "PDF generation failed", description: j.error ?? "Portal error", variant: "destructive" });
+      }
+    }, 4000);
+    return () => clearInterval(iv);
+  }, [pdfPoll, pdfJobId, toast]);
+
+  // CSV export from fetched rows
+  const downloadCsv = () => {
+    const rows = (fetchResult?.rows as string[][]) ?? [];
+    if (!rows.length) return;
+    const csv = rows.map(r => r.map(c => `"${(c ?? "").replace(/"/g, '""')}"`).join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `contribution-history-${ip}-${fromDate}-${toDate}.csv`;
+    a.click();
+  };
+
+  const rows = (fetchResult?.rows as string[][]) ?? [];
+  const headers = rows[0] ?? [];
+  const dataRows = rows.slice(1);
+
+  return (
+    <div className="space-y-4">
+      {/* Filters */}
+      <div className="flex flex-wrap gap-3 items-end">
+        <div className="w-44">
+          <Label className="text-xs">IP Number</Label>
+          <Input value={ip} onChange={e => setIp(e.target.value)} placeholder="e.g. 1234567890"
+            data-testid="input-ch-ip" />
+        </div>
+        <div className="w-40">
+          <Label className="text-xs">From Date</Label>
+          <Input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)}
+            data-testid="input-ch-from" />
+        </div>
+        <div className="w-40">
+          <Label className="text-xs">To Date</Label>
+          <Input type="date" value={toDate} onChange={e => setToDate(e.target.value)}
+            data-testid="input-ch-to" />
+        </div>
+        <Button
+          onClick={() => triggerFetch.mutate(
+            { jobType: "esic_contribution_tracking", companyId, payload: { ipNumber: ip, fromDate, toDate } },
+            { onSuccess: j => { setFetchJobId(j.id); setFetchPoll(true); setFetchResult(null); setPdfUrl(null); } }
+          )}
+          disabled={!ip || fetchPoll || triggerFetch.isPending}
+          data-testid="btn-ch-fetch"
+        >
+          {fetchPoll ? <><Loader2 className="h-4 w-4 animate-spin mr-2" />Fetching…</> : "Fetch from Portal"}
+        </Button>
+      </div>
+
+      {/* Results table */}
+      {fetchResult && (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="text-sm text-muted-foreground">
+              {dataRows.length} contribution record{dataRows.length !== 1 ? "s" : ""} found
+            </p>
+            <div className="flex gap-2">
+              {dataRows.length > 0 && (
+                <Button size="sm" variant="outline" onClick={downloadCsv} data-testid="btn-ch-csv">
+                  <Download className="h-3.5 w-3.5 mr-1" /> Download CSV
+                </Button>
+              )}
+              {pdfUrl ? (
+                <a href={pdfUrl} target="_blank" rel="noreferrer">
+                  <Button size="sm" variant="default" data-testid="btn-ch-pdf-link">
+                    <Download className="h-3.5 w-3.5 mr-1" /> Download PDF
+                  </Button>
+                </a>
+              ) : (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => triggerPdf.mutate(
+                    { jobType: "esic_contribution_pdf", companyId, payload: { ipNumber: ip, fromDate, toDate } },
+                    { onSuccess: j => { setPdfJobId(j.id); setPdfPoll(true); } }
+                  )}
+                  disabled={pdfPoll || triggerPdf.isPending}
+                  data-testid="btn-ch-pdf"
+                >
+                  {pdfPoll ? <><Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />Generating…</> : <><Download className="h-3.5 w-3.5 mr-1" />Download PDF</>}
+                </Button>
+              )}
+            </div>
+          </div>
+
+          <div className="rounded-md border overflow-x-auto">
+            <Table>
+              {headers.length > 0 && (
+                <TableHeader>
+                  <TableRow>
+                    {headers.map((h, i) => <TableHead key={i} className="text-xs whitespace-nowrap">{h ?? `Col ${i+1}`}</TableHead>)}
+                  </TableRow>
+                </TableHeader>
+              )}
+              <TableBody>
+                {dataRows.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={Math.max(headers.length, 1)} className="text-center py-8 text-muted-foreground">
+                      No contribution records found for this IP number and date range.
+                    </TableCell>
+                  </TableRow>
+                ) : dataRows.map((row, i) => (
+                  <TableRow key={i} data-testid={`row-ch-${i}`}>
+                    {row.map((cell, j) => (
+                      <TableCell key={j} className="text-sm whitespace-nowrap">{cell ?? "—"}</TableCell>
+                    ))}
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        </div>
+      )}
+
+      {!fetchResult && !fetchPoll && (
+        <div className="rounded-md border border-dashed p-10 text-center text-muted-foreground text-sm">
+          Enter an IP number and date range, then click <strong>Fetch from Portal</strong> to view contribution history.
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Employee List Tab ────────────────────────────────────────────────────────
 function EmployeeListTab({ companyId }: { companyId: string }) {
   const { toast } = useToast();
@@ -1539,6 +1724,7 @@ export default function EsicPage() {
             <TabsTrigger value="returns" data-testid="tab-esic-returns">Monthly Filing</TabsTrigger>
             <TabsTrigger value="challans" data-testid="tab-esic-challans">Challans</TabsTrigger>
             <TabsTrigger value="bulk" data-testid="tab-esic-bulk">Bulk Upload</TabsTrigger>
+            <TabsTrigger value="contrib-history" data-testid="tab-esic-contrib-history">Contribution History</TabsTrigger>
             <TabsTrigger value="tools" data-testid="tab-esic-tools">Member Tools</TabsTrigger>
             <TabsTrigger value="employees" data-testid="tab-esic-employees">Employee List</TabsTrigger>
             <TabsTrigger value="portal" data-testid="tab-esic-portal">Portal Settings</TabsTrigger>
@@ -1550,6 +1736,7 @@ export default function EsicPage() {
           <TabsContent value="returns" className="mt-4"><MonthlyFilingTab companyId={companyId} /></TabsContent>
           <TabsContent value="challans" className="mt-4"><ChallanTab companyId={companyId} /></TabsContent>
           <TabsContent value="bulk" className="mt-4"><BulkUploadTab companyId={companyId} /></TabsContent>
+          <TabsContent value="contrib-history" className="mt-4"><ContributionHistoryTab companyId={companyId} /></TabsContent>
           <TabsContent value="tools" className="mt-4"><MemberToolsTab companyId={companyId} /></TabsContent>
           <TabsContent value="employees" className="mt-4"><EmployeeListTab companyId={companyId} /></TabsContent>
           {/* Portal tab stays mounted always so live browser state survives tab switches */}
