@@ -156,6 +156,19 @@ export class QueueService {
       .where(and(eq(automationJobs.id, id), eq(automationJobs.status, "pending")));
   }
 
+  /** Permanently delete a job and all its logs. Running/paused jobs cannot be deleted. */
+  async deleteJob(id: string): Promise<{ deleted: boolean; reason?: string }> {
+    const rows = await db.select().from(automationJobs).where(eq(automationJobs.id, id));
+    if (!rows.length) return { deleted: false, reason: "not_found" };
+    const job = rows[0];
+    if (["running", "paused"].includes(job.status as string)) {
+      return { deleted: false, reason: "job_active" };
+    }
+    await db.delete(automationLogs).where(eq(automationLogs.jobId, id));
+    await db.delete(automationJobs).where(eq(automationJobs.id, id));
+    return { deleted: true };
+  }
+
   /**
    * Retry all failed jobs that still have remaining retries.
    * Resets retry_count to 0 so they get a fresh attempt cycle.

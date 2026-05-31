@@ -17,7 +17,7 @@ import {
 } from "@/components/ui/select";
 import {
   Bot, RefreshCw, AlertTriangle, CheckCircle2, Clock, Pause,
-  RotateCcw, Loader2, Activity, FileText, Search,
+  RotateCcw, Loader2, Activity, FileText, Search, Trash2, Ban,
 } from "lucide-react";
 
 const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
@@ -86,6 +86,122 @@ function formatDate(s: string | null | undefined) {
 
 function jobTypeLabel(jt: string) {
   return jt.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+}
+
+// ─── Shared Cancel / Delete mutations hook ────────────────────────────────────
+function useJobActions(onDone: () => void) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  const invalidate = () => queryClient.invalidateQueries({ queryKey: ["/api/automation/jobs"] });
+
+  const cancelMutation = useMutation({
+    mutationFn: async (jobId: string) => {
+      const res = await apiRequest("DELETE", `/api/automation/jobs/${jobId}`, undefined);
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || "Failed to cancel job");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Job cancelled" });
+      invalidate();
+      onDone();
+    },
+    onError: (err: any) => toast({ title: "Cancel failed", description: err.message, variant: "destructive" }),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (jobId: string) => {
+      const res = await apiRequest("DELETE", `/api/automation/jobs/${jobId}?hard=true`, undefined);
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || "Failed to delete job");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Job deleted", description: "Job and its logs have been removed." });
+      invalidate();
+      onDone();
+    },
+    onError: (err: any) => toast({ title: "Delete failed", description: err.message, variant: "destructive" }),
+  });
+
+  return { cancelMutation, deleteMutation };
+}
+
+// ─── Job Action Buttons ───────────────────────────────────────────────────────
+// Cancel — for pending jobs; Delete — for completed/failed/cancelled jobs
+function JobActions({ job }: { job: AutomationJob }) {
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const { cancelMutation, deleteMutation } = useJobActions(() => setConfirmDelete(false));
+
+  const isPending = cancelMutation.isPending || deleteMutation.isPending;
+
+  if (job.status === "pending") {
+    return (
+      <Button
+        size="sm"
+        variant="outline"
+        className="h-7 px-2 text-xs border-yellow-300 text-yellow-700 hover:bg-yellow-50 hover:text-yellow-800"
+        onClick={() => cancelMutation.mutate(job.id)}
+        disabled={isPending}
+        data-testid={`button-cancel-job-${job.id}`}
+        title="Cancel this queued job"
+      >
+        {cancelMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Ban className="h-3 w-3 mr-1" />}
+        Cancel
+      </Button>
+    );
+  }
+
+  if (["completed", "failed", "cancelled"].includes(job.status)) {
+    if (confirmDelete) {
+      return (
+        <div className="flex items-center gap-1">
+          <Button
+            size="sm"
+            variant="destructive"
+            className="h-7 px-2 text-xs"
+            onClick={() => deleteMutation.mutate(job.id)}
+            disabled={isPending}
+            data-testid={`button-confirm-delete-job-${job.id}`}
+          >
+            {deleteMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : "Confirm"}
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-7 px-2 text-xs"
+            onClick={() => setConfirmDelete(false)}
+            disabled={isPending}
+            data-testid={`button-cancel-delete-job-${job.id}`}
+          >
+            No
+          </Button>
+        </div>
+      );
+    }
+    return (
+      <Button
+        size="sm"
+        variant="ghost"
+        className="h-7 px-2 text-xs text-red-500 hover:text-red-700 hover:bg-red-50"
+        onClick={() => setConfirmDelete(true)}
+        disabled={isPending}
+        data-testid={`button-delete-job-${job.id}`}
+        title="Permanently delete this job and its logs"
+      >
+        <Trash2 className="h-3 w-3 mr-1" />
+        Delete
+      </Button>
+    );
+  }
+
+  // running / paused — no action available
+  return <span className="text-xs text-muted-foreground">—</span>;
 }
 
 // ─── All Jobs Tab ─────────────────────────────────────────────────────────────
@@ -162,13 +278,14 @@ function AllJobsTab() {
               <TableHead>Started</TableHead>
               <TableHead>Updated</TableHead>
               <TableHead>Error</TableHead>
+              <TableHead className="w-28">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {isLoading ? (
-              <TableRow><TableCell colSpan={7} className="text-center py-8"><Loader2 className="h-5 w-5 animate-spin mx-auto" /></TableCell></TableRow>
+              <TableRow><TableCell colSpan={8} className="text-center py-8"><Loader2 className="h-5 w-5 animate-spin mx-auto" /></TableCell></TableRow>
             ) : jobs.length === 0 ? (
-              <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">No jobs found</TableCell></TableRow>
+              <TableRow><TableCell colSpan={8} className="text-center py-8 text-muted-foreground">No jobs found</TableCell></TableRow>
             ) : jobs.map(job => (
               <TableRow key={job.id} data-testid={`row-job-${job.id}`}>
                 <TableCell className="font-mono text-xs text-muted-foreground">{job.id.slice(0, 8)}…</TableCell>
@@ -178,6 +295,7 @@ function AllJobsTab() {
                 <TableCell className="text-xs">{formatDate(job.startedAt)}</TableCell>
                 <TableCell className="text-xs">{formatDate(job.updatedAt)}</TableCell>
                 <TableCell className="text-xs text-red-600 max-w-[200px] truncate">{job.errorMessage ?? "—"}</TableCell>
+                <TableCell><JobActions job={job} /></TableCell>
               </TableRow>
             ))}
           </TableBody>
@@ -229,6 +347,22 @@ function PausedJobsTab() {
     onError: (err: any) => toast({ title: "Resume failed", description: err.message, variant: "destructive" }),
   });
 
+  const cancelMutation = useMutation({
+    mutationFn: async (jobId: string) => {
+      const res = await apiRequest("DELETE", `/api/automation/jobs/${jobId}`, undefined);
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || "Failed to cancel job");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Job cancelled" });
+      queryClient.invalidateQueries({ queryKey: ["/api/automation/jobs"] });
+    },
+    onError: (err: any) => toast({ title: "Cancel failed", description: err.message, variant: "destructive" }),
+  });
+
   const jobs = data?.data ?? [];
 
   return (
@@ -254,7 +388,21 @@ function PausedJobsTab() {
                 {jobTypeLabel(job.jobType)}
                 <span className="font-mono text-xs text-muted-foreground">#{job.id.slice(0, 8)}</span>
               </CardTitle>
-              {statusBadge(job.status)}
+              <div className="flex items-center gap-2">
+                {statusBadge(job.status)}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 px-2 text-xs border-yellow-300 text-yellow-700 hover:bg-yellow-50"
+                  onClick={() => cancelMutation.mutate(job.id)}
+                  disabled={cancelMutation.isPending}
+                  data-testid={`button-cancel-paused-job-${job.id}`}
+                  title="Cancel this paused job"
+                >
+                  {cancelMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Ban className="h-3 w-3 mr-1" />}
+                  Cancel
+                </Button>
+              </div>
             </div>
           </CardHeader>
           <CardContent>
@@ -314,6 +462,7 @@ function FailedJobsTab() {
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
 
   const cid = user?.companyId || undefined;
   const params = new URLSearchParams({ status: "failed", limit: "50" });
@@ -341,6 +490,26 @@ function FailedJobsTab() {
     onError: (err: any) => toast({ title: "Retry failed", description: err.message, variant: "destructive" }),
   });
 
+  const deleteMutation = useMutation({
+    mutationFn: async (jobId: string) => {
+      const res = await apiRequest("DELETE", `/api/automation/jobs/${jobId}?hard=true`, undefined);
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || "Failed to delete job");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Job deleted", description: "Job and its logs have been removed." });
+      setConfirmDelete(null);
+      queryClient.invalidateQueries({ queryKey: ["/api/automation/jobs"] });
+    },
+    onError: (err: any) => {
+      toast({ title: "Delete failed", description: err.message, variant: "destructive" });
+      setConfirmDelete(null);
+    },
+  });
+
   const jobs = data?.data ?? [];
 
   return (
@@ -354,7 +523,7 @@ function FailedJobsTab() {
               <TableHead>Retries</TableHead>
               <TableHead>Failed At</TableHead>
               <TableHead>Error</TableHead>
-              <TableHead className="w-24">Actions</TableHead>
+              <TableHead className="w-36">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -372,15 +541,55 @@ function FailedJobsTab() {
                   <span className="line-clamp-2">{job.errorMessage ?? "Unknown error"}</span>
                 </TableCell>
                 <TableCell>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => retryMutation.mutate(job.id)}
-                    disabled={retryMutation.isPending}
-                    data-testid={`button-retry-job-${job.id}`}
-                  >
-                    <RotateCcw className="h-3 w-3 mr-1" /> Retry
-                  </Button>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => retryMutation.mutate(job.id)}
+                      disabled={retryMutation.isPending || deleteMutation.isPending}
+                      data-testid={`button-retry-job-${job.id}`}
+                      className="h-7 px-2 text-xs"
+                    >
+                      <RotateCcw className="h-3 w-3 mr-1" /> Retry
+                    </Button>
+
+                    {confirmDelete === job.id ? (
+                      <>
+                        <Button
+                          size="sm"
+                          variant="destructive"
+                          onClick={() => deleteMutation.mutate(job.id)}
+                          disabled={deleteMutation.isPending}
+                          data-testid={`button-confirm-delete-failed-${job.id}`}
+                          className="h-7 px-2 text-xs"
+                        >
+                          {deleteMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : "Confirm"}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => setConfirmDelete(null)}
+                          disabled={deleteMutation.isPending}
+                          className="h-7 px-2 text-xs"
+                          data-testid={`button-cancel-delete-failed-${job.id}`}
+                        >
+                          No
+                        </Button>
+                      </>
+                    ) : (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => setConfirmDelete(job.id)}
+                        disabled={retryMutation.isPending || deleteMutation.isPending}
+                        data-testid={`button-delete-failed-job-${job.id}`}
+                        className="h-7 px-2 text-xs text-red-500 hover:text-red-700 hover:bg-red-50"
+                        title="Permanently delete this job and its logs"
+                      >
+                        <Trash2 className="h-3 w-3 mr-1" /> Delete
+                      </Button>
+                    )}
+                  </div>
                 </TableCell>
               </TableRow>
             ))}
@@ -513,52 +722,48 @@ export default function AutomationJobsPage() {
 
   return (
     <div className="p-6 space-y-5">
+      {/* Header */}
       <div className="flex items-center gap-3">
-        <div className="p-2 bg-indigo-600 rounded-lg">
-          <Bot className="h-6 w-6 text-white" />
+        <div className="h-9 w-9 rounded-lg bg-primary/10 flex items-center justify-center">
+          <Bot className="h-5 w-5 text-primary" />
         </div>
         <div>
-          <h1 className="text-2xl font-bold">Automation Monitor</h1>
-          <p className="text-sm text-muted-foreground">Track and manage EPFO/ESIC automation jobs in real-time</p>
+          <h1 className="text-xl font-semibold">Automation Jobs</h1>
+          <p className="text-sm text-muted-foreground">EPFO &amp; ESIC portal automation queue</p>
         </div>
       </div>
 
       {/* Summary cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {[
-          { label: "Pending Jobs", value: summary?.pendingJobs ?? 0, icon: Clock, color: "text-yellow-600 bg-yellow-50" },
-          { label: "Failed Jobs", value: summary?.failedJobs ?? 0, icon: AlertTriangle, color: "text-red-600 bg-red-50" },
-          { label: "EPFO Registered", value: summary?.epfoRegistrations ?? 0, icon: Activity, color: "text-blue-600 bg-blue-50" },
-          { label: "ESIC Registered", value: summary?.esicRegistrations ?? 0, icon: Activity, color: "text-green-600 bg-green-50" },
-        ].map(({ label, value, icon: Icon, color }) => (
-          <Card key={label}>
-            <CardContent className="pt-5 pb-4">
-              <div className="flex items-center gap-3">
-                <div className={`p-2 rounded-lg ${color}`}><Icon className="h-5 w-5" /></div>
-                <div>
-                  <p className="text-2xl font-bold">{value}</p>
-                  <p className="text-xs text-muted-foreground">{label}</p>
-                </div>
+          { label: "Pending Jobs",         value: summary?.pendingJobs ?? 0,         icon: <Clock className="h-4 w-4 text-yellow-600" />,    bg: "bg-yellow-50 border-yellow-200" },
+          { label: "Failed Jobs",          value: summary?.failedJobs ?? 0,          icon: <AlertTriangle className="h-4 w-4 text-red-600" />, bg: "bg-red-50 border-red-200" },
+          { label: "EPFO Registrations",   value: summary?.epfoRegistrations ?? 0,   icon: <Activity className="h-4 w-4 text-blue-600" />,    bg: "bg-blue-50 border-blue-200" },
+          { label: "ESIC Registrations",   value: summary?.esicRegistrations ?? 0,   icon: <FileText className="h-4 w-4 text-green-600" />,   bg: "bg-green-50 border-green-200" },
+        ].map(card => (
+          <Card key={card.label} className={`border ${card.bg}`}>
+            <CardContent className="pt-4 pb-3">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-xs text-muted-foreground">{card.label}</span>
+                {card.icon}
               </div>
+              <p className="text-2xl font-bold">{card.value}</p>
             </CardContent>
           </Card>
         ))}
       </div>
 
+      {/* Tabs */}
       <Tabs defaultValue="all">
-        <TabsList className="grid grid-cols-4 w-full max-w-md">
-          <TabsTrigger value="all" className="flex items-center gap-1.5">
-            <Activity className="h-3.5 w-3.5" /> All Jobs
+        <TabsList>
+          <TabsTrigger value="all" data-testid="tab-all-jobs">All Jobs</TabsTrigger>
+          <TabsTrigger value="paused" data-testid="tab-paused-jobs">
+            Paused {summary?.pendingJobs ? `(${summary.pendingJobs})` : ""}
           </TabsTrigger>
-          <TabsTrigger value="paused" className="flex items-center gap-1.5">
-            <Pause className="h-3.5 w-3.5" /> Paused
+          <TabsTrigger value="failed" data-testid="tab-failed-jobs">
+            Failed {summary?.failedJobs ? `(${summary.failedJobs})` : ""}
           </TabsTrigger>
-          <TabsTrigger value="failed" className="flex items-center gap-1.5">
-            <AlertTriangle className="h-3.5 w-3.5" /> Failed
-          </TabsTrigger>
-          <TabsTrigger value="logs" className="flex items-center gap-1.5">
-            <FileText className="h-3.5 w-3.5" /> Logs
-          </TabsTrigger>
+          <TabsTrigger value="logs" data-testid="tab-logs">Logs</TabsTrigger>
         </TabsList>
 
         <TabsContent value="all" className="mt-4"><AllJobsTab /></TabsContent>

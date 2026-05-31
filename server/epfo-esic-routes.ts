@@ -416,20 +416,36 @@ export function registerEpfoEsicRoutes(
     }
   });
 
-  // DELETE /api/automation/jobs/:id — cancel pending job
+  // DELETE /api/automation/jobs/:id
+  //   ?hard=true  → permanently remove job + logs (not allowed while running/paused)
+  //   (default)   → cancel a pending job (sets status = 'cancelled')
   app.delete("/api/automation/jobs/:id", requireAuth, adminRoles, async (req: Request, res: Response) => {
     try {
       const user = (req as any).user;
       const job = await queueService.getJob(req.params.id as string);
       if (!job) return res.status(404).json({ error: "Job not found" });
       if (isForbidden(user, job.companyId)) return res.status(403).json({ error: "Access denied" });
+
+      if (req.query.hard === "true") {
+        // Hard delete — remove from DB entirely
+        const result = await queueService.deleteJob(job.id);
+        if (!result.deleted) {
+          if (result.reason === "job_active") {
+            return res.status(409).json({ error: "Cannot delete a running or paused job. Cancel or wait for it to finish first." });
+          }
+          return res.status(404).json({ error: "Job not found" });
+        }
+        return res.json({ ok: true, deleted: true });
+      }
+
+      // Soft cancel — pending → cancelled
       if (job.status !== "pending") {
         return res.status(409).json({ error: `Only pending jobs can be cancelled (current: ${job.status})` });
       }
       await queueService.cancelJob(job.id);
-      res.json({ ok: true });
+      res.json({ ok: true, cancelled: true });
     } catch (err: any) {
-      res.status(500).json({ error: err?.message || "Failed to cancel job" });
+      res.status(500).json({ error: err?.message || "Failed to process job request" });
     }
   });
 
