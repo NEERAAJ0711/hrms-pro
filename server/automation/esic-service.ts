@@ -127,10 +127,20 @@ const SEL = {
   contribUploadBtn:   '#btnUpload, button[id*="upload" i], input[value*="Upload" i]',
   challanNo:          '#lblChallanNo, span[id*="challan" i]',
 
-  // Challan download
+  // Challan download (legacy)
   challanSearchInput: '#txtChallanNo, input[name*="challanNo" i]',
   challanSearchBtn:   '#btnSearchChallan, button[id*="search" i]',
   challanDownBtn:     '#btnDownload, a[id*="download" i], button[id*="download" i]',
+
+  // Modify Challan page
+  modChallanMonth:    '#ddlMonth, select[name*="month" i], select[id*="month" i]',
+  modChallanYear:     '#ddlYear, select[name*="year" i], select[id*="year" i]',
+  modChallanShowBtn:  '#btnShow, #btnSearch, #btnSubmit, button[id*="show" i], button[id*="search" i], input[value*="Show" i], input[value*="Search" i]',
+  modChallanNoLabel:  '#lblChallanNo, #lblChallan, span[id*="ChallanNo" i], td[id*="challan" i]',
+
+  // Online Challan Double Verification page
+  dblVerifyChallanInput: '#txtChallanNo, input[name*="challanNo" i], input[id*="ChallanNo" i], input[placeholder*="challan" i]',
+  dblVerifySubmitBtn:    '#btnSubmit, #btnVerify, button[id*="submit" i], button[id*="verify" i], input[value*="Submit" i], input[value*="Verify" i]',
 
   // Employee search
   ipSearchInput:      '#txtIPNo, input[name*="ipNo" i], input[name*="empCode" i]',
@@ -589,37 +599,103 @@ export async function monthlyContributionFiling(
 }
 
 // ─── Challan Download ─────────────────────────────────────────────────────────
+// Correct ESIC portal flow (7 steps):
+//  1. Go to Modify Challan → select month & year → click Show
+//  2. Copy challan number from result
+//  3. Go to Online Challan Double Verification → enter challan no. → Submit
+//  4. Save result page as PDF
 export async function esicChallanDownload(
   page: Page,
-  payload: { challanNo: string; downloadDir: string },
+  payload: { month?: string; year?: number; downloadDir: string },
   ctx: AutomationContext
 ): Promise<Record<string, unknown>> {
-  await ctx.log("info", "Downloading ESIC challan", { challanNo: payload.challanNo });
+  const { month = "", year = new Date().getFullYear(), downloadDir } = payload;
 
-  await gotoWithRetry(page, `${ESIC_BASE}/ChallanDownload.aspx`, {
+  await ctx.log("info", "Starting ESIC challan flow", { month, year });
+
+  // ── Step 1: Modify Challan page ─────────────────────────────────────────
+  await gotoWithRetry(page, `${ESIC_BASE}/ModifyChallan.aspx`, {
     waitUntil: "domcontentloaded",
     timeout: 60000,
   });
   await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {});
+  await ctx.takeScreenshot("esic-modify-challan-open");
 
-  await page.fill(SEL.challanSearchInput, payload.challanNo);
-  await page.click(SEL.challanSearchBtn);
+  // ── Step 2: Select Month and Year ──────────────────────────────────────
+  const MONTH_MAP: Record<string, string> = {
+    January: "1", February: "2", March: "3", April: "4",
+    May: "5", June: "6", July: "7", August: "8",
+    September: "9", October: "10", November: "11", December: "12",
+  };
+  const monthNum = MONTH_MAP[month] ?? month;
+
+  if (monthNum) {
+    await page.selectOption(SEL.modChallanMonth, { value: monthNum })
+      .catch(() => page.selectOption(SEL.modChallanMonth, { label: month }).catch(() => {}));
+  }
+  await page.selectOption(SEL.modChallanYear, { value: String(year) }).catch(() => {});
+  await ctx.takeScreenshot("esic-modify-challan-selected");
+
+  // Click Show / Search button
+  await page.click(SEL.modChallanShowBtn, { timeout: 10000 }).catch(() => {});
+  await page.waitForLoadState("networkidle", { timeout: 20000 }).catch(() => {});
+  await ctx.takeScreenshot("esic-modify-challan-result");
+
+  // ── Step 3: Copy challan number ────────────────────────────────────────
+  let challanNo = "";
+
+  // Try explicit label selectors first
+  for (const sel of [SEL.modChallanNoLabel, '#lblChallanNo', '#lblChallan', 'span[id*="ChallanNo" i]']) {
+    try {
+      const text = await page.locator(sel).first().textContent({ timeout: 3000 });
+      const m = text?.match(/\d{5,}/);
+      if (m) { challanNo = m[0]; break; }
+    } catch { /* try next */ }
+  }
+
+  // Fallback: scan full page text for "Challan No: XXXXXX" pattern
+  if (!challanNo) {
+    const bodyText = await page.textContent("body").catch(() => "");
+    const m = bodyText?.match(/[Cc]hallan\s*(?:No|Number|#)?\s*[:\-]?\s*(\d{5,})/);
+    if (m) challanNo = m[1];
+  }
+
+  await ctx.log(challanNo ? "info" : "warn",
+    challanNo ? `Challan number extracted: ${challanNo}` : "Challan number not found on Modify Challan page",
+    { challanNo });
+
+  // ── Steps 4-6: Online Challan Double Verification ──────────────────────
+  await gotoWithRetry(page, `${ESIC_BASE}/ChallanDoubleVerification.aspx`, {
+    waitUntil: "domcontentloaded",
+    timeout: 60000,
+  });
   await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {});
-  await ctx.takeScreenshot("esic-challan-download-start");
+  await ctx.takeScreenshot("esic-double-verify-open");
 
-  const [download] = await Promise.all([
-    page.waitForEvent("download", { timeout: 60000 }),
-    page.click(SEL.challanDownBtn),
-  ]);
+  if (challanNo) {
+    await page.fill(SEL.dblVerifyChallanInput, challanNo, { timeout: 10000 }).catch(() => {});
+    await ctx.takeScreenshot("esic-double-verify-filled");
+    await page.click(SEL.dblVerifySubmitBtn, { timeout: 10000 }).catch(() => {});
+    await page.waitForLoadState("networkidle", { timeout: 20000 }).catch(() => {});
+    await ctx.takeScreenshot("esic-double-verify-result");
+  }
 
-  const suggestedFilename = download.suggestedFilename();
-  const filePath = `${payload.downloadDir}/${suggestedFilename}`;
-  await download.saveAs(filePath);
+  // ── Step 7: Save as PDF ────────────────────────────────────────────────
+  const safeMonth = month.replace(/\s+/g, "-");
+  const pdfFileName = `esic-challan-${safeMonth}-${year}${challanNo ? `-${challanNo}` : ""}.pdf`;
+  const pdfPath = `${downloadDir}/${pdfFileName}`;
 
-  await ctx.log("info", "ESIC challan downloaded", { filePath });
-  await ctx.takeScreenshot("esic-challan-download-done");
+  try {
+    await page.pdf({ path: pdfPath, format: "A4", printBackground: true });
+    await ctx.log("info", "ESIC challan PDF saved", { pdfPath, challanNo });
+  } catch (pdfErr: any) {
+    await ctx.log("warn", "PDF generation failed — saving screenshot instead", { error: String(pdfErr?.message) });
+    const pngPath = pdfPath.replace(".pdf", ".png");
+    await page.screenshot({ path: pngPath, fullPage: true });
+    return { challanNo, filePath: pngPath, month, year };
+  }
 
-  return { challanNo: payload.challanNo, filePath, filename: suggestedFilename };
+  return { challanNo, filePath: pdfPath, month, year };
 }
 
 // ─── Employee Search ──────────────────────────────────────────────────────────

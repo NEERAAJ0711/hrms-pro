@@ -18,7 +18,7 @@ import { sessionManager, type Portal } from "./session-manager";
 import * as epfo from "./epfo-service";
 import * as esic from "./esic-service";
 import { db } from "../db";
-import { automationJobs, esicFetchedEmployees } from "../../shared/schema";
+import { automationJobs, esicFetchedEmployees, challans } from "../../shared/schema";
 import { eq, sql } from "drizzle-orm";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -270,8 +270,27 @@ async function dispatch(
       return esic.familyDeclaration(page, p as any, ctx);
     case "esic_monthly_file":
       return esic.monthlyContributionFiling(page, p as any, ctx);
-    case "esic_challan_download":
-      return esic.esicChallanDownload(page, { ...(p as any), downloadDir: ctx.screenshotDir }, ctx);
+    case "esic_challan_download": {
+      const result = await esic.esicChallanDownload(page, { ...(p as any), downloadDir: ctx.screenshotDir }, ctx);
+      if (result.challanNo) {
+        const now = new Date().toISOString();
+        await db.insert(challans).values({
+          id: randomUUID(),
+          companyId: job.companyId,
+          portal: "esic",
+          month: String(result.month ?? ""),
+          year: Number(result.year ?? new Date().getFullYear()),
+          challanNo: String(result.challanNo),
+          filePath: result.filePath ? String(result.filePath) : null,
+          status: "downloaded",
+          jobId: job.id,
+          createdBy: job.createdBy ?? null,
+          createdAt: now,
+          updatedAt: now,
+        }).onConflictDoNothing().catch(() => {});
+      }
+      return result;
+    }
     case "esic_employee_search":
       return esic.esicEmployeeSearch(page, p as any, ctx);
     case "esic_employee_list":

@@ -528,6 +528,10 @@ function MonthlyFilingTab({ companyId }: { companyId: string }) {
 // ─── Challan Tab ──────────────────────────────────────────────────────────────
 function ChallanTab({ companyId }: { companyId: string }) {
   const triggerJob = useTriggerJob(["/api/esic/challans"]);
+  const prevMonth = new Date().getMonth() === 0 ? 11 : new Date().getMonth() - 1;
+  const prevYear  = new Date().getMonth() === 0 ? new Date().getFullYear() - 1 : new Date().getFullYear();
+  const [month, setMonth] = useState(MONTHS[prevMonth]);
+  const [year,  setYear]  = useState(prevYear);
 
   const { data, isLoading } = useQuery<{ data: Challan[] }>({
     queryKey: ["/api/esic/challans", companyId],
@@ -540,8 +544,16 @@ function ChallanTab({ companyId }: { companyId: string }) {
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-end">
-        <Button variant="outline" onClick={() => triggerJob.mutate({ jobType: "esic_challan_download", companyId })} disabled={triggerJob.isPending} data-testid="button-esic-sync-challans">
+      <div className="flex items-center gap-2 justify-end flex-wrap">
+        <Select value={month} onValueChange={setMonth} data-testid="select-challan-month">
+          <SelectTrigger className="w-36" data-testid="trigger-challan-month"><SelectValue /></SelectTrigger>
+          <SelectContent>{MONTHS.map(m => <SelectItem key={m} value={m}>{m}</SelectItem>)}</SelectContent>
+        </Select>
+        <Select value={String(year)} onValueChange={v => setYear(Number(v))} data-testid="select-challan-year">
+          <SelectTrigger className="w-24" data-testid="trigger-challan-year"><SelectValue /></SelectTrigger>
+          <SelectContent>{YEARS.map(y => <SelectItem key={y} value={String(y)}>{y}</SelectItem>)}</SelectContent>
+        </Select>
+        <Button variant="outline" onClick={() => triggerJob.mutate({ jobType: "esic_challan_download", companyId, payload: { month, year } })} disabled={triggerJob.isPending} data-testid="button-esic-sync-challans">
           {triggerJob.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <RefreshCw className="h-4 w-4 mr-2" />}
           Sync Challans from Portal
         </Button>
