@@ -559,6 +559,7 @@ function MastersSettings({ companyId, selectedCompany, userRole }: { companyId: 
 
 function DepartmentsManager({ companyId }: { companyId: string }) {
   const { toast } = useToast();
+  const { can } = useCan();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<MasterDepartment | null>(null);
   const [formData, setFormData] = useState({ name: "", code: "", description: "" });
@@ -724,6 +725,7 @@ function DepartmentsManager({ companyId }: { companyId: string }) {
 
 function DesignationsManager({ companyId }: { companyId: string }) {
   const { toast } = useToast();
+  const { can } = useCan();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<MasterDesignation | null>(null);
   const [formData, setFormData] = useState({ name: "", code: "", level: 1, description: "" });
@@ -943,6 +945,7 @@ const LOC_DISTRICTS: Record<string, string[]> = {
 
 function LocationsManager({ companyId }: { companyId: string }) {
   const { toast } = useToast();
+  const { can } = useCan();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<MasterLocation | null>(null);
   const [geoLoading, setGeoLoading] = useState(false);
@@ -2857,6 +2860,7 @@ function HolidayCalendarTab({ companyId, selectedCompany, userRole }: { companyI
 
 function WageGradesManager({ companyId }: { companyId: string }) {
   const { toast } = useToast();
+  const { can } = useCan();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<WageGrade | null>(null);
   const [formData, setFormData] = useState({ name: "", state: "", minimumWage: "", effectiveFrom: "" });
@@ -3088,6 +3092,7 @@ const COMPLIANCE_OPTIONS = ["PF", "ESI", "PT", "LWF", "TDS", "Minimum Wages", "B
 
 function ContractorMastersManager({ companyId }: { companyId: string }) {
   const { toast } = useToast();
+  const { can } = useCan();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<ContractorMaster | null>(null);
   const [formData, setFormData] = useState({
