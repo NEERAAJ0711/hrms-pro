@@ -486,9 +486,13 @@ export default function AttendancePage() {
     setBulkProgress(null);
     setQuickEntryAllEmp(false);
     setQuickEntryData({ employeeId: "", companyId: isSuperAdmin ? "" : (user?.companyId || ""), payDays: "", halfDays: "0", otHours: "0" });
+    const successCount = done - errors.length;
     toast({
       title: `Bulk Quick Entry Complete`,
-      description: `Applied to ${done - errors.length} of ${done} employees.${errors.length > 0 ? ` ${errors.length} skipped.` : ""}`,
+      description: successCount === done
+        ? `Applied to all ${done} employees.`
+        : `Applied to ${successCount} of ${done} employees. ${errors.length} failed: ${errors.slice(0, 2).join("; ")}${errors.length > 2 ? ` (+${errors.length - 2} more)` : ""}`,
+      variant: errors.length > 0 ? "destructive" : "default",
     });
   };
 

@@ -4229,7 +4229,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const halfMsg = halfDaysCreated > 0 ? ` + ${halfDaysCreated} Half Day` : "";
       res.json({ success: true, message: `Pay Days: ${totalPayDays} (${presentDaysCreated} Present${halfMsg} + ${woMarked} Weekly Offs + ${holidayMarked} Holidays${leaveMarked > 0 ? ` + ${leaveMarked} Leave` : ""}). Created ${created} records (up to ${isCurrentMonth ? "today" : "month end"}), skipped ${skipped} existing.` });
     } catch (error) {
-      res.status(500).json({ error: "Failed to process quick entry" });
+      console.error("[quick-entry] Error:", error);
+      res.status(500).json({ error: `Failed to process quick entry: ${(error as any)?.message || error}` });
     }
   });
 
