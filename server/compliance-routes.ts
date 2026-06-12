@@ -1196,7 +1196,7 @@ export function registerComplianceRoutes(app: Express) {
         empRows = await db.execute(sql`
           SELECT e.id, e.first_name || ' ' || e.last_name AS full_name,
                  e.father_husband_name, e.gender,
-                 COALESCE(cs.designation, e.designation, '') AS designation
+                 COALESCE(cce.designation, cs.designation, e.designation, '') AS designation
           FROM compliance_client_employees cce
           JOIN employees e ON e.id = cce.employee_id
           LEFT JOIN compliance_employee_setup cs ON cs.employee_id = e.id AND cs.company_id = ${targetCompanyId}
@@ -1528,7 +1528,7 @@ export function registerComplianceRoutes(app: Express) {
       if (projectId && projectId !== "company") {
         empRows = await db.execute(sql`
           SELECT e.id, e.first_name || ' ' || e.last_name AS full_name,
-                 COALESCE(cs.designation, e.designation, '') AS designation
+                 COALESCE(cce.designation, cs.designation, e.designation, '') AS designation
           FROM compliance_client_employees cce
           JOIN employees e ON e.id = cce.employee_id
           LEFT JOIN compliance_employee_setup cs ON cs.employee_id = e.id AND cs.company_id = ${targetCompanyId}
