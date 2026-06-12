@@ -4186,40 +4186,56 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
       addFooter(lastY() + 8);
 
       // ── Form XVII — Fines Register ────────────────────────────────────────
-      doc.addPage(); addTitle("FORM XVII", "[See Rule 77 (2) (b)]", "Register of Fines");
+      goLandscape(); addTitle("FORM XVII", "[See Rule 77 (2) (b)]", "Register of Fines");
       y = addHdr();
       autoTbl(doc, {
         startY: y,
         head: [["S.\nNo.", "Name & Surname\nof Workman", "Designation", "Act or Omission\nfor which Fined", "Date of Act\nor Omission", "Date of Imposition\nof Fine", "Amount of\nFine (₹)", "Date of\nRecovery", "Amount of\nRecovery (₹)", "Remarks"]],
         body: clraData.ix.employees.map(e => [e.serialNo, e.name, e.designation||"—", "", "", "", "", "", "", ""]),
         styles: { ...TS, minCellHeight: 10 }, headStyles: TH,
-        columnStyles: { 0:{ cellWidth:10, halign:"center" }, 1:{ cellWidth:30 } },
+        tableWidth: pw - 2 * M,
+        columnStyles: { 0:{ cellWidth:12, halign:"center" }, 1:{ cellWidth:44 }, 2:{ cellWidth:28 }, 3:{ cellWidth:44 }, 4:{ cellWidth:26, halign:"center" }, 5:{ cellWidth:26, halign:"center" }, 6:{ cellWidth:24, halign:"right" }, 7:{ cellWidth:26, halign:"center" }, 8:{ cellWidth:24, halign:"right" } },
         margin:{ left:M, right:M },
       });
       addFooter(lastY() + 8);
 
       // ── Form XVIII — Advances Register ───────────────────────────────────
-      doc.addPage(); addTitle("FORM XVIII", "[See Rule 77 (2) (c)]", "Register of Advances");
+      goLandscape(); addTitle("FORM XVIII", "[See Rule 77 (2) (c)]", "Register of Advances");
       y = addHdr([["For the month of", `${monthFull} ${toYear}`]]);
       autoTbl(doc, {
         startY: y,
         head: [["S.\nNo.", "Name & Surname\nof Workman", "Designation", "Purpose of\nAdvance", "Date of\nAdvance", "Amount of\nAdvance (₹)", "Recovery Per\nInstalment (₹)", "No. of\nInstalments", "Amount\nRecovered (₹)", "Balance\nOutstanding (₹)", "Remarks"]],
         body: clraData.xiii.employees.map(e => [e.serialNo, e.name, e.designation||"—", "—", "", e.loanDeduction > 0 ? e.loanDeduction.toLocaleString("en-IN") : "—", e.loanDeduction > 0 ? e.loanDeduction.toLocaleString("en-IN") : "—", e.loanDeduction > 0 ? "1" : "—", e.loanDeduction > 0 ? e.loanDeduction.toLocaleString("en-IN") : "—", "", ""]),
         styles: { ...TS, minCellHeight: 10 }, headStyles: TH,
-        columnStyles: { 0:{ cellWidth:10, halign:"center" }, 1:{ cellWidth:28 }, 4:{ halign:"right" }, 5:{ halign:"right" }, 6:{ halign:"right" }, 7:{ halign:"center" }, 8:{ halign:"right" } },
+        tableWidth: pw - 2 * M,
+        columnStyles: { 0:{ cellWidth:12, halign:"center" }, 1:{ cellWidth:40 }, 2:{ cellWidth:26 }, 3:{ cellWidth:30 }, 4:{ cellWidth:22, halign:"center" }, 5:{ cellWidth:26, halign:"right" }, 6:{ cellWidth:28, halign:"right" }, 7:{ cellWidth:18, halign:"center" }, 8:{ cellWidth:26, halign:"right" }, 9:{ cellWidth:22, halign:"right" } },
         margin:{ left:M, right:M },
       });
       addFooter(lastY() + 8);
 
       // ── Form XIX — OT Register ────────────────────────────────────────────
-      doc.addPage(); addTitle("FORM XIX", "[See Rule 77 (2) (d)]", "Register of Overtime");
+      // Uses goLandscape() to guarantee A4 landscape (pw=297) after portrait wage-slip pages.
+      // Column widths sum to pw-2*M = 269mm so every column has enough room.
+      goLandscape(); addTitle("FORM XIX", "[See Rule 77 (2) (d)]", "Register of Overtime");
       y = addHdr([["For the month of", `${monthFull} ${toYear}`]]);
       autoTbl(doc, {
         startY: y,
-        head: [["S.\nNo.", "Name & Surname\nof Workman", "Designation", "Normal\nWorking\nDays", "OT\nDays", "OT\nHours", "Normal\nWages (₹)", "OT\nWages (₹)", "Total\nWages (₹)", "Signature /\nThumb Impression"]],
+        head: [["S.\nNo.", "Name & Surname\nof Workman", "Designation", "Normal\nWorking\nDays", "OT\nDays", "OT\nHours", "Normal\nWages (₹)", "OT\nWages (₹)", "Total\nWages (₹)", "Signature /\nThumb\nImpression"]],
         body: clraData.xviii.employees.map(e => [e.serialNo, e.name, e.designation||"—", e.normalDays, e.otDays, e.otHours, e.normalWages.toLocaleString("en-IN"), e.otWages > 0 ? e.otWages.toLocaleString("en-IN") : "—", (e.normalWages + e.otWages).toLocaleString("en-IN"), ""]),
         styles: TS, headStyles: TH,
-        columnStyles: { 0:{ cellWidth:10, halign:"center" }, 1:{ cellWidth:30 }, 2:{ cellWidth:24 }, 3:{ cellWidth:16, halign:"center" }, 4:{ cellWidth:12, halign:"center" }, 5:{ cellWidth:12, halign:"center" }, 6:{ cellWidth:20, halign:"right" }, 7:{ cellWidth:20, halign:"right" }, 8:{ cellWidth:20, halign:"right" }, 9:{ cellWidth:22 } },
+        tableWidth: pw - 2 * M,
+        columnStyles: {
+          0: { cellWidth: 12, halign: "center" },
+          1: { cellWidth: 46 },
+          2: { cellWidth: 30 },
+          3: { cellWidth: 22, halign: "center" },
+          4: { cellWidth: 14, halign: "center" },
+          5: { cellWidth: 14, halign: "center" },
+          6: { cellWidth: 34, halign: "right" },
+          7: { cellWidth: 34, halign: "right" },
+          8: { cellWidth: 34, halign: "right" },
+          9: { cellWidth: 29 },
+        },
         margin:{ left:M, right:M },
       });
       addFooter(lastY() + 8);
