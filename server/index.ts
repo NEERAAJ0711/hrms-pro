@@ -250,6 +250,25 @@ app.use((req, res, next) => {
           );
           CREATE INDEX ON esic_fetched_employees (company_id);
         END IF;
+        -- Add leave_type_code column to attendance if missing
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_name = 'attendance' AND column_name = 'leave_type_code'
+        ) THEN
+          ALTER TABLE attendance ADD COLUMN leave_type_code text;
+        END IF;
+        -- Add clock-out tracking columns to attendance if missing
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_name = 'attendance' AND column_name = 'clock_out_latitude'
+        ) THEN
+          ALTER TABLE attendance ADD COLUMN clock_out_latitude text;
+          ALTER TABLE attendance ADD COLUMN clock_out_longitude text;
+          ALTER TABLE attendance ADD COLUMN clock_out_location_accuracy text;
+          ALTER TABLE attendance ADD COLUMN clock_out_face_image_path text;
+          ALTER TABLE attendance ADD COLUMN clock_out_face_verified boolean DEFAULT false;
+          ALTER TABLE attendance ADD COLUMN clock_out_method text;
+        END IF;
       END;
       $$
     `);
