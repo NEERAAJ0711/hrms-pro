@@ -461,7 +461,7 @@ export default function AttendancePage() {
 
     for (const emp of eligibleEmps) {
       try {
-        const res = await apiRequest("POST", "/api/attendance/quick-entry", {
+        await apiRequest("POST", "/api/attendance/quick-entry", {
           employeeId: emp.id,
           companyId,
           month: monthStr,
@@ -470,12 +470,8 @@ export default function AttendancePage() {
           halfDays: quickEntryData.halfDays || "0",
           otHours: quickEntryData.otHours,
         });
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({}));
-          errors.push(`${emp.employeeCode}: ${err.error || "Failed"}`);
-        }
-      } catch {
-        errors.push(`${emp.employeeCode}: Network error`);
+      } catch (err: any) {
+        errors.push(`${emp.employeeCode}: ${err?.message || "Failed"}`);
       }
       done++;
       setBulkProgress({ done, total: eligibleEmps.length, errors: [...errors] });
