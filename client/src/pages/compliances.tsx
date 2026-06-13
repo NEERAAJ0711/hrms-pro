@@ -3066,61 +3066,66 @@ function WageSlipView({ data }: { data: WagesRegisterData }) {
   const monthFull = monthIdx >= 0 ? ["January","February","March","April","May","June","July","August","September","October","November","December"][monthIdx] : month;
   const today = new Date().toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" });
   const v = (...p: (string | null | undefined)[]) => p.filter(Boolean).join(", ") || "—";
+  const ROW = (label: string, val: React.ReactNode) => (
+    <div key={label} style={{ marginBottom: "5px", fontSize: "9px" }}>
+      <b>{label} :</b> {val}
+    </div>
+  );
   return CL_WRAP("wage-slip-print", <>
-    {CL_TITLE("Form XV","[See 77(1)(b)]","Wage Slip")}
+    {CL_TITLE("Form XV","[See rule 77(1)(b)]","Wage Slip")}
     {employees.length === 0 && <div style={{ color: "#666", padding: "20px" }}>No payroll data for this month</div>}
     {employees.map((e, idx) => (
-      <div key={e.serialNo} style={{ border: "1px solid #333", padding: "14px 18px", fontSize: "9px", pageBreakInside: "avoid", breakInside: "avoid", marginTop: idx > 0 ? "20px" : "8px" }}>
-        <div style={{ textAlign: "center", fontWeight: 700, marginBottom: "10px" }}>
+      <div key={e.serialNo} style={{ border: "1px solid #333", padding: "16px 20px", fontSize: "9px", pageBreakInside: "avoid", breakInside: "avoid", marginTop: idx > 0 ? "28px" : "8px" }}>
+        <div style={{ textAlign: "center", fontWeight: 700, marginBottom: "12px" }}>
           <div style={{ fontSize: "13px" }}>FORM XV</div>
-          <div style={{ fontSize: "10px" }}>[See Rule 77 (1) (b)]</div>
+          <div style={{ fontSize: "10px", fontWeight: 400 }}>[See rule 77(1)(b)]</div>
           <div style={{ fontSize: "12px" }}>WAGE SLIP</div>
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "4px 24px", marginBottom: "10px", fontSize: "9px" }}>
-          <div><b>Contractor :</b> {v(company.name, company.address)}</div>
-          <div><b>For the month of :</b> {monthFull} {year}</div>
-          <div><b>Establishment :</b> {v(c?.client_name, c?.client_address)}</div>
-          <div><b>Name of Workman :</b> <b>{e.name}</b></div>
-          <div><b>Location :</b> {v(c?.nature_of_work, c?.location_of_work)}</div>
-          <div><b>Father's / Husband's Name :</b> {e.fatherHusbandName || "—"}</div>
-          <div><b>Principal Employer :</b> {v(c?.principal_employer_name, c?.principal_employer_address)}</div>
-          <div><b>Designation :</b> {e.designation || "—"}</div>
+        {ROW("Name and address of Contractor", v(company.name, company.address))}
+        {ROW("Name and address of establishment in/under which contract is carried on", v(c?.client_name, c?.client_address))}
+        {ROW("Name and location of work", v(c?.nature_of_work, c?.location_of_work))}
+        {ROW("Name and address of Principal Employer", v(c?.principal_employer_name, c?.principal_employer_address))}
+        <div style={{ margin: "5px 0", fontSize: "9px" }}><b>For the month of :</b> {monthFull} {year}</div>
+        <div style={{ margin: "5px 0 8px", fontSize: "9px" }}>
+          <b>Name and Father's Name of the workman :</b>{" "}
+          <b>{e.name}{e.fatherHusbandName ? ` S/O ${e.fatherHusbandName}` : ""}</b>
         </div>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "9px" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "8.5px" }}>
           <thead>
             <tr>
-              <th style={CL_TH}>No. of Days Worked</th>
-              <th style={CL_TH}>Rate of Wages (Monthly)</th>
-              <th style={CL_TH}>No. of Units (Piece Rate)</th>
-              <th style={CL_TH}>OT Hours &amp; OT Wages</th>
-              <th style={CL_TH}>Gross Wages Payable (Rs.)</th>
-              <th style={CL_TH}>Deductions if any</th>
-              <th style={CL_TH}>Net Amount Paid (Rs.)</th>
-              <th style={CL_TH}>Signature of Workman</th>
+              <th style={{ ...CL_TH, width: "8%" }}>No. of days worked</th>
+              <th style={{ ...CL_TH, width: "12%" }}>Rate of daily wages/piece rate</th>
+              <th style={{ ...CL_TH, width: "12%" }}>No. of units worked in case of piece rate work</th>
+              <th style={{ ...CL_TH, width: "10%" }}>Dates on which overtime worked</th>
+              <th style={{ ...CL_TH, width: "12%" }}>Overtime hours worked and amount of overtime wages</th>
+              <th style={{ ...CL_TH, width: "10%" }}>Gross wages payable</th>
+              <th style={{ ...CL_TH, width: "16%" }}>Deductions if any</th>
+              <th style={{ ...CL_TH, width: "10%" }}>Net amount paid</th>
+              <th style={{ ...CL_TH, width: "10%" }}>Signature of the contractor or his representative</th>
             </tr>
           </thead>
           <tbody>
             <tr>
               <td style={{ ...CL_TD, textAlign: "center" }}>{e.payDays}</td>
-              <td style={{ ...CL_TD, textAlign: "center" }}>{ni(e.monthlyRate)} (Monthly)</td>
-              <td style={{ ...CL_TD, textAlign: "center" }}>N.A.</td>
+              <td style={{ ...CL_TD, textAlign: "center" }}>{ni(e.monthlyRate)}<br />(Monthly)</td>
+              <td style={{ ...CL_TD, textAlign: "center" }}>N.A</td>
               <td style={{ ...CL_TD, textAlign: "center" }}>NIL</td>
-              <td style={{ ...CL_TD, textAlign: "right" }}>{ni(e.totalEarnings)}</td>
-              <td style={{ ...CL_TD, lineHeight: "1.7" }}>
+              <td style={{ ...CL_TD, textAlign: "center" }}>0</td>
+              <td style={{ ...CL_TD, textAlign: "center" }}>{ni(e.totalEarnings)}</td>
+              <td style={{ ...CL_TD, lineHeight: "1.8" }}>
                 PF : {ni(e.pf)}<br />
                 ESIC : {ni(e.esi)}<br />
                 LWF : {ni(e.lwf)}<br />
-                ADJS : 0<br />
-                <b>Total : {ni(e.totalDeductions)}</b>
+                ADJS : 0
               </td>
-              <td style={{ ...CL_TD, textAlign: "right", fontWeight: 700 }}>{ni(e.netSalary)}</td>
+              <td style={{ ...CL_TD, textAlign: "center", fontWeight: 700 }}>{ni(e.netSalary)}</td>
               <td style={CL_TD}></td>
             </tr>
           </tbody>
         </table>
-        <div style={{ display: "flex", justifyContent: "space-between", marginTop: "12px", fontSize: "8.5px" }}>
-          <div>Place : {c?.location_of_work || "—"}&nbsp;&nbsp;&nbsp;Date : {today}</div>
-          <div style={{ fontWeight: 700 }}>Signature of the Contractor</div>
+        <div style={{ display: "flex", justifyContent: "space-between", marginTop: "14px", fontSize: "8.5px" }}>
+          <div>Place : {c?.location_of_work || "—"}<br />Date : {today}</div>
+          <div style={{ textAlign: "right" }}>Signature of the Contractor:</div>
         </div>
       </div>
     ))}
@@ -4177,122 +4182,120 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
       }
       addFooter(lastY() + 8);
 
-      // ── Form XV — Wage Slip (PORTRAIT, 2-up stacked TOP/BOTTOM) ──────────────
+      // ── Form XV — Wage Slip (PORTRAIT, one slip per full page) ──────────────
       {
+        const wageEmps = clraData.xiii.employees;
         goPortrait();
-        const slotW  = pw - 2 * M;                          // ~182mm wide
-        const slotH  = Math.floor((ph - 2 * M - 4) / 2);    // ~132mm tall per slot
-        const slot2Y = M + slotH + 4;                       // bottom slot y start
-        const divY   = M + slotH + 2;                       // horizontal divider y
 
-        const drawVDivXV = () => {
-          doc.setDrawColor(140); doc.setLineDashPattern([5,3], 0);
-          doc.line(M, divY, pw - M, divY);
-          doc.setLineDashPattern([], 0); doc.setDrawColor(50);
-        };
-
-        const drawXVSlot = (sy: number, e: any) => {
+        const drawXVPage = (e: any) => {
           const sx = M;
-          const mr = M;
-          const cx = sx + slotW / 2;
-          let cy = sy;
-          doc.setFont("times","bold"); doc.setFontSize(11);
-          doc.text("FORM XV", cx, cy+6, {align:"center"});
-          doc.setFont("times","normal"); doc.setFontSize(8);
-          doc.text("[See Rule 77 (1) (b)]", cx, cy+11, {align:"center"});
-          doc.setFont("times","bold"); doc.setFontSize(10);
-          doc.text("WAGE SLIP", cx, cy+16, {align:"center"});
-          doc.setDrawColor(80,80,80); doc.line(sx, cy+18, sx+slotW, cy+18); cy += 22;
-          ([ ["Name and address of Contractor",                                          v(company.name, company.address)],
-             ["Name and address of establishment in/under which contract is carried on", v(cl?.client_name, cl?.client_address)],
-             ["Nature and location of work",                                               v(cl?.nature_of_work, cl?.location_of_work)],
-             ["Name and address of Principal Employer",                                  v(cl?.principal_employer_name, cl?.principal_employer_address)],
-             ["For the month of",  `${monthFull} ${toYear}`],
-          ] as [string,string][]).forEach(([lbl, val]) => {
-            doc.setFont("times","bold"); doc.setFontSize(7.5); doc.text(lbl+" : ", sx, cy);
-            const lw = doc.getTextWidth(lbl+" : ");
-            doc.setFont("times","normal"); doc.setFontSize(7.5);
-            const ls: string[] = doc.splitTextToSize(val, slotW - lw);
-            ls.forEach((l:string, i:number) => doc.text(l, sx+lw, cy+i*3.5));
-            cy += Math.max(1, ls.length)*3.5 + 0.5;
-          });
-          doc.setDrawColor(80,80,80); doc.line(sx, cy, sx+slotW, cy); cy += 3;
-          // Employee name line
-          const nameLabel = "Name & S/O : ";
-          doc.setFont("times","bold"); doc.setFontSize(9); doc.text(nameLabel, sx, cy);
+          const slotW = pw - 2 * M;   // ~182mm
+          const cx = pw / 2;
+          let cy = M;
+
+          // Title block
+          doc.setFont("times","bold"); doc.setFontSize(13);
+          doc.text("FORM XV", cx, cy + 6, { align: "center" });
           doc.setFont("times","normal"); doc.setFontSize(9);
-          const nameTxt = `${e.name}${e.fatherHusbandName ? "  S/O  "+e.fatherHusbandName : ""}`;
-          const nameLines: string[] = doc.splitTextToSize(nameTxt, slotW - doc.getTextWidth(nameLabel));
-          nameLines.forEach((l: string, i: number) => doc.text(l, sx + doc.getTextWidth(nameLabel), cy + i * 4.5));
-          cy += Math.max(1, nameLines.length) * 4.5 + 1;
-          // Designation & Emp Code row
-          doc.setFont("times","bold"); doc.setFontSize(8);
-          doc.text("Designation : ", sx, cy);
-          doc.setFont("times","normal"); doc.setFontSize(8);
-          doc.text(e.designation || "—", sx + doc.getTextWidth("Designation : "), cy);
+          doc.text("[See rule 77(1)(b)]", cx, cy + 12, { align: "center" });
+          doc.setFont("times","bold"); doc.setFontSize(11);
+          doc.text("WAGE SLIP", cx, cy + 18, { align: "center" });
+          doc.setDrawColor(80,80,80); doc.line(sx, cy + 21, sx + slotW, cy + 21);
+          cy += 26;
+
+          // Header rows — bold label + normal value on same line, wrapping
+          const hdrRows: [string, string][] = [
+            ["Name and address of Contractor",                                          v(company.name, company.address)],
+            ["Name and address of establishment in/under which contract is carried on", v(cl?.client_name, cl?.client_address)],
+            ["Name and location of work",                                               v(cl?.nature_of_work, cl?.location_of_work)],
+            ["Name and address of Principal Employer",                                  v(cl?.principal_employer_name, cl?.principal_employer_address)],
+          ];
+          hdrRows.forEach(([lbl, val]) => {
+            doc.setFont("times","bold"); doc.setFontSize(8.5); doc.text(lbl + " : ", sx, cy);
+            const lw = doc.getTextWidth(lbl + " : ");
+            doc.setFont("times","normal"); doc.setFontSize(8.5);
+            const ls: string[] = doc.splitTextToSize(val, slotW - lw);
+            ls.forEach((l: string, i: number) => doc.text(l, sx + lw, cy + i * 4));
+            cy += Math.max(1, ls.length) * 4 + 1;
+          });
+
+          // "For the month of" row
+          doc.setFont("times","bold"); doc.setFontSize(8.5);
+          doc.text("For the month of : ", sx, cy);
+          doc.setFont("times","normal");
+          doc.text(`${monthFull} ${toYear}`, sx + doc.getTextWidth("For the month of : "), cy);
           cy += 5;
-          // Wage slip table — columns sized to slotW ≈ 182mm (portrait)
-          // 15 + 23 + 15 + 17 + 17 + 22 + 26 + 22 + 25 = 182mm
+
+          // "Name and Father's Name of the workman" row
+          const nameLine = `${e.name}${e.fatherHusbandName ? " S/O " + e.fatherHusbandName : ""}`;
+          const nameLabel = "Name and Father's Name of the workman : ";
+          doc.setFont("times","bold"); doc.setFontSize(8.5); doc.text(nameLabel, sx, cy);
+          const nameLines: string[] = doc.splitTextToSize(nameLine, slotW - doc.getTextWidth(nameLabel));
+          nameLines.forEach((l: string, i: number) => doc.text(l, sx + doc.getTextWidth(nameLabel), cy + i * 4));
+          cy += Math.max(1, nameLines.length) * 4 + 2;
+
+          doc.setDrawColor(80,80,80); doc.line(sx, cy, sx + slotW, cy); cy += 3;
+
+          // Wage slip table — 9 columns, widths sum to slotW ≈ 182mm
+          // 16 + 22 + 22 + 18 + 22 + 18 + 26 + 20 + 18 = 182mm
           autoTbl(doc, {
             startY: cy,
-            head:[[
+            head: [[
               "No. of\ndays\nworked",
               "Rate of\ndaily wages /\npiece rate",
-              "No. of\nunits worked\n(piece rate)",
-              "Dates on\nwhich OT\nworked",
-              "OT hours\nworked &\nOT wages",
+              "No. of units\nworked in case\nof piece rate\nwork",
+              "Dates on\nwhich\novertime\nworked",
+              "Overtime hours\nworked and\namount of\novertime wages",
               "Gross\nwages\npayable",
               "Deductions\nif any",
               "Net\namount\npaid",
-              "Signature\nof the\nContractor",
+              "Signature of\nthe contractor\nor his\nrepresentative",
             ]],
-            body:[[
+            body: [[
               String(e.payDays ?? "—"),
               e.monthlyRate ? `${Number(e.monthlyRate).toLocaleString("en-IN")}\n(Monthly)` : "—",
-              "N.A.",
+              "N.A",
               "NIL",
               "0",
               e.totalEarnings ? Number(e.totalEarnings).toLocaleString("en-IN") : "—",
-              `PF   : ${e.pf||0}\nESIC : ${e.esi||0}\nLWF  : ${e.lwf||0}\nADJS : 0`,
+              `PF : ${e.pf||0}\nESIC : ${e.esi||0}\nLWF : ${e.lwf||0}\nADJS : 0`,
               e.netSalary ? Number(e.netSalary).toLocaleString("en-IN") : "—",
               "",
             ]],
-            styles:{...TS, fontSize:7, minCellHeight:22, cellPadding:1.4, overflow:"linebreak"},
-            headStyles:{...TH, fontSize:7, cellPadding:1.4},
-            columnStyles:{
-              0:{cellWidth:15,halign:"center"},
-              1:{cellWidth:23,halign:"center"},
-              2:{cellWidth:15,halign:"center"},
-              3:{cellWidth:17,halign:"center"},
-              4:{cellWidth:17,halign:"center"},
-              5:{cellWidth:22,halign:"right"},
-              6:{cellWidth:26,halign:"left"},
-              7:{cellWidth:22,halign:"right"},
-              8:{cellWidth:25,halign:"center"},
+            styles: { ...TS, fontSize: 8, minCellHeight: 20, cellPadding: 2, overflow: "linebreak" },
+            headStyles: { ...TH, fontSize: 8, cellPadding: 2 },
+            columnStyles: {
+              0: { cellWidth: 16, halign: "center" },
+              1: { cellWidth: 22, halign: "center" },
+              2: { cellWidth: 22, halign: "center" },
+              3: { cellWidth: 18, halign: "center" },
+              4: { cellWidth: 22, halign: "center" },
+              5: { cellWidth: 18, halign: "right" },
+              6: { cellWidth: 26, halign: "left" },
+              7: { cellWidth: 20, halign: "right" },
+              8: { cellWidth: 18, halign: "center" },
             },
-            margin:{left:sx, right:mr},
+            margin: { left: sx, right: M },
           });
-          const fy = lastY()+6;
-          doc.setFont("times","normal"); doc.setFontSize(7.5);
+
+          const fy = lastY() + 8;
+          doc.setFont("times","normal"); doc.setFontSize(8.5);
           doc.text(`Place : ${v(cl?.location_of_work)}`, sx, fy);
-          doc.text(`Date  : ${todayFmt}`, sx, fy + 4.5);
-          doc.setFont("times","bold"); doc.text("Signature of the Contractor", sx+slotW, fy, {align:"right"});
+          doc.text(`Date : ${todayFmt}`, sx, fy + 5);
+          doc.setFont("times","bold"); doc.setFontSize(8.5);
+          doc.text("Signature of the Contractor:", sx + slotW, fy, { align: "right" });
         };
 
-        const wageEmps = clraData.xiii.employees;
         if (wageEmps.length === 0) {
-          // already on a fresh portrait page from goPortrait() above
-          addTitle("FORM XV", "[See Rule 77 (1) (b)]", "Wage Slip");
+          addTitle("FORM XV", "[See rule 77(1)(b)]", "Wage Slip");
           y = addHdr([["For the month of", `${monthFull} ${toYear}`]]);
           doc.setFont("times","italic"); doc.setFontSize(10);
           doc.text("No wage data available.", pw / 2, y + 12, { align: "center" });
         } else {
-          for (let i = 0; i < wageEmps.length; i += 2) {
-            if (i > 0) doc.addPage("a4", "portrait");
-            drawVDivXV();
-            drawXVSlot(M, wageEmps[i]);
-            if (wageEmps[i+1]) drawXVSlot(slot2Y, wageEmps[i+1]);
-          }
+          wageEmps.forEach((e: any, idx: number) => {
+            if (idx > 0) doc.addPage("a4", "portrait");
+            drawXVPage(e);
+          });
         }
       }
 
