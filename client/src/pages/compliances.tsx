@@ -3937,8 +3937,8 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
           return !isNaN(d.getTime()) && d.getFullYear() === parseInt(toYear) && d.getMonth() === monthIdx;
         });
 
-        addTitle("FORM X", "[See rule 75]", "Employment Card");
         if (joinersThisMonth.length === 0) {
+          addTitle("FORM X", "[See rule 75]", "Employment Card");
           y = addHdr();
           doc.setFont("times", "italic"); doc.setFontSize(10);
           doc.text(`No employees joined this project in ${monthFull} ${toYear}.`, pw / 2, y + 12, { align: "center" });
@@ -4036,8 +4036,8 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
           return !isNaN(d.getTime()) && d.getFullYear() === parseInt(toYear) && d.getMonth() === monthIdx;
         });
 
-        addTitle("FORM XI", "[See rule 76]", "Service Certificate");
         if (leaversThisMonth.length === 0) {
+          addTitle("FORM XI", "[See rule 76]", "Service Certificate");
           y = addHdr();
           doc.setFont("times", "italic"); doc.setFontSize(10);
           doc.text(`No employees left this project in ${monthFull} ${toYear}.`, pw / 2, y + 12, { align: "center" });
