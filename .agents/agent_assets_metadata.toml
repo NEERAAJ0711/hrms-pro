@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "LgxmlCIDegdWJZ85Rnbi0"
+uri = "file://ARCHITECTURE_REPORT.md"
+type = "text"
+title = "HRMS Pro — Architecture Audit & Analysis Report"
