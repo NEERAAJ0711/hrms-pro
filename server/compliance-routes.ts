@@ -1209,6 +1209,10 @@ export function registerComplianceRoutes(app: Express) {
         client = clientRow.rows[0] || null;
       }
 
+      // Compute date range first — needed in both the employee query and attendance query
+      const startDate = `${year}-${String(monthNum).padStart(2,"0")}-01`;
+      const endDate   = `${year}-${String(monthNum).padStart(2,"0")}-${String(daysInMonth).padStart(2,"0")}`;
+
       // Employees
       let empRows: any;
       if (projectId && projectId !== "company") {
@@ -1235,8 +1239,6 @@ export function registerComplianceRoutes(app: Express) {
       }
 
       // Attendance for the month
-      const startDate = `${year}-${String(monthNum).padStart(2,"0")}-01`;
-      const endDate   = `${year}-${String(monthNum).padStart(2,"0")}-${String(daysInMonth).padStart(2,"0")}`;
       const attRows = await db.execute(sql`
         SELECT employee_id, date, status FROM attendance
         WHERE company_id = ${targetCompanyId}
