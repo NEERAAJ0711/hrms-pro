@@ -254,8 +254,33 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getEmployeeByUserId(userId: string): Promise<Employee | undefined> {
+    // Primary: direct userId match
     const result = await db.select().from(employees).where(eq(employees.userId, userId));
-    return result[0];
+    if (result[0]) return result[0];
+
+    // Fallback: match via the user's email → employee's officialEmail
+    // (covers employees created before the userId-link system)
+    const userRow = await db
+      .select({ email: users.email })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+    const email = userRow[0]?.email;
+    if (!email) return undefined;
+
+    const byEmail = await db
+      .select()
+      .from(employees)
+      .where(eq(employees.officialEmail, email))
+      .limit(1);
+
+    if (byEmail[0]) {
+      // Auto-link so future lookups hit the fast path
+      await db.update(employees).set({ userId }).where(eq(employees.id, byEmail[0].id));
+      return { ...byEmail[0], userId };
+    }
+
+    return undefined;
   }
 
   async getEmployeesByCompany(companyId: string): Promise<Employee[]> {

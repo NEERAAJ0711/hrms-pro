@@ -95,12 +95,42 @@ async function getOrCreateKycStatus(employeeId: string, companyId: string) {
 
 async function getEmployeeForUser(userId: string, companyId: string | null) {
   if (!companyId) return null;
-  const emp = await db
+
+  // Primary lookup: by userId field directly on the employee record
+  const byUserId = await db
     .select()
     .from(employees)
     .where(and(eq(employees.userId, userId), eq(employees.companyId, companyId)))
     .limit(1);
-  return emp[0] ?? null;
+  if (byUserId[0]) return byUserId[0];
+
+  // Fallback: match via the user's email against officialEmail
+  // (covers employees created before the userId-link system, or accounts
+  //  where the admin hasn't run "Create Login" but the email matches)
+  const userRow = await db
+    .select({ email: usersTable.email })
+    .from(usersTable)
+    .where(eq(usersTable.id, userId))
+    .limit(1);
+  const userEmail = userRow[0]?.email;
+  if (!userEmail) return null;
+
+  const byEmail = await db
+    .select()
+    .from(employees)
+    .where(and(eq(employees.officialEmail, userEmail), eq(employees.companyId, companyId)))
+    .limit(1);
+
+  if (byEmail[0]) {
+    // Auto-link: set userId on the employee so future lookups are instant
+    await db
+      .update(employees)
+      .set({ userId })
+      .where(eq(employees.id, byEmail[0].id));
+    return { ...byEmail[0], userId };
+  }
+
+  return null;
 }
 
 // ─── Route Registration ────────────────────────────────────────────────────────
