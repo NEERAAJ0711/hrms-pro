@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import jsPDF from "jspdf";
+import { jsPDF } from "@/lib/jspdf-shim";
 import { FileText, Send, Eye, CheckCircle, XCircle, Clock, Calendar, MapPin, User, DollarSign, MessageSquare, ThumbsUp, ThumbsDown, Handshake, Briefcase, ArrowRight, Download, Phone, Mail, Award, ClipboardList } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";

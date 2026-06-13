@@ -1,8 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
-import jsPDF from "jspdf";
-import autoTable from "jspdf-autotable";
+import { jsPDF, autoTable } from "@/lib/jspdf-shim";
 import * as XLSX from "xlsx";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
@@ -3656,9 +3655,9 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
     const fileName = `${formLabel}_${toMonth}_${toYear}.pdf`;
     try {
       const html2canvas = (await import("html2canvas")).default;
-      const { jsPDF } = await import("jspdf");
+      const { initJsPDF } = await import("@/lib/jspdf-shim");
       const canvas = await html2canvas(printDiv, { scale: 2, useCORS: true, backgroundColor: "#ffffff", logging: false, windowWidth: printDiv.scrollWidth, width: printDiv.scrollWidth });
-      const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+      const pdf = await initJsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
       const pageW = pdf.internal.pageSize.getWidth();
       const pageH = pdf.internal.pageSize.getHeight();
       const margin = 10;
@@ -3691,9 +3690,9 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
   const downloadCLRAPackagePDF = async () => {
     if (!clraData) { toast({ title: "No data", description: "Generate the CLRA Package first.", variant: "destructive" }); return; }
     try {
-      const { jsPDF } = await import("jspdf");
-      const autoTbl = (await import("jspdf-autotable")).default;
-      const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+      const { initJsPDF } = await import("@/lib/jspdf-shim");
+      const doc = await initJsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+      const autoTbl = (_doc: any, opts: any) => _doc.autoTable(opts);
       // pw/ph are `let` so they can be updated when we flip orientation
       // for Forms X (Employment Card), XI (Service Certificate) and XV
       // (Wage Slip), which are rendered in portrait.
