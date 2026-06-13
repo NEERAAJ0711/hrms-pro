@@ -1,4 +1,4 @@
-// AI HR Assistant Service — OpenAI + rule-based fallback
+// AI HR Assistant Service — OpenAI → Gemini → rule-based fallback
 import { db } from "./db";
 import {
   aiMessages,
@@ -34,38 +34,18 @@ export interface Attachment {
   uploadedAt: string;
 }
 
-// ─── OpenAI lazy init ─────────────────────────────────────────────────────────
-
+// ── OpenAI ─────────────────────────────────────────────────────────────────────
 let _openai: any = null;
-let _apiKeyOverride: string | null = null;
+let _openaiKeyOverride: string | null = null;
 
-/** Called when admin saves/clears the key from the Settings → API Keys tab */
 export function setOpenAIKeyOverride(key: string | null) {
-  _apiKeyOverride = key || null;
-  _openai = null; // reset so next call re-initialises with the new key
-}
-
-/** Called once at startup — pulls key from `settings` table if env var absent */
-export async function loadOpenAIKeyFromDB(): Promise<void> {
-  try {
-    const { db } = await import("./db");
-    const { settings: settingsTable } = await import("../shared/schema");
-    const { and, eq, isNull } = await import("drizzle-orm");
-    const rows = await db
-      .select()
-      .from(settingsTable)
-      .where(and(eq(settingsTable.key, "openai_api_key"), isNull(settingsTable.companyId)));
-    if (rows.length > 0 && rows[0].value) {
-      _apiKeyOverride = rows[0].value;
-    }
-  } catch {
-    // DB may not be ready yet — safe to skip
-  }
+  _openaiKeyOverride = key || null;
+  _openai = null;
 }
 
 function getOpenAI(): any | null {
   if (_openai) return _openai;
-  const key = process.env.OPENAI_API_KEY || _apiKeyOverride;
+  const key = process.env.OPENAI_API_KEY || _openaiKeyOverride;
   if (!key) return null;
   try {
     const { default: OpenAI } = require("openai");
@@ -74,6 +54,73 @@ function getOpenAI(): any | null {
   } catch {
     return null;
   }
+}
+
+// ── Google Gemini ───────────────────────────────────────────────────────────────
+let _geminiKey: string | null = null;
+
+export function setGeminiKeyOverride(key: string | null) {
+  _geminiKey = key || null;
+}
+
+function getGeminiKey(): string | null {
+  return process.env.GOOGLE_GEMINI_API_KEY || _geminiKey || null;
+}
+
+async function callGemini(
+  systemPrompt: string,
+  history: Array<{ role: string; content: string }>,
+  userMessage: string,
+): Promise<string | null> {
+  const key = getGeminiKey();
+  if (!key) return null;
+  try {
+    const { GoogleGenerativeAI } = await import("@google/generative-ai");
+    const genAI = new GoogleGenerativeAI(key);
+    const model = genAI.getGenerativeModel({
+      model: "gemini-1.5-flash",
+      systemInstruction: systemPrompt,
+    });
+
+    // Gemini requires alternating user/model turns; convert our history
+    const geminiHistory = history.map((m) => ({
+      role: m.role === "assistant" ? "model" : "user",
+      parts: [{ text: m.content }],
+    }));
+
+    const chat = model.startChat({ history: geminiHistory });
+    const result = await chat.sendMessage(userMessage);
+    return result.response.text() || null;
+  } catch (err: any) {
+    console.warn("[AI] Gemini call failed:", err?.message);
+    return null;
+  }
+}
+
+// ── Startup loader — pulls both keys from DB ────────────────────────────────────
+export async function loadAllApiKeysFromDB(): Promise<void> {
+  try {
+    const { db: dbInst } = await import("./db");
+    const { settings: settingsTable } = await import("../shared/schema");
+    const { isNull, eq, and } = await import("drizzle-orm");
+
+    const rows = await dbInst
+      .select()
+      .from(settingsTable)
+      .where(isNull(settingsTable.companyId));
+
+    for (const row of rows) {
+      if (row.key === "openai_api_key" && row.value) _openaiKeyOverride = row.value;
+      if (row.key === "gemini_api_key" && row.value) _geminiKey = row.value;
+    }
+  } catch {
+    // DB may not be ready yet — safe to skip
+  }
+}
+
+/** @deprecated use loadAllApiKeysFromDB */
+export async function loadOpenAIKeyFromDB(): Promise<void> {
+  return loadAllApiKeysFromDB();
 }
 
 // ─── System Prompt Builder ─────────────────────────────────────────────────────
@@ -249,39 +296,51 @@ export async function generateAiReply(
   kyc: KycStatus,
   language: string,
 ): Promise<string> {
-  const openai = getOpenAI();
+  const systemPrompt = buildSystemPrompt(employeeName, kyc, language);
 
+  // Load conversation history (last 12 messages) — shared by all providers
+  const history = await db
+    .select()
+    .from(aiMessages)
+    .where(eq(aiMessages.conversationId, conversationId))
+    .orderBy(aiMessages.createdAt)
+    .limit(50);
+  const recentHistory = history.slice(-12);
+
+  // ── 1. Try OpenAI ───────────────────────────────────────────────────────────
+  const openai = getOpenAI();
   if (openai) {
     try {
-      // Load conversation history (last 12 messages)
-      const history = await db
-        .select()
-        .from(aiMessages)
-        .where(eq(aiMessages.conversationId, conversationId))
-        .orderBy(aiMessages.createdAt)
-        .limit(50);
-
-      const recentHistory = history.slice(-12);
-
       const messages: any[] = [
-        { role: "system", content: buildSystemPrompt(employeeName, kyc, language) },
+        { role: "system", content: systemPrompt },
         ...recentHistory.map((m) => ({ role: m.role as "user" | "assistant", content: m.content })),
         { role: "user", content: userMessage },
       ];
-
       const response = await openai.chat.completions.create({
         model: "gpt-4o-mini",
         messages,
         max_tokens: 400,
         temperature: 0.7,
       });
-
-      return response.choices[0]?.message?.content ?? buildRuleBasedResponse(userMessage, employeeName, kyc, language);
+      const text = response.choices[0]?.message?.content;
+      if (text) return text;
     } catch (err: any) {
-      console.warn("[AI] OpenAI call failed, using fallback:", err?.message);
+      console.warn("[AI] OpenAI call failed, trying Gemini:", err?.message);
     }
   }
 
+  // ── 2. Try Google Gemini ────────────────────────────────────────────────────
+  if (getGeminiKey()) {
+    const geminiReply = await callGemini(
+      systemPrompt,
+      recentHistory.map((m) => ({ role: m.role, content: m.content })),
+      userMessage,
+    );
+    if (geminiReply) return geminiReply;
+    console.warn("[AI] Gemini also failed — falling back to rule-based.");
+  }
+
+  // ── 3. Rule-based fallback ──────────────────────────────────────────────────
   return buildRuleBasedResponse(userMessage, employeeName, kyc, language);
 }
 

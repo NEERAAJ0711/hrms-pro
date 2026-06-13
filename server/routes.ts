@@ -7,7 +7,7 @@ import { registerComplianceRoutes } from "./compliance-routes";
 import { registerKraRoutes, startKraDeadlineScheduler } from "./kra-routes";
 import { registerEpfoEsicRoutes } from "./epfo-esic-routes";
 import { registerAiHrRoutes } from "./ai-hr-routes";
-import { setOpenAIKeyOverride, loadOpenAIKeyFromDB } from "./ai-service";
+import { setOpenAIKeyOverride, setGeminiKeyOverride, loadAllApiKeysFromDB } from "./ai-service";
 import { createNotification, createNotificationForMany } from "./notifications";
 import { addSSEClient, removeSSEClient } from "./sse";
 import { db } from "./db";
@@ -5246,14 +5246,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ===== API Keys Routes (super_admin only) =====
+  const maskKey = (val: string) =>
+    val.length > 8 ? val.slice(0, 7) + "..." + val.slice(-4) : (val ? "****" : "");
+
   app.get("/api/settings/api-keys", requireAuth, async (req: Request, res: Response) => {
     try {
       const user = (req as any).user;
       if (user.role !== "super_admin") return res.status(403).json({ error: "Forbidden" });
-      const row = await storage.getSettingByKey(null, "openai_api_key");
-      const val = row?.value || "";
-      const hint = val.length > 8 ? val.slice(0, 7) + "..." + val.slice(-4) : (val ? "****" : "");
-      res.json({ openai: { set: !!val, hint } });
+      const [openaiRow, geminiRow] = await Promise.all([
+        storage.getSettingByKey(null, "openai_api_key"),
+        storage.getSettingByKey(null, "gemini_api_key"),
+      ]);
+      const openaiVal = openaiRow?.value || "";
+      const geminiVal = geminiRow?.value || "";
+      res.json({
+        openai: { set: !!openaiVal, hint: maskKey(openaiVal) },
+        gemini: { set: !!geminiVal, hint: maskKey(geminiVal) },
+      });
     } catch {
       res.status(500).json({ error: "Failed to fetch API keys" });
     }
@@ -5263,16 +5272,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const user = (req as any).user;
       if (user.role !== "super_admin") return res.status(403).json({ error: "Forbidden" });
-      const { openaiApiKey } = req.body as { openaiApiKey?: string };
-      if (openaiApiKey !== undefined) {
-        const key = String(openaiApiKey).trim();
-        const existing = await storage.getSettingByKey(null, "openai_api_key");
+      const { openaiApiKey, geminiApiKey } = req.body as { openaiApiKey?: string; geminiApiKey?: string };
+
+      const upsert = async (dbKey: string, rawValue: string) => {
+        const key = rawValue.trim();
+        const existing = await storage.getSettingByKey(null, dbKey);
         if (existing) {
           await storage.updateSetting(existing.id, { value: key });
         } else {
-          await storage.createSetting({ key: "openai_api_key", value: key, category: "api_keys", companyId: null });
+          await storage.createSetting({ key: dbKey, value: key, category: "api_keys", companyId: null });
         }
+        return key;
+      };
+
+      if (openaiApiKey !== undefined) {
+        const key = await upsert("openai_api_key", openaiApiKey);
         setOpenAIKeyOverride(key || null);
+      }
+      if (geminiApiKey !== undefined) {
+        const key = await upsert("gemini_api_key", geminiApiKey);
+        setGeminiKeyOverride(key || null);
       }
       res.json({ success: true });
     } catch {
@@ -7280,8 +7299,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Register AI HR Assistant routes
   registerAiHrRoutes(app);
 
-  // Load OpenAI key from DB (if admin saved it via Settings → API Keys)
-  loadOpenAIKeyFromDB().catch(() => {});
+  // Load OpenAI + Gemini keys from DB (if admin saved them via Settings → API Keys)
+  loadAllApiKeysFromDB().catch(() => {});
 
   // ─── Automation: latest portal employee list result ───────────────────────────
   app.get("/api/automation/portal-employee-list/:portal", requireAuth, async (req: Request, res: Response) => {
