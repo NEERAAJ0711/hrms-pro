@@ -17,8 +17,9 @@ import {
 } from "@/components/ui/select";
 import {
   Bot, RefreshCw, AlertTriangle, CheckCircle2, Clock, Pause,
-  RotateCcw, Loader2, Activity, FileText, Search, Trash2, Ban,
+  RotateCcw, Loader2, Activity, FileText, Search, Trash2, Ban, Sparkles,
 } from "lucide-react";
+import { ComplianceAiPanel } from "@/components/compliance-ai-panel";
 
 const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 const CURRENT_YEAR = new Date().getFullYear();
@@ -205,7 +206,7 @@ function JobActions({ job }: { job: AutomationJob }) {
 }
 
 // ─── All Jobs Tab ─────────────────────────────────────────────────────────────
-function AllJobsTab() {
+function AllJobsTab({ onAnalyzeError }: { onAnalyzeError: (job: { jobType: string; errorMessage: string; jobId: string }) => void }) {
   const { user } = useAuth();
   const [page, setPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState("all");
@@ -294,7 +295,22 @@ function AllJobsTab() {
                 <TableCell className="text-sm">{job.retryCount}/{job.maxRetries}</TableCell>
                 <TableCell className="text-xs">{formatDate(job.startedAt)}</TableCell>
                 <TableCell className="text-xs">{formatDate(job.updatedAt)}</TableCell>
-                <TableCell className="text-xs text-red-600 max-w-[200px] truncate">{job.errorMessage ?? "—"}</TableCell>
+                <TableCell className="text-xs max-w-[200px]">
+                  {job.status === "failed" && job.errorMessage ? (
+                    <div className="flex flex-col gap-1">
+                      <span className="text-red-600 truncate block">{job.errorMessage}</span>
+                      <button
+                        onClick={() => onAnalyzeError({ jobType: job.jobType, errorMessage: job.errorMessage!, jobId: job.id })}
+                        className="flex items-center gap-1 text-[11px] text-primary hover:underline font-medium"
+                        data-testid={`button-analyze-error-${job.id}`}
+                      >
+                        <Sparkles className="h-3 w-3" /> AI Analyze
+                      </button>
+                    </div>
+                  ) : (
+                    <span className="text-muted-foreground">{job.errorMessage ?? "—"}</span>
+                  )}
+                </TableCell>
                 <TableCell><JobActions job={job} /></TableCell>
               </TableRow>
             ))}
@@ -458,7 +474,7 @@ function PausedJobsTab() {
 }
 
 // ─── Failed Jobs Tab ──────────────────────────────────────────────────────────
-function FailedJobsTab() {
+function FailedJobsTab({ onAnalyzeError }: { onAnalyzeError: (job: { jobType: string; errorMessage: string; jobId: string }) => void }) {
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -537,8 +553,19 @@ function FailedJobsTab() {
                 <TableCell className="text-sm">{jobTypeLabel(job.jobType)}</TableCell>
                 <TableCell className="text-sm">{job.retryCount}/{job.maxRetries}</TableCell>
                 <TableCell className="text-xs">{formatDate(job.updatedAt)}</TableCell>
-                <TableCell className="text-xs text-red-600 max-w-[280px]">
-                  <span className="line-clamp-2">{job.errorMessage ?? "Unknown error"}</span>
+                <TableCell className="text-xs max-w-[280px]">
+                  <div className="flex flex-col gap-1">
+                    <span className="text-red-600 line-clamp-2">{job.errorMessage ?? "Unknown error"}</span>
+                    {job.errorMessage && (
+                      <button
+                        onClick={() => onAnalyzeError({ jobType: job.jobType, errorMessage: job.errorMessage!, jobId: job.id })}
+                        className="flex items-center gap-1 text-[11px] text-primary hover:underline font-medium w-fit"
+                        data-testid={`button-analyze-failed-${job.id}`}
+                      >
+                        <Sparkles className="h-3 w-3" /> AI Analyze
+                      </button>
+                    )}
+                  </div>
                 </TableCell>
                 <TableCell>
                   <div className="flex items-center gap-1">
@@ -693,6 +720,7 @@ function LogsTab() {
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function AutomationJobsPage() {
   const { user } = useAuth();
+  const [selectedError, setSelectedError] = useState<{ jobType: string; errorMessage: string; jobId: string } | null>(null);
 
   const ALLOWED = ["super_admin", "company_admin", "hr_admin"];
   if (!user || !ALLOWED.includes(user.role)) {
@@ -766,11 +794,13 @@ export default function AutomationJobsPage() {
           <TabsTrigger value="logs" data-testid="tab-logs">Logs</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="all" className="mt-4"><AllJobsTab /></TabsContent>
+        <TabsContent value="all" className="mt-4"><AllJobsTab onAnalyzeError={setSelectedError} /></TabsContent>
         <TabsContent value="paused" className="mt-4"><PausedJobsTab /></TabsContent>
-        <TabsContent value="failed" className="mt-4"><FailedJobsTab /></TabsContent>
+        <TabsContent value="failed" className="mt-4"><FailedJobsTab onAnalyzeError={setSelectedError} /></TabsContent>
         <TabsContent value="logs" className="mt-4"><LogsTab /></TabsContent>
       </Tabs>
+
+      <ComplianceAiPanel portal="both" initialJobError={selectedError ?? undefined} />
     </div>
   );
 }

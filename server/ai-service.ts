@@ -612,3 +612,208 @@ export async function createFollowUpTask(
     updatedAt: now,
   });
 }
+
+// ─── Compliance AI Co-pilot ────────────────────────────────────────────────────
+
+function buildComplianceSystemPrompt(portal: string): string {
+  const scope =
+    portal === "epfo"
+      ? "EPFO (Employees' Provident Fund Organisation) and PF compliance"
+      : portal === "esic"
+      ? "ESIC (Employees' State Insurance Corporation) and ESI compliance"
+      : "EPFO/PF and ESIC/ESI compliance";
+
+  return `You are an expert Indian statutory compliance assistant specialising in ${scope}. You help HR managers, payroll teams, and compliance officers in India.
+
+KEY RATES & RULES (as of 2026):
+
+PF / EPFO:
+- Employee contribution: 12% of PF wages (basic + DA)
+- Employer contribution: 12% split as → 3.67% to EPF, 8.33% to EPS (capped at ₹15,000 wages), 0.5% to EDLI
+- Wage ceiling for EPS: ₹15,000/month (employees earning above still contribute on actuals)
+- UAN (Universal Account Number): 12-digit, generated via EPFO Unified Portal
+- ECR (Electronic Challan cum Return): Monthly, due by 15th of following month
+- TRRN: Temporary Return Reference Number, generated after ECR submission
+- ECR file format: Text file with member-wise contribution details
+- PF applicable employees: Salary ≤ ₹15,000 at joining (mandatory); above ₹15,000 is voluntary
+
+ESIC:
+- Employee contribution: 0.75% of gross wages (revised Jan 2025)
+- Employer contribution: 3.25% of gross wages (revised Jan 2025)
+- Applicability: Employees earning ≤ ₹21,000/month gross (₹25,000 for disabled persons)
+- IP Number: Insurance Provident number assigned to each ESIC-registered employee
+- Monthly filing due: 21st of following month
+- Half-yearly returns: April–September (due Nov 11), October–March (due May 11)
+- Establishments employing 10+ workers (in most states)
+
+COMMON PORTAL ERRORS & FIXES:
+- "Invalid credentials": Check username/password in Portal Settings tab; passwords expire every 90 days on EPFO portal
+- "UAN not found": Employee may not be registered; run UAN generation job first
+- "Aadhaar mismatch": Employee's Aadhaar name must exactly match EPFO records; update via KYC correction
+- "Network timeout": Portal is congested; retry during off-peak hours (early morning or late evening)
+- "Challan not generated": ECR may have errors; download the error report from the portal and fix member data
+- "OTP required": Portal triggered 2FA; the automation is paused — go to Paused Jobs tab and enter the OTP
+- "CAPTCHA required": Automation paused; solve CAPTCHA in the Paused Jobs tab
+- "Session expired": Portal session timed out; the next job will re-login automatically
+
+AUTOMATION JOB TYPES:
+- epfo_uan_generate: Generates UAN for new employees on EPFO portal
+- epfo_ecr_file: Files monthly ECR return on EPFO portal
+- epfo_challan_download: Downloads challan PDF after ECR filing
+- epfo_kyc_aadhaar: Links employee Aadhaar to UAN on EPFO portal
+- esic_ip_generate: Generates IP number for new employees on ESIC portal
+- esic_monthly_file: Files monthly ESIC contribution return
+- esic_challan_download: Downloads ESIC challan after filing
+
+COMPLIANCE DEADLINES:
+- EPFO ECR: 15th of every following month (e.g., April wages → May 15)
+- ESIC monthly return: 21st of every following month
+- ESIC half-yearly return: November 11 and May 11
+- PF interest penalty: 12% p.a. for late payment; damages up to 25% for defaults
+- ESIC interest: 12% p.a. for delayed payment
+
+INSTRUCTIONS:
+1. Answer compliance questions concisely and accurately
+2. For error analysis, always suggest: (a) the likely cause, (b) the exact fix, (c) whether to retry
+3. Cite specific rate percentages and deadlines when relevant
+4. For portal navigation issues, direct users to the relevant tab (Portal Settings, Paused Jobs, etc.)
+5. Keep answers under 6 sentences unless explaining something step-by-step
+6. Respond in the same language the user writes in (Hindi/English)`;
+}
+
+function buildComplianceRuleResponse(message: string): string {
+  const m = message.toLowerCase();
+  if (m.includes("ecr") && (m.includes("due") || m.includes("date") || m.includes("deadline")))
+    return "ECR (Electronic Challan cum Return) for EPFO is due by the **15th of every following month**. For example, wages for April must be filed by May 15th. Late filing attracts a penalty of 12% p.a. interest plus damages.";
+  if (m.includes("esic") && (m.includes("due") || m.includes("date") || m.includes("deadline")))
+    return "ESIC monthly returns are due by the **21st of every following month**. Half-yearly returns are due on **November 11** (for April–September) and **May 11** (for October–March).";
+  if (m.includes("pf rate") || m.includes("epf rate") || (m.includes("contribution") && m.includes("pf")))
+    return "PF contribution rates: **Employee 12%** of PF wages (basic + DA). **Employer 12%** split as → 3.67% to EPF + 8.33% to EPS (capped at ₹15,000 wage) + 0.5% to EDLI. For employees earning above ₹15,000, EPS contribution is capped at ₹1,250/month.";
+  if (m.includes("esic rate") || (m.includes("contribution") && m.includes("esic")))
+    return "ESIC contribution rates (revised 2025): **Employee 0.75%** of gross wages, **Employer 3.25%** of gross wages. Applicable for employees earning ≤ ₹21,000/month gross (₹25,000 for persons with disability).";
+  if (m.includes("uan"))
+    return "UAN (Universal Account Number) is a 12-digit number issued by EPFO to each PF member. It stays the same across job changes. Generate UAN for new employees using the 'EPFO UAN Generate' automation job — Aadhaar KYC must be complete first.";
+  if (m.includes("ip number") || m.includes("ip no") || (m.includes("esic") && m.includes("register")))
+    return "IP (Insurance Provident) Number is ESIC's unique ID for each insured employee. It is generated when you run the 'ESIC IP Generate' automation job. The employee must have Aadhaar details and salary ≤ ₹21,000/month to be eligible.";
+  if (m.includes("otp") || m.includes("captcha") || m.includes("paused"))
+    return "When a job is paused, the portal is waiting for an **OTP or CAPTCHA** from you. Go to the **Paused Jobs** tab in Automation Jobs, find the job, enter the OTP/answer, and click Resume.";
+  if (m.includes("retry") || m.includes("failed job"))
+    return "To retry a failed job: go to the **Automation Jobs** page → find the failed job → click Retry. Check the error message first to understand why it failed. Common causes are portal timeouts (retry later), wrong credentials (fix in Portal Settings), or missing employee data.";
+  if (m.includes("trrn"))
+    return "TRRN (Temporary Return Reference Number) is generated by the EPFO portal after a successful ECR submission. It is used to track your challan payment. You can find it in the ECR Returns section once the job completes.";
+  return "I can help with EPFO/ESIC compliance questions — PF/ESI rates, due dates, UAN/IP generation, ECR filing, portal errors, and more. Ask me anything!";
+}
+
+export async function generateComplianceReply(
+  message: string,
+  history: Array<{ role: string; content: string }>,
+  portal = "both",
+): Promise<string> {
+  const systemPrompt = buildComplianceSystemPrompt(portal);
+
+  // ── 1. Try OpenAI ────────────────────────────────────────────────────────────
+  const openai = getOpenAI();
+  if (openai) {
+    try {
+      const messages: any[] = [
+        { role: "system", content: systemPrompt },
+        ...history.slice(-10).map((m) => ({ role: m.role as "user" | "assistant", content: m.content })),
+        { role: "user", content: message },
+      ];
+      const response = await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages,
+        max_tokens: 500,
+        temperature: 0.3,
+      });
+      const text = response.choices[0]?.message?.content;
+      if (text) return text;
+    } catch (err: any) {
+      console.warn("[ComplianceAI] OpenAI failed, trying Gemini:", err?.message);
+    }
+  }
+
+  // ── 2. Try Gemini ────────────────────────────────────────────────────────────
+  if (getGeminiKey()) {
+    const reply = await callGemini(systemPrompt, history.slice(-10), message);
+    if (reply) return reply;
+  }
+
+  // ── 3. Rule-based fallback ───────────────────────────────────────────────────
+  return buildComplianceRuleResponse(message);
+}
+
+export async function analyzeJobError(
+  jobType: string,
+  errorMessage: string,
+  logs: string[] = [],
+): Promise<{ summary: string; likelyCause: string; suggestedFix: string; canRetry: boolean }> {
+  const prompt = buildComplianceSystemPrompt("both");
+  const userMsg = `Analyze this automation job failure and provide a structured response.
+
+Job Type: ${jobType.replace(/_/g, " ").toUpperCase()}
+Error Message: ${errorMessage}
+${logs.length > 0 ? `Recent Logs:\n${logs.slice(-5).join("\n")}` : ""}
+
+Respond ONLY as valid JSON with these exact keys:
+{
+  "summary": "one sentence plain-English summary of what failed",
+  "likelyCause": "the most probable root cause",
+  "suggestedFix": "step-by-step action to fix it",
+  "canRetry": true or false
+}`;
+
+  // ── 1. Try OpenAI ────────────────────────────────────────────────────────────
+  const openai = getOpenAI();
+  if (openai) {
+    try {
+      const response = await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [
+          { role: "system", content: prompt },
+          { role: "user", content: userMsg },
+        ],
+        max_tokens: 400,
+        temperature: 0.2,
+        response_format: { type: "json_object" },
+      });
+      const text = response.choices[0]?.message?.content;
+      if (text) return JSON.parse(text);
+    } catch (err: any) {
+      console.warn("[JobErrorAI] OpenAI failed:", err?.message);
+    }
+  }
+
+  // ── 2. Try Gemini ────────────────────────────────────────────────────────────
+  if (getGeminiKey()) {
+    const reply = await callGemini(prompt, [], userMsg);
+    if (reply) {
+      try {
+        const cleaned = reply.replace(/```json|```/g, "").trim();
+        return JSON.parse(cleaned);
+      } catch {
+        // fall through
+      }
+    }
+  }
+
+  // ── 3. Rule-based fallback ───────────────────────────────────────────────────
+  const em = errorMessage.toLowerCase();
+  const canRetry = !em.includes("invalid credentials") && !em.includes("aadhaar mismatch") && !em.includes("not found");
+  return {
+    summary: `The ${jobType.replace(/_/g, " ")} job failed.`,
+    likelyCause: em.includes("timeout") || em.includes("network")
+      ? "Portal network timeout — the EPFO/ESIC portal was temporarily unreachable."
+      : em.includes("credential") || em.includes("password") || em.includes("login")
+      ? "Invalid portal credentials — the stored username/password may be wrong or expired."
+      : em.includes("otp") || em.includes("captcha")
+      ? "Portal is waiting for OTP/CAPTCHA verification from a human operator."
+      : "An unexpected portal error occurred.",
+    suggestedFix: em.includes("credential") || em.includes("password")
+      ? "Go to Portal Settings tab → update the username and password → retry the job."
+      : em.includes("otp") || em.includes("captcha")
+      ? "Go to the Paused Jobs tab → find this job → enter the OTP/CAPTCHA answer → click Resume."
+      : "Check the portal for maintenance notices, then retry the job during off-peak hours (early morning).",
+    canRetry,
+  };
+}

@@ -23,6 +23,7 @@ import {
   CheckCircle2, AlertTriangle, Clock, Upload, Settings, Activity,
   Eye, EyeOff, Lock, Search, Monitor,
 } from "lucide-react";
+import { ComplianceAiPanel } from "@/components/compliance-ai-panel";
 import * as XLSX from "xlsx";
 
 const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
@@ -1798,6 +1799,8 @@ export default function EsicPage() {
           </div>
         </>
       )}
+
+      <ComplianceAiPanel portal="esic" />
     </div>
   );
 }

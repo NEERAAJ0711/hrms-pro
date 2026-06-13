@@ -15,7 +15,7 @@ import { randomUUID } from "crypto";
 import multer from "multer";
 import * as path from "path";
 import * as fs from "fs";
-import { generateAiReply, computeKycOverallStatus, createFollowUpTask, startAiFollowUpScheduler } from "./ai-service";
+import { generateAiReply, computeKycOverallStatus, createFollowUpTask, startAiFollowUpScheduler, generateComplianceReply, analyzeJobError } from "./ai-service";
 import { createNotification } from "./notifications";
 
 // ─── Multer for KYC document uploads ─────────────────────────────────────────
@@ -695,6 +695,40 @@ export function registerAiHrRoutes(app: Express): void {
       return res.json({ initialized: created, total: allEmployees.length });
     } catch (err: any) {
       return res.status(500).json({ message: "Server error" });
+    }
+  });
+
+  // ── POST /api/ai-hr/compliance-chat ────────────────────────────────────────
+  // Stateless compliance Q&A — no conversation stored in DB
+  app.post("/api/ai-hr/compliance-chat", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const { message, history = [], portal = "both" } = req.body as {
+        message: string;
+        history?: Array<{ role: string; content: string }>;
+        portal?: string;
+      };
+      if (!message?.trim()) return res.status(400).json({ message: "message is required" });
+      const reply = await generateComplianceReply(message.trim(), history, portal);
+      return res.json({ reply });
+    } catch (err: any) {
+      return res.status(500).json({ message: "AI service error" });
+    }
+  });
+
+  // ── POST /api/ai-hr/analyze-job-error ──────────────────────────────────────
+  // Analyzes a failed automation job error and returns structured diagnosis
+  app.post("/api/ai-hr/analyze-job-error", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const { jobType, errorMessage, logs } = req.body as {
+        jobType: string;
+        errorMessage: string;
+        logs?: string[];
+      };
+      if (!jobType || !errorMessage) return res.status(400).json({ message: "jobType and errorMessage are required" });
+      const analysis = await analyzeJobError(jobType, errorMessage, logs ?? []);
+      return res.json(analysis);
+    } catch (err: any) {
+      return res.status(500).json({ message: "AI service error" });
     }
   });
 
