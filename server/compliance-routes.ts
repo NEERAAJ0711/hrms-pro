@@ -1307,6 +1307,11 @@ export function registerComplianceRoutes(app: Express) {
       }
 
       // Employees with compliance setup rates, falling back to salary_structures when not configured
+      // Compute date range first — used both in the employee query and later for payroll/attendance
+      const monDays = new Date(parseInt(year), monthNum, 0).getDate();
+      const wrFirstDay = `${year}-${String(monthNum).padStart(2,"0")}-01`;
+      const wrLastDay  = `${year}-${String(monthNum).padStart(2,"0")}-${String(monDays).padStart(2,"0")}`;
+
       let empRows: any;
       if (projectId && projectId !== "company") {
         empRows = await db.execute(sql`
@@ -1355,10 +1360,6 @@ export function registerComplianceRoutes(app: Express) {
       let payrollMap: Record<string, any> = {};
       let adjMap: Record<string, any> = {};
       let attMap: Record<string, any> = {};
-      // Calendar days in the given month (used as denominator for proration, matching compliance adjustments screen)
-      const monDays = new Date(parseInt(year), monthNum, 0).getDate();
-      const wrFirstDay = `${year}-${String(monthNum).padStart(2,"0")}-01`;
-      const wrLastDay  = `${year}-${String(monthNum).padStart(2,"0")}-${String(monDays).padStart(2,"0")}`;
 
       if (empIds.length > 0) {
         const empInList = sql.join(empIds.map((id: string) => sql`${id}`), sql`, `);
