@@ -3468,10 +3468,8 @@ function ServiceCertificateView({ workmen, wages }: { workmen: WorkmenRegisterDa
       {employees.length === 0 && <div style={{ color: "#666", padding: "16px" }}>No employees left this project in {month} {year}.</div>}
       {employees.map(e => {
         const w = wMap.get(e.name);
-        const monthNum = monthIdx + 1;
-        const daysInMon = new Date(parseInt(year), monthNum, 0).getDate();
-        const fromDate = `01-${String(monthNum).padStart(2,"0")}-${year}`;
-        const toDate   = `${String(daysInMon).padStart(2,"0")}-${String(monthNum).padStart(2,"0")}-${year}`;
+        const fromDate = fmtDate((e as any).assignedDate || e.dateOfJoining) || "—";
+        const toDate   = fmtDate((e as any).deassignedDate || e.dateOfLeaving) || "—";
         return (
           <div key={e.serialNo} style={{ border: "1px solid #333", padding: "14px 16px", pageBreakInside: "avoid", breakInside: "avoid" }}>
             {HDR("Name and address of Contractor",                        v(company.name, company.address))}
@@ -3963,10 +3961,6 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
         const divY   = M + slotH + 2;                       // horizontal divider y
 
         const wMap  = new Map(clraData.xiii.employees.map((e: any) => [e.name, e]));
-        const mNum  = monthIdx + 1;
-        const dInM  = new Date(parseInt(toYear), mNum, 0).getDate();
-        const fromD = `01-${String(mNum).padStart(2,"0")}-${toYear}`;
-        const toD   = `${String(dInM).padStart(2,"0")}-${String(mNum).padStart(2,"0")}-${toYear}`;
 
         const drawVDivXI = () => {
           doc.setDrawColor(140); doc.setLineDashPattern([5,3], 0);
@@ -4004,6 +3998,8 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
           doc.setDrawColor(80,80,80); doc.line(sx, cy, sx+slotW, cy); cy += 3;
           // 10 columns sized for portrait slotW ≈ 182mm
           // 10+18+18+12+21+15+25+28+25+10 = 182mm
+          const fromD = fmtDate((e as any).assignedDate || e.dateOfJoining) || "—";
+          const toD   = fmtDate((e as any).deassignedDate || e.dateOfLeaving) || "—";
           autoTbl(doc, {
             startY: cy,
             head:[["Sr.\nNo.","From","To","Days\nWrkd","Nature\nof Work","Rate\nof Wage","Total Wages\nEarned (Rs.)","Deductions","Net Wages\nPaid (Rs.)","Rmks"]],
