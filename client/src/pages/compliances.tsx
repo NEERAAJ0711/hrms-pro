@@ -3744,6 +3744,26 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
       const monthFull = monthIdx >= 0 ? MONTHS[monthIdx] : toMonth;
       const v = (...ps: (string | null | undefined)[]) => ps.filter(Boolean).join(", ") || "—";
 
+      // Load company authorized signature as base64 for PDF embedding
+      const loadImgB64 = (url: string): Promise<string> => new Promise((res, rej) => {
+        const img = new Image(); img.crossOrigin = "anonymous";
+        img.onload = () => { const c = document.createElement("canvas"); c.width = img.naturalWidth; c.height = img.naturalHeight; c.getContext("2d")!.drawImage(img, 0, 0); res(c.toDataURL("image/png")); };
+        img.onerror = rej; img.src = url;
+      });
+      const sigB64: string | undefined = (company as any).signature
+        ? await loadImgB64((company as any).signature).catch(() => undefined)
+        : undefined;
+      // Helper: draw signature image (or plain label if no sig) above a right-aligned x position
+      const drawSig = (x: number, y: number, label = "Signature of the Contractor") => {
+        const sigW = 40; const sigH = 12;
+        if (sigB64) {
+          doc.addImage(sigB64, "PNG", x - sigW, y - sigH, sigW, sigH);
+          doc.setDrawColor(80,80,80); doc.line(x - sigW - 2, y, x, y);
+        }
+        doc.setFont("times", "bold"); doc.setFontSize(8.5);
+        doc.text(label, x, y + 4, { align: "right" });
+      };
+
       // Draw page-number footer on every page (per-page dimensions so
       // portrait and landscape pages both center correctly)
       const addPageNum = () => {
@@ -3798,8 +3818,7 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
         doc.setFont("times", "normal"); doc.setFontSize(8.5);
         doc.text(`Place : ${v(cl?.location_of_work)}`, M, footY);
         doc.text(`Date  : ${todayFmt}`, M, footY + 5);
-        doc.setFont("times", "bold"); doc.setFontSize(8.5);
-        doc.text("Signature of the Contractor", pw - M, footY, { align: "right" });
+        drawSig(pw - M, footY);
       };
 
       const lastY = () => (doc as any).lastAutoTable.finalY;
@@ -3940,7 +3959,7 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
           const fy = lastY() + 6;
           doc.setFont("times", "normal"); doc.setFontSize(7.5);
           doc.text(`Place : ${v(cl?.location_of_work)}`, sx, fy);
-          doc.setFont("times", "bold"); doc.text("Signature of the Contractor", sx + slotW, fy, { align: "right" });
+          drawSig(sx + slotW, fy);
         };
 
         const wageMap    = new Map(clraData.xiii.employees.map((e: any) => [e.name, e]));
@@ -4042,7 +4061,7 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
           const fy = lastY()+6;
           doc.setFont("times","normal"); doc.setFontSize(7.5);
           doc.text(`Place : ${v(cl?.location_of_work)}`, sx, fy);
-          doc.setFont("times","bold"); doc.text("Signature of the Contractor", sx+slotW, fy, {align:"right"});
+          drawSig(sx + slotW, fy);
         };
 
         // Show only employees who left (de-assigned) during the selected month
@@ -4297,12 +4316,11 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
           doc.setFont("times","normal"); doc.setFontSize(8.5);
           doc.text(`Place : ${v(cl?.location_of_work)}`, sx, fy);
           doc.text(`Date : ${todayFmt}`, sx, fy + 5);
-          doc.setFont("times","bold"); doc.setFontSize(8.5);
           const midX = sx + slotW / 2;
-          doc.line(midX - 28, fy + 8, midX + 28, fy + 8);
+          doc.setDrawColor(80,80,80); doc.line(midX - 28, fy + 8, midX + 28, fy + 8);
+          doc.setFont("times","bold"); doc.setFontSize(8.5);
           doc.text("Signature / Thumb Impression of Workman", midX, fy + 12, { align: "center" });
-          doc.line(sx + slotW - 46, fy + 8, sx + slotW, fy + 8);
-          doc.text("Signature of the Contractor", sx + slotW, fy + 12, { align: "right" });
+          drawSig(sx + slotW, fy);
         };
 
         if (wageEmps.length === 0) {
