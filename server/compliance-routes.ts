@@ -960,6 +960,25 @@ export function registerComplianceRoutes(app: Express) {
     }
   });
 
+  // ── PATCH /api/compliance/clients/assignments/:assignId/update — edit designation / present address
+  app.patch("/api/compliance/clients/assignments/:assignId/update", requireAuth, attachUser, requireAdminRole, async (req: Request, res: Response) => {
+    try {
+      const { assignId } = req.params;
+      const { designation, presentAddress } = req.body;
+      const now = new Date().toISOString();
+      await db.execute(sql`
+        UPDATE compliance_client_employees
+        SET designation    = ${designation    ?? null},
+            present_address = ${presentAddress ?? null},
+            updated_at      = ${now}
+        WHERE id = ${assignId}
+      `);
+      return res.json({ success: true });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
   // ── PATCH /api/compliance/clients/assignments/:assignId/deassign — deassign
   app.patch("/api/compliance/clients/assignments/:assignId/deassign", requireAuth, attachUser, requireAdminRole, async (req: Request, res: Response) => {
     try {

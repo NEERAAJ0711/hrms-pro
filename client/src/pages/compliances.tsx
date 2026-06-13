@@ -31,7 +31,7 @@ import {
   ShieldCheck, Search, Save, RefreshCw, CheckCircle2,
   Download, Upload, AlertTriangle, Building2, Trash2, Settings2, Users, ArrowLeft, CheckCircle,
   Briefcase, Plus, UserPlus, UserMinus, CalendarDays, XCircle, FileBarChart2, ChevronDown, FileSpreadsheet,
-  Lock,
+  Lock, Pencil,
 } from "lucide-react";
 
 const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
@@ -2048,6 +2048,7 @@ interface ClientAssignment {
   last_name: string;
   department: string | null;
   designation: string | null;
+  present_address: string | null;
   assigned_date: string;
   deassigned_date: string | null;
   status: string;
@@ -2097,6 +2098,12 @@ function ClientSetupTab({ companyId, isSuperAdmin, toast }: {
   const [deassignId, setDeassignId] = useState<string | null>(null);
   const [deassignDate, setDeassignDate] = useState("");
   const [deassignSaving, setDeassignSaving] = useState(false);
+
+  // Edit assignment (designation + present address)
+  const [editAssignId, setEditAssignId] = useState<string | null>(null);
+  const [editDesignation, setEditDesignation] = useState("");
+  const [editPresentAddress, setEditPresentAddress] = useState("");
+  const [editSaving, setEditSaving] = useState(false);
 
   // All employees for assignment dropdown
   const [allEmployees, setAllEmployees] = useState<{ id: string; name: string; code: string; designation: string; presentAddress: string }[]>([]);
@@ -2238,6 +2245,26 @@ function ClientSetupTab({ companyId, isSuperAdmin, toast }: {
       toast({ title: "Error", description: e.message, variant: "destructive" });
     }
     setDeassignSaving(false);
+  };
+
+  const submitEditAssignment = async () => {
+    if (!editAssignId) return;
+    setEditSaving(true);
+    try {
+      const res = await fetch(`/api/compliance/clients/assignments/${editAssignId}/update`, {
+        method: "PATCH", credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ designation: editDesignation || null, presentAddress: editPresentAddress || null }),
+      });
+      if (!res.ok) throw new Error("Failed to update");
+      toast({ title: "Updated", description: "Assignment details updated successfully" });
+      setEditAssignId(null);
+      const res2 = await fetch(`/api/compliance/clients/${assignClientId}/employees`, { credentials: "include" });
+      setAssignments(await res2.json());
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    }
+    setEditSaving(false);
   };
 
   const fmt = (d: string | null) => d ? new Date(d).toLocaleDateString("en-IN") : "—";
@@ -2518,13 +2545,26 @@ function ClientSetupTab({ companyId, isSuperAdmin, toast }: {
                         </Badge>
                       </TableCell>
                       <TableCell className="text-center">
-                        {a.status === "active" && (
-                          <Button size="sm" variant="outline"
-                            className="h-7 px-2 text-xs border-orange-200 text-orange-600 hover:bg-orange-50"
-                            onClick={() => { setDeassignId(a.id); setDeassignDate(""); }}>
-                            <UserMinus className="h-3 w-3 mr-1" /> De-assign
-                          </Button>
-                        )}
+                        <div className="flex items-center justify-center gap-1.5">
+                          {a.status === "active" && (
+                            <Button size="sm" variant="outline"
+                              className="h-7 px-2 text-xs border-blue-200 text-blue-600 hover:bg-blue-50"
+                              onClick={() => {
+                                setEditAssignId(a.id);
+                                setEditDesignation(a.designation || "");
+                                setEditPresentAddress(a.present_address || "");
+                              }}>
+                              <Pencil className="h-3 w-3 mr-1" /> Edit
+                            </Button>
+                          )}
+                          {a.status === "active" && (
+                            <Button size="sm" variant="outline"
+                              className="h-7 px-2 text-xs border-orange-200 text-orange-600 hover:bg-orange-50"
+                              onClick={() => { setDeassignId(a.id); setDeassignDate(""); }}>
+                              <UserMinus className="h-3 w-3 mr-1" /> De-assign
+                            </Button>
+                          )}
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -2555,6 +2595,45 @@ function ClientSetupTab({ companyId, isSuperAdmin, toast }: {
             <Button onClick={submitDeassign} disabled={deassignSaving}
               className="bg-orange-600 hover:bg-orange-700 text-white">
               {deassignSaving ? "Saving..." : "Confirm De-assign"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Edit Assignment Dialog */}
+      <Dialog open={!!editAssignId} onOpenChange={() => setEditAssignId(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Pencil className="h-5 w-5 text-blue-500" /> Edit Assignment Details
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-2 space-y-4">
+            <div className="space-y-1.5">
+              <Label className="text-sm font-medium">Designation on this Project</Label>
+              <Input
+                value={editDesignation}
+                onChange={e => setEditDesignation(e.target.value)}
+                placeholder="e.g. EXECUTIVE, SUPERVISOR..."
+                className="h-9"
+              />
+              <p className="text-xs text-gray-400">This overrides the employee's profile designation in all CLRA forms.</p>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-sm font-medium">Present Address</Label>
+              <Input
+                value={editPresentAddress}
+                onChange={e => setEditPresentAddress(e.target.value)}
+                placeholder="Address at project site"
+                className="h-9"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditAssignId(null)}>Cancel</Button>
+            <Button onClick={submitEditAssignment} disabled={editSaving}
+              className="bg-blue-600 hover:bg-blue-700 text-white">
+              {editSaving ? "Saving..." : "Save Changes"}
             </Button>
           </DialogFooter>
         </DialogContent>
