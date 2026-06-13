@@ -1360,9 +1360,10 @@ export function registerComplianceRoutes(app: Express) {
         // Attendance: primary source for pay days.
         // Filter by employee_id (not company_id) so CLRA project employees' attendance
         // is found regardless of which company's company_id their records carry.
+        // Count present + half_day + weekend (WO) + holiday (HD) — same as Muster Roll Net Days.
         const attRows = await db.execute(sql`
           SELECT employee_id,
-                 COUNT(*) FILTER (WHERE status IN ('present','half_day')) AS present_days
+                 COUNT(*) FILTER (WHERE status IN ('present','half_day','weekend','holiday')) AS present_days
           FROM attendance
           WHERE employee_id IN (${empInList})
             AND EXTRACT(MONTH FROM date::date) = ${monthNum}
