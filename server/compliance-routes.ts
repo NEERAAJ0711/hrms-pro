@@ -1219,7 +1219,9 @@ export function registerComplianceRoutes(app: Express) {
           FROM compliance_client_employees cce
           JOIN employees e ON e.id = cce.employee_id
           LEFT JOIN compliance_employee_setup cs ON cs.employee_id = e.id AND cs.company_id = ${targetCompanyId}
-          WHERE cce.client_id = ${projectId} AND cce.status = 'active'
+          WHERE cce.client_id = ${projectId}
+            AND cce.assigned_date::date <= ${endDate}::date
+            AND (cce.status = 'active' OR cce.deassigned_date::date >= ${startDate}::date)
           ORDER BY e.first_name, e.last_name`);
       } else {
         empRows = await db.execute(sql`
@@ -1324,7 +1326,9 @@ export function registerComplianceRoutes(app: Express) {
           JOIN employees e ON e.id = cce.employee_id
           LEFT JOIN compliance_employee_setup cs ON cs.employee_id = e.id AND cs.company_id = ${targetCompanyId}
           LEFT JOIN salary_structures ss ON ss.employee_id = e.id AND ss.company_id = ${targetCompanyId}
-          WHERE cce.client_id = ${projectId} AND cce.status = 'active'
+          WHERE cce.client_id = ${projectId}
+            AND cce.assigned_date::date <= ${wrLastDay}::date
+            AND (cce.status = 'active' OR cce.deassigned_date::date >= ${wrFirstDay}::date)
           ORDER BY e.first_name, e.last_name`);
       } else {
         empRows = await db.execute(sql`
@@ -1353,6 +1357,8 @@ export function registerComplianceRoutes(app: Express) {
       let attMap: Record<string, any> = {};
       // Calendar days in the given month (used as denominator for proration, matching compliance adjustments screen)
       const monDays = new Date(parseInt(year), monthNum, 0).getDate();
+      const wrFirstDay = `${year}-${String(monthNum).padStart(2,"0")}-01`;
+      const wrLastDay  = `${year}-${String(monthNum).padStart(2,"0")}-${String(monDays).padStart(2,"0")}`;
 
       if (empIds.length > 0) {
         const empInList = sql.join(empIds.map((id: string) => sql`${id}`), sql`, `);
