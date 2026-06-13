@@ -2520,7 +2520,7 @@ function ClientSetupTab({ companyId, isSuperAdmin, toast }: {
                 <TableHeader>
                   <TableRow className="bg-gray-50">
                     <TableHead className="text-xs">Employee</TableHead>
-                    <TableHead className="text-xs">Department</TableHead>
+                    <TableHead className="text-xs">Designation</TableHead>
                     <TableHead className="text-xs text-center">Assigned Date</TableHead>
                     <TableHead className="text-xs text-center">De-assigned Date</TableHead>
                     <TableHead className="text-xs text-center">Status</TableHead>
@@ -2534,7 +2534,7 @@ function ClientSetupTab({ companyId, isSuperAdmin, toast }: {
                         <div className="font-medium text-gray-800">{a.first_name} {a.last_name}</div>
                         <div className="text-xs text-gray-500">{a.employee_code}</div>
                       </TableCell>
-                      <TableCell className="text-xs text-gray-500">{a.department || "—"}</TableCell>
+                      <TableCell className="text-xs text-gray-600">{a.designation || <span className="text-gray-400 italic">—</span>}</TableCell>
                       <TableCell className="text-center text-xs">{fmt(a.assigned_date)}</TableCell>
                       <TableCell className="text-center text-xs text-gray-500">{fmt(a.deassigned_date)}</TableCell>
                       <TableCell className="text-center">
