@@ -11,8 +11,8 @@ import { setOpenAIKeyOverride, setGeminiKeyOverride, loadAllApiKeysFromDB } from
 import { createNotification, createNotificationForMany } from "./notifications";
 import { addSSEClient, removeSSEClient } from "./sse";
 import { db } from "./db";
-import { notifications, profileUpdateRequests, users as usersTable, contractorEmployees as contractorEmployeesTable } from "../shared/schema";
-import { eq, and, desc, sql, inArray } from "drizzle-orm";
+import { notifications, profileUpdateRequests, users as usersTable, contractorEmployees as contractorEmployeesTable, employees } from "../shared/schema";
+import { eq, and, desc, sql, inArray, isNull } from "drizzle-orm";
 import { 
   insertUserSchema, 
   insertCompanySchema, 
@@ -836,6 +836,84 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(401).json({ message: "Invalid username or password" });
       }
       req.session.userId = user.id;
+
+      // Auto-link: if this is an employee with a companyId, try to connect their
+      // user account to an employee record if not already linked.
+      // This fixes accounts created before the userId-link system, or where
+      // "Create Login" stored a @company.local placeholder email.
+      if (user.companyId && user.role !== "super_admin") {
+        try {
+          const alreadyLinked = await db
+            .select({ id: employees.id })
+            .from(employees)
+            .where(and(eq(employees.userId, user.id), eq(employees.companyId, user.companyId)))
+            .limit(1);
+
+          if (!alreadyLinked[0]) {
+            // Strategy 1: match by user email → employee officialEmail
+            let empToLink = (
+              await db
+                .select()
+                .from(employees)
+                .where(
+                  and(
+                    eq(employees.officialEmail, user.email),
+                    eq(employees.companyId, user.companyId),
+                    isNull(employees.userId),
+                  ),
+                )
+                .limit(1)
+            )[0];
+
+            // Strategy 2: match by username → employeeCode (common in HR setups)
+            if (!empToLink && username) {
+              empToLink = (
+                await db
+                  .select()
+                  .from(employees)
+                  .where(
+                    and(
+                      eq(employees.employeeCode, username),
+                      eq(employees.companyId, user.companyId),
+                      isNull(employees.userId),
+                    ),
+                  )
+                  .limit(1)
+              )[0];
+            }
+
+            // Strategy 3: match by first+last name within company (last resort)
+            if (!empToLink && user.firstName && user.lastName) {
+              empToLink = (
+                await db
+                  .select()
+                  .from(employees)
+                  .where(
+                    and(
+                      eq(employees.firstName, user.firstName),
+                      eq(employees.lastName, user.lastName),
+                      eq(employees.companyId, user.companyId),
+                      isNull(employees.userId),
+                    ),
+                  )
+                  .limit(1)
+              )[0];
+            }
+
+            if (empToLink) {
+              await db
+                .update(employees)
+                .set({ userId: user.id })
+                .where(eq(employees.id, empToLink.id));
+              console.log(`[AutoLink] Linked user ${user.id} (${username}) → employee ${empToLink.id} (${empToLink.employeeCode})`);
+            }
+          }
+        } catch (linkErr) {
+          // Non-fatal — log and continue; user can still log in
+          console.error("[AutoLink] Failed to auto-link employee record:", linkErr);
+        }
+      }
+
       // Ensure we save the session before responding
       req.session.save((err) => {
         if (err) return res.status(500).json({ message: "Could not save session" });
