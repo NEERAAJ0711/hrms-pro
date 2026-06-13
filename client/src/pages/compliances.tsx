@@ -3376,8 +3376,14 @@ function MonthYearPicker({ label, month, year, onMonth, onYear }: {
 }
 
 // ─── Form X — Employment Card (2-up, one card per employee) ──────────────────
-function EmploymentCardView({ data }: { data: WorkmenRegisterData }) {
-  const { company, client: c, employees } = data;
+function EmploymentCardView({ data, month, year }: { data: WorkmenRegisterData; month: string; year: string }) {
+  const { company, client: c } = data;
+  const monthIdx = MONTHS_SHORT.indexOf(month);
+  const isJoiningMonth = (e: any) => {
+    const d = new Date((e as any).assignedDate || e.dateOfJoining);
+    return !isNaN(d.getTime()) && d.getFullYear() === parseInt(year) && d.getMonth() === monthIdx;
+  };
+  const employees = data.employees.filter(isJoiningMonth);
   const v = (...p: (string | null | undefined)[]) => p.filter(Boolean).join(", ") || "—";
   const today = new Date().toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" });
   const HDR_ROW = (label: string, val: string) => (
@@ -3388,7 +3394,7 @@ function EmploymentCardView({ data }: { data: WorkmenRegisterData }) {
   return CL_WRAP("employment-card-print", <>
     {CL_TITLE("Form X", "See Rule 75", "Employment Card")}
     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px", marginTop: "8px" }}>
-      {employees.length === 0 && <div style={{ color: "#666", padding: "20px" }}>No employees found</div>}
+      {employees.length === 0 && <div style={{ color: "#666", padding: "20px" }}>No employees joined this project in {month} {year}.</div>}
       {employees.map(e => (
         <div key={e.serialNo} style={{ border: "1px solid #333", padding: "14px 16px", pageBreakInside: "avoid", breakInside: "avoid" }}>
           <div style={{ textAlign: "center", fontWeight: 700, marginBottom: "10px" }}>
@@ -3439,6 +3445,13 @@ function ServiceCertificateView({ workmen, wages }: { workmen: WorkmenRegisterDa
   const today = new Date().toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" });
   const v = (...p: (string | null | undefined)[]) => p.filter(Boolean).join(", ") || "—";
   const wMap = new Map(wages.employees.map(e => [e.name, e]));
+  const isLeavingMonth = (e: any) => {
+    const dateStr = (e as any).deassignedDate || e.dateOfLeaving;
+    if (!dateStr) return false;
+    const d = new Date(dateStr);
+    return !isNaN(d.getTime()) && d.getFullYear() === parseInt(year) && d.getMonth() === monthIdx;
+  };
+  const employees = workmen.employees.filter(isLeavingMonth);
   const HDR = (label: string, val: string) => (
     <div key={label} style={{ marginBottom: "4px", fontSize: "9px" }}>
       <b>{label} :</b> {val}
@@ -3447,8 +3460,8 @@ function ServiceCertificateView({ workmen, wages }: { workmen: WorkmenRegisterDa
   return CL_WRAP("service-cert-print", <>
     {CL_TITLE("Form XI", "See Rule 76", "Service Certificate")}
     <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
-      {workmen.employees.length === 0 && <div style={{ color: "#666", padding: "16px" }}>No employees found</div>}
-      {workmen.employees.map(e => {
+      {employees.length === 0 && <div style={{ color: "#666", padding: "16px" }}>No employees left this project in {month} {year}.</div>}
+      {employees.map(e => {
         const w = wMap.get(e.name);
         const monthNum = monthIdx + 1;
         const daysInMon = new Date(parseInt(year), monthNum, 0).getDate();
@@ -3521,7 +3534,7 @@ function CLRAPackageView({ data }: { data: ClraPackageData }) {
       {SEP}
       <WorkmenRegisterView data={data.ix} />
       {SEP}
-      <EmploymentCardView data={data.ix} />
+      <EmploymentCardView data={data.ix} month={data.xiii.month} year={data.xiii.year} />
       {SEP}
       <ServiceCertificateView workmen={data.ix} wages={data.xiii} />
       {SEP}
@@ -3915,23 +3928,23 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
           doc.setFont("times", "bold"); doc.text("Signature of the Contractor", sx + slotW, fy, { align: "right" });
         };
 
-        const allWorkmen = clraData.ix.employees;
         const wageMap    = new Map(clraData.xiii.employees.map((e: any) => [e.name, e]));
+        const joinersThisMonth = clraData.ix.employees.filter((e: any) => {
+          const d = new Date((e as any).assignedDate || e.dateOfJoining);
+          return !isNaN(d.getTime()) && d.getFullYear() === parseInt(toYear) && d.getMonth() === monthIdx;
+        });
 
-        if (allWorkmen.length === 0) {
-          // already on a fresh portrait page from goPortrait() above
-          addTitle("FORM X", "[See rule 75]", "Employment Card");
+        addTitle("FORM X", "[See rule 75]", "Employment Card");
+        if (joinersThisMonth.length === 0) {
           y = addHdr();
           doc.setFont("times", "italic"); doc.setFontSize(10);
-          doc.text(`No employees assigned to this project.`, pw / 2, y + 12, { align: "center" });
+          doc.text(`No employees joined this project in ${monthFull} ${toYear}.`, pw / 2, y + 12, { align: "center" });
         } else {
-          // First portrait page was already added by goPortrait(); render onto it,
-          // then add subsequent portrait pages for every additional pair.
-          for (let i = 0; i < allWorkmen.length; i += 2) {
+          for (let i = 0; i < joinersThisMonth.length; i += 2) {
             if (i > 0) doc.addPage("a4", "portrait");
             drawVDivX();
-            drawXSlot(M, allWorkmen[i], wageMap.get(allWorkmen[i].name));
-            if (allWorkmen[i + 1]) drawXSlot(slot2Y, allWorkmen[i + 1], wageMap.get(allWorkmen[i + 1].name));
+            drawXSlot(M, joinersThisMonth[i], wageMap.get(joinersThisMonth[i].name));
+            if (joinersThisMonth[i + 1]) drawXSlot(slot2Y, joinersThisMonth[i + 1], wageMap.get(joinersThisMonth[i + 1].name));
           }
         }
       }
@@ -4014,20 +4027,25 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
           doc.setFont("times","bold"); doc.text("Signature of the Contractor", sx+slotW, fy, {align:"right"});
         };
 
-        // Show all assigned employees (active + any de-assigned in this month)
-        const emps = clraData.ix.employees;
-        if (emps.length === 0) {
-          // already on a fresh portrait page from goPortrait() above
-          addTitle("FORM XI", "[See rule 76]", "Service Certificate");
+        // Show only employees who left (de-assigned) during the selected month
+        const leaversThisMonth = clraData.ix.employees.filter((e: any) => {
+          const dateStr = (e as any).deassignedDate || e.dateOfLeaving;
+          if (!dateStr) return false;
+          const d = new Date(dateStr);
+          return !isNaN(d.getTime()) && d.getFullYear() === parseInt(toYear) && d.getMonth() === monthIdx;
+        });
+
+        addTitle("FORM XI", "[See rule 76]", "Service Certificate");
+        if (leaversThisMonth.length === 0) {
           y = addHdr();
           doc.setFont("times", "italic"); doc.setFontSize(10);
-          doc.text(`No employees assigned to this project.`, pw / 2, y + 12, { align: "center" });
+          doc.text(`No employees left this project in ${monthFull} ${toYear}.`, pw / 2, y + 12, { align: "center" });
         } else {
-          for (let i = 0; i < emps.length; i += 2) {
+          for (let i = 0; i < leaversThisMonth.length; i += 2) {
             if (i > 0) doc.addPage("a4", "portrait");
             drawVDivXI();
-            drawXISlot(M, emps[i], wMap.get(emps[i].name));
-            if (emps[i+1]) drawXISlot(slot2Y, emps[i+1], wMap.get(emps[i+1].name));
+            drawXISlot(M, leaversThisMonth[i], wMap.get(leaversThisMonth[i].name));
+            if (leaversThisMonth[i + 1]) drawXISlot(slot2Y, leaversThisMonth[i + 1], wMap.get(leaversThisMonth[i + 1].name));
           }
         }
       }
