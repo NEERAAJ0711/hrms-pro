@@ -3470,6 +3470,11 @@ function ServiceCertificateView({ workmen, wages }: { workmen: WorkmenRegisterDa
         const w = wMap.get(e.name);
         const fromDate = fmtDate((e as any).assignedDate || e.dateOfJoining) || "—";
         const toDate   = fmtDate((e as any).deassignedDate || e.dateOfLeaving) || "—";
+        const _start = new Date((e as any).assignedDate || e.dateOfJoining);
+        const _end   = new Date((e as any).deassignedDate || e.dateOfLeaving);
+        const calDays = (!isNaN(_start.getTime()) && !isNaN(_end.getTime()))
+          ? Math.round((_end.getTime() - _start.getTime()) / 86400000) + 1
+          : (w?.payDays ?? "—");
         return (
           <div key={e.serialNo} style={{ border: "1px solid #333", padding: "14px 16px", pageBreakInside: "avoid", breakInside: "avoid" }}>
             {HDR("Name and address of Contractor",                        v(company.name, company.address))}
@@ -3505,7 +3510,7 @@ function ServiceCertificateView({ workmen, wages }: { workmen: WorkmenRegisterDa
                   <td style={{ ...CL_TD, textAlign: "center" }}>{e.serialNo}</td>
                   <td style={{ ...CL_TD, textAlign: "center" }}>{fromDate}</td>
                   <td style={{ ...CL_TD, textAlign: "center" }}>{toDate}</td>
-                  <td style={{ ...CL_TD, textAlign: "center" }}>{w?.payDays ?? "—"}</td>
+                  <td style={{ ...CL_TD, textAlign: "center" }}>{calDays}</td>
                   <td style={CL_TD}>{e.designation || "LABOUR"}</td>
                   <td style={CL_TD}>Monthly</td>
                   <td style={{ ...CL_TD, textAlign: "right" }}>{w ? ni(w.totalEarnings) : "—"}</td>
@@ -4000,10 +4005,15 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
           // 10+18+18+12+21+15+25+28+25+10 = 182mm
           const fromD = fmtDate((e as any).assignedDate || e.dateOfJoining) || "—";
           const toD   = fmtDate((e as any).deassignedDate || e.dateOfLeaving) || "—";
+          const _s = new Date((e as any).assignedDate || e.dateOfJoining);
+          const _t = new Date((e as any).deassignedDate || e.dateOfLeaving);
+          const calDaysPdf = (!isNaN(_s.getTime()) && !isNaN(_t.getTime()))
+            ? String(Math.round((_t.getTime() - _s.getTime()) / 86400000) + 1)
+            : String(w?.payDays ?? "—");
           autoTbl(doc, {
             startY: cy,
             head:[["Sr.\nNo.","From","To","Days\nWrkd","Nature\nof Work","Rate\nof Wage","Total Wages\nEarned (Rs.)","Deductions","Net Wages\nPaid (Rs.)","Rmks"]],
-            body:[[e.serialNo, fromD, toD, w?.payDays??"—", e.designation||"LABOUR", "Monthly",
+            body:[[e.serialNo, fromD, toD, calDaysPdf, e.designation||"LABOUR", "Monthly",
               w ? w.totalEarnings.toLocaleString("en-IN") : "—",
               w ? `PF:${w.pf||0}\nESI:${w.esi||0}\nLWF:${w.lwf||0}` : "—",
               w ? w.netSalary.toLocaleString("en-IN") : "—", ""]],
