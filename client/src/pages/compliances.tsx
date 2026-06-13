@@ -2105,6 +2105,9 @@ function ClientSetupTab({ companyId, isSuperAdmin, toast }: {
   const [editPresentAddress, setEditPresentAddress] = useState("");
   const [editSaving, setEditSaving] = useState(false);
 
+  // Assignment list search
+  const [assignSearch, setAssignSearch] = useState("");
+
   // All employees for assignment dropdown
   const [allEmployees, setAllEmployees] = useState<{ id: string; name: string; code: string; designation: string; presentAddress: string }[]>([]);
 
@@ -2511,6 +2514,22 @@ function ClientSetupTab({ companyId, isSuperAdmin, toast }: {
             </div>
 
             {/* Assignment list */}
+            {assignments.length > 0 && (
+              <div className="flex items-center gap-2">
+                <Search className="h-4 w-4 text-gray-400 shrink-0" />
+                <Input
+                  placeholder="Search by name or employee code..."
+                  value={assignSearch}
+                  onChange={e => setAssignSearch(e.target.value)}
+                  className="h-8 text-sm"
+                />
+                {assignSearch && (
+                  <Button size="sm" variant="ghost" className="h-8 px-2" onClick={() => setAssignSearch("")}>
+                    <XCircle className="h-4 w-4 text-gray-400" />
+                  </Button>
+                )}
+              </div>
+            )}
             {assignLoading ? (
               <div className="text-center py-6 text-gray-400 text-sm">Loading...</div>
             ) : assignments.length === 0 ? (
@@ -2528,7 +2547,14 @@ function ClientSetupTab({ companyId, isSuperAdmin, toast }: {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {assignments.map(a => (
+                  {assignments.filter(a => {
+                    if (!assignSearch.trim()) return true;
+                    const q = assignSearch.toLowerCase();
+                    return (
+                      `${a.first_name} ${a.last_name}`.toLowerCase().includes(q) ||
+                      a.employee_code.toLowerCase().includes(q)
+                    );
+                  }).map(a => (
                     <TableRow key={a.id} className="text-sm">
                       <TableCell>
                         <div className="font-medium text-gray-800">{a.first_name} {a.last_name}</div>
@@ -2611,12 +2637,14 @@ function ClientSetupTab({ companyId, isSuperAdmin, toast }: {
           <div className="py-2 space-y-4">
             <div className="space-y-1.5">
               <Label className="text-sm font-medium">Designation on this Project</Label>
-              <Input
-                value={editDesignation}
-                onChange={e => setEditDesignation(e.target.value)}
-                placeholder="e.g. EXECUTIVE, SUPERVISOR..."
-                className="h-9"
-              />
+              <Select value={editDesignation} onValueChange={setEditDesignation}>
+                <SelectTrigger className="h-9"><SelectValue placeholder="Select designation..." /></SelectTrigger>
+                <SelectContent>
+                  {["LABOUR","HELPER","SUPERVISOR","MANAGER","EXECUTIVE","OFFICER","ENGINEER","TECHNICIAN","DRIVER","SECURITY GUARD","HOUSE KEEPING","ACCOUNTANT","CLERK","PEON","SWEEPER","ELECTRICIAN","PLUMBER","MECHANIC","OPERATOR"].map(d => (
+                    <SelectItem key={d} value={d}>{d}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
               <p className="text-xs text-gray-400">This overrides the employee's profile designation in all CLRA forms.</p>
             </div>
             <div className="space-y-1.5">
