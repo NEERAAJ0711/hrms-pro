@@ -37,12 +37,39 @@ export interface Attachment {
 // ─── OpenAI lazy init ─────────────────────────────────────────────────────────
 
 let _openai: any = null;
+let _apiKeyOverride: string | null = null;
+
+/** Called when admin saves/clears the key from the Settings → API Keys tab */
+export function setOpenAIKeyOverride(key: string | null) {
+  _apiKeyOverride = key || null;
+  _openai = null; // reset so next call re-initialises with the new key
+}
+
+/** Called once at startup — pulls key from `settings` table if env var absent */
+export async function loadOpenAIKeyFromDB(): Promise<void> {
+  try {
+    const { db } = await import("./db");
+    const { settings: settingsTable } = await import("../shared/schema");
+    const { and, eq, isNull } = await import("drizzle-orm");
+    const rows = await db
+      .select()
+      .from(settingsTable)
+      .where(and(eq(settingsTable.key, "openai_api_key"), isNull(settingsTable.companyId)));
+    if (rows.length > 0 && rows[0].value) {
+      _apiKeyOverride = rows[0].value;
+    }
+  } catch {
+    // DB may not be ready yet — safe to skip
+  }
+}
+
 function getOpenAI(): any | null {
   if (_openai) return _openai;
-  if (!process.env.OPENAI_API_KEY) return null;
+  const key = process.env.OPENAI_API_KEY || _apiKeyOverride;
+  if (!key) return null;
   try {
     const { default: OpenAI } = require("openai");
-    _openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    _openai = new OpenAI({ apiKey: key });
     return _openai;
   } catch {
     return null;

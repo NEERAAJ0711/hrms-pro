@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Settings, Building2, Calendar, CalendarDays, Clock, Bell, Shield, Save, Users, Briefcase, MapPin, DollarSign, Percent, Plus, Pencil, Trash2, FileText, LocateFixed, Loader2, Smartphone, Upload, CheckCircle2, AlertTriangle } from "lucide-react";
+import { Settings, Building2, Calendar, CalendarDays, Clock, Bell, Shield, Save, Users, Briefcase, MapPin, DollarSign, Percent, Plus, Pencil, Trash2, FileText, LocateFixed, Loader2, Smartphone, Upload, CheckCircle2, AlertTriangle, KeyRound, Eye, EyeOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -180,6 +180,12 @@ export default function SettingsPage() {
               Mobile App
             </TabsTrigger>
           )}
+          {user?.role === "super_admin" && (
+            <TabsTrigger value="api-keys" data-testid="tab-api-keys">
+              <KeyRound className="h-4 w-4 mr-2" />
+              API Keys
+            </TabsTrigger>
+          )}
         </TabsList>
 
         <TabsContent value="general">
@@ -211,7 +217,152 @@ export default function SettingsPage() {
             <MobileAppVersionTab />
           </TabsContent>
         )}
+        {user?.role === "super_admin" && (
+          <TabsContent value="api-keys">
+            <ApiKeysTab />
+          </TabsContent>
+        )}
       </Tabs>
+    </div>
+  );
+}
+
+// ─── API Keys Tab ──────────────────────────────────────────────────────────────
+function ApiKeysTab() {
+  const { toast } = useToast();
+  const [openaiKey, setOpenaiKey] = useState("");
+  const [showKey, setShowKey] = useState(false);
+
+  const { data, isLoading } = useQuery<{ openai: { set: boolean; hint: string } }>({
+    queryKey: ["/api/settings/api-keys"],
+  });
+
+  const saveMutation = useMutation({
+    mutationFn: (payload: { openaiApiKey: string }) =>
+      apiRequest("POST", "/api/settings/api-keys", payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/settings/api-keys"] });
+      setOpenaiKey("");
+      toast({ title: "API Keys saved", description: "The new key is now active globally." });
+    },
+    onError: () => {
+      toast({ title: "Save failed", description: "Could not save the API key.", variant: "destructive" });
+    },
+  });
+
+  const handleSave = () => {
+    if (!openaiKey.trim()) {
+      toast({ title: "No key entered", description: "Paste a key before saving.", variant: "destructive" });
+      return;
+    }
+    saveMutation.mutate({ openaiApiKey: openaiKey.trim() });
+  };
+
+  const handleClear = () => {
+    saveMutation.mutate({ openaiApiKey: "" });
+    toast({ title: "API Key cleared" });
+  };
+
+  return (
+    <div className="grid gap-6 max-w-2xl">
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <KeyRound className="h-5 w-5 text-primary" />
+            API Keys
+          </CardTitle>
+          <CardDescription>
+            Keys saved here are used globally across all companies. They override environment variables.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-6">
+
+          {/* OpenAI */}
+          <div className="grid gap-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="font-medium text-sm">OpenAI API Key</p>
+                <p className="text-xs text-muted-foreground">Powers the AI HR Assistant chat (GPT-4o-mini)</p>
+              </div>
+              {isLoading ? (
+                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+              ) : data?.openai?.set ? (
+                <Badge className="bg-green-100 text-green-700 border-green-200" data-testid="badge-openai-status">
+                  <CheckCircle2 className="h-3 w-3 mr-1" />
+                  Active — {data.openai.hint}
+                </Badge>
+              ) : (
+                <Badge variant="outline" className="text-muted-foreground" data-testid="badge-openai-status">
+                  Not set
+                </Badge>
+              )}
+            </div>
+
+            <div className="flex gap-2">
+              <div className="relative flex-1">
+                <Input
+                  type={showKey ? "text" : "password"}
+                  placeholder="sk-proj-..."
+                  value={openaiKey}
+                  onChange={(e) => setOpenaiKey(e.target.value)}
+                  data-testid="input-openai-key"
+                  className="pr-10"
+                />
+                <button
+                  type="button"
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  onClick={() => setShowKey((v) => !v)}
+                  data-testid="button-toggle-key-visibility"
+                >
+                  {showKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
+              <Button
+                onClick={handleSave}
+                disabled={saveMutation.isPending || !openaiKey.trim()}
+                data-testid="button-save-openai-key"
+              >
+                {saveMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
+                Save
+              </Button>
+              {data?.openai?.set && (
+                <Button
+                  variant="outline"
+                  onClick={handleClear}
+                  disabled={saveMutation.isPending}
+                  data-testid="button-clear-openai-key"
+                >
+                  Clear
+                </Button>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Get your key from{" "}
+              <a
+                href="https://platform.openai.com/api-keys"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline text-primary"
+              >
+                platform.openai.com/api-keys
+              </a>
+              . The key is stored securely in the database and never shown in full after saving.
+            </p>
+          </div>
+
+          <Separator />
+
+          <div className="rounded-lg bg-muted/50 p-4 text-sm text-muted-foreground">
+            <p className="font-medium text-foreground mb-1">How it works</p>
+            <ul className="list-disc list-inside space-y-1">
+              <li>If an environment variable <code className="text-xs bg-muted px-1 py-0.5 rounded">OPENAI_API_KEY</code> is set on the server, it takes priority.</li>
+              <li>Otherwise, the key you save here is loaded automatically on server startup and whenever you update it.</li>
+              <li>Saving a blank value disables OpenAI — the assistant falls back to a built-in rule-based engine.</li>
+            </ul>
+          </div>
+
+        </CardContent>
+      </Card>
     </div>
   );
 }
