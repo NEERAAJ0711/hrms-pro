@@ -3890,7 +3890,7 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
              ["Father's / Husband's Name", e.fatherHusbandName || "—"],
              ["Designation",               e.designation || "LABOUR"],
              ["Date of Assign",            fmtDate(e.assignedDate || e.dateOfJoining) || "—"],
-             ["Rate of Wages",             w?.monthlyRate ? `₹ ${Number(w.monthlyRate).toLocaleString("en-IN")} (Monthly)` : (e.wagesPeriod || "Monthly")],
+             ["Rate of Wages",             w?.monthlyRate ? `Rs. ${Number(w.monthlyRate).toLocaleString("en-IN")} (Monthly)` : (e.wagesPeriod || "Monthly")],
           ] as [string, string][]).forEach(([lbl, val]) => {
             doc.setFont("times", "bold"); doc.setFontSize(8); doc.text(lbl + " : ", sx, cy);
             const lw = doc.getTextWidth(lbl + " : ");
@@ -3903,7 +3903,7 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
           autoTbl(doc, {
             startY: cy,
             head: [["Sl.\nNo.", "Designation", "Rate of Wages", "Wages\nPeriod", "Date of\nJoining", "Remarks"]],
-            body: [[e.serialNo, e.designation || "LABOUR", w?.monthlyRate ? `₹ ${Number(w.monthlyRate).toLocaleString("en-IN")} Monthly` : "—", e.wagesPeriod || "Monthly", fmtDate(e.assignedDate || e.dateOfJoining) || "—", ""]],
+            body: [[e.serialNo, e.designation || "LABOUR", w?.monthlyRate ? `Rs. ${Number(w.monthlyRate).toLocaleString("en-IN")} Monthly` : "—", e.wagesPeriod || "Monthly", fmtDate(e.assignedDate || e.dateOfJoining) || "—", ""]],
             styles: { ...TS, fontSize: 8 }, headStyles: { ...TH, fontSize: 8 },
             // Widths scaled to slotW ≈ 182mm: 17+36+44+25+30+30 = 182mm
             columnStyles: { 0:{ cellWidth:17, halign:"center" }, 1:{ cellWidth:36 }, 2:{ cellWidth:44 }, 3:{ cellWidth:25, halign:"center" }, 4:{ cellWidth:30, halign:"center" }, 5:{ cellWidth:30 } },
@@ -4283,7 +4283,7 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
       y = addHdr();
       autoTbl(doc, {
         startY: y,
-        head: [["S.\nNo.", "Name & Surname\nof Workman", "Designation", "Nature of Damage\nor Loss", "Date of Damage\nor Loss", "Amount of\nDeduction (₹)", "Date of\nDeduction", "No. of\nInstalments", "Remarks", "Signature of\nContractor"]],
+        head: [["S.\nNo.", "Name & Surname\nof Workman", "Designation", "Nature of Damage\nor Loss", "Date of Damage\nor Loss", "Amount of\nDeduction (Rs.)", "Date of\nDeduction", "No. of\nInstalments", "Remarks", "Signature of\nContractor"]],
         body: clraData.ix.employees.map(e => [e.serialNo, e.name, e.designation||"—", "", "", "", "", "", "", ""]),
         styles: { ...TS, minCellHeight: 10 }, headStyles: TH,
         columnStyles: { 0:{ cellWidth:10, halign:"center" }, 1:{ cellWidth:30 } },
@@ -4296,7 +4296,7 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
       y = addHdr();
       autoTbl(doc, {
         startY: y,
-        head: [["S.\nNo.", "Name & Surname\nof Workman", "Designation", "Act or Omission\nfor which Fined", "Date of Act\nor Omission", "Date of Imposition\nof Fine", "Amount of\nFine (₹)", "Date of\nRecovery", "Amount of\nRecovery (₹)", "Remarks"]],
+        head: [["S.\nNo.", "Name & Surname\nof Workman", "Designation", "Act or Omission\nfor which Fined", "Date of Act\nor Omission", "Date of Imposition\nof Fine", "Amount of\nFine (Rs.)", "Date of\nRecovery", "Amount of\nRecovery (Rs.)", "Remarks"]],
         body: clraData.ix.employees.map(e => [e.serialNo, e.name, e.designation||"—", "", "", "", "", "", "", ""]),
         styles: { ...TS, minCellHeight: 10 }, headStyles: TH,
         tableWidth: pw - 2 * M,
@@ -4310,7 +4310,7 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
       y = addHdr([["For the month of", `${monthFull} ${toYear}`]]);
       autoTbl(doc, {
         startY: y,
-        head: [["S.\nNo.", "Name & Surname\nof Workman", "Designation", "Purpose of\nAdvance", "Date of\nAdvance", "Amount of\nAdvance (₹)", "Recovery Per\nInstalment (₹)", "No. of\nInstalments", "Amount\nRecovered (₹)", "Balance\nOutstanding (₹)", "Remarks"]],
+        head: [["S.\nNo.", "Name & Surname\nof Workman", "Designation", "Purpose of\nAdvance", "Date of\nAdvance", "Amount of\nAdvance (Rs.)", "Recovery Per\nInstalment (Rs.)", "No. of\nInstalments", "Amount\nRecovered (Rs.)", "Balance\nOutstanding (Rs.)", "Remarks"]],
         body: clraData.xiii.employees.map(e => [e.serialNo, e.name, e.designation||"—", "—", "", e.loanDeduction > 0 ? e.loanDeduction.toLocaleString("en-IN") : "—", e.loanDeduction > 0 ? e.loanDeduction.toLocaleString("en-IN") : "—", e.loanDeduction > 0 ? "1" : "—", e.loanDeduction > 0 ? e.loanDeduction.toLocaleString("en-IN") : "—", "", ""]),
         styles: { ...TS, minCellHeight: 10 }, headStyles: TH,
         tableWidth: pw - 2 * M,
@@ -4326,7 +4326,7 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
       y = addHdr([["For the month of", `${monthFull} ${toYear}`]]);
       autoTbl(doc, {
         startY: y,
-        head: [["S.\nNo.", "Name & Surname\nof Workman", "Designation", "Normal\nWorking\nDays", "OT\nDays", "OT\nHours", "Normal\nWages (₹)", "OT\nWages (₹)", "Total\nWages (₹)", "Signature /\nThumb\nImpression"]],
+        head: [["S.\nNo.", "Name & Surname\nof Workman", "Designation", "Normal\nWorking\nDays", "OT\nDays", "OT\nHours", "Normal\nWages (Rs.)", "OT\nWages (Rs.)", "Total\nWages (Rs.)", "Signature /\nThumb\nImpression"]],
         body: clraData.xviii.employees.map(e => [e.serialNo, e.name, e.designation||"—", e.normalDays, e.otDays, e.otHours, e.normalWages.toLocaleString("en-IN"), e.otWages > 0 ? e.otWages.toLocaleString("en-IN") : "—", (e.normalWages + e.otWages).toLocaleString("en-IN"), ""]),
         styles: TS, headStyles: TH,
         tableWidth: pw - 2 * M,
