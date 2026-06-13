@@ -1505,3 +1505,75 @@ export const esicFetchedEmployees = pgTable("esic_fetched_employees", {
 export const insertEsicFetchedEmployeeSchema = createInsertSchema(esicFetchedEmployees).omit({ id: true });
 export type InsertEsicFetchedEmployee = z.infer<typeof insertEsicFetchedEmployeeSchema>;
 export type EsicFetchedEmployee = typeof esicFetchedEmployees.$inferSelect;
+
+// ─── AI HR Assistant ──────────────────────────────────────────────────────────
+
+export const aiConversations = pgTable("ai_conversations", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  employeeId: varchar("employee_id", { length: 36 }).notNull(),
+  userId: varchar("user_id", { length: 36 }).notNull(),
+  companyId: varchar("company_id", { length: 36 }).notNull(),
+  sessionType: text("session_type").notNull().default("kyc"),
+  status: text("status").notNull().default("active"),
+  language: text("language").notNull().default("english"),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+export const insertAiConversationSchema = createInsertSchema(aiConversations).omit({ id: true });
+export type InsertAiConversation = z.infer<typeof insertAiConversationSchema>;
+export type AiConversation = typeof aiConversations.$inferSelect;
+
+export const aiMessages = pgTable("ai_messages", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  conversationId: varchar("conversation_id", { length: 36 }).notNull(),
+  role: text("role").notNull(),
+  content: text("content").notNull(),
+  attachments: json("attachments"),
+  createdAt: text("created_at").notNull(),
+});
+export const insertAiMessageSchema = createInsertSchema(aiMessages).omit({ id: true });
+export type InsertAiMessage = z.infer<typeof insertAiMessageSchema>;
+export type AiMessage = typeof aiMessages.$inferSelect;
+
+export const aiFollowUpTasks = pgTable("ai_follow_up_tasks", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  employeeId: varchar("employee_id", { length: 36 }).notNull(),
+  userId: varchar("user_id", { length: 36 }),
+  companyId: varchar("company_id", { length: 36 }).notNull(),
+  taskType: text("task_type").notNull(),
+  status: text("status").notNull().default("pending"),
+  dayNumber: integer("day_number").notNull().default(1),
+  remindersSent: integer("reminders_sent").notNull().default(0),
+  lastReminderAt: text("last_reminder_at"),
+  nextReminderAt: text("next_reminder_at").notNull(),
+  escalatedAt: text("escalated_at"),
+  escalatedTo: varchar("escalated_to", { length: 36 }),
+  metadata: json("metadata"),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+export const insertAiFollowUpTaskSchema = createInsertSchema(aiFollowUpTasks).omit({ id: true });
+export type InsertAiFollowUpTask = z.infer<typeof insertAiFollowUpTaskSchema>;
+export type AiFollowUpTask = typeof aiFollowUpTasks.$inferSelect;
+
+export const kycSubmissionStatus = pgTable("kyc_submission_status", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  employeeId: varchar("employee_id", { length: 36 }).notNull().unique(),
+  companyId: varchar("company_id", { length: 36 }).notNull(),
+  aadhaarSubmitted: boolean("aadhaar_submitted").notNull().default(false),
+  panSubmitted: boolean("pan_submitted").notNull().default(false),
+  bankDetailsSubmitted: boolean("bank_details_submitted").notNull().default(false),
+  cancelledChequeSubmitted: boolean("cancelled_cheque_submitted").notNull().default(false),
+  addressProofSubmitted: boolean("address_proof_submitted").notNull().default(false),
+  photographSubmitted: boolean("photograph_submitted").notNull().default(false),
+  aadhaarVerified: boolean("aadhaar_verified").notNull().default(false),
+  panVerified: boolean("pan_verified").notNull().default(false),
+  bankVerified: boolean("bank_verified").notNull().default(false),
+  overallStatus: text("overall_status").notNull().default("pending"),
+  completedAt: text("completed_at"),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+export const insertKycSubmissionStatusSchema = createInsertSchema(kycSubmissionStatus).omit({ id: true });
+export type InsertKycSubmissionStatus = z.infer<typeof insertKycSubmissionStatusSchema>;
+export type KycSubmissionStatus = typeof kycSubmissionStatus.$inferSelect;

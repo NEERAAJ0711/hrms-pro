@@ -6,6 +6,7 @@ import { registerMobileRoutes } from "./mobile-routes";
 import { registerComplianceRoutes } from "./compliance-routes";
 import { registerKraRoutes, startKraDeadlineScheduler } from "./kra-routes";
 import { registerEpfoEsicRoutes } from "./epfo-esic-routes";
+import { registerAiHrRoutes } from "./ai-hr-routes";
 import { createNotification, createNotificationForMany } from "./notifications";
 import { addSSEClient, removeSSEClient } from "./sse";
 import { db } from "./db";
@@ -7239,6 +7240,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Register all EPFO / ESIC routes (jobs, portal sessions, registrations, returns, reports)
   registerEpfoEsicRoutes(app, requireAuth, requireRole);
+
+  // Register AI HR Assistant routes
+  registerAiHrRoutes(app);
 
   // ─── Automation: latest portal employee list result ───────────────────────────
   app.get("/api/automation/portal-employee-list/:portal", requireAuth, async (req: Request, res: Response) => {

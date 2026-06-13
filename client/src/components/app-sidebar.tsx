@@ -78,6 +78,8 @@ const MODULE_ACCESS: Record<string, UserRole[]> = {
   esic_automation: ["super_admin", "company_admin", "hr_admin"],
   compliance_calendar: ["super_admin", "company_admin", "hr_admin"],
   automation_jobs: ["super_admin", "company_admin", "hr_admin"],
+  ai_assistant: ["employee", "manager"],
+  ai_hr_dashboard: ["super_admin", "company_admin", "hr_admin"],
 };
 
 const REQUIRES_COMPANY: string[] = [
@@ -97,6 +99,7 @@ const EMPLOYEE_SELF_SERVICE: Set<string> = new Set([
   "leave",
   "loan_advances",
   "job_applications",
+  "ai_assistant",
 ]);
 
 const hasModuleAccess = (module: string, userRole: UserRole | undefined, hasCompany: boolean): boolean => {
@@ -256,6 +259,18 @@ const hrModulesItems = [
     url: "/automation-jobs",
     icon: Bot,
     module: "automation_jobs",
+  },
+  {
+    title: "AI Assistant",
+    url: "/ai-assistant",
+    icon: Bot,
+    module: "ai_assistant",
+  },
+  {
+    title: "AI HR Dashboard",
+    url: "/ai-hr-dashboard",
+    icon: Bot,
+    module: "ai_hr_dashboard",
   },
   {
     title: "Settings",

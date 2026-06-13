@@ -43,6 +43,8 @@ import ComplianceCalendarPage from "@/pages/compliance-calendar";
 import AutomationJobsPage from "@/pages/automation-jobs";
 import NotFound from "@/pages/not-found";
 import MobilePreview from "@/pages/mobile-preview";
+import AiAssistantPage from "@/pages/ai-assistant";
+import AiHrDashboard from "@/pages/ai-hr-dashboard";
 import WebsiteLayout from "@/pages/website/website-layout";
 import HomePage from "@/pages/website/home-page";
 import ServicesPage from "@/pages/website/services-page";
@@ -142,6 +144,8 @@ function ProtectedRouter() {
       <Route path="/billing" component={BillingPage} />
       <Route path="/kra-kpi" component={KraKpiPage} />
       <Route path="/settings" component={SettingsPage} />
+      <Route path="/ai-assistant" component={AiAssistantPage} />
+      <Route path="/ai-hr-dashboard" component={AiHrDashboard} />
       <Route path="/login" component={RedirectToDashboard} />
       <Route path="/signup" component={RedirectToDashboard} />
       <Route component={NotFound} />
