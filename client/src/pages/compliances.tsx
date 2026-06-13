@@ -2905,11 +2905,12 @@ function MusterRollView({ data }: { data: MusterRollData }) {
             <th style={{ ...CL_TH, fontSize: "8px" }}>{"Total\nPresent\nDays"}</th>
             <th style={{ ...CL_TH, fontSize: "8px" }}>{"WO +\nHD"}</th>
             <th style={{ ...CL_TH, fontSize: "8px" }}>{"Net Pay\nDays"}</th>
+            <th style={{ ...CL_TH, fontSize: "8px", minWidth: "50px" }}>{"Signature /\nThumb\nImpression"}</th>
           </tr>
         </thead>
         <tbody>
           {employees.length === 0 && (
-            <tr><td colSpan={4 + daysInMonth + 3} style={{ ...CL_TD, textAlign: "center", padding: "16px" }}>No employees</td></tr>
+            <tr><td colSpan={4 + daysInMonth + 4} style={{ ...CL_TD, textAlign: "center", padding: "16px" }}>No employees</td></tr>
           )}
           {employees.map(e => (
             <tr key={e.serialNo}>
@@ -2925,6 +2926,7 @@ function MusterRollView({ data }: { data: MusterRollData }) {
               <td style={{ ...CL_TD, fontSize: "8px", textAlign: "center", fontWeight: 700 }}>{e.presentDays}</td>
               <td style={{ ...CL_TD, fontSize: "8px", textAlign: "center" }}>{e.woHd}</td>
               <td style={{ ...CL_TD, fontSize: "8px", textAlign: "center", fontWeight: 700 }}>{e.netPayDays}</td>
+              <td style={{ ...CL_TD, fontSize: "8px" }}></td>
             </tr>
           ))}
         </tbody>
@@ -3123,9 +3125,10 @@ function WageSlipView({ data }: { data: WagesRegisterData }) {
             </tr>
           </tbody>
         </table>
-        <div style={{ display: "flex", justifyContent: "space-between", marginTop: "14px", fontSize: "8.5px" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginTop: "14px", fontSize: "8.5px" }}>
           <div>Place : {c?.location_of_work || "—"}<br />Date : {today}</div>
-          <div style={{ textAlign: "right" }}>Signature of the Contractor:</div>
+          <div style={{ textAlign: "center", borderTop: "1px solid #333", paddingTop: "4px", minWidth: "130px" }}>Signature / Thumb Impression<br />of Workman</div>
+          <div style={{ textAlign: "center", borderTop: "1px solid #333", paddingTop: "4px", minWidth: "130px" }}>Signature of the Contractor</div>
         </div>
       </div>
     ))}
@@ -3151,6 +3154,7 @@ function DeductionsRegisterView({ data }: { data: WorkmenRegisterData }) {
           <th style={CL_TH}>{"No. of Instalments\n(if any)"}</th>
           <th style={CL_TH}>{"Remarks"}</th>
           <th style={CL_TH}>{"Signature of\nContractor"}</th>
+          <th style={CL_TH}>{"Signature /\nThumb Impression\nof Workman"}</th>
         </tr>
       </thead>
       <tbody>
@@ -3160,7 +3164,7 @@ function DeductionsRegisterView({ data }: { data: WorkmenRegisterData }) {
             <td style={{ ...CL_TD, fontWeight: 700 }}>{e.name}</td>
             <td style={CL_TD}>{e.designation || "—"}</td>
             <td style={CL_TD}></td><td style={CL_TD}></td><td style={CL_TD}></td>
-            <td style={CL_TD}></td><td style={CL_TD}></td><td style={CL_TD}></td><td style={CL_TD}></td>
+            <td style={CL_TD}></td><td style={CL_TD}></td><td style={CL_TD}></td><td style={CL_TD}></td><td style={CL_TD}></td>
           </tr>
         ))}
       </tbody>
@@ -3188,6 +3192,7 @@ function FinesRegisterView({ data }: { data: WorkmenRegisterData }) {
           <th style={CL_TH}>{"Date of\nRecovery"}</th>
           <th style={CL_TH}>{"Amount of\nRecovery (₹)"}</th>
           <th style={CL_TH}>{"Remarks"}</th>
+          <th style={CL_TH}>{"Signature /\nThumb Impression\nof Workman"}</th>
         </tr>
       </thead>
       <tbody>
@@ -3197,7 +3202,7 @@ function FinesRegisterView({ data }: { data: WorkmenRegisterData }) {
             <td style={{ ...CL_TD, fontWeight: 700 }}>{e.name}</td>
             <td style={CL_TD}>{e.designation || "—"}</td>
             <td style={CL_TD}></td><td style={CL_TD}></td><td style={CL_TD}></td>
-            <td style={CL_TD}></td><td style={CL_TD}></td><td style={CL_TD}></td><td style={CL_TD}></td>
+            <td style={CL_TD}></td><td style={CL_TD}></td><td style={CL_TD}></td><td style={CL_TD}></td><td style={CL_TD}></td>
           </tr>
         ))}
       </tbody>
@@ -3229,10 +3234,11 @@ function AdvancesRegisterView({ data }: { data: WagesRegisterData }) {
           <th style={CL_TH}>{"Amount\nRecovered (₹)"}</th>
           <th style={CL_TH}>{"Balance\nOutstanding (₹)"}</th>
           <th style={CL_TH}>{"Remarks"}</th>
+          <th style={CL_TH}>{"Signature /\nThumb Impression\nof Workman"}</th>
         </tr>
       </thead>
       <tbody>
-        {employees.length === 0 && <tr><td colSpan={11} style={{ ...CL_TD, textAlign: "center", padding: "16px" }}>No data</td></tr>}
+        {employees.length === 0 && <tr><td colSpan={12} style={{ ...CL_TD, textAlign: "center", padding: "16px" }}>No data</td></tr>}
         {employees.map(e => (
           <tr key={e.serialNo}>
             <td style={{ ...CL_TD, textAlign: "center" }}>{e.serialNo}</td>
@@ -3244,6 +3250,7 @@ function AdvancesRegisterView({ data }: { data: WagesRegisterData }) {
             <td style={{ ...CL_TD, textAlign: "right" }}>{e.loanDeduction > 0 ? ni(e.loanDeduction) : "—"}</td>
             <td style={{ ...CL_TD, textAlign: "center" }}>{e.loanDeduction > 0 ? "1" : "—"}</td>
             <td style={{ ...CL_TD, textAlign: "right" }}>{e.loanDeduction > 0 ? ni(e.loanDeduction) : "—"}</td>
+            <td style={CL_TD}></td>
             <td style={CL_TD}></td>
             <td style={CL_TD}></td>
           </tr>
@@ -4068,11 +4075,12 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
       const usableW  = pw - M * 2;               // 297-28 = 269mm
       const fixedW   = 8 + 24 + 18 + 10;         // S.No + Name + Father + Gender = 60mm
       const summaryW = 12 + 10 + 13;             // TotalPresent + WO+HD + NetPayDays = 35mm
-      const dayW     = parseFloat(((usableW - fixedW - summaryW) / days.length).toFixed(2)); // ~5.6mm
+      const signWXII = 20;                        // Signature column = 20mm
+      const dayW     = parseFloat(((usableW - fixedW - summaryW - signWXII) / days.length).toFixed(2));
       autoTbl(doc, {
         startY: y,
-        head: [["S.\nNo.", "Name of\nEmployee", "Father's /\nHusband's\nName", "G", ...days.map(d => String(d)), "Pres.", "WO\n+HD", "Net\nDays"]],
-        body: clraData.xii.employees.map(e => [e.serialNo, e.name, e.fatherHusbandName||"—", (e.gender||"").charAt(0), ...days.map(d => e.attendance[d]||""), e.presentDays, e.woHd, e.netPayDays]),
+        head: [["S.\nNo.", "Name of\nEmployee", "Father's /\nHusband's\nName", "G", ...days.map(d => String(d)), "Pres.", "WO\n+HD", "Net\nDays", "Sign. /\nThumb\nImpression"]],
+        body: clraData.xii.employees.map(e => [e.serialNo, e.name, e.fatherHusbandName||"—", (e.gender||"").charAt(0), ...days.map(d => e.attendance[d]||""), e.presentDays, e.woHd, e.netPayDays, ""]),
         styles: { ...TS, fontSize: 6, cellPadding: 1 }, headStyles: { ...TH, fontSize: 6, cellPadding: 1 },
         columnStyles: {
           0:{ cellWidth:8, halign:"center" }, 1:{ cellWidth:24 }, 2:{ cellWidth:18 }, 3:{ cellWidth:10, halign:"center" },
@@ -4080,6 +4088,7 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
           [4 + days.length]:     { cellWidth: 12, halign: "center" as const },
           [4 + days.length + 1]: { cellWidth: 10, halign: "center" as const },
           [4 + days.length + 2]: { cellWidth: 13, halign: "center" as const },
+          [4 + days.length + 3]: { cellWidth: signWXII },
         },
         margin:{ left:M, right:M },
       });
@@ -4289,7 +4298,11 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
           doc.text(`Place : ${v(cl?.location_of_work)}`, sx, fy);
           doc.text(`Date : ${todayFmt}`, sx, fy + 5);
           doc.setFont("times","bold"); doc.setFontSize(8.5);
-          doc.text("Signature of the Contractor:", sx + slotW, fy, { align: "right" });
+          const midX = sx + slotW / 2;
+          doc.line(midX - 28, fy + 8, midX + 28, fy + 8);
+          doc.text("Signature / Thumb Impression of Workman", midX, fy + 12, { align: "center" });
+          doc.line(sx + slotW - 46, fy + 8, sx + slotW, fy + 8);
+          doc.text("Signature of the Contractor", sx + slotW, fy + 12, { align: "right" });
         };
 
         if (wageEmps.length === 0) {
@@ -4310,10 +4323,10 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
       y = addHdr();
       autoTbl(doc, {
         startY: y,
-        head: [["S.\nNo.", "Name & Surname\nof Workman", "Designation", "Nature of Damage\nor Loss", "Date of Damage\nor Loss", "Amount of\nDeduction (Rs.)", "Date of\nDeduction", "No. of\nInstalments", "Remarks", "Signature of\nContractor"]],
-        body: clraData.ix.employees.map(e => [e.serialNo, e.name, e.designation||"—", "", "", "", "", "", "", ""]),
+        head: [["S.\nNo.", "Name & Surname\nof Workman", "Designation", "Nature of Damage\nor Loss", "Date of Damage\nor Loss", "Amount of\nDeduction (Rs.)", "Date of\nDeduction", "No. of\nInstalments", "Remarks", "Signature of\nContractor", "Signature /\nThumb Impression\nof Workman"]],
+        body: clraData.ix.employees.map(e => [e.serialNo, e.name, e.designation||"—", "", "", "", "", "", "", "", ""]),
         styles: { ...TS, minCellHeight: 10 }, headStyles: TH,
-        columnStyles: { 0:{ cellWidth:10, halign:"center" }, 1:{ cellWidth:30 } },
+        columnStyles: { 0:{ cellWidth:10, halign:"center" }, 1:{ cellWidth:30 }, 10:{ cellWidth:22 } },
         margin:{ left:M, right:M },
       });
       addFooter(lastY() + 8);
@@ -4323,11 +4336,11 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
       y = addHdr();
       autoTbl(doc, {
         startY: y,
-        head: [["S.\nNo.", "Name & Surname\nof Workman", "Designation", "Act or Omission\nfor which Fined", "Date of Act\nor Omission", "Date of Imposition\nof Fine", "Amount of\nFine (Rs.)", "Date of\nRecovery", "Amount of\nRecovery (Rs.)", "Remarks"]],
-        body: clraData.ix.employees.map(e => [e.serialNo, e.name, e.designation||"—", "", "", "", "", "", "", ""]),
+        head: [["S.\nNo.", "Name & Surname\nof Workman", "Designation", "Act or Omission\nfor which Fined", "Date of Act\nor Omission", "Date of Imposition\nof Fine", "Amount of\nFine (Rs.)", "Date of\nRecovery", "Amount of\nRecovery (Rs.)", "Remarks", "Signature /\nThumb Impression\nof Workman"]],
+        body: clraData.ix.employees.map(e => [e.serialNo, e.name, e.designation||"—", "", "", "", "", "", "", "", ""]),
         styles: { ...TS, minCellHeight: 10 }, headStyles: TH,
         tableWidth: pw - 2 * M,
-        columnStyles: { 0:{ cellWidth:12, halign:"center" }, 1:{ cellWidth:44 }, 2:{ cellWidth:28 }, 3:{ cellWidth:44 }, 4:{ cellWidth:26, halign:"center" }, 5:{ cellWidth:26, halign:"center" }, 6:{ cellWidth:24, halign:"right" }, 7:{ cellWidth:26, halign:"center" }, 8:{ cellWidth:24, halign:"right" } },
+        columnStyles: { 0:{ cellWidth:12, halign:"center" }, 1:{ cellWidth:36 }, 2:{ cellWidth:24 }, 3:{ cellWidth:36 }, 4:{ cellWidth:22, halign:"center" }, 5:{ cellWidth:22, halign:"center" }, 6:{ cellWidth:20, halign:"right" }, 7:{ cellWidth:22, halign:"center" }, 8:{ cellWidth:20, halign:"right" }, 9:{ cellWidth:13 }, 10:{ cellWidth:22 } },
         margin:{ left:M, right:M },
       });
       addFooter(lastY() + 8);
@@ -4337,11 +4350,11 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
       y = addHdr([["For the month of", `${monthFull} ${toYear}`]]);
       autoTbl(doc, {
         startY: y,
-        head: [["S.\nNo.", "Name & Surname\nof Workman", "Designation", "Purpose of\nAdvance", "Date of\nAdvance", "Amount of\nAdvance (Rs.)", "Recovery Per\nInstalment (Rs.)", "No. of\nInstalments", "Amount\nRecovered (Rs.)", "Balance\nOutstanding (Rs.)", "Remarks"]],
-        body: clraData.xiii.employees.map(e => [e.serialNo, e.name, e.designation||"—", "—", "", e.loanDeduction > 0 ? e.loanDeduction.toLocaleString("en-IN") : "—", e.loanDeduction > 0 ? e.loanDeduction.toLocaleString("en-IN") : "—", e.loanDeduction > 0 ? "1" : "—", e.loanDeduction > 0 ? e.loanDeduction.toLocaleString("en-IN") : "—", "", ""]),
+        head: [["S.\nNo.", "Name & Surname\nof Workman", "Designation", "Purpose of\nAdvance", "Date of\nAdvance", "Amount of\nAdvance (Rs.)", "Recovery Per\nInstalment (Rs.)", "No. of\nInstalments", "Amount\nRecovered (Rs.)", "Balance\nOutstanding (Rs.)", "Remarks", "Signature /\nThumb Impression\nof Workman"]],
+        body: clraData.xiii.employees.map(e => [e.serialNo, e.name, e.designation||"—", "—", "", e.loanDeduction > 0 ? e.loanDeduction.toLocaleString("en-IN") : "—", e.loanDeduction > 0 ? e.loanDeduction.toLocaleString("en-IN") : "—", e.loanDeduction > 0 ? "1" : "—", e.loanDeduction > 0 ? e.loanDeduction.toLocaleString("en-IN") : "—", "", "", ""]),
         styles: { ...TS, minCellHeight: 10 }, headStyles: TH,
         tableWidth: pw - 2 * M,
-        columnStyles: { 0:{ cellWidth:12, halign:"center" }, 1:{ cellWidth:40 }, 2:{ cellWidth:26 }, 3:{ cellWidth:30 }, 4:{ cellWidth:22, halign:"center" }, 5:{ cellWidth:26, halign:"right" }, 6:{ cellWidth:28, halign:"right" }, 7:{ cellWidth:18, halign:"center" }, 8:{ cellWidth:26, halign:"right" }, 9:{ cellWidth:22, halign:"right" } },
+        columnStyles: { 0:{ cellWidth:10, halign:"center" }, 1:{ cellWidth:34 }, 2:{ cellWidth:22 }, 3:{ cellWidth:25 }, 4:{ cellWidth:18, halign:"center" }, 5:{ cellWidth:22, halign:"right" }, 6:{ cellWidth:24, halign:"right" }, 7:{ cellWidth:15, halign:"center" }, 8:{ cellWidth:22, halign:"right" }, 9:{ cellWidth:18, halign:"right" }, 10:{ cellWidth:15 }, 11:{ cellWidth:22 } },
         margin:{ left:M, right:M },
       });
       addFooter(lastY() + 8);
