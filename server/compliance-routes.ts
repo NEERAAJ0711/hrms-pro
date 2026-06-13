@@ -927,7 +927,7 @@ export function registerComplianceRoutes(app: Express) {
     try {
       const { id } = req.params;
       const rows = await db.execute(sql`
-        SELECT ce.*, e.employee_code, e.first_name, e.last_name, e.department, e.designation
+        SELECT ce.*, e.employee_code, e.first_name, e.last_name, e.department
         FROM compliance_client_employees ce
         JOIN employees e ON e.id = ce.employee_id
         WHERE ce.client_id = ${id}
