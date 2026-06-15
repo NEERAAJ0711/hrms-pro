@@ -465,7 +465,7 @@ export default function AiAssistantPage() {
   const [isUploading, setIsUploading] = useState(false);
 
   // Load conversation + KYC — also handles isAdminMode for admin/HR users
-  const { data: convData, isLoading: convLoading } = useQuery<{
+  const { data: convData, isLoading: convLoading, isError: convError, error: convRawError } = useQuery<{
     conversation?: { id: string; language: string };
     kyc?: KycStatus;
     employee?: { id: string; name: string };
@@ -577,6 +577,23 @@ export default function AiAssistantPage() {
   // Admin/HR users without a linked employee record → compliance chat mode
   if (convData?.isAdminMode) {
     return <AdminComplianceChat isSuperAdmin={convData.isSuperAdmin ?? false} />;
+  }
+
+  // Server error (e.g. DB table missing, 500) — show a retry screen, not the self-link form
+  if (convError) {
+    const msg = (convRawError as any)?.message ?? "Server error";
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-4 text-center p-8">
+        <AlertCircle className="h-12 w-12 text-destructive" />
+        <div>
+          <p className="font-semibold text-lg">Could Not Load AI Assistant</p>
+          <p className="text-muted-foreground text-sm mt-1">{msg}</p>
+        </div>
+        <Button variant="outline" onClick={() => qc.invalidateQueries({ queryKey: ["/api/ai-hr/my-conversation"] })}>
+          Try Again
+        </Button>
+      </div>
+    );
   }
 
   // Employee with no linked record — show self-link form

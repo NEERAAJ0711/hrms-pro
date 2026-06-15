@@ -135,7 +135,75 @@ async function getEmployeeForUser(userId: string, companyId: string | null) {
 
 // ─── Route Registration ────────────────────────────────────────────────────────
 
-export function registerAiHrRoutes(app: Express): void {
+export async function registerAiHrRoutes(app: Express): Promise<void> {
+  // ── Startup migrations: create AI tables if they don't exist yet ────────────
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS ai_conversations (
+      id            VARCHAR(36)  PRIMARY KEY,
+      employee_id   VARCHAR(36)  NOT NULL,
+      user_id       VARCHAR(36)  NOT NULL,
+      company_id    VARCHAR(36)  NOT NULL,
+      session_type  TEXT         NOT NULL DEFAULT 'kyc',
+      status        TEXT         NOT NULL DEFAULT 'active',
+      language      TEXT         NOT NULL DEFAULT 'english',
+      created_at    TEXT         NOT NULL,
+      updated_at    TEXT         NOT NULL
+    )
+  `).catch((err: any) => console.error("[AI HR migrations] ai_conversations:", err.message));
+
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS ai_messages (
+      id              VARCHAR(36) PRIMARY KEY,
+      conversation_id VARCHAR(36) NOT NULL,
+      role            TEXT        NOT NULL,
+      content         TEXT        NOT NULL,
+      attachments     JSONB,
+      created_at      TEXT        NOT NULL
+    )
+  `).catch((err: any) => console.error("[AI HR migrations] ai_messages:", err.message));
+
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS ai_follow_up_tasks (
+      id               VARCHAR(36) PRIMARY KEY,
+      employee_id      VARCHAR(36) NOT NULL,
+      user_id          VARCHAR(36),
+      company_id       VARCHAR(36) NOT NULL,
+      task_type        TEXT        NOT NULL,
+      status           TEXT        NOT NULL DEFAULT 'pending',
+      day_number       INTEGER     NOT NULL DEFAULT 1,
+      reminders_sent   INTEGER     NOT NULL DEFAULT 0,
+      last_reminder_at TEXT,
+      next_reminder_at TEXT        NOT NULL,
+      escalated_at     TEXT,
+      escalated_to     VARCHAR(36),
+      metadata         JSONB,
+      created_at       TEXT        NOT NULL,
+      updated_at       TEXT        NOT NULL
+    )
+  `).catch((err: any) => console.error("[AI HR migrations] ai_follow_up_tasks:", err.message));
+
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS kyc_submission_status (
+      id                        VARCHAR(36)  PRIMARY KEY,
+      employee_id               VARCHAR(36)  NOT NULL UNIQUE,
+      company_id                VARCHAR(36)  NOT NULL,
+      aadhaar_submitted         BOOLEAN      NOT NULL DEFAULT FALSE,
+      pan_submitted             BOOLEAN      NOT NULL DEFAULT FALSE,
+      bank_details_submitted    BOOLEAN      NOT NULL DEFAULT FALSE,
+      cancelled_cheque_submitted BOOLEAN     NOT NULL DEFAULT FALSE,
+      address_proof_submitted   BOOLEAN      NOT NULL DEFAULT FALSE,
+      photograph_submitted      BOOLEAN      NOT NULL DEFAULT FALSE,
+      aadhaar_verified          BOOLEAN      NOT NULL DEFAULT FALSE,
+      pan_verified              BOOLEAN      NOT NULL DEFAULT FALSE,
+      bank_verified             BOOLEAN      NOT NULL DEFAULT FALSE,
+      overall_status            TEXT         NOT NULL DEFAULT 'pending',
+      completed_at              TEXT,
+      created_at                TEXT         NOT NULL,
+      updated_at                TEXT         NOT NULL
+    )
+  `).catch((err: any) => console.error("[AI HR migrations] kyc_submission_status:", err.message));
+
+  console.log("[AI HR] Table migrations complete");
   startAiFollowUpScheduler();
 
   // ── GET /api/ai-hr/my-conversation ─────────────────────────────────────────

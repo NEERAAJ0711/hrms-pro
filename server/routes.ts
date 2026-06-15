@@ -7374,8 +7374,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Register all EPFO / ESIC routes (jobs, portal sessions, registrations, returns, reports)
   registerEpfoEsicRoutes(app, requireAuth, requireRole);
 
-  // Register AI HR Assistant routes
-  registerAiHrRoutes(app);
+  // Register AI HR Assistant routes (async — creates tables on first boot)
+  await registerAiHrRoutes(app);
 
   // Load OpenAI + Gemini keys from DB (if admin saved them via Settings → API Keys)
   loadAllApiKeysFromDB().catch(() => {});
