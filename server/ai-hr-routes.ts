@@ -489,6 +489,61 @@ export function registerAiHrRoutes(app: Express): void {
     }
   });
 
+  // ── POST /api/ai-hr/self-link ────────────────────────────────────────────────
+  // Allows an employee to self-link their user account to an employee record
+  // by providing their employee code. Only links if:
+  //   1. The employee code exists in the same company
+  //   2. That employee record is not already linked to a different user
+  app.post("/api/ai-hr/self-link", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const user = req.user as any;
+      const companyId = user.companyId;
+      if (!companyId) return res.status(400).json({ message: "No company associated with your account" });
+
+      const { employeeCode } = req.body;
+      if (!employeeCode?.trim()) return res.status(400).json({ message: "Employee code is required" });
+
+      // Look up employee by code within the same company
+      const emp = (
+        await db
+          .select()
+          .from(employees)
+          .where(
+            and(
+              eq(employees.employeeCode, employeeCode.trim().toUpperCase()),
+              eq(employees.companyId, companyId),
+            ),
+          )
+          .limit(1)
+      )[0];
+
+      if (!emp) {
+        return res.status(404).json({ message: "No employee found with that code in your company. Please check and try again." });
+      }
+
+      // Don't allow linking if the employee is already linked to a different user
+      if (emp.userId && emp.userId !== user.id) {
+        return res.status(409).json({ message: "This employee record is already linked to another account. Please contact HR." });
+      }
+
+      // Already linked to this user — nothing to do
+      if (emp.userId === user.id) {
+        return res.json({ success: true, employeeName: `${emp.firstName} ${emp.lastName}`.trim(), alreadyLinked: true });
+      }
+
+      // Link the employee record to this user
+      await db
+        .update(employees)
+        .set({ userId: user.id })
+        .where(eq(employees.id, emp.id));
+
+      return res.json({ success: true, employeeName: `${emp.firstName} ${emp.lastName}`.trim(), alreadyLinked: false });
+    } catch (err: any) {
+      console.error("[AI HR] self-link error:", err);
+      return res.status(500).json({ message: "Server error" });
+    }
+  });
+
   // ── PATCH /api/ai-hr/conversations/:id/language ──────────────────────────────
   app.patch("/api/ai-hr/conversations/:id/language", requireAuth, async (req: Request, res: Response) => {
     try {

@@ -37,6 +37,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
 import { apiRequest } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
 
@@ -189,6 +190,101 @@ function KycChecklist({ kyc }: { kyc: KycStatus }) {
           <span className="text-xs font-medium">KYC Complete!</span>
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Self-Link Form ────────────────────────────────────────────────────────────
+// Shown to employees whose user account isn't linked to an employee record.
+// They enter their Employee Code to link the account themselves.
+function SelfLinkForm({ onLinked }: { onLinked: () => void }) {
+  const { toast } = useToast();
+  const [code, setCode] = useState("");
+  const [isLinking, setIsLinking] = useState(false);
+  const [linked, setLinked] = useState(false);
+
+  const handleLink = async () => {
+    const trimmed = code.trim().toUpperCase();
+    if (!trimmed) {
+      toast({ title: "Please enter your employee code", variant: "destructive" });
+      return;
+    }
+    setIsLinking(true);
+    try {
+      const res = await fetch("/api/ai-hr/self-link", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ employeeCode: trimmed }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast({ title: data.message || "Failed to link account", variant: "destructive" });
+        return;
+      }
+      setLinked(true);
+      toast({ title: `Account linked to ${data.employeeName}! Loading AI Assistant…` });
+      setTimeout(() => onLinked(), 1200);
+    } catch {
+      toast({ title: "Something went wrong. Please try again.", variant: "destructive" });
+    } finally {
+      setIsLinking(false);
+    }
+  };
+
+  return (
+    <div className="flex h-full flex-col items-center justify-center p-8">
+      <div className="w-full max-w-sm space-y-6 text-center">
+        <div className="flex flex-col items-center gap-3">
+          <div className="rounded-full bg-amber-100 p-4 dark:bg-amber-900/30">
+            <User className="h-8 w-8 text-amber-600 dark:text-amber-400" />
+          </div>
+          <div>
+            <p className="font-semibold text-lg">Link Your Employee Record</p>
+            <p className="text-muted-foreground text-sm mt-1">
+              Your login isn't connected to an employee record yet. Enter your
+              employee code to link it now.
+            </p>
+          </div>
+        </div>
+
+        {linked ? (
+          <div className="flex items-center justify-center gap-2 text-green-600">
+            <CheckCircle2 className="h-5 w-5" />
+            <span className="font-medium">Account linked! Loading…</span>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <Input
+              data-testid="input-employee-code"
+              placeholder="e.g. EMP001"
+              value={code}
+              onChange={(e) => setCode(e.target.value.toUpperCase())}
+              onKeyDown={(e) => e.key === "Enter" && handleLink()}
+              disabled={isLinking}
+              className="text-center tracking-widest font-mono uppercase"
+            />
+            <Button
+              data-testid="button-link-account"
+              className="w-full"
+              onClick={handleLink}
+              disabled={isLinking}
+            >
+              {isLinking ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Linking…
+                </>
+              ) : (
+                "Link My Account"
+              )}
+            </Button>
+            <p className="text-xs text-muted-foreground">
+              Don't know your code? Contact your HR team.
+            </p>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -483,19 +579,9 @@ export default function AiAssistantPage() {
     return <AdminComplianceChat isSuperAdmin={convData.isSuperAdmin ?? false} />;
   }
 
-  // Employee with no linked record
+  // Employee with no linked record — show self-link form
   if (!convData || !convData.conversation) {
-    return (
-      <div className="flex h-full flex-col items-center justify-center gap-4 text-center p-8">
-        <AlertCircle className="h-12 w-12 text-muted-foreground" />
-        <div>
-          <p className="font-semibold text-lg">Employee Record Not Found</p>
-          <p className="text-muted-foreground text-sm mt-1">
-            Your account is not linked to an employee record. Please contact HR.
-          </p>
-        </div>
-      </div>
-    );
+    return <SelfLinkForm onLinked={() => qc.invalidateQueries({ queryKey: ["/api/ai-hr/my-conversation"] })} />;
   }
 
   const completedCount = KYC_CHECKLIST.filter((item) => kyc && (kyc as any)[item.key]).length;
