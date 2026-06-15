@@ -139,14 +139,27 @@ export function registerAiHrRoutes(app: Express): void {
   startAiFollowUpScheduler();
 
   // ── GET /api/ai-hr/my-conversation ─────────────────────────────────────────
-  // Returns (or creates) the active conversation for the logged-in employee
+  // Returns (or creates) the active conversation for the logged-in employee.
+  // For admin/HR users without a linked employee record, returns isAdminMode:true
+  // so the frontend can show the compliance chat instead of the KYC flow.
   app.get("/api/ai-hr/my-conversation", requireAuth, async (req: Request, res: Response) => {
     try {
       const user = req.user as any;
       const companyId = user.companyId;
-      if (!companyId) return res.status(400).json({ message: "No company associated with this account" });
+
+      // Super admin has no company — they should use the system-level admin panel
+      if (!companyId) {
+        return res.status(200).json({ isAdminMode: true, isSuperAdmin: true });
+      }
 
       const emp = await getEmployeeForUser(user.id, companyId);
+
+      // Admin/HR users without a linked employee record get compliance-chat mode
+      const adminRoles = ["super_admin", "company_admin", "hr_admin"];
+      if (!emp && adminRoles.includes(user.role)) {
+        return res.status(200).json({ isAdminMode: true, isSuperAdmin: false });
+      }
+
       if (!emp) return res.status(404).json({ message: "Employee record not found" });
 
       // Find active conversation

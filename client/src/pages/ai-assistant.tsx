@@ -193,6 +193,168 @@ function KycChecklist({ kyc }: { kyc: KycStatus }) {
   );
 }
 
+// ── Admin / Compliance Chat Mode ─────────────────────────────────────────────
+// Shown to admin/HR users who don't have a linked employee record.
+// Uses the stateless /api/ai-hr/compliance-chat endpoint.
+function AdminComplianceChat({ isSuperAdmin }: { isSuperAdmin: boolean }) {
+  const { toast } = useToast();
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const [inputText, setInputText] = useState("");
+  const [isPending, setIsPending] = useState(false);
+  const [history, setHistory] = useState<Array<{ role: "user" | "assistant"; content: string }>>([]);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [history, isPending]);
+
+  const handleSend = async () => {
+    const text = inputText.trim();
+    if (!text || isPending) return;
+    setInputText("");
+    const newHistory = [...history, { role: "user" as const, content: text }];
+    setHistory(newHistory);
+    setIsPending(true);
+    try {
+      const res = await fetch("/api/ai-hr/compliance-chat", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: text, history }),
+      });
+      if (!res.ok) throw new Error("Failed");
+      const data = await res.json();
+      setHistory([...newHistory, { role: "assistant", content: data.reply }]);
+    } catch {
+      toast({ title: "Failed to get response", variant: "destructive" });
+      setHistory(history); // roll back
+    } finally {
+      setIsPending(false);
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); }
+  };
+
+  const suggestions = [
+    "What are the PF deduction rules for 2026?",
+    "Explain ESIC eligibility criteria",
+    "How to calculate gratuity for an employee?",
+    "What are the leave encashment rules?",
+  ];
+
+  return (
+    <div className="flex h-[calc(100vh-4rem)] flex-col">
+      {/* Header */}
+      <div className="border-b px-4 py-3 bg-background flex items-center gap-3">
+        <div className="w-9 h-9 rounded-full bg-primary flex items-center justify-center">
+          <Bot className="h-5 w-5 text-primary-foreground" />
+        </div>
+        <div>
+          <p className="font-semibold text-sm">Priya — AI HR Assistant</p>
+          <p className="text-xs text-muted-foreground">Compliance & HR Policy Q&amp;A</p>
+        </div>
+        {isSuperAdmin && (
+          <div className="ml-auto">
+            <Badge variant="outline" className="text-xs text-amber-600 border-amber-300 bg-amber-50">
+              Super Admin Mode
+            </Badge>
+          </div>
+        )}
+      </div>
+
+      {/* Messages */}
+      <div className="flex-1 overflow-y-auto px-4 py-3">
+        {history.length === 0 ? (
+          <div className="flex flex-col items-center justify-center gap-4 py-12 text-center">
+            <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center">
+              <Bot className="h-8 w-8 text-primary" />
+            </div>
+            <div>
+              <p className="font-semibold">Hello! 👋</p>
+              <p className="text-muted-foreground text-sm mt-1 max-w-sm">
+                I can answer HR compliance questions — PF, ESIC, Gratuity, Labour law, and more.
+                {isSuperAdmin && (
+                  <span className="block mt-1 text-xs text-amber-700">
+                    To use the employee KYC assistant, log in as a company user with a linked employee profile.
+                  </span>
+                )}
+              </p>
+            </div>
+            <div className="flex gap-2 flex-wrap justify-center max-w-lg">
+              {suggestions.map((s) => (
+                <Button key={s} variant="outline" size="sm" className="text-xs" onClick={() => setInputText(s)}>
+                  {s}
+                </Button>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <>
+            {history.map((msg, i) => (
+              <div key={i} className={cn("flex gap-2 mb-3", msg.role === "user" ? "justify-end" : "justify-start")}>
+                {msg.role === "assistant" && (
+                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-primary flex items-center justify-center mt-1">
+                    <Bot className="h-4 w-4 text-primary-foreground" />
+                  </div>
+                )}
+                <div
+                  className={cn(
+                    "max-w-[78%] rounded-2xl px-4 py-2.5 text-sm shadow-sm",
+                    msg.role === "assistant"
+                      ? "bg-muted text-foreground rounded-tl-sm"
+                      : "bg-primary text-primary-foreground rounded-tr-sm",
+                  )}
+                >
+                  <div className="leading-relaxed" dangerouslySetInnerHTML={{ __html: parseMarkdown(msg.content) }} />
+                </div>
+              </div>
+            ))}
+            {isPending && (
+              <div className="flex gap-2 mb-3">
+                <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center">
+                  <Bot className="h-4 w-4 text-primary-foreground" />
+                </div>
+                <div className="bg-muted rounded-2xl rounded-tl-sm px-4 py-2.5">
+                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                </div>
+              </div>
+            )}
+            <div ref={bottomRef} />
+          </>
+        )}
+      </div>
+
+      {/* Input */}
+      <div className="border-t px-4 py-3 bg-background">
+        <div className="flex gap-2 items-end">
+          <Textarea
+            value={inputText}
+            onChange={(e) => setInputText(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder="Ask an HR compliance question... (Enter to send)"
+            className="flex-1 min-h-[38px] max-h-[120px] resize-none text-sm"
+            rows={1}
+            data-testid="input-admin-chat-message"
+          />
+          <Button
+            size="icon"
+            className="flex-shrink-0 h-9 w-9"
+            onClick={handleSend}
+            disabled={!inputText.trim() || isPending}
+            data-testid="button-admin-send-message"
+          >
+            <Send className="h-4 w-4" />
+          </Button>
+        </div>
+        <p className="text-[11px] text-muted-foreground mt-1.5 text-center">
+          AI-powered compliance assistant · Responses are informational only
+        </p>
+      </div>
+    </div>
+  );
+}
+
 export default function AiAssistantPage() {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -206,11 +368,13 @@ export default function AiAssistantPage() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
 
-  // Load conversation + KYC
+  // Load conversation + KYC — also handles isAdminMode for admin/HR users
   const { data: convData, isLoading: convLoading } = useQuery<{
-    conversation: { id: string; language: string };
-    kyc: KycStatus;
-    employee: { id: string; name: string };
+    conversation?: { id: string; language: string };
+    kyc?: KycStatus;
+    employee?: { id: string; name: string };
+    isAdminMode?: boolean;
+    isSuperAdmin?: boolean;
   }>({
     queryKey: ["/api/ai-hr/my-conversation"],
   });
@@ -314,7 +478,13 @@ export default function AiAssistantPage() {
     );
   }
 
-  if (!convData) {
+  // Admin/HR users without a linked employee record → compliance chat mode
+  if (convData?.isAdminMode) {
+    return <AdminComplianceChat isSuperAdmin={convData.isSuperAdmin ?? false} />;
+  }
+
+  // Employee with no linked record
+  if (!convData || !convData.conversation) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-4 text-center p-8">
         <AlertCircle className="h-12 w-12 text-muted-foreground" />
