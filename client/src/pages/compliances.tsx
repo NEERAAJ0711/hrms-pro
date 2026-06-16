@@ -2129,19 +2129,11 @@ function ClientSetupTab({ companyId, isSuperAdmin, toast }: {
   const loadEmployees = useCallback(async () => {
     if (!companyId) return;
     try {
-      const res = await fetch("/api/employees", { credentials: "include" });
+      const url = `/api/compliance/employee-list${companyId ? `?companyId=${companyId}` : ""}`;
+      const res = await fetch(url, { credentials: "include" });
       if (!res.ok) return;
       const data = await res.json();
-      const list = (Array.isArray(data) ? data : data.employees || []).filter(
-        (e: any) => !e.companyId || e.companyId === companyId || e.company_id === companyId
-      );
-      setAllEmployees(list.map((e: any) => ({
-        id: e.id,
-        code: e.employeeCode || e.employee_code || "",
-        name: `${e.firstName || e.first_name || ""} ${e.lastName || e.last_name || ""}`.trim(),
-        designation: e.designation || "",
-        presentAddress: [e.presentAddress || e.present_address || "", e.presentDistrict || e.present_district || "", e.presentState || e.present_state || ""].filter(Boolean).join(", "),
-      })));
+      setAllEmployees(Array.isArray(data) ? data : []);
     } catch (_) {}
   }, [companyId]);
 

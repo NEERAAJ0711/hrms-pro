@@ -855,6 +855,31 @@ export function registerComplianceRoutes(app: Express) {
     }
   });
 
+  // ── GET /api/compliance/employee-list — simple list for dropdowns (no module-access gate)
+  app.get("/api/compliance/employee-list", requireAuth, attachUser, requireAdminRole, async (req: Request, res: Response) => {
+    try {
+      const user = (req as any).user;
+      const companyId = user.role === "super_admin" ? (req.query.companyId as string) : user.company_id;
+      if (!companyId) return res.status(400).json({ error: "Company ID required" });
+      const rows = await db.execute(sql`
+        SELECT id, employee_code, first_name, last_name, designation,
+               present_address, present_district, present_state
+        FROM employees
+        WHERE company_id = ${companyId} AND status = 'active'
+        ORDER BY first_name, last_name
+      `);
+      res.json(rows.rows.map((e: any) => ({
+        id: e.id,
+        code: e.employee_code || "",
+        name: `${e.first_name || ""} ${e.last_name || ""}`.trim(),
+        designation: e.designation || "",
+        presentAddress: [e.present_address, e.present_district, e.present_state].filter(Boolean).join(", "),
+      })));
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || "Failed to fetch employees" });
+    }
+  });
+
   // ── GET /api/compliance/clients — list all clients for company
   app.get("/api/compliance/clients", requireAuth, attachUser, requireAdminRole, async (req: Request, res: Response) => {
     try {
