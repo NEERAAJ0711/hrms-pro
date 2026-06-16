@@ -41,6 +41,7 @@ import EsicPage from "@/pages/esic";
 import LiveViewPage from "@/pages/live-view";
 import ComplianceCalendarPage from "@/pages/compliance-calendar";
 import AutomationJobsPage from "@/pages/automation-jobs";
+import ComplianceAutomationPage from "@/pages/compliance-automation";
 import NotFound from "@/pages/not-found";
 import MobilePreview from "@/pages/mobile-preview";
 import AiAssistantPage from "@/pages/ai-assistant";
@@ -136,6 +137,7 @@ function ProtectedRouter() {
       <Route path="/my-access-requests" component={MyAccessRequestsPage} />
       <Route path="/access-requests" component={AccessRequestsPage} />
       <Route path="/compliances" component={CompliancesPage} />
+      <Route path="/compliance-automation" component={ComplianceAutomationPage} />
       <Route path="/epfo" component={EpfoPage} />
       <Route path="/esic" component={EsicPage} />
       <Route path="/live-view" component={LiveViewPage} />
