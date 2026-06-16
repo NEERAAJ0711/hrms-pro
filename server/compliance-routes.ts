@@ -1345,11 +1345,12 @@ export function registerComplianceRoutes(app: Express) {
           SELECT e.id, e.first_name || ' ' || e.last_name AS full_name,
                  e.father_husband_name,
                  COALESCE(cce.designation, cs.designation, e.designation, '') AS designation,
-                 COALESCE(NULLIF(cs.basic_salary, 0), ss.basic_salary, 0)  AS setup_basic,
-                 COALESCE(NULLIF(cs.gross_salary, 0), ss.gross_salary, 0)  AS setup_gross,
+                 COALESCE(cs.basic_salary, ss.basic_salary, 0)  AS setup_basic,
+                 COALESCE(cs.gross_salary, ss.gross_salary, 0)  AS setup_gross,
                  cs.allowances      AS setup_allowances,
                  cs.same_as_actual  AS setup_same_as_actual,
                  ss.gross_salary    AS ss_gross,
+                 wg.minimum_wage    AS grade_min_wage,
                  COALESCE(cs.pf_type,    'na')  AS pf_type,
                  COALESCE(cs.esic_type,  'na')  AS esic_type,
                  COALESCE(cs.lwf_type,   'na')  AS lwf_type,
@@ -1357,7 +1358,8 @@ export function registerComplianceRoutes(app: Express) {
           FROM compliance_client_employees cce
           JOIN employees e ON e.id = cce.employee_id
           LEFT JOIN compliance_employee_setup cs ON cs.employee_id = e.id AND cs.company_id = ${targetCompanyId}
-          LEFT JOIN salary_structures ss ON ss.employee_id = e.id AND ss.company_id = ${targetCompanyId}
+          LEFT JOIN salary_structures ss ON ss.employee_id = e.id AND ss.company_id = ${targetCompanyId} AND ss.status = 'active'
+          LEFT JOIN wage_grades wg ON wg.id = COALESCE(cs.wage_grade_id, e.wage_grade_id) AND wg.company_id = ${targetCompanyId}
           WHERE cce.client_id = ${projectId}
             AND cce.assigned_date::date <= ${wrLastDay}::date
             AND (cce.status = 'active' OR cce.deassigned_date::date >= ${wrFirstDay}::date)
@@ -1367,18 +1369,20 @@ export function registerComplianceRoutes(app: Express) {
           SELECT e.id, e.first_name || ' ' || e.last_name AS full_name,
                  e.father_husband_name,
                  COALESCE(cs.designation, e.designation, '') AS designation,
-                 COALESCE(NULLIF(cs.basic_salary, 0), ss.basic_salary, 0)  AS setup_basic,
-                 COALESCE(NULLIF(cs.gross_salary, 0), ss.gross_salary, 0)  AS setup_gross,
+                 COALESCE(cs.basic_salary, ss.basic_salary, 0)  AS setup_basic,
+                 COALESCE(cs.gross_salary, ss.gross_salary, 0)  AS setup_gross,
                  cs.allowances      AS setup_allowances,
                  cs.same_as_actual  AS setup_same_as_actual,
                  ss.gross_salary    AS ss_gross,
+                 wg.minimum_wage    AS grade_min_wage,
                  COALESCE(cs.pf_type,    'na')  AS pf_type,
                  COALESCE(cs.esic_type,  'na')  AS esic_type,
                  COALESCE(cs.lwf_type,   'na')  AS lwf_type,
                  COALESCE(cs.bonus_type, 'na')  AS bonus_type
           FROM employees e
           LEFT JOIN compliance_employee_setup cs ON cs.employee_id = e.id AND cs.company_id = ${targetCompanyId}
-          LEFT JOIN salary_structures ss ON ss.employee_id = e.id AND ss.company_id = ${targetCompanyId}
+          LEFT JOIN salary_structures ss ON ss.employee_id = e.id AND ss.company_id = ${targetCompanyId} AND ss.status = 'active'
+          LEFT JOIN wage_grades wg ON wg.id = COALESCE(cs.wage_grade_id, e.wage_grade_id) AND wg.company_id = ${targetCompanyId}
           WHERE e.company_id = ${targetCompanyId} AND e.status = 'active'
           ORDER BY e.first_name, e.last_name`);
       }
@@ -1435,15 +1439,16 @@ export function registerComplianceRoutes(app: Express) {
         const att = attMap[r.id]     || {};
         const adj = adjMap[r.id]     || null;
 
-        const setupBasic = Number(r.setup_basic || 0);
-        const setupGross = Number(r.setup_gross || 0);
-
-        // Setup Allowances for Rate group: use explicitly configured compliance allowances
-        // when set (same logic as the compliance adjustment tab). Otherwise: Gross − Basic.
+        // Rate mirrors the Compliance Adjustment tab exactly (the trusted source):
+        //   Basic = wage-grade minimum wage if set, else compliance setup basic.
+        //   Allowances = configured compliance allowances when set, else (actual gross − basic).
+        const gradeMin = r.grade_min_wage != null ? Number(r.grade_min_wage) : null;
+        const setupBasic = gradeMin != null ? gradeMin : Number(r.setup_basic || 0);
+        const ssGross = Number(r.ss_gross || r.setup_gross || 0);
         const hasCustomAllowances = r.setup_allowances != null && !r.setup_same_as_actual;
         const setupHra = hasCustomAllowances
           ? Number(r.setup_allowances)
-          : Math.max(0, setupGross - setupBasic);
+          : Math.max(0, ssGross - setupBasic);
         const setupRateTotal = setupBasic + setupHra;
 
         // Pay days priority:
@@ -1582,27 +1587,33 @@ export function registerComplianceRoutes(app: Express) {
         empRows = await db.execute(sql`
           SELECT e.id, e.first_name || ' ' || e.last_name AS full_name,
                  COALESCE(cce.designation, cs.designation, e.designation, '') AS designation,
-                 COALESCE(NULLIF(cs.basic_salary, 0), ss.basic_salary, 0)  AS setup_basic,
-                 COALESCE(NULLIF(cs.gross_salary, 0), ss.gross_salary, 0)  AS setup_gross,
+                 COALESCE(cs.basic_salary, ss.basic_salary, 0)  AS setup_basic,
+                 COALESCE(cs.gross_salary, ss.gross_salary, 0)  AS setup_gross,
                  cs.allowances      AS setup_allowances,
-                 cs.same_as_actual  AS setup_same_as_actual
+                 cs.same_as_actual  AS setup_same_as_actual,
+                 ss.gross_salary    AS ss_gross,
+                 wg.minimum_wage    AS grade_min_wage
           FROM compliance_client_employees cce
           JOIN employees e ON e.id = cce.employee_id
           LEFT JOIN compliance_employee_setup cs ON cs.employee_id = e.id AND cs.company_id = ${targetCompanyId}
-          LEFT JOIN salary_structures ss ON ss.employee_id = e.id AND ss.company_id = ${targetCompanyId}
+          LEFT JOIN salary_structures ss ON ss.employee_id = e.id AND ss.company_id = ${targetCompanyId} AND ss.status = 'active'
+          LEFT JOIN wage_grades wg ON wg.id = COALESCE(cs.wage_grade_id, e.wage_grade_id) AND wg.company_id = ${targetCompanyId}
           WHERE cce.client_id = ${projectId} AND cce.status = 'active'
           ORDER BY e.first_name, e.last_name`);
       } else {
         empRows = await db.execute(sql`
           SELECT e.id, e.first_name || ' ' || e.last_name AS full_name,
                  COALESCE(cs.designation, e.designation, '') AS designation,
-                 COALESCE(NULLIF(cs.basic_salary, 0), ss.basic_salary, 0)  AS setup_basic,
-                 COALESCE(NULLIF(cs.gross_salary, 0), ss.gross_salary, 0)  AS setup_gross,
+                 COALESCE(cs.basic_salary, ss.basic_salary, 0)  AS setup_basic,
+                 COALESCE(cs.gross_salary, ss.gross_salary, 0)  AS setup_gross,
                  cs.allowances      AS setup_allowances,
-                 cs.same_as_actual  AS setup_same_as_actual
+                 cs.same_as_actual  AS setup_same_as_actual,
+                 ss.gross_salary    AS ss_gross,
+                 wg.minimum_wage    AS grade_min_wage
           FROM employees e
           LEFT JOIN compliance_employee_setup cs ON cs.employee_id = e.id AND cs.company_id = ${targetCompanyId}
-          LEFT JOIN salary_structures ss ON ss.employee_id = e.id AND ss.company_id = ${targetCompanyId}
+          LEFT JOIN salary_structures ss ON ss.employee_id = e.id AND ss.company_id = ${targetCompanyId} AND ss.status = 'active'
+          LEFT JOIN wage_grades wg ON wg.id = COALESCE(cs.wage_grade_id, e.wage_grade_id) AND wg.company_id = ${targetCompanyId}
           WHERE e.company_id = ${targetCompanyId} AND e.status = 'active'
           ORDER BY e.first_name, e.last_name`);
       }
@@ -1652,13 +1663,14 @@ export function registerComplianceRoutes(app: Express) {
         const p = payrollMap[r.id] || {};
         const ot = otMap[r.id] || { otHours: 0, otDays: 0 };
 
-        // Wages sourced from compliance setup (not actual payroll)
-        const setupBasic = Number(r.setup_basic || 0);
-        const setupGross = Number(r.setup_gross || 0);
+        // Wages mirror the Compliance Adjustment tab (grade min wage → compliance basic)
+        const gradeMin = r.grade_min_wage != null ? Number(r.grade_min_wage) : null;
+        const setupBasic = gradeMin != null ? gradeMin : Number(r.setup_basic || 0);
+        const ssGross = Number(r.ss_gross || r.setup_gross || 0);
         const hasCustomAllowances = r.setup_allowances != null && !r.setup_same_as_actual;
         const setupHra = hasCustomAllowances
           ? Number(r.setup_allowances)
-          : Math.max(0, setupGross - setupBasic);
+          : Math.max(0, ssGross - setupBasic);
         const setupRateTotal = setupBasic + setupHra;
 
         const workingDays = p.working_days || 26;
