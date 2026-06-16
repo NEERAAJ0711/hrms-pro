@@ -568,6 +568,33 @@ app.use((req, res, next) => {
         ) THEN
           ALTER TABLE time_office_policies ADD COLUMN is_default boolean DEFAULT false;
         END IF;
+
+        -- Create leave_policies table if missing
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.tables
+          WHERE table_name = 'leave_policies'
+        ) THEN
+          CREATE TABLE leave_policies (
+            id varchar(36) PRIMARY KEY,
+            company_id varchar(36) NOT NULL,
+            name text NOT NULL,
+            description text,
+            annual_leave_days integer NOT NULL DEFAULT 0,
+            sick_leave_days integer NOT NULL DEFAULT 0,
+            casual_leave_days integer NOT NULL DEFAULT 0,
+            maternity_leave_days integer NOT NULL DEFAULT 0,
+            paternity_leave_days integer NOT NULL DEFAULT 0,
+            status text NOT NULL DEFAULT 'active'
+          );
+          CREATE INDEX ON leave_policies (company_id);
+        END IF;
+        -- Add leave_policy_id to employees if missing
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_name = 'employees' AND column_name = 'leave_policy_id'
+        ) THEN
+          ALTER TABLE employees ADD COLUMN leave_policy_id varchar(36);
+        END IF;
       END;
       $$
     `);
