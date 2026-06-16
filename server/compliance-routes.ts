@@ -1156,7 +1156,7 @@ export function registerComplianceRoutes(app: Express) {
       const targetCompanyId = user.role === "super_admin" ? companyId : user.company_id;
       if (!targetCompanyId) return res.status(400).json({ error: "Company ID required" });
 
-      const companyRow = await db.execute(sql`SELECT company_name, legal_name, registered_address FROM companies WHERE id = ${targetCompanyId} LIMIT 1`);
+      const companyRow = await db.execute(sql`SELECT company_name, legal_name, registered_address, signature FROM companies WHERE id = ${targetCompanyId} LIMIT 1`);
       const company = companyRow.rows[0] as any;
 
       let client: any = null;
@@ -1200,7 +1200,7 @@ export function registerComplianceRoutes(app: Express) {
       }
 
       return res.json({
-        company: { name: company?.company_name || company?.legal_name || "", address: company?.registered_address || "" },
+        company: { name: company?.company_name || company?.legal_name || "", address: company?.registered_address || "", signature: company?.signature || null },
         client,
         month: month || "",
         year: year || "",
@@ -1437,14 +1437,13 @@ export function registerComplianceRoutes(app: Express) {
 
         const setupBasic = Number(r.setup_basic || 0);
         const setupGross = Number(r.setup_gross || 0);
-        const ssGross    = Number(r.ss_gross || r.setup_gross || 0);
 
         // Setup Allowances for Rate group: use explicitly configured compliance allowances
         // when set (same logic as the compliance adjustment tab). Otherwise: Gross − Basic.
         const hasCustomAllowances = r.setup_allowances != null && !r.setup_same_as_actual;
         const setupHra = hasCustomAllowances
           ? Number(r.setup_allowances)
-          : Math.max(0, ssGross - setupBasic);
+          : Math.max(0, setupGross - setupBasic);
         const setupRateTotal = setupBasic + setupHra;
 
         // Pay days priority:
@@ -1582,18 +1581,28 @@ export function registerComplianceRoutes(app: Express) {
       if (projectId && projectId !== "company") {
         empRows = await db.execute(sql`
           SELECT e.id, e.first_name || ' ' || e.last_name AS full_name,
-                 COALESCE(cce.designation, cs.designation, e.designation, '') AS designation
+                 COALESCE(cce.designation, cs.designation, e.designation, '') AS designation,
+                 COALESCE(NULLIF(cs.basic_salary, 0), ss.basic_salary, 0)  AS setup_basic,
+                 COALESCE(NULLIF(cs.gross_salary, 0), ss.gross_salary, 0)  AS setup_gross,
+                 cs.allowances      AS setup_allowances,
+                 cs.same_as_actual  AS setup_same_as_actual
           FROM compliance_client_employees cce
           JOIN employees e ON e.id = cce.employee_id
           LEFT JOIN compliance_employee_setup cs ON cs.employee_id = e.id AND cs.company_id = ${targetCompanyId}
+          LEFT JOIN salary_structures ss ON ss.employee_id = e.id AND ss.company_id = ${targetCompanyId}
           WHERE cce.client_id = ${projectId} AND cce.status = 'active'
           ORDER BY e.first_name, e.last_name`);
       } else {
         empRows = await db.execute(sql`
           SELECT e.id, e.first_name || ' ' || e.last_name AS full_name,
-                 COALESCE(cs.designation, e.designation, '') AS designation
+                 COALESCE(cs.designation, e.designation, '') AS designation,
+                 COALESCE(NULLIF(cs.basic_salary, 0), ss.basic_salary, 0)  AS setup_basic,
+                 COALESCE(NULLIF(cs.gross_salary, 0), ss.gross_salary, 0)  AS setup_gross,
+                 cs.allowances      AS setup_allowances,
+                 cs.same_as_actual  AS setup_same_as_actual
           FROM employees e
           LEFT JOIN compliance_employee_setup cs ON cs.employee_id = e.id AND cs.company_id = ${targetCompanyId}
+          LEFT JOIN salary_structures ss ON ss.employee_id = e.id AND ss.company_id = ${targetCompanyId}
           WHERE e.company_id = ${targetCompanyId} AND e.status = 'active'
           ORDER BY e.first_name, e.last_name`);
       }
@@ -1619,7 +1628,7 @@ export function registerComplianceRoutes(app: Express) {
                    END
                  ) / 60.0, 0) AS ot_hours_total
           FROM attendance
-          WHERE company_id = ${targetCompanyId} AND date >= ${startDate} AND date <= ${endDate}
+          WHERE date >= ${startDate} AND date <= ${endDate}
             AND employee_id IN (${empInList})
           GROUP BY employee_id`);
         for (const o of otRows.rows as any[]) {
@@ -1642,8 +1651,19 @@ export function registerComplianceRoutes(app: Express) {
       const employees = empRows.rows.map((r: any, idx: number) => {
         const p = payrollMap[r.id] || {};
         const ot = otMap[r.id] || { otHours: 0, otDays: 0 };
+
+        // Wages sourced from compliance setup (not actual payroll)
+        const setupBasic = Number(r.setup_basic || 0);
+        const setupGross = Number(r.setup_gross || 0);
+        const hasCustomAllowances = r.setup_allowances != null && !r.setup_same_as_actual;
+        const setupHra = hasCustomAllowances
+          ? Number(r.setup_allowances)
+          : Math.max(0, setupGross - setupBasic);
+        const setupRateTotal = setupBasic + setupHra;
+
         const workingDays = p.working_days || 26;
-        const dailyRate = workingDays > 0 ? Math.round((p.basic_salary || 0) / workingDays) : 0;
+        // OT rate derived from compliance basic
+        const dailyRate = workingDays > 0 ? Math.round(setupBasic / workingDays) : 0;
         const hourlyRate = Math.round(dailyRate / 8);
         const otWages = Math.round(hourlyRate * ot.otHours * 2);
         return {
@@ -1653,7 +1673,7 @@ export function registerComplianceRoutes(app: Express) {
           normalDays: p.pay_days || 0,
           otDays:     ot.otDays,
           otHours:    ot.otHours,
-          normalWages: p.net_salary || 0,
+          normalWages: setupRateTotal,
           otWages,
         };
       });
