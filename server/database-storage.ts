@@ -58,6 +58,8 @@ import {
   type InsertCompanyContractor,
   type ContractorMaster,
   type InsertContractorMaster,
+  type LeavePolicy,
+  type InsertLeavePolicy,
   type KraTemplate,
   type InsertKraTemplate,
   type KraTemplateKpi,
@@ -66,6 +68,7 @@ import {
   type InsertKraAssignment,
   type KraAssignmentKpi,
   type InsertKraAssignmentKpi,
+  leavePolicies,
   contractorMasters,
   companyContractors,
   contractorEmployees,
@@ -655,6 +658,28 @@ export class DatabaseStorage implements IStorage {
 
   async deleteMasterDesignation(id: string): Promise<boolean> {
     const result = await db.delete(masterDesignations).where(eq(masterDesignations.id, id)).returning();
+    return result.length > 0;
+  }
+
+  // Leave Policies
+  async getLeavePoliciesByCompany(companyId: string): Promise<LeavePolicy[]> {
+    return await db.select().from(leavePolicies).where(eq(leavePolicies.companyId, companyId));
+  }
+  async getLeavePolicy(id: string): Promise<LeavePolicy | undefined> {
+    const result = await db.select().from(leavePolicies).where(eq(leavePolicies.id, id));
+    return result[0];
+  }
+  async createLeavePolicy(data: InsertLeavePolicy): Promise<LeavePolicy> {
+    const id = randomUUID();
+    const result = await db.insert(leavePolicies).values({ ...data, id }).returning();
+    return result[0];
+  }
+  async updateLeavePolicy(id: string, data: Partial<InsertLeavePolicy>): Promise<LeavePolicy | undefined> {
+    const result = await db.update(leavePolicies).set(data).where(eq(leavePolicies.id, id)).returning();
+    return result[0];
+  }
+  async deleteLeavePolicy(id: string): Promise<boolean> {
+    const result = await db.delete(leavePolicies).where(eq(leavePolicies.id, id)).returning();
     return result.length > 0;
   }
 

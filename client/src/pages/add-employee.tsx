@@ -1037,6 +1037,37 @@ export default function AddEmployee() {
                     />
                     <FormField
                       control={form.control}
+                      name="leavePolicyId"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Leave Policy</FormLabel>
+                          <Select onValueChange={(val) => field.onChange(val === "__none__" ? "" : val)} value={field.value || "__none__"}>
+                            <FormControl>
+                              <SelectTrigger data-testid="select-leave-policy">
+                                <SelectValue placeholder="Select leave policy" />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              <SelectItem value="__none__">None</SelectItem>
+                              {leavePolicies.filter(p => p.status === "active").length > 0 ? (
+                                leavePolicies.filter(p => p.status === "active").map((p) => (
+                                  <SelectItem key={p.id} value={p.id}>
+                                    {p.name}
+                                  </SelectItem>
+                                ))
+                              ) : (
+                                <SelectItem value="_none_lp" disabled>
+                                  No leave policies configured — add in Settings
+                                </SelectItem>
+                              )}
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
                       name="biometricDeviceId"
                       render={({ field }) => (
                         <FormItem>
@@ -1104,37 +1135,6 @@ export default function AddEmployee() {
                               ) : (
                                 <SelectItem value="_none_cm" disabled>
                                   No contractors configured — add in Settings
-                                </SelectItem>
-                              )}
-                            </SelectContent>
-                          </Select>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <FormField
-                      control={form.control}
-                      name="leavePolicyId"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Leave Policy</FormLabel>
-                          <Select onValueChange={(val) => field.onChange(val === "__none__" ? "" : val)} value={field.value || "__none__"}>
-                            <FormControl>
-                              <SelectTrigger data-testid="select-leave-policy">
-                                <SelectValue placeholder="Select leave policy" />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              <SelectItem value="__none__">None</SelectItem>
-                              {leavePolicies.filter(p => p.status === "active").length > 0 ? (
-                                leavePolicies.filter(p => p.status === "active").map((p) => (
-                                  <SelectItem key={p.id} value={p.id}>
-                                    {p.name}
-                                  </SelectItem>
-                                ))
-                              ) : (
-                                <SelectItem value="_none_lp" disabled>
-                                  No leave policies configured — add in Settings
                                 </SelectItem>
                               )}
                             </SelectContent>
