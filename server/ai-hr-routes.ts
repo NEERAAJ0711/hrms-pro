@@ -13,6 +13,10 @@ import {
   leaveRequests,
   leaveTypes,
   attendance,
+  salaryStructures,
+  loanAdvances,
+  kraAssignments,
+  kraAssignmentKpis,
 } from "../shared/schema";
 import { eq, and, desc, sql, or, ne, count, gte, lte } from "drizzle-orm";
 import { randomUUID } from "crypto";
@@ -98,14 +102,78 @@ async function fetchEmployeeContext(employeeId: string, companyId: string): Prom
   const monthStart = `${currentYear}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
   const monthEnd = `${currentYear}-${String(now.getMonth() + 1).padStart(2, "0")}-31`;
 
-  // ── Recent payslips (last 3) ──────────────────────────────────────────────
-  const rawPayslips = await db
-    .select()
-    .from(payroll)
-    .where(and(eq(payroll.employeeId, employeeId), eq(payroll.companyId, companyId)))
-    .orderBy(desc(payroll.year), desc(payroll.generatedAt))
-    .limit(3);
+  // Run all independent DB queries in parallel for speed
+  const [
+    rawPayslips,
+    allLeaveTypes,
+    allLeaveReqs,
+    monthAttendance,
+    rawSalaryStructure,
+    rawLoans,
+    rawKraAssignments,
+    empRow,
+  ] = await Promise.all([
+    // Recent payslips (last 3)
+    db.select().from(payroll)
+      .where(and(eq(payroll.employeeId, employeeId), eq(payroll.companyId, companyId)))
+      .orderBy(desc(payroll.year), desc(payroll.generatedAt))
+      .limit(3),
+    // Leave types
+    db.select().from(leaveTypes)
+      .where(and(eq(leaveTypes.companyId, companyId), eq(leaveTypes.status, "active"))),
+    // Leave requests (current year)
+    db.select().from(leaveRequests).where(
+      and(
+        eq(leaveRequests.employeeId, employeeId),
+        eq(leaveRequests.companyId, companyId),
+        gte(leaveRequests.startDate, `${currentYear}-01-01`),
+        lte(leaveRequests.endDate, `${currentYear}-12-31`),
+      ),
+    ),
+    // Attendance (current month)
+    db.select().from(attendance).where(
+      and(
+        eq(attendance.employeeId, employeeId),
+        eq(attendance.companyId, companyId),
+        gte(attendance.date, monthStart),
+        lte(attendance.date, monthEnd),
+      ),
+    ),
+    // Active salary structure (most recent)
+    db.select().from(salaryStructures)
+      .where(and(eq(salaryStructures.employeeId, employeeId), eq(salaryStructures.companyId, companyId), eq(salaryStructures.status, "active")))
+      .orderBy(desc(salaryStructures.effectiveFrom))
+      .limit(1),
+    // Loan & advances
+    db.select().from(loanAdvances)
+      .where(and(eq(loanAdvances.employeeId, employeeId), eq(loanAdvances.companyId, companyId)))
+      .orderBy(desc(loanAdvances.createdAt))
+      .limit(10),
+    // KRA assignments (current year)
+    db.select().from(kraAssignments)
+      .where(and(eq(kraAssignments.employeeId, employeeId), eq(kraAssignments.companyId, companyId), eq(kraAssignments.periodYear, currentYear)))
+      .orderBy(desc(kraAssignments.createdAt))
+      .limit(5),
+    // Employee row for static info (UAN, ESI, etc.)
+    db.select().from(employees).where(eq(employees.id, employeeId)).limit(1),
+  ]);
 
+  // ── Employee Info ─────────────────────────────────────────────────────────
+  const emp = empRow[0];
+  const employeeInfo = emp ? {
+    uan: emp.uan ?? null,
+    esiNumber: emp.esiNumber ?? null,
+    pan: emp.pan ?? null,
+    pfApplicable: emp.pfApplicable ?? false,
+    esiApplicable: emp.esiApplicable ?? false,
+    otApplicable: emp.otApplicable ?? false,
+    otRate: emp.otRate ?? null,
+    designation: emp.designation ?? null,
+    department: emp.department ?? null,
+    dateOfJoining: emp.dateOfJoining ?? null,
+  } : undefined;
+
+  // ── Recent payslips ───────────────────────────────────────────────────────
   const recentPayslips = rawPayslips.map((p) => ({
     month: p.month,
     year: p.year,
@@ -114,9 +182,23 @@ async function fetchEmployeeContext(employeeId: string, companyId: string): Prom
     totalDeductions: p.totalDeductions ?? 0,
     basicSalary: p.basicSalary ?? 0,
     hra: p.hra ?? 0,
+    conveyance: p.conveyance ?? 0,
+    medicalAllowance: p.medicalAllowance ?? 0,
+    specialAllowance: p.specialAllowance ?? 0,
+    otherAllowances: p.otherAllowances ?? 0,
+    customEarnings: (p.customEarnings ?? {}) as Record<string, number>,
     pfEmployee: p.pfEmployee ?? 0,
+    vpfAmount: p.vpfAmount ?? 0,
     esi: p.esi ?? 0,
+    professionalTax: p.professionalTax ?? 0,
+    lwfEmployee: p.lwfEmployee ?? 0,
     tds: p.tds ?? 0,
+    otherDeductions: p.otherDeductions ?? 0,
+    loanDeduction: p.loanDeduction ?? 0,
+    customDeductions: (p.customDeductions ?? {}) as Record<string, number>,
+    bonus: p.bonus ?? 0,
+    otHours: String(p.otHours ?? "0"),
+    otAmount: p.otAmount ?? 0,
     status: p.status,
     presentDays: String(p.presentDays ?? "0"),
     workingDays: p.workingDays ?? 0,
@@ -124,35 +206,11 @@ async function fetchEmployeeContext(employeeId: string, companyId: string): Prom
     paidOn: p.paidOn ?? null,
   }));
 
-  // ── Leave balance (current year) ─────────────────────────────────────────
-  const allLeaveTypes = await db
-    .select()
-    .from(leaveTypes)
-    .where(and(eq(leaveTypes.companyId, companyId), eq(leaveTypes.status, "active")));
-
-  const yearStart = `${currentYear}-01-01`;
-  const yearEnd = `${currentYear}-12-31`;
-
-  const allLeaveReqs = await db
-    .select()
-    .from(leaveRequests)
-    .where(
-      and(
-        eq(leaveRequests.employeeId, employeeId),
-        eq(leaveRequests.companyId, companyId),
-        gte(leaveRequests.startDate, yearStart),
-        lte(leaveRequests.endDate, yearEnd),
-      ),
-    );
-
+  // ── Leave balance ─────────────────────────────────────────────────────────
   const leaveSummary = allLeaveTypes.map((lt) => {
     const reqs = allLeaveReqs.filter((r) => r.leaveTypeId === lt.id);
-    const daysUsed = reqs
-      .filter((r) => r.status === "approved")
-      .reduce((sum, r) => sum + parseFloat(String(r.days ?? 0)), 0);
-    const daysPending = reqs
-      .filter((r) => r.status === "pending")
-      .reduce((sum, r) => sum + parseFloat(String(r.days ?? 0)), 0);
+    const daysUsed = reqs.filter((r) => r.status === "approved").reduce((sum, r) => sum + parseFloat(String(r.days ?? 0)), 0);
+    const daysPending = reqs.filter((r) => r.status === "pending").reduce((sum, r) => sum + parseFloat(String(r.days ?? 0)), 0);
     const daysAllowed = lt.daysPerYear ?? 0;
     return {
       leaveTypeName: lt.name,
@@ -164,25 +222,77 @@ async function fetchEmployeeContext(employeeId: string, companyId: string): Prom
     };
   });
 
-  // ── Attendance for current month ──────────────────────────────────────────
-  const monthAttendance = await db
-    .select()
-    .from(attendance)
-    .where(
-      and(
-        eq(attendance.employeeId, employeeId),
-        eq(attendance.companyId, companyId),
-        gte(attendance.date, monthStart),
-        lte(attendance.date, monthEnd),
-      ),
-    );
-
+  // ── Attendance ────────────────────────────────────────────────────────────
   const presentDays = monthAttendance.filter((a) => a.status === "present").length;
   const absentDays = monthAttendance.filter((a) => a.status === "absent").length;
   const halfDays = monthAttendance.filter((a) => a.status === "half_day").length;
   const leaveDaysAtt = monthAttendance.filter((a) => a.status === "on_leave").length;
 
+  // ── Salary Structure ──────────────────────────────────────────────────────
+  const ss = rawSalaryStructure[0];
+  const salaryStructure = ss ? {
+    basicSalary: ss.basicSalary,
+    hra: ss.hra ?? 0,
+    conveyance: ss.conveyance ?? 0,
+    medicalAllowance: ss.medicalAllowance ?? 0,
+    specialAllowance: ss.specialAllowance ?? 0,
+    otherAllowances: ss.otherAllowances ?? 0,
+    customEarnings: (ss.customEarnings ?? {}) as Record<string, number>,
+    grossSalary: ss.grossSalary,
+    pfEmployee: ss.pfEmployee ?? 0,
+    pfEmployer: ss.pfEmployer ?? 0,
+    vpfAmount: ss.vpfAmount ?? 0,
+    esi: ss.esi ?? 0,
+    professionalTax: ss.professionalTax ?? 0,
+    lwfEmployee: ss.lwfEmployee ?? 0,
+    tds: ss.tds ?? 0,
+    otherDeductions: ss.otherDeductions ?? 0,
+    customDeductions: (ss.customDeductions ?? {}) as Record<string, number>,
+    netSalary: ss.netSalary,
+    effectiveFrom: ss.effectiveFrom,
+  } : null;
+
+  // ── Loan & Advances ───────────────────────────────────────────────────────
+  const loanAdvancesList = rawLoans.map((la) => ({
+    type: la.type,
+    amount: la.amount,
+    purpose: la.purpose ?? null,
+    status: la.status,
+    requestDate: la.requestDate,
+    totalInstallments: la.totalInstallments ?? null,
+    installmentAmount: la.installmentAmount ?? null,
+    remainingBalance: la.remainingBalance ?? null,
+    deductionStartMonth: la.deductionStartMonth ?? null,
+  }));
+
+  // ── KRA Assignments with KPIs ─────────────────────────────────────────────
+  const kraList = await Promise.all(
+    rawKraAssignments.map(async (ka) => {
+      const kpis = await db.select().from(kraAssignmentKpis).where(eq(kraAssignmentKpis.assignmentId, ka.id));
+      return {
+        title: ka.title,
+        reviewPeriod: ka.reviewPeriod,
+        periodYear: ka.periodYear,
+        status: ka.status,
+        selfScore: ka.selfScore ?? null,
+        managerScore: ka.managerScore ?? null,
+        totalScore: ka.totalScore ?? null,
+        feedback: ka.feedback ?? null,
+        kpis: kpis.map((kpi) => ({
+          kpiName: kpi.kpiName,
+          weightage: kpi.weightage,
+          targetValue: kpi.targetValue ?? null,
+          actualValue: kpi.actualValue ?? null,
+          selfScore: kpi.selfScore ?? null,
+          managerScore: kpi.managerScore ?? null,
+          computedScore: kpi.computedScore ?? null,
+        })),
+      };
+    }),
+  );
+
   return {
+    employeeInfo,
     recentPayslips,
     leaveSummary,
     currentMonthAttendance: {
@@ -193,6 +303,9 @@ async function fetchEmployeeContext(employeeId: string, companyId: string): Prom
       leaveDays: leaveDaysAtt,
       totalRecords: monthAttendance.length,
     },
+    salaryStructure,
+    loanAdvances: loanAdvancesList,
+    kraAssignments: kraList,
   };
 }
 

@@ -126,6 +126,19 @@ export async function loadOpenAIKeyFromDB(): Promise<void> {
 // ─── Employee Live Data Context ───────────────────────────────────────────────
 
 export interface EmployeeContext {
+  // Employee static info
+  employeeInfo?: {
+    uan: string | null;
+    esiNumber: string | null;
+    pan: string | null;
+    pfApplicable: boolean;
+    esiApplicable: boolean;
+    otApplicable: boolean;
+    otRate: string | null;
+    designation: string | null;
+    department: string | null;
+    dateOfJoining: string | null;
+  };
   // Last few payslips
   recentPayslips: Array<{
     month: string;
@@ -135,9 +148,23 @@ export interface EmployeeContext {
     totalDeductions: number;
     basicSalary: number;
     hra: number;
+    conveyance: number;
+    medicalAllowance: number;
+    specialAllowance: number;
+    otherAllowances: number;
+    customEarnings: Record<string, number>;
     pfEmployee: number;
+    vpfAmount: number;
     esi: number;
+    professionalTax: number;
+    lwfEmployee: number;
     tds: number;
+    otherDeductions: number;
+    loanDeduction: number;
+    customDeductions: Record<string, number>;
+    bonus: number;
+    otHours: string;
+    otAmount: number;
     status: string;
     presentDays: string;
     workingDays: number;
@@ -162,6 +189,60 @@ export interface EmployeeContext {
     leaveDays: number;
     totalRecords: number;
   };
+  // Active salary structure (CTC breakdown)
+  salaryStructure?: {
+    basicSalary: number;
+    hra: number;
+    conveyance: number;
+    medicalAllowance: number;
+    specialAllowance: number;
+    otherAllowances: number;
+    customEarnings: Record<string, number>;
+    grossSalary: number;
+    pfEmployee: number;
+    pfEmployer: number;
+    vpfAmount: number;
+    esi: number;
+    professionalTax: number;
+    lwfEmployee: number;
+    tds: number;
+    otherDeductions: number;
+    customDeductions: Record<string, number>;
+    netSalary: number;
+    effectiveFrom: string;
+  } | null;
+  // Active loan/advance records
+  loanAdvances: Array<{
+    type: string;
+    amount: number;
+    purpose: string | null;
+    status: string;
+    requestDate: string;
+    totalInstallments: number | null;
+    installmentAmount: number | null;
+    remainingBalance: number | null;
+    deductionStartMonth: string | null;
+  }>;
+  // KRA/KPI assignments (current year)
+  kraAssignments: Array<{
+    title: string;
+    reviewPeriod: string;
+    periodYear: number;
+    status: string;
+    selfScore: number | null;
+    managerScore: number | null;
+    totalScore: number | null;
+    feedback: string | null;
+    kpis: Array<{
+      kpiName: string;
+      weightage: number;
+      targetValue: number | null;
+      actualValue: number | null;
+      selfScore: number | null;
+      managerScore: number | null;
+      computedScore: number | null;
+    }>;
+  }>;
 }
 
 function formatCurrency(amount: number): string {
@@ -174,16 +255,55 @@ function buildLiveDataSection(ctx: EmployeeContext | null): string {
   const lines: string[] = ["\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"];
   lines.push("LIVE EMPLOYEE DATA (always use these exact figures in your responses):");
 
+  // ── Employee Info ─────────────────────────────────────────────────────────
+  if (ctx.employeeInfo) {
+    const ei = ctx.employeeInfo;
+    lines.push("\nEMPLOYEE INFO:");
+    if (ei.designation) lines.push(`  Designation: ${ei.designation}${ei.department ? `, Department: ${ei.department}` : ""}`);
+    if (ei.dateOfJoining) lines.push(`  Date of Joining: ${ei.dateOfJoining}`);
+    if (ei.uan) lines.push(`  UAN Number: ${ei.uan}`);
+    if (ei.esiNumber) lines.push(`  ESI Number: ${ei.esiNumber}`);
+    if (ei.pan) lines.push(`  PAN: ${ei.pan}`);
+    lines.push(`  PF Applicable: ${ei.pfApplicable ? "Yes" : "No"}, ESI Applicable: ${ei.esiApplicable ? "Yes" : "No"}`);
+    if (ei.otApplicable) lines.push(`  OT Applicable: Yes (Rate: ${ei.otRate ?? "2x"})`);
+  }
+
+  // ── Salary Structure ──────────────────────────────────────────────────────
+  if (ctx.salaryStructure) {
+    const ss = ctx.salaryStructure;
+    lines.push(`\nSALARY STRUCTURE (effective ${ss.effectiveFrom}):`);
+    lines.push(`  EARNINGS:`);
+    lines.push(`    Basic Salary: ${formatCurrency(ss.basicSalary)}`);
+    if (ss.hra) lines.push(`    HRA: ${formatCurrency(ss.hra)}`);
+    if (ss.conveyance) lines.push(`    Conveyance: ${formatCurrency(ss.conveyance)}`);
+    if (ss.medicalAllowance) lines.push(`    Medical Allowance: ${formatCurrency(ss.medicalAllowance)}`);
+    if (ss.specialAllowance) lines.push(`    Special Allowance: ${formatCurrency(ss.specialAllowance)}`);
+    if (ss.otherAllowances) lines.push(`    Other Allowances: ${formatCurrency(ss.otherAllowances)}`);
+    Object.entries(ss.customEarnings ?? {}).forEach(([k, v]) => { if (v) lines.push(`    ${k}: ${formatCurrency(v)}`); });
+    lines.push(`  Gross Salary: ${formatCurrency(ss.grossSalary)}`);
+    lines.push(`  DEDUCTIONS:`);
+    if (ss.pfEmployee) lines.push(`    PF (Employee): ${formatCurrency(ss.pfEmployee)}`);
+    if (ss.pfEmployer) lines.push(`    PF (Employer): ${formatCurrency(ss.pfEmployer)}`);
+    if (ss.vpfAmount) lines.push(`    VPF: ${formatCurrency(ss.vpfAmount)}`);
+    if (ss.esi) lines.push(`    ESI: ${formatCurrency(ss.esi)}`);
+    if (ss.professionalTax) lines.push(`    Professional Tax: ${formatCurrency(ss.professionalTax)}`);
+    if (ss.lwfEmployee) lines.push(`    LWF: ${formatCurrency(ss.lwfEmployee)}`);
+    if (ss.tds) lines.push(`    TDS: ${formatCurrency(ss.tds)}`);
+    if (ss.otherDeductions) lines.push(`    Other Deductions: ${formatCurrency(ss.otherDeductions)}`);
+    Object.entries(ss.customDeductions ?? {}).forEach(([k, v]) => { if (v) lines.push(`    ${k}: ${formatCurrency(v)}`); });
+    lines.push(`  Net Salary (CTC take-home): ${formatCurrency(ss.netSalary)}`);
+  }
+
   // ── Payslips ──────────────────────────────────────────────────────────────
   if (ctx.recentPayslips.length > 0) {
     lines.push("\nRECENT PAYSLIPS:");
     ctx.recentPayslips.forEach((p) => {
       const statusLabel = p.status === "paid" ? `Paid${p.paidOn ? ` on ${p.paidOn}` : ""}` : p.status === "processed" ? "Processed" : "Draft";
-      lines.push(
-        `  • ${p.month} ${p.year}: Gross ${formatCurrency(p.grossSalary)}, Net ${formatCurrency(p.netSalary)} [${statusLabel}]` +
-        `\n    Basic: ${formatCurrency(p.basicSalary)}, HRA: ${formatCurrency(p.hra)}, PF: ${formatCurrency(p.pfEmployee)}, ESI: ${formatCurrency(p.esi)}, TDS: ${formatCurrency(p.tds)}` +
-        `\n    Present: ${p.presentDays}/${p.workingDays} days, Leave: ${p.leaveDays} days`
-      );
+      lines.push(`  • ${p.month} ${p.year}: Gross ${formatCurrency(p.grossSalary)}, Net ${formatCurrency(p.netSalary)} [${statusLabel}]`);
+      lines.push(`    Earnings: Basic ${formatCurrency(p.basicSalary)}, HRA ${formatCurrency(p.hra)}, Conv ${formatCurrency(p.conveyance)}, Med ${formatCurrency(p.medicalAllowance)}, Spl ${formatCurrency(p.specialAllowance)}${p.bonus ? `, Bonus ${formatCurrency(p.bonus)}` : ""}${parseFloat(p.otHours) > 0 ? `, OT ${p.otHours}hrs=${formatCurrency(p.otAmount)}` : ""}`);
+      lines.push(`    Deductions: PF ${formatCurrency(p.pfEmployee)}, ESI ${formatCurrency(p.esi)}, TDS ${formatCurrency(p.tds)}${p.professionalTax ? `, PT ${formatCurrency(p.professionalTax)}` : ""}${p.lwfEmployee ? `, LWF ${formatCurrency(p.lwfEmployee)}` : ""}${p.loanDeduction ? `, Loan/Adv ${formatCurrency(p.loanDeduction)}` : ""}${p.vpfAmount ? `, VPF ${formatCurrency(p.vpfAmount)}` : ""}${p.otherDeductions ? `, Other ${formatCurrency(p.otherDeductions)}` : ""}`);
+      Object.entries(p.customDeductions ?? {}).forEach(([k, v]) => { if (v) lines.push(`    Custom Deduction - ${k}: ${formatCurrency(v)}`); });
+      lines.push(`    Present: ${p.presentDays}/${p.workingDays} days, Leave: ${p.leaveDays} days`);
     });
   } else {
     lines.push("\nRECENT PAYSLIPS: No payslip records found yet.");
@@ -207,8 +327,45 @@ function buildLiveDataSection(ctx: EmployeeContext | null): string {
     lines.push(`\nATTENDANCE (${att.month}): No attendance records for this month yet.`);
   }
 
+  // ── Loan / Advance ────────────────────────────────────────────────────────
+  if (ctx.loanAdvances && ctx.loanAdvances.length > 0) {
+    lines.push("\nLOAN & ADVANCE RECORDS:");
+    ctx.loanAdvances.forEach((la) => {
+      const typeLabel = la.type === "loan" ? "Loan" : "Advance";
+      lines.push(`  • ${typeLabel}: ${formatCurrency(la.amount)} [${la.status.toUpperCase()}]${la.purpose ? ` — Purpose: ${la.purpose}` : ""}`);
+      if (la.remainingBalance != null) lines.push(`    Remaining Balance: ${formatCurrency(la.remainingBalance)}`);
+      if (la.totalInstallments && la.installmentAmount) lines.push(`    EMI: ${formatCurrency(la.installmentAmount)}/month × ${la.totalInstallments} installments`);
+      if (la.deductionStartMonth) lines.push(`    Deduction starts: ${la.deductionStartMonth}`);
+    });
+  } else {
+    lines.push("\nLOAN & ADVANCE: No active loan or advance records.");
+  }
+
+  // ── KRA / KPI ─────────────────────────────────────────────────────────────
+  if (ctx.kraAssignments && ctx.kraAssignments.length > 0) {
+    lines.push("\nKRA / KPI ASSIGNMENTS:");
+    ctx.kraAssignments.forEach((ka) => {
+      lines.push(`  • ${ka.title} [${ka.reviewPeriod} ${ka.periodYear}] — Status: ${ka.status}`);
+      if (ka.totalScore != null) lines.push(`    Final Score: ${ka.totalScore.toFixed(1)}/100`);
+      else if (ka.managerScore != null) lines.push(`    Manager Score: ${ka.managerScore.toFixed(1)}/100`);
+      else if (ka.selfScore != null) lines.push(`    Self Score: ${ka.selfScore.toFixed(1)}/100 (pending manager review)`);
+      if (ka.feedback) lines.push(`    Feedback: ${ka.feedback}`);
+      if (ka.kpis && ka.kpis.length > 0) {
+        lines.push(`    KPIs:`);
+        ka.kpis.forEach((kpi) => {
+          const target = kpi.targetValue != null ? `Target: ${kpi.targetValue}` : "";
+          const actual = kpi.actualValue != null ? `Actual: ${kpi.actualValue}` : "Actual: not entered";
+          const score = kpi.computedScore != null ? `Score: ${kpi.computedScore.toFixed(1)}` : "";
+          lines.push(`      - ${kpi.kpiName} (wt: ${kpi.weightage}%) | ${target} | ${actual}${score ? ` | ${score}` : ""}`);
+        });
+      }
+    });
+  } else {
+    lines.push("\nKRA / KPI: No KRA assignments found for this year.");
+  }
+
   lines.push("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
-  lines.push("When employees ask about their salary, payslip, leave balance, or attendance — ALWAYS use the exact figures above. Do NOT say 'check the portal' for these — you already have the data.");
+  lines.push("When employees ask about salary, payslip, leave, attendance, OT, loan, advance, KRA, KPI, UAN, deductions, or salary structure — ALWAYS use the exact figures above. Do NOT say 'check the portal' for these — you already have the data.");
 
   return lines.join("\n");
 }
@@ -371,11 +528,139 @@ function buildRuleBasedResponse(
       : `For your attendance records, please check the **My Attendance** module in the sidebar.`;
   }
 
+  // OT / Overtime query
+  if (msg.includes("overtime") || msg.includes(" ot ") || msg.match(/\bot\b/) || msg.includes("ओटी") || msg.includes("ओवरटाइम")) {
+    if (ctx && ctx.recentPayslips.length > 0) {
+      const latest = ctx.recentPayslips[0];
+      const otHrs = parseFloat(latest.otHours ?? "0");
+      if (otHrs > 0) {
+        return isHindi
+          ? `${firstName} जी, ${latest.month} ${latest.year} में आपके OT:\n- OT Hours: ${latest.otHours} hours\n- OT Amount: ₹${latest.otAmount.toLocaleString("en-IN")}`
+          : `${firstName}, your OT for **${latest.month} ${latest.year}**:\n- OT Hours: **${latest.otHours} hrs**\n- OT Amount: **₹${latest.otAmount.toLocaleString("en-IN")}**\n\nOT rate: ${ctx.employeeInfo?.otRate ?? "2x"} of basic hourly rate.`;
+      }
+      return isHindi
+        ? `${firstName} जी, ${latest.month} ${latest.year} में कोई OT नहीं है।`
+        : `${firstName}, no overtime recorded for **${latest.month} ${latest.year}**. ${ctx.employeeInfo?.otApplicable ? "OT is enabled for your profile." : "OT may not be applicable to your role — check with HR."}`;
+    }
+    return isHindi
+      ? `${firstName} जी, OT records Payroll module में देखें।`
+      : `For OT records, please check the **Payroll** module in the sidebar.`;
+  }
+
+  // Salary Structure / CTC query
+  if (msg.includes("salary structure") || msg.includes("ctc") || msg.includes("structure") || msg.includes("salary breakup") || msg.includes("वेतन संरचना")) {
+    if (ctx?.salaryStructure) {
+      const ss = ctx.salaryStructure;
+      return isHindi
+        ? `${firstName} जी, आपकी salary structure (effective ${ss.effectiveFrom}):\n**Earnings:**\n- Basic: ₹${ss.basicSalary.toLocaleString("en-IN")}\n- HRA: ₹${ss.hra.toLocaleString("en-IN")}\n- Gross: ₹${ss.grossSalary.toLocaleString("en-IN")}\n**Deductions:**\n- PF: ₹${ss.pfEmployee.toLocaleString("en-IN")}\n- ESI: ₹${ss.esi.toLocaleString("en-IN")}\n- TDS: ₹${ss.tds.toLocaleString("en-IN")}\n**Net Salary: ₹${ss.netSalary.toLocaleString("en-IN")}**`
+        : `${firstName}, your salary structure (effective ${ss.effectiveFrom}):\n\n**Earnings:**\n- Basic: ₹${ss.basicSalary.toLocaleString("en-IN")}\n- HRA: ₹${ss.hra.toLocaleString("en-IN")}\n- Conveyance: ₹${ss.conveyance.toLocaleString("en-IN")}\n- Special Allowance: ₹${ss.specialAllowance.toLocaleString("en-IN")}\n- **Gross: ₹${ss.grossSalary.toLocaleString("en-IN")}**\n\n**Deductions:**\n- PF (Employee): ₹${ss.pfEmployee.toLocaleString("en-IN")}\n- ESI: ₹${ss.esi.toLocaleString("en-IN")}\n- TDS: ₹${ss.tds.toLocaleString("en-IN")}${ss.professionalTax ? `\n- Professional Tax: ₹${ss.professionalTax.toLocaleString("en-IN")}` : ""}\n\n**Net Salary: ₹${ss.netSalary.toLocaleString("en-IN")}**`;
+    }
+    return isHindi
+      ? `${firstName} जी, salary structure के लिए HR admin से संपर्क करें।`
+      : `${firstName}, your salary structure hasn't been set up yet. Please contact your HR admin.`;
+  }
+
+  // Deduction details
+  if (msg.includes("deduction") || msg.includes("कटौती") || msg.includes("pf deduction") || msg.includes("tds")) {
+    if (ctx && ctx.recentPayslips.length > 0) {
+      const p = ctx.recentPayslips[0];
+      const deductionLines = [
+        p.pfEmployee ? `- PF (Employee): ₹${p.pfEmployee.toLocaleString("en-IN")}` : "",
+        p.vpfAmount ? `- VPF: ₹${p.vpfAmount.toLocaleString("en-IN")}` : "",
+        p.esi ? `- ESI: ₹${p.esi.toLocaleString("en-IN")}` : "",
+        p.tds ? `- TDS: ₹${p.tds.toLocaleString("en-IN")}` : "",
+        p.professionalTax ? `- Professional Tax: ₹${p.professionalTax.toLocaleString("en-IN")}` : "",
+        p.lwfEmployee ? `- LWF: ₹${p.lwfEmployee.toLocaleString("en-IN")}` : "",
+        p.loanDeduction ? `- Loan/Advance EMI: ₹${p.loanDeduction.toLocaleString("en-IN")}` : "",
+        p.otherDeductions ? `- Other: ₹${p.otherDeductions.toLocaleString("en-IN")}` : "",
+        ...Object.entries(p.customDeductions ?? {}).filter(([, v]) => v).map(([k, v]) => `- ${k}: ₹${(v as number).toLocaleString("en-IN")}`),
+      ].filter(Boolean).join("\n");
+      return isHindi
+        ? `${firstName} जी, ${p.month} ${p.year} की deductions:\n${deductionLines}\n**Total Deductions: ₹${p.totalDeductions.toLocaleString("en-IN")}**`
+        : `${firstName}, deductions for **${p.month} ${p.year}**:\n\n${deductionLines}\n\n**Total Deductions: ₹${p.totalDeductions.toLocaleString("en-IN")}**`;
+    }
+    return isHindi
+      ? `${firstName} जी, deduction details Payroll module में देखें।`
+      : `For deduction details, check the **Payroll** module in the sidebar.`;
+  }
+
+  // Loan / Advance query
+  if (msg.includes("loan") || msg.includes("advance") || msg.includes("emi") || msg.includes("लोन") || msg.includes("अग्रिम")) {
+    if (ctx && ctx.loanAdvances && ctx.loanAdvances.length > 0) {
+      const active = ctx.loanAdvances.filter((la) => ["active", "approved"].includes(la.status));
+      const pending = ctx.loanAdvances.filter((la) => la.status === "pending");
+      let reply = `${firstName}, here are your loan & advance records:\n\n`;
+      if (active.length > 0) {
+        reply += `**Active Records:**\n`;
+        active.forEach((la) => {
+          reply += `• ${la.type === "loan" ? "Loan" : "Advance"}: ₹${la.amount.toLocaleString("en-IN")} [${la.status.toUpperCase()}]`;
+          if (la.remainingBalance != null) reply += ` — Remaining: ₹${la.remainingBalance.toLocaleString("en-IN")}`;
+          if (la.installmentAmount) reply += `, EMI: ₹${la.installmentAmount.toLocaleString("en-IN")}/month`;
+          if (la.purpose) reply += `\n  Purpose: ${la.purpose}`;
+          reply += "\n";
+        });
+      }
+      if (pending.length > 0) {
+        reply += `\n**Pending Approval:**\n`;
+        pending.forEach((la) => {
+          reply += `• ${la.type === "loan" ? "Loan" : "Advance"}: ₹${la.amount.toLocaleString("en-IN")} (requested ${la.requestDate})\n`;
+        });
+      }
+      return reply.trim();
+    }
+    return isHindi
+      ? `${firstName} जी, कोई active loan/advance record नहीं है। नया apply करने के लिए Loan & Advance module में जाएं।`
+      : `${firstName}, you have no active loan or advance records. To apply for one, use the **Loan & Advance** module in the sidebar.`;
+  }
+
+  // KRA / KPI query
+  if (msg.includes("kra") || msg.includes("kpi") || msg.includes("performance") || msg.includes("target") || msg.includes("score") || msg.includes("प्रदर्शन")) {
+    if (ctx && ctx.kraAssignments && ctx.kraAssignments.length > 0) {
+      const ka = ctx.kraAssignments[0];
+      let reply = `${firstName}, your KRA/KPI for **${ka.reviewPeriod} ${ka.periodYear}** — **${ka.title}** [${ka.status.toUpperCase()}]:\n\n`;
+      if (ka.totalScore != null) reply += `**Final Score: ${ka.totalScore.toFixed(1)}/100**\n`;
+      else if (ka.managerScore != null) reply += `Manager Score: ${ka.managerScore.toFixed(1)}/100\n`;
+      else if (ka.selfScore != null) reply += `Self Score: ${ka.selfScore.toFixed(1)}/100 (manager review pending)\n`;
+      if (ka.kpis && ka.kpis.length > 0) {
+        reply += `\nKPIs:\n`;
+        ka.kpis.forEach((kpi) => {
+          reply += `• **${kpi.kpiName}** (wt: ${kpi.weightage}%): Target ${kpi.targetValue ?? "—"} | Actual ${kpi.actualValue ?? "not entered"}`;
+          if (kpi.computedScore != null) reply += ` | Score: ${kpi.computedScore.toFixed(1)}`;
+          reply += "\n";
+        });
+      }
+      if (ka.feedback) reply += `\nFeedback: ${ka.feedback}`;
+      return reply.trim();
+    }
+    return isHindi
+      ? `${firstName} जी, इस साल के लिए कोई KRA/KPI assignment नहीं मिला। अपने manager से संपर्क करें।`
+      : `${firstName}, no KRA/KPI assignments found for this year. Please contact your manager or HR to get your goals assigned.`;
+  }
+
+  // UAN / ESI number query
+  if (msg.includes("uan") || msg.includes("epf number") || msg.includes("esi number") || msg.includes("pf number") || msg.includes("यूएएन")) {
+    if (ctx?.employeeInfo) {
+      const ei = ctx.employeeInfo;
+      if (ei.uan) {
+        return isHindi
+          ? `${firstName} जी, आपका UAN Number: **${ei.uan}**${ei.esiNumber ? `\nESI Number: **${ei.esiNumber}**` : ""}`
+          : `${firstName}, your UAN (Universal Account Number): **${ei.uan}**${ei.esiNumber ? `\nESI Number: **${ei.esiNumber}**` : ""}\n\nYou can use this UAN to check your PF balance at [EPFO Member Portal](https://unifiedmembersportal.epfindia.gov.in/).`;
+      }
+      return isHindi
+        ? `${firstName} जी, आपका UAN अभी assign नहीं हुआ है। HR admin से संपर्क करें।`
+        : `${firstName}, your UAN has not been assigned yet. Please contact your HR admin. ${!kyc.aadhaarSubmitted ? "Note: Your Aadhaar is still pending — UAN generation requires Aadhaar." : ""}`;
+    }
+    return isHindi
+      ? `${firstName} जी, UAN जानकारी के लिए HR admin से संपर्क करें।`
+      : `For your UAN number, please contact your HR admin.`;
+  }
+
   // PF query
   if (msg.includes("pf") || msg.includes("provident") || msg.includes("epfo") || msg.includes("पीएफ")) {
+    const uan = ctx?.employeeInfo?.uan;
     return isHindi
-      ? `${firstName} जी, PF लाभ के लिए Aadhaar, PAN और bank details का KYC जरूरी है। ${!kyc.aadhaarSubmitted ? "आपका Aadhaar अभी pending है।" : ""}`
-      : `For PF benefits and UAN activation, you need Aadhaar, PAN, and bank details KYC complete. ${!kyc.aadhaarSubmitted ? "Your Aadhaar is still pending — please upload it." : "Your Aadhaar is submitted ✅"}`;
+      ? `${firstName} जी, PF लाभ के लिए Aadhaar, PAN और bank details का KYC जरूरी है।${uan ? ` आपका UAN: **${uan}**` : ""} ${!kyc.aadhaarSubmitted ? "आपका Aadhaar अभी pending है।" : ""}`
+      : `For PF benefits and UAN activation, you need Aadhaar, PAN, and bank details KYC complete.${uan ? ` Your UAN: **${uan}**` : ""} ${!kyc.aadhaarSubmitted ? "Your Aadhaar is still pending — please upload it." : "Your Aadhaar is submitted ✅"}`;
   }
 
   // Thank you
