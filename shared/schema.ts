@@ -134,6 +134,7 @@ export const employees = pgTable("employees", {
   biometricDeviceId: text("biometric_device_id"),
   wageGradeId: varchar("wage_grade_id", { length: 36 }),
   contractorMasterId: varchar("contractor_master_id", { length: 36 }),
+  leavePolicyId: varchar("leave_policy_id", { length: 36 }),
   registeredFaceImage: text("registered_face_image"),
   fatherHusbandName: text("father_husband_name"),
   presentAddress: text("present_address"),
@@ -426,6 +427,24 @@ export type LeaveRequest = typeof leaveRequests.$inferSelect;
 
 export const leaveRequestStatuses = ["pending", "approved", "rejected", "cancelled"] as const;
 export type LeaveRequestStatus = typeof leaveRequestStatuses[number];
+
+// Leave Policies table
+export const leavePolicies = pgTable("leave_policies", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  companyId: varchar("company_id", { length: 36 }).notNull(),
+  name: text("name").notNull(),
+  description: text("description"),
+  annualLeaveDays: integer("annual_leave_days").notNull().default(0),
+  sickLeaveDays: integer("sick_leave_days").notNull().default(0),
+  casualLeaveDays: integer("casual_leave_days").notNull().default(0),
+  maternityLeaveDays: integer("maternity_leave_days").notNull().default(0),
+  paternityLeaveDays: integer("paternity_leave_days").notNull().default(0),
+  status: text("status").notNull().default("active"),
+});
+
+export const insertLeavePolicySchema = createInsertSchema(leavePolicies).omit({ id: true });
+export type InsertLeavePolicy = z.infer<typeof insertLeavePolicySchema>;
+export type LeavePolicy = typeof leavePolicies.$inferSelect;
 
 // Salary Structure table
 export const salaryStructures = pgTable("salary_structures", {

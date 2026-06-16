@@ -6937,6 +6937,42 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ===== Leave Policies Routes =====
+  app.get("/api/leave-policies", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const { companyId } = req.query;
+      const cid = (companyId as string) || user.companyId;
+      if (!cid) return res.json([]);
+      return res.json(await storage.getLeavePoliciesByCompany(cid));
+    } catch { res.status(500).json({ error: "Failed to fetch leave policies" }); }
+  });
+
+  app.post("/api/leave-policies", requireAuth, requireAction("masters", "edit"), async (req, res) => {
+    try {
+      const { insertLeavePolicySchema } = await import("@shared/schema");
+      const data = insertLeavePolicySchema.parse(req.body);
+      const policy = await storage.createLeavePolicy(data);
+      res.status(201).json(policy);
+    } catch (error: any) { res.status(400).json({ error: error.message || "Failed to create leave policy" }); }
+  });
+
+  app.patch("/api/leave-policies/:id", requireAuth, requireAction("masters", "edit"), async (req, res) => {
+    try {
+      const updated = await storage.updateLeavePolicy(req.params.id, req.body);
+      if (!updated) return res.status(404).json({ error: "Leave policy not found" });
+      res.json(updated);
+    } catch { res.status(500).json({ error: "Failed to update leave policy" }); }
+  });
+
+  app.delete("/api/leave-policies/:id", requireAuth, requireAction("masters", "edit"), async (req, res) => {
+    try {
+      const success = await storage.deleteLeavePolicy(req.params.id);
+      if (!success) return res.status(404).json({ error: "Leave policy not found" });
+      res.json({ success });
+    } catch { res.status(500).json({ error: "Failed to delete leave policy" }); }
+  });
+
   // Register compliance routes (completely separate module)
   registerComplianceRoutes(app);
 

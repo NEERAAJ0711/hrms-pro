@@ -16,7 +16,7 @@ import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth";
 import { useCan } from "@/hooks/use-can";
-import type { Company, Setting, MasterDepartment, MasterDesignation, MasterLocation, EarningHead, DeductionHead, StatutorySettings, TimeOfficePolicy, Holiday, WageGrade, ContractorMaster } from "@shared/schema";
+import type { Company, Setting, MasterDepartment, MasterDesignation, MasterLocation, EarningHead, DeductionHead, StatutorySettings, TimeOfficePolicy, Holiday, WageGrade, ContractorMaster, LeavePolicy } from "@shared/schema";
 import { Textarea } from "@/components/ui/textarea";
 
 interface SettingFormData {
@@ -751,6 +751,7 @@ function MastersSettings({ companyId, selectedCompany, userRole }: { companyId: 
           <TabsTrigger value="deductions">Deduction Heads</TabsTrigger>
           <TabsTrigger value="wage-grades">Wage Grades</TabsTrigger>
           <TabsTrigger value="contractor-masters">Contractor Masters</TabsTrigger>
+          <TabsTrigger value="leave-policies">Leave Policies</TabsTrigger>
         </TabsList>
 
         <TabsContent value="departments">
@@ -773,6 +774,9 @@ function MastersSettings({ companyId, selectedCompany, userRole }: { companyId: 
         </TabsContent>
         <TabsContent value="contractor-masters">
           <ContractorMastersManager companyId={companyId!} />
+        </TabsContent>
+        <TabsContent value="leave-policies">
+          <LeavePoliciesManager companyId={companyId!} />
         </TabsContent>
       </Tabs>
     </div>
@@ -3311,6 +3315,217 @@ function WageGradesManager({ companyId }: { companyId: string }) {
 }
 
 const COMPLIANCE_OPTIONS = ["PF", "ESI", "PT", "LWF", "TDS", "Minimum Wages", "Bonus", "Gratuity"];
+
+function LeavePoliciesManager({ companyId }: { companyId: string }) {
+  const { toast } = useToast();
+  const { can } = useCan();
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editingItem, setEditingItem] = useState<LeavePolicy | null>(null);
+  const [formData, setFormData] = useState({
+    name: "",
+    description: "",
+    annualLeaveDays: 0,
+    sickLeaveDays: 0,
+    casualLeaveDays: 0,
+    maternityLeaveDays: 0,
+    paternityLeaveDays: 0,
+    status: "active",
+  });
+
+  const { data: records = [], isLoading } = useQuery<LeavePolicy[]>({
+    queryKey: [`/api/leave-policies?companyId=${companyId}`],
+    queryFn: async () => {
+      const res = await fetch(`/api/leave-policies?companyId=${companyId}`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch leave policies");
+      return res.json();
+    },
+    enabled: !!companyId,
+  });
+
+  const invalidate = () => {
+    queryClient.invalidateQueries({ predicate: (q) => (q.queryKey[0] as string)?.includes("/api/leave-policies") });
+  };
+
+  const createMutation = useMutation({
+    mutationFn: (data: any) => apiRequest("POST", "/api/leave-policies", { ...data, companyId }),
+    onSuccess: () => { invalidate(); toast({ title: "Leave policy created" }); setDialogOpen(false); resetForm(); },
+    onError: (err: Error) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: any }) => apiRequest("PATCH", `/api/leave-policies/${id}`, data),
+    onSuccess: () => { invalidate(); toast({ title: "Leave policy updated" }); setDialogOpen(false); resetForm(); },
+    onError: (err: Error) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => apiRequest("DELETE", `/api/leave-policies/${id}`),
+    onSuccess: () => { invalidate(); toast({ title: "Leave policy deleted" }); },
+    onError: (err: Error) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const resetForm = () => {
+    setFormData({ name: "", description: "", annualLeaveDays: 0, sickLeaveDays: 0, casualLeaveDays: 0, maternityLeaveDays: 0, paternityLeaveDays: 0, status: "active" });
+    setEditingItem(null);
+  };
+
+  const handleEdit = (item: LeavePolicy) => {
+    setEditingItem(item);
+    setFormData({
+      name: item.name,
+      description: item.description || "",
+      annualLeaveDays: item.annualLeaveDays ?? 0,
+      sickLeaveDays: item.sickLeaveDays ?? 0,
+      casualLeaveDays: item.casualLeaveDays ?? 0,
+      maternityLeaveDays: item.maternityLeaveDays ?? 0,
+      paternityLeaveDays: item.paternityLeaveDays ?? 0,
+      status: item.status,
+    });
+    setDialogOpen(true);
+  };
+
+  const handleSubmit = () => {
+    if (!formData.name.trim()) {
+      toast({ title: "Policy Name is required", variant: "destructive" });
+      return;
+    }
+    if (editingItem) {
+      updateMutation.mutate({ id: editingItem.id, data: formData });
+    } else {
+      createMutation.mutate(formData);
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle className="flex items-center gap-2">
+              <CalendarDays className="h-5 w-5" />
+              Leave Policies
+            </CardTitle>
+            <CardDescription>Define leave entitlements per policy and assign them to employees</CardDescription>
+          </div>
+          {can("masters", "edit") && (
+            <Button onClick={() => { resetForm(); setDialogOpen(true); }} data-testid="button-add-leave-policy">
+              <Plus className="h-4 w-4 mr-2" />
+              Add Policy
+            </Button>
+          )}
+        </div>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <div className="flex items-center justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
+        ) : records.length === 0 ? (
+          <div className="text-center py-8 text-muted-foreground">No leave policies configured. Click "Add Policy" to create one.</div>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Policy Name</TableHead>
+                <TableHead>Annual</TableHead>
+                <TableHead>Sick</TableHead>
+                <TableHead>Casual</TableHead>
+                <TableHead>Maternity</TableHead>
+                <TableHead>Paternity</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead className="w-24">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {records.map((r) => (
+                <TableRow key={r.id} data-testid={`row-leave-policy-${r.id}`}>
+                  <TableCell className="font-medium">
+                    <div>{r.name}</div>
+                    {r.description && <div className="text-xs text-muted-foreground">{r.description}</div>}
+                  </TableCell>
+                  <TableCell>{r.annualLeaveDays} days</TableCell>
+                  <TableCell>{r.sickLeaveDays} days</TableCell>
+                  <TableCell>{r.casualLeaveDays} days</TableCell>
+                  <TableCell>{r.maternityLeaveDays} days</TableCell>
+                  <TableCell>{r.paternityLeaveDays} days</TableCell>
+                  <TableCell>
+                    <Badge variant={r.status === "active" ? "default" : "secondary"}>{r.status}</Badge>
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex gap-1">
+                      <Button size="icon" variant="ghost" onClick={() => handleEdit(r)} data-testid={`button-edit-leave-policy-${r.id}`}>
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                      <Button size="icon" variant="ghost" onClick={() => { if (confirm(`Delete "${r.name}"?`)) deleteMutation.mutate(r.id); }} data-testid={`button-delete-leave-policy-${r.id}`}>
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </CardContent>
+
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{editingItem ? "Edit Leave Policy" : "Add Leave Policy"}</DialogTitle>
+            <DialogDescription>Set the number of leave days for each type in this policy.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="policyName">Policy Name *</Label>
+              <Input id="policyName" value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} placeholder="e.g. Standard Policy" data-testid="input-leave-policy-name" />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="policyDesc">Description</Label>
+              <Input id="policyDesc" value={formData.description} onChange={(e) => setFormData({ ...formData, description: e.target.value })} placeholder="Optional description" data-testid="input-leave-policy-description" />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="annualDays">Annual Leave (days)</Label>
+                <Input id="annualDays" type="number" min={0} value={formData.annualLeaveDays} onChange={(e) => setFormData({ ...formData, annualLeaveDays: parseInt(e.target.value) || 0 })} data-testid="input-annual-leave-days" />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="sickDays">Sick Leave (days)</Label>
+                <Input id="sickDays" type="number" min={0} value={formData.sickLeaveDays} onChange={(e) => setFormData({ ...formData, sickLeaveDays: parseInt(e.target.value) || 0 })} data-testid="input-sick-leave-days" />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="casualDays">Casual Leave (days)</Label>
+                <Input id="casualDays" type="number" min={0} value={formData.casualLeaveDays} onChange={(e) => setFormData({ ...formData, casualLeaveDays: parseInt(e.target.value) || 0 })} data-testid="input-casual-leave-days" />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="maternityDays">Maternity Leave (days)</Label>
+                <Input id="maternityDays" type="number" min={0} value={formData.maternityLeaveDays} onChange={(e) => setFormData({ ...formData, maternityLeaveDays: parseInt(e.target.value) || 0 })} data-testid="input-maternity-leave-days" />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="paternityDays">Paternity Leave (days)</Label>
+                <Input id="paternityDays" type="number" min={0} value={formData.paternityLeaveDays} onChange={(e) => setFormData({ ...formData, paternityLeaveDays: parseInt(e.target.value) || 0 })} data-testid="input-paternity-leave-days" />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="policyStatus">Status</Label>
+                <select id="policyStatus" value={formData.status} onChange={(e) => setFormData({ ...formData, status: e.target.value })} className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm" data-testid="select-leave-policy-status">
+                  <option value="active">Active</option>
+                  <option value="inactive">Inactive</option>
+                </select>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setDialogOpen(false); resetForm(); }}>Cancel</Button>
+            <Button onClick={handleSubmit} disabled={createMutation.isPending || updateMutation.isPending} data-testid="button-save-leave-policy">
+              {createMutation.isPending || updateMutation.isPending ? (
+                <><Loader2 className="h-4 w-4 mr-2 animate-spin" />{editingItem ? "Updating..." : "Creating..."}</>
+              ) : (
+                editingItem ? "Update" : "Create"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </Card>
+  );
+}
 
 function ContractorMastersManager({ companyId }: { companyId: string }) {
   const { toast } = useToast();

@@ -31,7 +31,7 @@ import { ArrowLeft, Save, User, Briefcase, FileText, Building2, MapPin, Upload, 
 import { INDIAN_STATES as INDIA_STATES_LIST, INDIA_DISTRICTS } from "@/lib/india-locations";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useLocation, useParams, useSearch } from "wouter";
-import type { Employee, Company, MasterDepartment, MasterDesignation, MasterLocation, TimeOfficePolicy, WageGrade, StatutorySettings, ContractorMaster } from "@shared/schema";
+import type { Employee, Company, MasterDepartment, MasterDesignation, MasterLocation, TimeOfficePolicy, WageGrade, StatutorySettings, ContractorMaster, LeavePolicy } from "@shared/schema";
 
 const employeeFormSchema = z.object({
   employeeCode: z.string().min(1, "Employee code is required"),
@@ -70,6 +70,7 @@ const employeeFormSchema = z.object({
   biometricDeviceId: z.string().optional(),
   wageGradeId: z.string().optional(),
   contractorMasterId: z.string().optional(),
+  leavePolicyId: z.string().optional(),
   presentAddress: z.string().optional(),
   presentState: z.string().optional(),
   presentDistrict: z.string().optional(),
@@ -295,6 +296,15 @@ export default function AddEmployee() {
     },
   });
 
+  const { data: leavePolicies = [] } = useQuery<LeavePolicy[]>({
+    queryKey: ["/api/leave-policies"],
+    queryFn: async () => {
+      const res = await fetch("/api/leave-policies", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch leave policies");
+      return res.json();
+    },
+  });
+
   // Pool of potential reporting managers — every active employee in the same
   // company except the one being edited (can't report to yourself).
   const { data: allEmployees = [] } = useQuery<Employee[]>({
@@ -343,6 +353,7 @@ export default function AddEmployee() {
       status: "active",
       wageGradeId: "",
       contractorMasterId: "",
+      leavePolicyId: "",
       pfApplicable: false,
       esiApplicable: false,
       lwfApplicable: false,
@@ -428,6 +439,7 @@ export default function AddEmployee() {
       biometricDeviceId: existingEmployee.biometricDeviceId || "",
       wageGradeId: existingEmployee.wageGradeId || "",
       contractorMasterId: (existingEmployee as any).contractorMasterId || "",
+      leavePolicyId: (existingEmployee as any).leavePolicyId || "",
       presentAddress: existingEmployee.presentAddress || "",
       presentState: existingEmployee.presentState || "",
       presentDistrict: existingEmployee.presentDistrict || "",
@@ -551,6 +563,7 @@ export default function AddEmployee() {
       biometricDeviceId: data.biometricDeviceId || null,
       wageGradeId: data.wageGradeId || null,
       contractorMasterId: data.contractorMasterId || null,
+      leavePolicyId: data.leavePolicyId || null,
       reportingManager: data.reportingManager || null,
     };
     if (isEditing) {
@@ -1091,6 +1104,37 @@ export default function AddEmployee() {
                               ) : (
                                 <SelectItem value="_none_cm" disabled>
                                   No contractors configured — add in Settings
+                                </SelectItem>
+                              )}
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="leavePolicyId"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Leave Policy</FormLabel>
+                          <Select onValueChange={(val) => field.onChange(val === "__none__" ? "" : val)} value={field.value || "__none__"}>
+                            <FormControl>
+                              <SelectTrigger data-testid="select-leave-policy">
+                                <SelectValue placeholder="Select leave policy" />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              <SelectItem value="__none__">None</SelectItem>
+                              {leavePolicies.filter(p => p.status === "active").length > 0 ? (
+                                leavePolicies.filter(p => p.status === "active").map((p) => (
+                                  <SelectItem key={p.id} value={p.id}>
+                                    {p.name}
+                                  </SelectItem>
+                                ))
+                              ) : (
+                                <SelectItem value="_none_lp" disabled>
+                                  No leave policies configured — add in Settings
                                 </SelectItem>
                               )}
                             </SelectContent>

@@ -12,6 +12,8 @@ import {
   type InsertLeaveType,
   type LeaveRequest,
   type InsertLeaveRequest,
+  type LeavePolicy,
+  type InsertLeavePolicy,
   type SalaryStructure,
   type InsertSalaryStructure,
   type Payroll,
@@ -177,6 +179,12 @@ export interface IStorage {
   createMasterDesignation(desg: InsertMasterDesignation): Promise<MasterDesignation>;
   updateMasterDesignation(id: string, desg: Partial<InsertMasterDesignation>): Promise<MasterDesignation | undefined>;
   deleteMasterDesignation(id: string): Promise<boolean>;
+  // Leave Policies
+  getLeavePoliciesByCompany(companyId: string): Promise<LeavePolicy[]>;
+  getLeavePolicy(id: string): Promise<LeavePolicy | undefined>;
+  createLeavePolicy(policy: InsertLeavePolicy): Promise<LeavePolicy>;
+  updateLeavePolicy(id: string, policy: Partial<InsertLeavePolicy>): Promise<LeavePolicy | undefined>;
+  deleteLeavePolicy(id: string): Promise<boolean>;
   // Wage Grades
   getAllWageGrades(): Promise<WageGrade[]>;
   getWageGradesByCompany(companyId: string): Promise<WageGrade[]>;
@@ -385,6 +393,7 @@ export class MemStorage implements IStorage {
   private attendanceRecords: Map<string, Attendance>;
   private leaveTypesMap: Map<string, LeaveType>;
   private leaveRequestsMap: Map<string, LeaveRequest>;
+  private leavePoliciesMap: Map<string, LeavePolicy>;
   private salaryStructuresMap: Map<string, SalaryStructure>;
   private payrollRecords: Map<string, Payroll>;
   private settingsMap: Map<string, Setting>;
@@ -413,6 +422,7 @@ export class MemStorage implements IStorage {
     this.attendanceRecords = new Map();
     this.leaveTypesMap = new Map();
     this.leaveRequestsMap = new Map();
+    this.leavePoliciesMap = new Map();
     this.salaryStructuresMap = new Map();
     this.payrollRecords = new Map();
     this.settingsMap = new Map();
@@ -1115,6 +1125,40 @@ export class MemStorage implements IStorage {
 
   async deleteMasterDesignation(id: string): Promise<boolean> {
     return this.masterDesignationsMap.delete(id);
+  }
+
+  // Leave Policies methods
+  async getLeavePoliciesByCompany(companyId: string): Promise<LeavePolicy[]> {
+    return Array.from(this.leavePoliciesMap.values()).filter(p => p.companyId === companyId);
+  }
+  async getLeavePolicy(id: string): Promise<LeavePolicy | undefined> {
+    return this.leavePoliciesMap.get(id);
+  }
+  async createLeavePolicy(insertPolicy: InsertLeavePolicy): Promise<LeavePolicy> {
+    const id = randomUUID();
+    const policy: LeavePolicy = {
+      ...insertPolicy,
+      id,
+      description: insertPolicy.description ?? null,
+      annualLeaveDays: insertPolicy.annualLeaveDays ?? 0,
+      sickLeaveDays: insertPolicy.sickLeaveDays ?? 0,
+      casualLeaveDays: insertPolicy.casualLeaveDays ?? 0,
+      maternityLeaveDays: insertPolicy.maternityLeaveDays ?? 0,
+      paternityLeaveDays: insertPolicy.paternityLeaveDays ?? 0,
+      status: insertPolicy.status ?? "active",
+    };
+    this.leavePoliciesMap.set(id, policy);
+    return policy;
+  }
+  async updateLeavePolicy(id: string, updates: Partial<InsertLeavePolicy>): Promise<LeavePolicy | undefined> {
+    const policy = this.leavePoliciesMap.get(id);
+    if (!policy) return undefined;
+    const updated = { ...policy, ...updates };
+    this.leavePoliciesMap.set(id, updated);
+    return updated;
+  }
+  async deleteLeavePolicy(id: string): Promise<boolean> {
+    return this.leavePoliciesMap.delete(id);
   }
 
   // Wage Grades methods
