@@ -42,15 +42,8 @@ const kycUpload = multer({
   },
 });
 
-// ─── Auth middleware re-export ────────────────────────────────────────────────
-
-function requireAuth(req: Request, res: Response, next: Function) {
-  if (!req.isAuthenticated?.() || !req.user) {
-    return res.status(401).json({ message: "Not logged in" });
-  }
-  next();
-}
-
+// requireAuth is injected by routes.ts (uses session-based auth, not Passport)
+// requireHR checks that the logged-in user has an HR-level role
 function requireHR(req: Request, res: Response, next: Function) {
   const user = req.user as any;
   if (!["super_admin", "company_admin", "hr_admin"].includes(user?.role)) {
@@ -135,7 +128,10 @@ async function getEmployeeForUser(userId: string, companyId: string | null) {
 
 // ─── Route Registration ────────────────────────────────────────────────────────
 
-export async function registerAiHrRoutes(app: Express): Promise<void> {
+export async function registerAiHrRoutes(
+  app: Express,
+  requireAuth: (req: Request, res: Response, next: Function) => void,
+): Promise<void> {
   // ── Startup migrations: create AI tables if they don't exist yet ────────────
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS ai_conversations (
