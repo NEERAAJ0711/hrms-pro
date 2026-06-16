@@ -9,13 +9,17 @@ import {
   employees,
   users as usersTable,
   notifications,
+  payroll,
+  leaveRequests,
+  leaveTypes,
+  attendance,
 } from "../shared/schema";
-import { eq, and, desc, sql, or, ne, count } from "drizzle-orm";
+import { eq, and, desc, sql, or, ne, count, gte, lte } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import multer from "multer";
 import * as path from "path";
 import * as fs from "fs";
-import { generateAiReply, computeKycOverallStatus, createFollowUpTask, startAiFollowUpScheduler, generateComplianceReply, analyzeJobError } from "./ai-service";
+import { generateAiReply, computeKycOverallStatus, createFollowUpTask, startAiFollowUpScheduler, generateComplianceReply, analyzeJobError, type EmployeeContext } from "./ai-service";
 import { createNotification } from "./notifications";
 
 // ─── Multer for KYC document uploads ─────────────────────────────────────────
@@ -84,6 +88,112 @@ async function getOrCreateKycStatus(employeeId: string, companyId: string) {
   };
   await db.insert(kycSubmissionStatus).values(record);
   return record;
+}
+
+// ─── Fetch live employee data for AI context ──────────────────────────────────
+async function fetchEmployeeContext(employeeId: string, companyId: string): Promise<EmployeeContext> {
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const currentMonth = now.toLocaleString("en-IN", { month: "long", year: "numeric" });
+  const monthStart = `${currentYear}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
+  const monthEnd = `${currentYear}-${String(now.getMonth() + 1).padStart(2, "0")}-31`;
+
+  // ── Recent payslips (last 3) ──────────────────────────────────────────────
+  const rawPayslips = await db
+    .select()
+    .from(payroll)
+    .where(and(eq(payroll.employeeId, employeeId), eq(payroll.companyId, companyId)))
+    .orderBy(desc(payroll.year), desc(payroll.generatedAt))
+    .limit(3);
+
+  const recentPayslips = rawPayslips.map((p) => ({
+    month: p.month,
+    year: p.year,
+    netSalary: p.netSalary ?? 0,
+    grossSalary: (p.basicSalary ?? 0) + (p.hra ?? 0) + (p.conveyance ?? 0) + (p.medicalAllowance ?? 0) + (p.specialAllowance ?? 0) + (p.otherAllowances ?? 0) + (p.bonus ?? 0) + (p.otAmount ?? 0),
+    totalDeductions: p.totalDeductions ?? 0,
+    basicSalary: p.basicSalary ?? 0,
+    hra: p.hra ?? 0,
+    pfEmployee: p.pfEmployee ?? 0,
+    esi: p.esi ?? 0,
+    tds: p.tds ?? 0,
+    status: p.status,
+    presentDays: String(p.presentDays ?? "0"),
+    workingDays: p.workingDays ?? 0,
+    leaveDays: p.leaveDays ?? 0,
+    paidOn: p.paidOn ?? null,
+  }));
+
+  // ── Leave balance (current year) ─────────────────────────────────────────
+  const allLeaveTypes = await db
+    .select()
+    .from(leaveTypes)
+    .where(and(eq(leaveTypes.companyId, companyId), eq(leaveTypes.status, "active")));
+
+  const yearStart = `${currentYear}-01-01`;
+  const yearEnd = `${currentYear}-12-31`;
+
+  const allLeaveReqs = await db
+    .select()
+    .from(leaveRequests)
+    .where(
+      and(
+        eq(leaveRequests.employeeId, employeeId),
+        eq(leaveRequests.companyId, companyId),
+        gte(leaveRequests.startDate, yearStart),
+        lte(leaveRequests.endDate, yearEnd),
+      ),
+    );
+
+  const leaveSummary = allLeaveTypes.map((lt) => {
+    const reqs = allLeaveReqs.filter((r) => r.leaveTypeId === lt.id);
+    const daysUsed = reqs
+      .filter((r) => r.status === "approved")
+      .reduce((sum, r) => sum + parseFloat(String(r.days ?? 0)), 0);
+    const daysPending = reqs
+      .filter((r) => r.status === "pending")
+      .reduce((sum, r) => sum + parseFloat(String(r.days ?? 0)), 0);
+    const daysAllowed = lt.daysPerYear ?? 0;
+    return {
+      leaveTypeName: lt.name,
+      leaveTypeCode: lt.code,
+      daysAllowed,
+      daysUsed: Math.round(daysUsed * 10) / 10,
+      daysPending: Math.round(daysPending * 10) / 10,
+      daysAvailable: Math.max(0, Math.round((daysAllowed - daysUsed) * 10) / 10),
+    };
+  });
+
+  // ── Attendance for current month ──────────────────────────────────────────
+  const monthAttendance = await db
+    .select()
+    .from(attendance)
+    .where(
+      and(
+        eq(attendance.employeeId, employeeId),
+        eq(attendance.companyId, companyId),
+        gte(attendance.date, monthStart),
+        lte(attendance.date, monthEnd),
+      ),
+    );
+
+  const presentDays = monthAttendance.filter((a) => a.status === "present").length;
+  const absentDays = monthAttendance.filter((a) => a.status === "absent").length;
+  const halfDays = monthAttendance.filter((a) => a.status === "half_day").length;
+  const leaveDaysAtt = monthAttendance.filter((a) => a.status === "on_leave").length;
+
+  return {
+    recentPayslips,
+    leaveSummary,
+    currentMonthAttendance: {
+      month: currentMonth,
+      presentDays,
+      absentDays,
+      halfDays,
+      leaveDays: leaveDaysAtt,
+      totalRecords: monthAttendance.length,
+    },
+  };
 }
 
 async function getEmployeeForUser(userId: string, companyId: string | null) {
@@ -326,20 +436,29 @@ export async function registerAiHrRoutes(
       };
       await db.insert(aiMessages).values(userMsg);
 
-      // Load KYC status for context
+      // Load KYC status, employee info, and live HR data for context
       const emp = (
         await db.select().from(employees).where(eq(employees.id, conv.employeeId)).limit(1)
       )[0];
       const kyc = await getOrCreateKycStatus(conv.employeeId, conv.companyId);
       const employeeName = emp ? `${emp.firstName} ${emp.lastName}`.trim() : "Employee";
 
-      // Generate AI reply
+      // Fetch live payslip / leave / attendance data (non-blocking — if it fails, chat still works)
+      let empCtx = null;
+      try {
+        empCtx = await fetchEmployeeContext(conv.employeeId, conv.companyId);
+      } catch (ctxErr: any) {
+        console.warn("[AI HR] fetchEmployeeContext failed (non-fatal):", ctxErr?.message);
+      }
+
+      // Generate AI reply with live context injected into system prompt
       const replyContent = await generateAiReply(
         conv.id,
         content.trim(),
         employeeName,
         kyc,
         conv.language,
+        empCtx,
       );
 
       const botMsg = {

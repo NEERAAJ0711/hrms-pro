@@ -123,9 +123,99 @@ export async function loadOpenAIKeyFromDB(): Promise<void> {
   return loadAllApiKeysFromDB();
 }
 
+// ─── Employee Live Data Context ───────────────────────────────────────────────
+
+export interface EmployeeContext {
+  // Last few payslips
+  recentPayslips: Array<{
+    month: string;
+    year: number;
+    netSalary: number;
+    grossSalary: number;
+    totalDeductions: number;
+    basicSalary: number;
+    hra: number;
+    pfEmployee: number;
+    esi: number;
+    tds: number;
+    status: string;
+    presentDays: string;
+    workingDays: number;
+    leaveDays: number;
+    paidOn: string | null;
+  }>;
+  // Leave summary for the current year
+  leaveSummary: Array<{
+    leaveTypeName: string;
+    leaveTypeCode: string;
+    daysAllowed: number;
+    daysUsed: number;
+    daysPending: number;
+    daysAvailable: number;
+  }>;
+  // Attendance for the current month
+  currentMonthAttendance: {
+    month: string;
+    presentDays: number;
+    absentDays: number;
+    halfDays: number;
+    leaveDays: number;
+    totalRecords: number;
+  };
+}
+
+function formatCurrency(amount: number): string {
+  return `₹${amount.toLocaleString("en-IN")}`;
+}
+
+function buildLiveDataSection(ctx: EmployeeContext | null): string {
+  if (!ctx) return "";
+
+  const lines: string[] = ["\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"];
+  lines.push("LIVE EMPLOYEE DATA (always use these exact figures in your responses):");
+
+  // ── Payslips ──────────────────────────────────────────────────────────────
+  if (ctx.recentPayslips.length > 0) {
+    lines.push("\nRECENT PAYSLIPS:");
+    ctx.recentPayslips.forEach((p) => {
+      const statusLabel = p.status === "paid" ? `Paid${p.paidOn ? ` on ${p.paidOn}` : ""}` : p.status === "processed" ? "Processed" : "Draft";
+      lines.push(
+        `  • ${p.month} ${p.year}: Gross ${formatCurrency(p.grossSalary)}, Net ${formatCurrency(p.netSalary)} [${statusLabel}]` +
+        `\n    Basic: ${formatCurrency(p.basicSalary)}, HRA: ${formatCurrency(p.hra)}, PF: ${formatCurrency(p.pfEmployee)}, ESI: ${formatCurrency(p.esi)}, TDS: ${formatCurrency(p.tds)}` +
+        `\n    Present: ${p.presentDays}/${p.workingDays} days, Leave: ${p.leaveDays} days`
+      );
+    });
+  } else {
+    lines.push("\nRECENT PAYSLIPS: No payslip records found yet.");
+  }
+
+  // ── Leave Balance ─────────────────────────────────────────────────────────
+  if (ctx.leaveSummary.length > 0) {
+    lines.push("\nLEAVE BALANCE (current year):");
+    ctx.leaveSummary.forEach((l) => {
+      lines.push(`  • ${l.leaveTypeName} (${l.leaveTypeCode}): ${l.daysAvailable} days available [${l.daysUsed} used, ${l.daysPending} pending approval out of ${l.daysAllowed} total]`);
+    });
+  } else {
+    lines.push("\nLEAVE BALANCE: No leave types configured for this company yet.");
+  }
+
+  // ── Attendance ────────────────────────────────────────────────────────────
+  const att = ctx.currentMonthAttendance;
+  if (att.totalRecords > 0) {
+    lines.push(`\nATTENDANCE (${att.month}): Present: ${att.presentDays} days, Absent: ${att.absentDays} days, Half-day: ${att.halfDays}, Leave: ${att.leaveDays} days`);
+  } else {
+    lines.push(`\nATTENDANCE (${att.month}): No attendance records for this month yet.`);
+  }
+
+  lines.push("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
+  lines.push("When employees ask about their salary, payslip, leave balance, or attendance — ALWAYS use the exact figures above. Do NOT say 'check the portal' for these — you already have the data.");
+
+  return lines.join("\n");
+}
+
 // ─── System Prompt Builder ─────────────────────────────────────────────────────
 
-function buildSystemPrompt(employeeName: string, kyc: KycStatus, language: string): string {
+function buildSystemPrompt(employeeName: string, kyc: KycStatus, language: string, ctx?: EmployeeContext | null): string {
   const pendingDocs: string[] = [];
   if (!kyc.aadhaarSubmitted) pendingDocs.push("Aadhaar Card");
   if (!kyc.panSubmitted) pendingDocs.push("PAN Card");
@@ -167,7 +257,7 @@ YOUR RESPONSIBILITIES:
 9. For Address Proof: accept Passport, Voter ID, Driving License, or utility bill
 10. Keep responses concise (2-4 sentences) unless explaining something complex
 
-IMPORTANT: When an employee uploads a document (they'll mention uploading), confirm you've received it and tell them which document was updated. Always end with what the next pending document is (if any).`;
+IMPORTANT: When an employee uploads a document (they'll mention uploading), confirm you've received it and tell them which document was updated. Always end with what the next pending document is (if any).${buildLiveDataSection(ctx ?? null)}`;
 }
 
 // ─── Rule-based fallback responses ────────────────────────────────────────────
@@ -177,6 +267,7 @@ function buildRuleBasedResponse(
   employeeName: string,
   kyc: KycStatus,
   language: string,
+  ctx?: EmployeeContext | null,
 ): string {
   const msg = userMessage.toLowerCase();
   const firstName = employeeName.split(" ")[0];
@@ -239,18 +330,45 @@ function buildRuleBasedResponse(
       : `To process your salary, I need your bank details:\n1. **Account Number**\n2. **IFSC Code**\n3. **Bank Name**\n4. **Branch Name**\n\nYou can type them here or upload a **Cancelled Cheque** using the 📎 button.`;
   }
 
-  // Leave query
-  if (msg.includes("leave") || msg.includes("छुट्टी")) {
+  // Leave query — use real data if available
+  if (msg.includes("leave") || msg.includes("balance") || msg.includes("छुट्टी") || msg.includes("balance")) {
+    if (ctx && ctx.leaveSummary.length > 0) {
+      const leaveLines = ctx.leaveSummary.map(
+        (l) => `**${l.leaveTypeName}**: ${l.daysAvailable} days available (${l.daysUsed} used, ${l.daysPending} pending)`
+      ).join("\n");
+      return isHindi
+        ? `${firstName} जी, आपकी current leave balance:\n${ctx.leaveSummary.map(l => `**${l.leaveTypeName}**: ${l.daysAvailable} दिन उपलब्ध`).join("\n")}`
+        : `${firstName}, here is your current leave balance:\n\n${leaveLines}\n\nTo apply for leave, use the **Leave** module in the sidebar.`;
+    }
     return isHindi
       ? `${firstName} जी, छुट्टी के लिए कृपया Leave module में जाएं। कोई अर्जेंट छुट्टी हो तो अपने manager से बात करें।`
-      : `For leave requests, please use the **Leave** module in the sidebar. For urgent leave, contact your reporting manager directly. Is there anything else about KYC I can help with?`;
+      : `For leave requests, please use the **Leave** module in the sidebar. For urgent leave, contact your reporting manager directly.`;
   }
 
-  // Payroll/salary query
-  if (msg.includes("salary") || msg.includes("payroll") || msg.includes("payslip") || msg.includes("वेतन")) {
+  // Payroll/salary/payslip query — use real data if available
+  if (msg.includes("salary") || msg.includes("payroll") || msg.includes("payslip") || msg.includes("वेतन") || msg.includes("ctc") || msg.includes("net")) {
+    if (ctx && ctx.recentPayslips.length > 0) {
+      const latest = ctx.recentPayslips[0];
+      return isHindi
+        ? `${firstName} जी, आपकी ${latest.month} ${latest.year} की salary:\n- Gross: ₹${latest.grossSalary.toLocaleString("en-IN")}\n- Deductions: ₹${latest.totalDeductions.toLocaleString("en-IN")}\n- **Net Pay: ₹${latest.netSalary.toLocaleString("en-IN")}** [${latest.status}]\n- Present: ${latest.presentDays}/${latest.workingDays} दिन`
+        : `${firstName}, here's your latest payslip (${latest.month} ${latest.year}):\n\n- **Gross Salary**: ₹${latest.grossSalary.toLocaleString("en-IN")}\n- Basic: ₹${latest.basicSalary.toLocaleString("en-IN")}, HRA: ₹${latest.hra.toLocaleString("en-IN")}\n- PF Deduction: ₹${latest.pfEmployee.toLocaleString("en-IN")}, ESI: ₹${latest.esi.toLocaleString("en-IN")}, TDS: ₹${latest.tds.toLocaleString("en-IN")}\n- **Net Pay: ₹${latest.netSalary.toLocaleString("en-IN")}** [${latest.status.toUpperCase()}]\n- Present: ${latest.presentDays}/${latest.workingDays} days\n\nFor older payslips, use the **Payroll** module.`;
+    }
     return isHindi
-      ? `${firstName} जी, वेतन पर्ची Payroll module में मिलेगी। ध्यान रखें कि salary credit के लिए bank details और cancelled cheque का KYC पूरा होना जरूरी है।`
+      ? `${firstName} जी, वेतन पर्ची Payroll module में मिलेगी। ध्यान रखें कि salary credit के लिए bank details का KYC पूरा होना जरूरी है।`
       : `Your payslips are available in the **Payroll** module. Note that salary credit requires your bank KYC to be complete. ${!kyc.bankDetailsSubmitted ? "You still need to submit your bank details — shall we do that now?" : "Your bank details are already on file ✅"}`;
+  }
+
+  // Attendance query — use real data if available
+  if (msg.includes("attendance") || msg.includes("present") || msg.includes("absent") || msg.includes("उपस्थिति")) {
+    const att = ctx?.currentMonthAttendance;
+    if (att && att.totalRecords > 0) {
+      return isHindi
+        ? `${firstName} जी, ${att.month} की attendance:\n- Present: ${att.presentDays} दिन\n- Absent: ${att.absentDays} दिन\n- Half Day: ${att.halfDays} दिन\n- Leave: ${att.leaveDays} दिन`
+        : `${firstName}, your attendance for **${att.month}**:\n- ✅ Present: ${att.presentDays} days\n- ❌ Absent: ${att.absentDays} days\n- 🔶 Half Day: ${att.halfDays} days\n- 🏖️ On Leave: ${att.leaveDays} days\n\nFor full attendance history, use the **My Attendance** module.`;
+    }
+    return isHindi
+      ? `${firstName} जी, attendance records के लिए My Attendance module में जाएं।`
+      : `For your attendance records, please check the **My Attendance** module in the sidebar.`;
   }
 
   // PF query
@@ -295,8 +413,9 @@ export async function generateAiReply(
   employeeName: string,
   kyc: KycStatus,
   language: string,
+  ctx?: EmployeeContext | null,
 ): Promise<string> {
-  const systemPrompt = buildSystemPrompt(employeeName, kyc, language);
+  const systemPrompt = buildSystemPrompt(employeeName, kyc, language, ctx);
 
   // Load conversation history (last 12 messages) — shared by all providers
   const history = await db
@@ -341,7 +460,7 @@ export async function generateAiReply(
   }
 
   // ── 3. Rule-based fallback ──────────────────────────────────────────────────
-  return buildRuleBasedResponse(userMessage, employeeName, kyc, language);
+  return buildRuleBasedResponse(userMessage, employeeName, kyc, language, ctx);
 }
 
 // ─── KYC Status Helpers ───────────────────────────────────────────────────────
