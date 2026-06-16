@@ -1720,15 +1720,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ===== Employee Bulk Upload =====
   app.get("/api/employees/bulk-template", requireAuth, requireModuleAccess("employees"), (req, res) => {
     // Columns marked * are required; all others are optional.
+    // Use actual Date objects so Excel treats them as date cells (not text).
     const templateData = [
       {
         "Employee Code *": "EMP001",
         "Full Name *": "Rajesh Kumar Sharma",
         "Father / Husband Name": "Ram Kumar Sharma",
         "Gender": "Male",
-        "Date of Birth": "15-01-1990",
+        "Date of Birth": new Date(1990, 0, 15),
         "Mobile Number": "9876543210",
-        "Date of Joining *": "01-01-2024",
+        "Date of Joining *": new Date(2024, 0, 1),
         "UAN": "",
         "ESI Number": "",
         "Bank Account": "1234567890",
@@ -1737,13 +1738,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
         "Aadhaar": "123456789012",
       }
     ];
-    const ws = XLSX.utils.json_to_sheet(templateData);
+    const ws = XLSX.utils.json_to_sheet(templateData, { cellDates: true });
+    // Apply DD-MM-YYYY date format to the date columns (cols D=3, G=6, 0-indexed)
+    const dateColIndices = [4, 6]; // "Date of Birth" = col E (idx 4), "Date of Joining *" = col G (idx 6)
+    const headers = Object.keys(templateData[0]);
+    headers.forEach((h, colIdx) => {
+      if (h === "Date of Birth" || h === "Date of Joining *") {
+        // Format the sample row (row 2, index 1) — XLSX uses A1 notation
+        const cellRef = XLSX.utils.encode_cell({ c: colIdx, r: 1 });
+        if (ws[cellRef]) ws[cellRef].z = "dd-mm-yyyy";
+      }
+    });
     // Set column widths
-    const colWidths = Object.keys(templateData[0]).map(k => ({ wch: Math.max(k.length + 4, 20) }));
+    const colWidths = headers.map(k => ({ wch: Math.max(k.length + 4, 20) }));
     ws['!cols'] = colWidths;
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Employees");
-    const buffer = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
+    const buffer = XLSX.write(wb, { type: "buffer", bookType: "xlsx", cellDates: true });
     res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
     res.setHeader("Content-Disposition", "attachment; filename=employee_bulk_template.xlsx");
     res.send(buffer);
@@ -1764,7 +1775,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const workbook = XLSX.read(file.buffer, { type: "buffer", cellDates: true });
       const sheetName = workbook.SheetNames[0];
       const sheet = workbook.Sheets[sheetName];
-      const rows: any[] = XLSX.utils.sheet_to_json(sheet, { raw: false, dateNF: "dd-mm-yyyy" });
+      const rows: any[] = XLSX.utils.sheet_to_json(sheet, { raw: true });
 
       if (rows.length === 0) return res.status(400).json({ error: "Excel file is empty" });
 
@@ -1907,37 +1918,91 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ===== Employee Bulk Update =====
 
   // Helper: parse any date value coming from Excel → YYYY-MM-DD for DB storage
-  // Accepts: JS Date object, Excel serial number, DD-MM-YYYY, YYYY-MM-DD, DD/MM/YYYY
+  // Handles: JS Date, Excel serial number, DD-MM-YYYY, DD/MM/YYYY, DD.MM.YYYY,
+  //          YYYY-MM-DD, D-M-YYYY (single digit), M/D/YYYY (US), named months
   function parseExcelDate(val: any): string | null {
     if (val === null || val === undefined || val === "") return null;
-    // JS Date object (cellDates:true path or xlsx auto-parse)
+
+    // ── JS Date object (cellDates:true gives these for actual date-formatted cells) ──
     if (val instanceof Date && !isNaN(val.getTime())) {
-      const d = String(val.getDate()).padStart(2, "0");
-      const m = String(val.getMonth() + 1).padStart(2, "0");
-      return `${val.getFullYear()}-${m}-${d}`;
+      // Use UTC methods to avoid timezone shifting the date by 1 day
+      const d = String(val.getUTCDate()).padStart(2, "0");
+      const m = String(val.getUTCMonth() + 1).padStart(2, "0");
+      return `${val.getUTCFullYear()}-${m}-${d}`;
     }
-    // Excel serial number (numeric)
-    if (typeof val === "number") {
-      const jsDate = new Date(Math.round((val - 25569) * 86400 * 1000));
+
+    // ── Excel serial number (numeric) ─────────────────────────────────────────
+    if (typeof val === "number" && val > 1000) {
+      // Excel epoch: Jan 1 1900 = serial 1 (with the 1900 leap year bug: add 1 if > 59)
+      const adj = val > 59 ? val - 1 : val;
+      const jsDate = new Date((adj - 1) * 86400 * 1000 + Date.UTC(1900, 0, 1));
       const d = String(jsDate.getUTCDate()).padStart(2, "0");
       const m = String(jsDate.getUTCMonth() + 1).padStart(2, "0");
       return `${jsDate.getUTCFullYear()}-${m}-${d}`;
     }
+
     const s = String(val).trim();
     if (!s) return null;
-    // DD-MM-YYYY
-    if (/^\d{2}-\d{2}-\d{4}$/.test(s)) {
-      const [dd, mm, yyyy] = s.split("-");
-      return `${yyyy}-${mm}-${dd}`;
+
+    // ── YYYY-MM-DD (ISO — already correct) ────────────────────────────────────
+    if (/^\d{4}-\d{1,2}-\d{1,2}$/.test(s)) {
+      const [yyyy, mm, dd] = s.split("-");
+      return `${yyyy}-${mm.padStart(2, "0")}-${dd.padStart(2, "0")}`;
     }
-    // DD/MM/YYYY
-    if (/^\d{2}\/\d{2}\/\d{4}$/.test(s)) {
+
+    // ── D/M/YYYY or DD/MM/YYYY (Indian / European slash format) ──────────────
+    if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(s)) {
       const [dd, mm, yyyy] = s.split("/");
-      return `${yyyy}-${mm}-${dd}`;
+      // Sanity check: month ≤ 12 means DD/MM/YYYY (Indian); else try M/D/YYYY
+      if (parseInt(mm, 10) <= 12) {
+        return `${yyyy}-${mm.padStart(2, "0")}-${dd.padStart(2, "0")}`;
+      }
+      // Swap — treat as M/D/YYYY
+      return `${yyyy}-${dd.padStart(2, "0")}-${mm.padStart(2, "0")}`;
     }
-    // YYYY-MM-DD (already correct for DB)
-    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
-    return s; // fallback — pass as-is
+
+    // ── D-M-YYYY or DD-MM-YYYY (dash separator) ───────────────────────────────
+    if (/^\d{1,2}-\d{1,2}-\d{4}$/.test(s)) {
+      const [dd, mm, yyyy] = s.split("-");
+      return `${yyyy}-${mm.padStart(2, "0")}-${dd.padStart(2, "0")}`;
+    }
+
+    // ── D.M.YYYY or DD.MM.YYYY (dot separator) ────────────────────────────────
+    if (/^\d{1,2}\.\d{1,2}\.\d{4}$/.test(s)) {
+      const [dd, mm, yyyy] = s.split(".");
+      return `${yyyy}-${mm.padStart(2, "0")}-${dd.padStart(2, "0")}`;
+    }
+
+    // ── Named month: "15 Jan 2025", "Jan 15 2025", "15-Jan-2025", "15/Jan/2025" ──
+    const MONTHS: Record<string, string> = {
+      jan: "01", feb: "02", mar: "03", apr: "04", may: "05", jun: "06",
+      jul: "07", aug: "08", sep: "09", oct: "10", nov: "11", dec: "12",
+      january: "01", february: "02", march: "03", april: "04", june: "06",
+      july: "07", august: "08", september: "09", october: "10", november: "11", december: "12",
+    };
+    const namedMatch = s.match(/^(\d{1,2})[\s\-\/]([a-zA-Z]+)[\s\-\/](\d{4})$/);
+    if (namedMatch) {
+      const [, dd, mon, yyyy] = namedMatch;
+      const mm = MONTHS[mon.toLowerCase()];
+      if (mm) return `${yyyy}-${mm}-${dd.padStart(2, "0")}`;
+    }
+    const namedMatchRev = s.match(/^([a-zA-Z]+)[\s\-\/](\d{1,2})[\s,\-\/]+(\d{4})$/);
+    if (namedMatchRev) {
+      const [, mon, dd, yyyy] = namedMatchRev;
+      const mm = MONTHS[mon.toLowerCase()];
+      if (mm) return `${yyyy}-${mm}-${dd.padStart(2, "0")}`;
+    }
+
+    // ── Last resort: try native Date.parse (may be locale-dependent) ──────────
+    const parsed = Date.parse(s);
+    if (!isNaN(parsed)) {
+      const dt = new Date(parsed);
+      const d = String(dt.getUTCDate()).padStart(2, "0");
+      const m = String(dt.getUTCMonth() + 1).padStart(2, "0");
+      return `${dt.getUTCFullYear()}-${m}-${d}`;
+    }
+
+    return null; // unparseable — return null instead of saving garbage
   }
 
   // Format YYYY-MM-DD → DD-MM-YYYY for template display
@@ -2022,7 +2087,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
             const current = (emp as any)[dbField];
             row[label] = current ? "Yes" : "No";
           } else if (DATE_FIELDS.has(dbField)) {
-            row[label] = toDisplayDate((emp as any)[dbField]);
+            // Write as actual Date object so Excel shows it as a date cell
+            const raw = (emp as any)[dbField];
+            if (raw && /^\d{4}-\d{2}-\d{2}$/.test(String(raw))) {
+              const [yyyy, mm, dd] = String(raw).split("-").map(Number);
+              row[label] = new Date(Date.UTC(yyyy, mm - 1, dd));
+            } else {
+              row[label] = raw ?? "";
+            }
           } else {
             row[label] = (emp as any)[dbField] ?? "";
           }
@@ -2030,12 +2102,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return row;
       });
 
-      const ws = XLSX.utils.json_to_sheet(rows);
-      const colWidths = Object.keys(rows[0] || {}).map(k => ({ wch: Math.max(k.length + 4, 22) }));
+      const ws = XLSX.utils.json_to_sheet(rows, { cellDates: true });
+      // Apply DD-MM-YYYY format to all date columns
+      const headers = Object.keys(rows[0] || {});
+      rows.forEach((_, rowIdx) => {
+        headers.forEach((h, colIdx) => {
+          const dbField = BULK_UPDATE_FIELD_MAP[h];
+          if (dbField && DATE_FIELDS.has(dbField)) {
+            const cellRef = XLSX.utils.encode_cell({ c: colIdx, r: rowIdx + 1 });
+            if (ws[cellRef] && ws[cellRef].t === "d") ws[cellRef].z = "dd-mm-yyyy";
+          }
+        });
+      });
+      const colWidths = headers.map(k => ({ wch: Math.max(k.length + 4, 22) }));
       ws["!cols"] = colWidths;
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, "Bulk Update");
-      const buffer = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
+      const buffer = XLSX.write(wb, { type: "buffer", bookType: "xlsx", cellDates: true });
       res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
       res.setHeader("Content-Disposition", "attachment; filename=employee_bulk_update_template.xlsx");
       res.send(buffer);
@@ -2056,7 +2139,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const workbook = XLSX.read(file.buffer, { type: "buffer", cellDates: true });
       const sheet = workbook.Sheets[workbook.SheetNames[0]];
-      const rows: any[] = XLSX.utils.sheet_to_json(sheet, { raw: false, dateNF: "dd-mm-yyyy" });
+      const rows: any[] = XLSX.utils.sheet_to_json(sheet, { raw: true });
       if (rows.length === 0) return res.status(400).json({ error: "Excel file is empty" });
 
       // Detect which update-able columns are present (exclude fixed cols)
