@@ -1,8 +1,11 @@
 # HRMS Pro — Architecture Audit & Analysis Report
 
 **Generated:** June 13, 2026  
+**Last updated:** June 19, 2026 — Phase-1 Critical Fixes applied (see status banners below)  
 **Scope:** Full-stack codebase — Backend (Express/Node), Frontend (React/Vite), Database (PostgreSQL/Drizzle), Mobile (Flutter)  
 **Analyst:** AI Architecture Reviewer  
+
+> **Phase-1 update (June 19, 2026):** The four critical security issues and the "zero database indexes" gap identified in this report have been **resolved**. Sections affected are annotated with `✅ RESOLVED` banners that preserve the original findings for traceability. Remaining roadmap items (routes.ts split, service layer, FK constraints, unused-package removal, email service) are unchanged. See `CHANGELOG.md` for the exact diff.
 
 ---
 
@@ -31,11 +34,11 @@
 
 | Dimension | Score | Notes |
 |-----------|-------|-------|
-| **Overall Application Health** | **5.5 / 10** | Functional but carrying significant architectural debt |
+| **Overall Application Health** | **6.5 / 10** | Phase-1 security & indexing fixes applied; architectural debt (god-file, no service layer) remains |
 | **Maintainability** | 4 / 10 | God-object routes file, 6k-line page components, no separation of concerns |
-| **Scalability** | 4 / 10 | No DB indexes, single PM2 instance, no query pagination on large tables |
-| **Security** | 5 / 10 | Hardcoded secret fallbacks, auth bypass route, no upload mimetype filter |
-| **Performance** | 5 / 10 | Missing indexes on FK columns, no caching layer, large render files |
+| **Scalability** | 5.5 / 10 | ✅ DB indexes now added on high-traffic columns; single PM2 instance & no query pagination remain |
+| **Security** | 6.5 / 10 | ✅ Secret fallbacks removed (fail-fast), auth-bypass route removed, upload allow-list added; ⚠️ live JWT secret committed in `.replit`, CSRF & ADMS auth still open |
+| **Performance** | 6.5 / 10 | ✅ Indexes added on FK/filter columns; no caching layer & large render files remain |
 | **Code Quality** | 5 / 10 | Inconsistent validation, scattered PDF logic, repeated patterns |
 
 ### Key Numbers at a Glance
@@ -48,20 +51,20 @@
 | Largest Frontend File | **6,379 lines** (`client/src/pages/reports.tsx`) |
 | Total Backend Lines (core) | **~15,900** |
 | Total Frontend Page Lines (top 6) | **~20,700** |
-| SQL Migration Files | 16 |
+| SQL Migration Files | 21 (incl. Phase-1 index migration) |
 | Unused npm Packages (direct) | 3 confirmed |
-| Critical Security Issues | 4 |
+| Critical Security Issues | 1 ⚠️ (4 code-level issues resolved Jun 19 2026; live JWT secret committed in `.replit` still outstanding — rotate & untrack) |
 
 ### Technical Debt Assessment
 
 The application is a **monolithic, feature-complete HRMS** that has grown organically without enforced architectural boundaries. The core functionality (payroll, attendance, EPFO/ESIC, AI assistant, biometric) works, but the codebase is accumulating debt at an accelerating rate:
 
 - The single `server/routes.ts` file at 7,398 lines will break under team collaboration.
-- No database indexes means every join on `company_id` or `employee_id` is a full table scan at scale.
-- Hardcoded fallback secrets pose a production security risk.
+- ✅ *(Resolved June 19, 2026)* ~~No database indexes means every join on `company_id` or `employee_id` is a full table scan at scale.~~ 19 indexes now cover the high-traffic foreign-key and filter columns.
+- ✅ *(Resolved June 19, 2026)* ~~Hardcoded fallback secrets pose a production security risk.~~ Fallbacks removed; the server fails fast if `JWT_SECRET` / `SESSION_SECRET` are unset.
 - Page-level components with 4,000–6,000 lines cannot be tested, reused, or understood in isolation.
 
-Estimated technical debt: **~35% of codebase** requires architectural rework to ensure long-term maintainability.
+Estimated technical debt: **~35% of codebase** requires architectural rework to ensure long-term maintainability. Phase-1 closed the critical security and indexing gaps; the bulk of remaining debt is the monolithic routes file, missing service layer, and oversized page components.
 
 ---
 
@@ -97,7 +100,7 @@ Estimated technical debt: **~35% of codebase** requires architectural rework to 
 | Session Auth | Passport (passport-local) + express-session | — | Web interface |
 | JWT Auth | jsonwebtoken | 9.0.3 | Mobile/API interface |
 | Session Store | connect-pg-simple + PostgreSQL | — | Good for persistence |
-| File Uploads | Multer | 2.0.2 | Missing mimetype filter on docUpload |
+| File Uploads | Multer | 2.0.2 | ✅ Extension allow-list + dangerous-extension blocklist added (`server/upload-security.ts`); validates by extension, not MIME content |
 | Email | Not detected | — | **No email service integrated** |
 | PDF Gen (Server) | PDFKit | 0.18.0 | Used for compliance reports |
 | Rate Limiting | express-rate-limit | 8.3.2 | Applied but scope unknown |
@@ -110,9 +113,9 @@ Estimated technical debt: **~35% of codebase** requires architectural rework to 
 |-------|-----------|-------|
 | Database | PostgreSQL | Production via `DATABASE_URL` |
 | ORM | Drizzle ORM | Schema-first, 55 tables |
-| Migrations | Manual SQL files | 16 files in `migrations/` |
+| Migrations | Manual SQL files | 21 files in `migrations/` |
 | Session Store | PostgreSQL (connect-pg-simple) | — |
-| Indexes | **None defined in schema** | Critical gap |
+| Indexes | ✅ 19 added in schema (high-traffic FK/filter cols) | FK-constraint coverage still absent |
 | Foreign Keys | **None enforced** | Application-level only |
 
 ### AI & Automation
@@ -197,7 +200,7 @@ hrms-pro/
 ├── shared/
 │   ├── schema.ts                # 55 tables, 1,579 lines
 │   └── permissions.ts           # RBAC definitions
-├── migrations/                  # 16 manual SQL migration files
+├── migrations/                  # 21 manual SQL migration files
 ├── flutter_app/                 # Flutter mobile app
 ├── script/build.ts              # esbuild production bundler
 ├── scripts/                     # Deployment scripts
@@ -488,12 +491,14 @@ automation_jobs (1) ─────── automation_logs (N)
 
 ### Critical Database Issues
 
-#### Issue 1: Zero Indexes (Highest Severity)
+#### Issue 1: Zero Indexes (Highest Severity) — ✅ RESOLVED (June 19, 2026)
 
-The `shared/schema.ts` file defines **no `.index()` calls** whatsoever. Every query that filters or joins on these columns will do a full table scan:
+> **Fixed:** 19 indexes were added in `shared/schema.ts` and shipped as an idempotent migration (`migrations/008_add_recommended_indexes.sql`, using `CREATE INDEX IF NOT EXISTS`). Coverage: `employees(company_id; company_id,status; user_id)`, `attendance(employee_id,date; company_id,date)`, `leave_requests(company_id; employee_id; status)`, `salary_structures(employee_id; company_id)`, `payroll(company_id,month,year; employee_id)`, `biometric_punch_logs(company_id,punch_date; employee_id)`, `notifications(user_id,is_read)`, `automation_jobs(company_id,job_type,status; job_type,status,completed_at)`, `automation_logs(job_id)`, `esic_fetched_employees(company_id)`. Verified-applied to the dev DB; apply to prod via `psql -f` or `npm run db:push`. *(Original finding preserved below.)*
+
+Previously, the `shared/schema.ts` file defined **no `.index()` calls** whatsoever. Every query that filtered or joined on these columns did a full table scan:
 
 ```sql
--- Missing critical indexes:
+-- Missing critical indexes (now added):
 employees.company_id          -- Used in every multi-tenant query
 attendance.employee_id        -- Used in every attendance query  
 attendance.date               -- Used in date-range queries
@@ -538,9 +543,11 @@ Financial columns should consistently use `numeric(12,2)` or store amounts in pa
 
 #### Issue 5: Manual Migration Management
 
-16 SQL files in `migrations/` are applied manually. There is no migration tracking table (like Drizzle Migrate or Flyway) to know which migrations have run on a given environment.
+21 SQL files in `migrations/` are applied manually. There is no migration tracking table (like Drizzle Migrate or Flyway) to know which migrations have run on a given environment. (The Phase-1 index migration `008_add_recommended_indexes.sql` is idempotent — safe to re-run — which partially mitigates this for that file, but the underlying gap remains.)
 
 ### Query Optimization Opportunities
+
+> ✅ *(June 19, 2026)* The indexes in the "Recommended" column below have now been implemented (see Issue 1). The automation-queue index was shipped as `(job_type, status, completed_at)`.
 
 | Query Pattern | Current | Recommended |
 |---------------|---------|-------------|
@@ -598,7 +605,7 @@ Financial columns should consistently use `numeric(12,2)` or store amounts in pa
 
 | Issue | Severity | Impact |
 |-------|---------|--------|
-| No DB indexes on FK columns | 🔴 Critical | Exponential query time growth with data |
+| ~~No DB indexes on FK columns~~ ✅ Resolved (Jun 19 2026) | — | 19 indexes added on high-traffic FK/filter columns |
 | No query result caching | 🟡 Medium | Repeated dashboard queries hit DB every request |
 | Synchronous PDF generation in request handlers | 🟡 Medium | Blocks Node.js event loop for large reports |
 | TensorFlow loaded at server startup | 🟡 Medium | Increases cold start time and baseline memory |
@@ -652,10 +659,11 @@ WHERE is_processed = false
 
 | Issue | Severity | Location |
 |-------|---------|---------|
-| Hardcoded JWT secret fallback | 🔴 Critical | `server/jwt-auth.ts` |
-| Hardcoded session secret fallback | 🔴 Critical | `server/index.ts` |
-| Duplicate resume route bypasses admin check | 🔴 High | `server/routes.ts:7368` |
-| No mimetype filter on employee doc uploads | 🟡 Medium | `server/routes.ts` (docUpload) |
+| ~~Hardcoded JWT secret fallback~~ ✅ Resolved (Jun 19 2026) | — | `server/jwt-auth.ts` |
+| ~~Hardcoded session secret fallback~~ ✅ Resolved (Jun 19 2026) | — | `server/index.ts` |
+| ~~Duplicate resume route bypasses admin check~~ ✅ Resolved (Jun 19 2026) | — | `server/routes.ts` |
+| ~~No mimetype filter on employee doc uploads~~ ✅ Resolved (Jun 19 2026) | — | `server/upload-security.ts` |
+| ⚠️ Live JWT secret committed to version control | 🔴 Critical | `.replit` (git-tracked) |
 | ADMS protocol unauthenticated | 🟡 Medium | `server/adms.ts` |
 | MemStorage hardcoded admin/admin123 | 🟡 Medium | `server/storage.ts` |
 | JWT 7-day expiry with no revocation | 🟡 Medium | `server/jwt-auth.ts` |
@@ -665,10 +673,12 @@ WHERE is_processed = false
 
 ### Issue Deep-Dives
 
-#### 1. Hardcoded Secret Fallbacks (Critical)
+#### 1. Hardcoded Secret Fallbacks (Critical) — ✅ RESOLVED (June 19, 2026)
+
+> **Fixed:** Both fallback strings were removed. `server/jwt-auth.ts` and `server/index.ts` now throw on startup if `JWT_SECRET` / `SESSION_SECRET` are unset (fail-fast). `.env` loading was extracted to `server/load-env.ts` and imported **first** in `server/index.ts`, so secrets are loaded before any import-time check executes (ES module imports are hoisted, so the old inline loader ran too late). *(Original finding preserved below.)*
 
 ```typescript
-// server/jwt-auth.ts
+// server/jwt-auth.ts (BEFORE)
 const JWT_SECRET = process.env.JWT_SECRET || "hrms-jwt-secret-key-2026";
 //                                             ^^^^^^^^^^^^^^^^^^^^^^^^^^
 //                                             Public fallback = predictable tokens
@@ -681,10 +691,12 @@ secret: process.env.SESSION_SECRET || "hrms-dev-secret-key-2026",
 
 **Risk:** If `SESSION_SECRET` or `JWT_SECRET` are not set in production, any attacker knowing the fallback value can forge valid sessions and tokens.
 
-#### 2. Authorization Bypass on Automation Resume (High)
+#### 2. Authorization Bypass on Automation Resume (High) — ✅ RESOLVED (June 19, 2026)
+
+> **Fixed:** The duplicate `requireAuth`-only handler in `server/routes.ts` was removed. The authoritative route in `server/epfo-esic-routes.ts` (`requireAuth` + admin roles + company isolation) is now the only handler, so non-admin users can no longer resume automation jobs. *(Original finding preserved below.)*
 
 ```typescript
-// routes.ts (line ~7368) — only requireAuth
+// routes.ts (BEFORE) — only requireAuth
 app.post("/api/automation/jobs/:id/resume", requireAuth, ...)
 
 // epfo-esic-routes.ts (line 1805) — correct, with adminRoles
@@ -693,10 +705,12 @@ app.post("/api/automation/jobs/:id/resume", requireAuth, adminRoles, ...)
 
 Since Express registers both, the less restrictive route (registered first in `index.ts` presumably) wins, allowing any logged-in user (including `employee` role) to resume portal automation jobs.
 
-#### 3. File Upload Without Mimetype Validation
+#### 3. File Upload Without Mimetype Validation — ✅ RESOLVED (June 19, 2026)
+
+> **Fixed:** `server/upload-security.ts` now provides a dangerous-extension blocklist plus per-uploader allow-lists: `docUpload` → PDF/JPG/JPEG/PNG/DOC/DOCX; bulk `upload` → spreadsheet/CSV/text (xlsx/xls/csv/txt/dat, preserving bulk + biometric import); `apkUpload` → apk only; mobile `faceUpload` → images only. Rejected files return HTTP 400. *(Original finding preserved below.)*
 
 ```typescript
-// Current — no filter:
+// BEFORE — no filter:
 const docUpload = multer({
   storage: diskStorage,   // writes to uploads/employee-docs/
   limits: { fileSize: 10MB }
@@ -798,12 +812,12 @@ The RBAC system is well-designed but the `user_permissions` table in the DB is s
 | Rank | Issue | Severity | Files Affected | Estimated Fix Effort |
 |------|-------|---------|---------------|---------------------|
 | 1 | `server/routes.ts` God Object | 🔴 Critical | 1 | 5–7 days |
-| 2 | No database indexes | 🔴 Critical | `schema.ts` | 1–2 days |
-| 3 | Hardcoded secret fallbacks | 🔴 Critical | `index.ts`, `jwt-auth.ts` | 2 hours |
-| 4 | Duplicate automation resume route | 🔴 High | `routes.ts` | 1 hour |
+| 2 | ~~No database indexes~~ ✅ Resolved (Jun 19 2026) | Done | `schema.ts` + `migrations/008` | — |
+| 3 | ~~Hardcoded secret fallbacks~~ ✅ Resolved (Jun 19 2026) | Done | `index.ts`, `jwt-auth.ts`, `load-env.ts` | — |
+| 4 | ~~Duplicate automation resume route~~ ✅ Resolved (Jun 19 2026) | Done | `routes.ts` | — |
 | 5 | No FK constraints in DB | 🔴 High | `schema.ts` + migrations | 2–3 days |
 | 6 | 6,379-line reports.tsx | 🟠 High | `reports.tsx` | 3–5 days |
-| 7 | No file upload mimetype filter | 🔴 High | `routes.ts` | 2 hours |
+| 7 | ~~No file upload mimetype filter~~ ✅ Resolved (Jun 19 2026) | Done | `upload-security.ts` | — |
 | 8 | No service layer (business logic in routes) | 🟠 High | All route files | 10–15 days |
 | 9 | Inline sub-components in pages | 🟡 Medium | 10+ page files | 5–8 days |
 | 10 | Inconsistent Zod validation | 🟡 Medium | `routes.ts` | 3–5 days |
@@ -833,18 +847,19 @@ The RBAC system is well-designed but the `user_permissions` table in the DB is s
 
 ## 13. Refactoring Roadmap
 
-### Phase 1 — Critical Fixes (Immediate / Week 1)
+### Phase 1 — Critical Fixes (Immediate / Week 1) — ✅ MOSTLY COMPLETE (June 19, 2026)
 **Estimated effort:** 3–5 days | **Risk:** Low | **Do NOT defer**
 
-| Task | Action | File(s) |
-|------|--------|---------|
-| Remove hardcoded secrets | Enforce `process.env` required, remove fallback strings | `server/index.ts`, `server/jwt-auth.ts` |
-| Fix auth bypass | Remove duplicate resume route from `routes.ts` | `server/routes.ts` |
-| Add upload mimetype filter | Add `fileFilter` to `docUpload` multer config | `server/routes.ts` |
-| Add missing DB indexes | Add 10 critical indexes on FK columns | `shared/schema.ts` + migration |
-| Remove unused packages | `npm uninstall react-icons @replit/connectors-sdk tw-animate-css` | `package.json` |
+| Task | Action | File(s) | Status |
+|------|--------|---------|--------|
+| Remove hardcoded secrets | Enforce `process.env` required, remove fallback strings; load `.env` first | `server/index.ts`, `server/jwt-auth.ts`, `server/load-env.ts` | ✅ Done |
+| Fix auth bypass | Remove duplicate resume route from `routes.ts` | `server/routes.ts` | ✅ Done |
+| Add upload mimetype filter | Add allow-list `fileFilter` + dangerous-ext blocklist | `server/upload-security.ts` | ✅ Done |
+| Add missing DB indexes | Added **19** indexes on FK/filter columns (more than the 10 originally scoped) | `shared/schema.ts` + `migrations/008_add_recommended_indexes.sql` | ✅ Done (apply to prod) |
+| Remove unused packages | `npm uninstall react-icons @replit/connectors-sdk tw-animate-css` | `package.json` | ⬜ Pending |
 
 **Expected benefit:** Closes 4 security vulnerabilities; 30–50% query speedup for attendance/payroll APIs.
+**Actual:** 4/5 tasks shipped & merged. Unused-package removal deferred. Index migration verified on dev DB — **must still be applied to production** (`psql "$DATABASE_URL" -f migrations/008_add_recommended_indexes.sql` or `npm run db:push`).
 
 ---
 
@@ -917,10 +932,10 @@ The RBAC system is well-designed but the `user_permissions` table in the DB is s
 
 | # | Recommendation | Priority | Effort |
 |---|---------------|---------|--------|
-| 1 | **Remove hardcoded JWT/session secret fallbacks** | 🔴 Urgent | 2 hrs |
-| 2 | **Remove duplicate automation resume route (auth bypass)** | 🔴 Urgent | 1 hr |
-| 3 | **Add mimetype filter to employee document uploads** | 🔴 Urgent | 2 hrs |
-| 4 | **Add indexes on all FK columns in schema.ts** | 🔴 Critical | 2 days |
+| 1 | ~~**Remove hardcoded JWT/session secret fallbacks**~~ ✅ Done (Jun 19 2026) | — | — |
+| 2 | ~~**Remove duplicate automation resume route (auth bypass)**~~ ✅ Done (Jun 19 2026) | — | — |
+| 3 | ~~**Add mimetype filter to employee document uploads**~~ ✅ Done (Jun 19 2026) | — | — |
+| 4 | ~~**Add indexes on FK/filter columns in schema.ts**~~ ✅ Done (Jun 19 2026, 19 indexes) | — | — |
 | 5 | **Split server/routes.ts into 8 domain-specific files** | 🔴 Critical | 5 days |
 | 6 | **Introduce a service layer** | 🟠 High | 10 days |
 | 7 | **Extract reports.tsx into separate report modules** | 🟠 High | 4 days |
@@ -945,7 +960,7 @@ The RBAC system is well-designed but the `user_permissions` table in the DB is s
 | Largest backend file | 7,398 lines | ~900 lines (avg) | **~88% reduction** |
 | Largest frontend file | 6,379 lines | ~800 lines (avg) | **~87% reduction** |
 | API response time (at scale) | 2,000–5,000ms | 100–300ms | **~85% faster** |
-| Security vulnerabilities | 4 critical | 0 critical | **Resolved** |
+| Security vulnerabilities | ⚠️ 1 critical (4 code-level resolved Jun 19 2026; committed `.replit` JWT secret outstanding) | 0 critical | **In progress** |
 | Codebase maintainability | 4/10 | 8/10 | **+100%** |
 | Bundle size | ~Current | ~25% smaller | **react-icons + dead code removed** |
 | Test coverage (potential) | 0% | Testable architecture | **Unblocked** |
