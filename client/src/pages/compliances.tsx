@@ -2967,12 +2967,11 @@ function MusterRollView({ data, state }: { data: MusterRollData; state?: string 
             <th style={{ ...CL_TH, fontSize: "8px" }}>{"Total\nPresent\nDays"}</th>
             <th style={{ ...CL_TH, fontSize: "8px" }}>{"WO +\nHD"}</th>
             <th style={{ ...CL_TH, fontSize: "8px" }}>{"Net Pay\nDays"}</th>
-            <th style={{ ...CL_TH, fontSize: "8px", minWidth: "50px" }}>{"Signature /\nThumb\nImpression"}</th>
           </tr>
         </thead>
         <tbody>
           {employees.length === 0 && (
-            <tr><td colSpan={4 + daysInMonth + 4} style={{ ...CL_TD, textAlign: "center", padding: "16px" }}>No employees</td></tr>
+            <tr><td colSpan={4 + daysInMonth + 3} style={{ ...CL_TD, textAlign: "center", padding: "16px" }}>No employees</td></tr>
           )}
           {employees.map(e => (
             <tr key={e.serialNo}>
@@ -2988,7 +2987,6 @@ function MusterRollView({ data, state }: { data: MusterRollData; state?: string 
               <td style={{ ...CL_TD, fontSize: "8px", textAlign: "center", fontWeight: 700 }}>{e.presentDays}</td>
               <td style={{ ...CL_TD, fontSize: "8px", textAlign: "center" }}>{e.woHd}</td>
               <td style={{ ...CL_TD, fontSize: "8px", textAlign: "center", fontWeight: 700 }}>{e.netPayDays}</td>
-              <td style={{ ...CL_TD, fontSize: "8px" }}></td>
             </tr>
           ))}
         </tbody>
@@ -3855,12 +3853,14 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
         : undefined;
       // Helper: draw signature image (or plain label if no sig) above a right-aligned x position
       const drawSig = (x: number, y: number, label = "Signature of the Contractor") => {
-        const sigW = 40; const sigH = 12;
-        if (sigB64) {
-          doc.addImage(sigB64, "PNG", x - sigW, y - sigH, sigW, sigH);
-          doc.setDrawColor(80,80,80); doc.line(x - sigW - 2, y, x, y);
-        }
+        const sigW = 40; const sigH = 14;
         doc.setFont("times", "bold"); doc.setFontSize(8.5);
+        const labelW = doc.getTextWidth(label);
+        const labelLeft = x - labelW;
+        if (sigB64) {
+          doc.addImage(sigB64, "PNG", labelLeft + (labelW - sigW) / 2, y - sigH - 1, sigW, sigH);
+        }
+        doc.setDrawColor(80,80,80); doc.line(labelLeft, y, x, y);
         doc.text(label, x, y + 4, { align: "right" });
       };
 
@@ -3914,11 +3914,21 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
       const todayFmt = new Date().toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" });
 
       const addFooter = (y: number) => {
-        const footY = Math.min(y, ph - M - 6);
+        // `y` is the table bottom + small gap. The signature image is drawn
+        // ~15mm ABOVE the line, so leave room or push the block to a new page.
+        const sigBlockH = 24;
+        let topY = y;
+        if (topY + sigBlockH > ph - M) {
+          doc.addPage("a4", pw > ph ? "landscape" : "portrait");
+          pw = doc.internal.pageSize.getWidth();
+          ph = doc.internal.pageSize.getHeight();
+          topY = M + 8;
+        }
+        const lineY = topY + 16;  // signature line sits clear below the table
         doc.setFont("times", "normal"); doc.setFontSize(8.5);
-        doc.text(`Place : ${v(cl?.location_of_work)}`, M, footY);
-        doc.text(`Date  : ${todayFmt}`, M, footY + 5);
-        drawSig(pw - M, footY);
+        doc.text(`Place : ${v(cl?.location_of_work)}`, M, lineY);
+        doc.text(`Date  : ${todayFmt}`, M, lineY + 5);
+        drawSig(pw - M, lineY);
       };
 
       const lastY = () => (doc as any).lastAutoTable.finalY;
@@ -4194,12 +4204,11 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
       const usableW  = pw - M * 2;               // 297-28 = 269mm
       const fixedW   = 8 + 24 + 18 + 10;         // S.No + Name + Father + Gender = 60mm
       const summaryW = 12 + 10 + 13;             // TotalPresent + WO+HD + NetPayDays = 35mm
-      const signWXII = 20;                        // Signature column = 20mm
-      const dayW     = parseFloat(((usableW - fixedW - summaryW - signWXII) / days.length).toFixed(2));
+      const dayW     = parseFloat(((usableW - fixedW - summaryW) / days.length).toFixed(2));
       autoTbl(doc, {
         startY: y,
-        head: [["S.\nNo.", "Name of\nEmployee", "Father's /\nHusband's\nName", "G", ...days.map(d => String(d)), "Pres.", "WO\n+HD", "Net\nDays", "Sign. /\nThumb\nImpression"]],
-        body: clraData.xii.employees.map(e => [e.serialNo, e.name, e.fatherHusbandName||"—", (e.gender||"").charAt(0), ...days.map(d => e.attendance[d]||""), e.presentDays, e.woHd, e.netPayDays, ""]),
+        head: [["S.\nNo.", "Name of\nEmployee", "Father's /\nHusband's\nName", "G", ...days.map(d => String(d)), "Pres.", "WO\n+HD", "Net\nDays"]],
+        body: clraData.xii.employees.map(e => [e.serialNo, e.name, e.fatherHusbandName||"—", (e.gender||"").charAt(0), ...days.map(d => e.attendance[d]||""), e.presentDays, e.woHd, e.netPayDays]),
         styles: { ...TS, fontSize: 6, cellPadding: 1 }, headStyles: { ...TH, fontSize: 6, cellPadding: 1 },
         columnStyles: {
           0:{ cellWidth:8, halign:"center" }, 1:{ cellWidth:24 }, 2:{ cellWidth:18 }, 3:{ cellWidth:10, halign:"center" },
@@ -4207,7 +4216,6 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
           [4 + days.length]:     { cellWidth: 12, halign: "center" as const },
           [4 + days.length + 1]: { cellWidth: 10, halign: "center" as const },
           [4 + days.length + 2]: { cellWidth: 13, halign: "center" as const },
-          [4 + days.length + 3]: { cellWidth: signWXII },
         },
         margin:{ left:M, right:M },
       });
@@ -4658,12 +4666,19 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
       margin: { left: 10, right: 10 },
     });
 
-    // Footer
-    const lastY = (doc as any).lastAutoTable.finalY + 8;
+    // Footer — keep the signature block clear of the table bottom
+    const ph2 = doc.internal.pageSize.getHeight();
+    let topY = (doc as any).lastAutoTable.finalY + 8;
+    if (topY + 24 > ph2 - 10) { doc.addPage(); topY = 18; }
+    const lineY = topY + 16;
     doc.setFont("times", "normal");
     doc.setFontSize(9);
-    doc.text(`Place : ${val(c?.location_of_work)}`, 10, lastY);
+    doc.text(`Place : ${val(c?.location_of_work)}`, 10, lineY);
 
+    doc.setFont("times", "bold");
+    const label = "Signature of the Contractor";
+    const labelW = doc.getTextWidth(label);
+    const labelLeft = pw - 10 - labelW;
     const sigUrl = (workmenData.company as any).signature;
     if (sigUrl) {
       try {
@@ -4679,12 +4694,12 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
           img.onerror = rej;
           img.src = sigUrl;
         });
-        const sigW = 32, sigH = 14;
-        doc.addImage(b64, "PNG", pw - 10 - sigW, lastY - sigH - 1, sigW, sigH);
+        const sigW = 36, sigH = 14;
+        doc.addImage(b64, "PNG", labelLeft + (labelW - sigW) / 2, lineY - sigH - 1, sigW, sigH);
       } catch { /* signature image failed to load — fall back to text only */ }
     }
-    doc.setFont("times", "bold");
-    doc.text("Signature of the Contractor", pw - 10, lastY, { align: "right" });
+    doc.setDrawColor(80, 80, 80); doc.line(labelLeft, lineY, pw - 10, lineY);
+    doc.text(label, pw - 10, lineY + 4, { align: "right" });
 
     doc.save(`Form-IX-Workmen-Register-${toMonth}-${toYear}.pdf`);
   };
