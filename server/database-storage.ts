@@ -113,1341 +113,973 @@ import { eq, and, isNull, desc, sql, count, or } from "drizzle-orm";
 import { db } from "./db";
 import { IStorage } from "./storage";
 import { randomUUID } from "crypto";
+import { AttendanceRepository } from "./repositories/attendance-repository";
+import { AuditRepository } from "./repositories/audit-repository";
+import { BiometricRepository } from "./repositories/biometric-repository";
+import { CompanyRepository } from "./repositories/company-repository";
+import { ComplianceRepository } from "./repositories/compliance-repository";
+import { DashboardRepository } from "./repositories/dashboard-repository";
+import { EmployeeRepository } from "./repositories/employee-repository";
+import { KraRepository } from "./repositories/kra-repository";
+import { LeaveRepository } from "./repositories/leave-repository";
+import { PayrollRepository } from "./repositories/payroll-repository";
+import { RecruitmentRepository } from "./repositories/recruitment-repository";
+import { SettingsRepository } from "./repositories/settings-repository";
+import { UserRepository } from "./repositories/user-repository";
 
+// DatabaseStorage is now a thin facade that delegates every call to the
+// per-domain repositories in ./repositories (Task #5 Phase B). The public
+// IStorage surface and all behavior are identical to before.
 export class DatabaseStorage implements IStorage {
-  async getUser(id: string): Promise<User | undefined> {
-    const result = await db.select().from(users).where(eq(users.id, id));
-    return result[0];
-  }
+  private attendanceRepo = new AttendanceRepository();
+  private auditRepo = new AuditRepository();
+  private biometricRepo = new BiometricRepository();
+  private companyRepo = new CompanyRepository();
+  private complianceRepo = new ComplianceRepository();
+  private dashboardRepo = new DashboardRepository();
+  private employeeRepo = new EmployeeRepository();
+  private kraRepo = new KraRepository();
+  private leaveRepo = new LeaveRepository();
+  private payrollRepo = new PayrollRepository();
+  private recruitmentRepo = new RecruitmentRepository();
+  private settingsRepo = new SettingsRepository();
+  private userRepo = new UserRepository();
 
-  async getUserByUsername(username: string): Promise<User | undefined> {
-    const result = await db.select().from(users).where(eq(users.username, username));
-    return result[0];
-  }
-
-  async getUserByEmail(email: string): Promise<User | undefined> {
-    const result = await db.select().from(users).where(eq(users.email, email));
-    return result[0];
-  }
-
-  async createUser(user: InsertUser): Promise<User> {
-    const id = randomUUID();
-    const result = await db.insert(users).values({ ...user, id }).returning();
-    return result[0];
-  }
-
-  async updateUser(id: string, user: Partial<InsertUser>): Promise<User | undefined> {
-    const result = await db.update(users).set(user).where(eq(users.id, id)).returning();
-    return result[0];
-  }
-
-  async deleteUser(id: string): Promise<boolean> {
-    const result = await db.delete(users).where(eq(users.id, id)).returning();
-    return result.length > 0;
-  }
-
-  async getAllUsers(): Promise<User[]> {
-    return await db.select().from(users);
-  }
-
-  async getCompany(id: string): Promise<Company | undefined> {
-    const result = await db.select().from(companies).where(eq(companies.id, id));
-    return result[0];
-  }
-
-  async createCompany(company: InsertCompany): Promise<Company> {
-    const id = randomUUID();
-    const result = await db.insert(companies).values({ ...company, id }).returning();
-    return result[0];
-  }
-
-  async updateCompany(id: string, company: Partial<InsertCompany>): Promise<Company | undefined> {
-    const result = await db.update(companies).set(company).where(eq(companies.id, id)).returning();
-    return result[0];
-  }
-
-  async deleteCompany(id: string): Promise<boolean> {
-    const result = await db.delete(companies).where(eq(companies.id, id)).returning();
-    return result.length > 0;
-  }
-
-  async getAllCompanies(): Promise<Company[]> {
-    return await db.select().from(companies);
-  }
-
-  async getCompanyContractors(companyId: string): Promise<(CompanyContractor & { contractorName: string })[]> {
-    const rows = await db
-      .select({
-        id: companyContractors.id,
-        companyId: companyContractors.companyId,
-        contractorId: companyContractors.contractorId,
-        startDate: companyContractors.startDate,
-        contractorName: companies.companyName,
-      })
-      .from(companyContractors)
-      .leftJoin(companies, eq(companies.id, companyContractors.contractorId))
-      .where(eq(companyContractors.companyId, companyId));
-    return rows.map((r) => ({ ...r, contractorName: r.contractorName ?? "(Unknown Company)" }));
-  }
-
-  async addCompanyContractor(data: InsertCompanyContractor): Promise<CompanyContractor> {
-    const id = randomUUID();
-    const result = await db.insert(companyContractors).values({ ...data, id }).returning();
-    return result[0];
-  }
-
-  async removeCompanyContractor(companyId: string, contractorId: string): Promise<boolean> {
-    const result = await db
-      .delete(companyContractors)
-      .where(and(eq(companyContractors.companyId, companyId), eq(companyContractors.contractorId, contractorId)))
-      .returning();
-    return result.length > 0;
-  }
-
-  async getPrincipalEmployers(contractorId: string): Promise<(CompanyContractor & { companyName: string })[]> {
-    const rows = await db
-      .select({
-        id: companyContractors.id,
-        companyId: companyContractors.companyId,
-        contractorId: companyContractors.contractorId,
-        startDate: companyContractors.startDate,
-        companyName: companies.companyName,
-      })
-      .from(companyContractors)
-      .leftJoin(companies, eq(companies.id, companyContractors.companyId))
-      .where(eq(companyContractors.contractorId, contractorId));
-    // Ensure companyName is always a string (leftJoin may produce null)
-    return rows.map((r) => ({ ...r, companyName: r.companyName ?? "(Unknown Company)" }));
-  }
-
-  async getContractorEmployees(companyId: string, contractorId: string): Promise<(Employee & { contractorEmployeeId: string; taggedDate: string | null; taggedBy: string | null })[]> {
-    const junction = await db.select().from(companyContractors)
-      .where(and(eq(companyContractors.companyId, companyId), eq(companyContractors.contractorId, contractorId)));
-    if (!junction.length) return [];
-    const rows = await db
-      .select({ ...employees, contractorEmployeeId: contractorEmployees.id, taggedDate: contractorEmployees.taggedDate, taggedBy: contractorEmployees.taggedBy } as any)
-      .from(contractorEmployees)
-      .innerJoin(employees, eq(employees.id, contractorEmployees.employeeId))
-      .where(eq(contractorEmployees.companyContractorId, junction[0].id));
-    return rows as any;
-  }
-
-  async addContractorEmployee(companyId: string, contractorId: string, employeeId: string, taggedDate?: string, taggedBy?: string): Promise<void> {
-    const junction = await db.select().from(companyContractors)
-      .where(and(eq(companyContractors.companyId, companyId), eq(companyContractors.contractorId, contractorId)));
-    console.log("[addContractorEmployee] companyId=%s contractorId=%s employeeId=%s junction.length=%d", companyId, contractorId, employeeId, junction.length);
-    if (!junction.length) throw new Error(`No contractor link found: company=${companyId}, contractor=${contractorId}`);
-    const id = randomUUID();
-    await db.insert(contractorEmployees).values({ id, companyContractorId: junction[0].id, employeeId, taggedDate: taggedDate ?? null, taggedBy: taggedBy ?? null });
-  }
-
-  async removeContractorEmployee(companyId: string, contractorId: string, employeeId: string): Promise<boolean> {
-    const junction = await db.select().from(companyContractors)
-      .where(and(eq(companyContractors.companyId, companyId), eq(companyContractors.contractorId, contractorId)));
-    if (!junction.length) return false;
-    const result = await db.delete(contractorEmployees)
-      .where(and(eq(contractorEmployees.companyContractorId, junction[0].id), eq(contractorEmployees.employeeId, employeeId)))
-      .returning();
-    return result.length > 0;
-  }
-
-  async getEmployee(id: string): Promise<Employee | undefined> {
-    const result = await db.select().from(employees).where(eq(employees.id, id));
-    return result[0];
-  }
-
-  async getEmployeeByUserId(userId: string): Promise<Employee | undefined> {
-    // Primary: direct userId match
-    const result = await db.select().from(employees).where(eq(employees.userId, userId));
-    if (result[0]) return result[0];
-
-    // Fallback: match via the user's email → employee's officialEmail
-    // (covers employees created before the userId-link system)
-    const userRow = await db
-      .select({ email: users.email })
-      .from(users)
-      .where(eq(users.id, userId))
-      .limit(1);
-    const email = userRow[0]?.email;
-    if (!email) return undefined;
-
-    const byEmail = await db
-      .select()
-      .from(employees)
-      .where(eq(employees.officialEmail, email))
-      .limit(1);
-
-    if (byEmail[0]) {
-      // Auto-link so future lookups hit the fast path
-      await db.update(employees).set({ userId }).where(eq(employees.id, byEmail[0].id));
-      return { ...byEmail[0], userId };
-    }
-
-    return undefined;
-  }
-
-  async getEmployeesByCompany(companyId: string): Promise<Employee[]> {
-    return await db.select().from(employees).where(eq(employees.companyId, companyId));
-  }
-
-  async createEmployee(employee: InsertEmployee): Promise<Employee> {
-    const id = randomUUID();
-    const result = await db.insert(employees).values({ ...employee, id }).returning();
-    return result[0];
-  }
-
-  async updateEmployee(id: string, employee: Partial<InsertEmployee>): Promise<Employee | undefined> {
-    const result = await db.update(employees).set(employee).where(eq(employees.id, id)).returning();
-    return result[0];
-  }
-
-  async deleteEmployee(id: string): Promise<boolean> {
-    const result = await db.delete(employees).where(eq(employees.id, id)).returning();
-    return result.length > 0;
-  }
-
-  async getAllEmployees(): Promise<Employee[]> {
-    return await db.select().from(employees);
-  }
-
-  async getDashboardStats(): Promise<DashboardStats> {
-    const [companiesCount] = await db.select({ value: count() }).from(companies);
-    const [employeesCount] = await db.select({ value: count() }).from(employees);
-    const [usersCount] = await db.select({ value: count() }).from(users);
-    const [activeCount] = await db.select({ value: count() }).from(employees).where(eq(employees.status, "active"));
-    const [contractorsCount] = await db.select({ value: count() }).from(companyContractors);
-    const [principalEmployersCount] = await db.select({ value: count() }).from(companyContractors);
-
-    const deptRows = await db
-      .select({ department: employees.department, count: count() })
-      .from(employees)
-      .groupBy(employees.department);
-
-    const departmentDistribution = deptRows.map((r) => ({
-      department: r.department || "Unassigned",
-      count: r.count,
-    }));
-
-    const recentEmployees = await db
-      .select()
-      .from(employees)
-      .orderBy(desc(employees.dateOfJoining))
-      .limit(5);
-
-    return {
-      totalCompanies: companiesCount.value,
-      totalEmployees: employeesCount.value,
-      totalUsers: usersCount.value,
-      activeEmployees: activeCount.value,
-      totalContractors: contractorsCount.value,
-      totalPrincipalEmployers: principalEmployersCount.value,
-      departmentDistribution,
-      recentEmployees,
-    };
-  }
-
-  async getDashboardStatsByCompany(companyId: string): Promise<DashboardStats> {
-    const [companiesCount] = await db.select({ value: count() }).from(companies).where(eq(companies.id, companyId));
-    const [employeesCount] = await db.select({ value: count() }).from(employees).where(eq(employees.companyId, companyId));
-    const [usersCount] = await db.select({ value: count() }).from(users).where(eq(users.companyId, companyId));
-    const [activeCount] = await db.select({ value: count() }).from(employees).where(and(eq(employees.companyId, companyId), eq(employees.status, "active")));
-    // Contractors this company has hired
-    const [contractorsCount] = await db.select({ value: count() }).from(companyContractors).where(eq(companyContractors.companyId, companyId));
-    // Companies that have hired this company as a contractor
-    const [principalEmployersCount] = await db.select({ value: count() }).from(companyContractors).where(eq(companyContractors.contractorId, companyId));
-
-    const deptRows = await db
-      .select({ department: employees.department, count: count() })
-      .from(employees)
-      .where(eq(employees.companyId, companyId))
-      .groupBy(employees.department);
-
-    const departmentDistribution = deptRows.map((r) => ({
-      department: r.department || "Unassigned",
-      count: r.count,
-    }));
-
-    const recentEmployees = await db
-      .select()
-      .from(employees)
-      .where(eq(employees.companyId, companyId))
-      .orderBy(desc(employees.dateOfJoining))
-      .limit(5);
-
-    return {
-      totalCompanies: companiesCount.value,
-      totalEmployees: employeesCount.value,
-      totalUsers: usersCount.value,
-      activeEmployees: activeCount.value,
-      totalContractors: contractorsCount.value,
-      totalPrincipalEmployers: principalEmployersCount.value,
-      departmentDistribution,
-      recentEmployees,
-    };
-  }
-
+  // ── Attendance ──
   async getAttendance(id: string): Promise<Attendance | undefined> {
-    const result = await db.select().from(attendance).where(eq(attendance.id, id));
-    return result[0];
+    return this.attendanceRepo.getAttendance(id);
   }
 
   async getAttendanceByEmployee(employeeId: string, date?: string): Promise<Attendance[]> {
-    if (date) {
-      return await db.select().from(attendance).where(and(eq(attendance.employeeId, employeeId), eq(attendance.date, date)));
-    }
-    return await db.select().from(attendance).where(eq(attendance.employeeId, employeeId));
+    return this.attendanceRepo.getAttendanceByEmployee(employeeId, date);
   }
 
   async getAttendanceByDate(companyId: string, date: string): Promise<Attendance[]> {
-    return await db.select().from(attendance).where(and(eq(attendance.companyId, companyId), eq(attendance.date, date)));
+    return this.attendanceRepo.getAttendanceByDate(companyId, date);
   }
 
   async createAttendance(record: InsertAttendance): Promise<Attendance> {
-    const id = randomUUID();
-    const result = await db.insert(attendance).values({ ...record, id }).returning();
-    return result[0];
+    return this.attendanceRepo.createAttendance(record);
   }
 
   async updateAttendance(id: string, record: Partial<InsertAttendance>): Promise<Attendance | undefined> {
-    const result = await db.update(attendance).set(record).where(eq(attendance.id, id)).returning();
-    return result[0];
+    return this.attendanceRepo.updateAttendance(id, record);
   }
 
   async deleteAttendance(id: string): Promise<boolean> {
-    const result = await db.delete(attendance).where(eq(attendance.id, id)).returning();
-    return result.length > 0;
+    return this.attendanceRepo.deleteAttendance(id);
   }
 
   async getAllAttendance(): Promise<Attendance[]> {
-    return await db.select().from(attendance);
-  }
-
-  async getLeaveType(id: string): Promise<LeaveType | undefined> {
-    const result = await db.select().from(leaveTypes).where(eq(leaveTypes.id, id));
-    return result[0];
-  }
-
-  async getLeaveTypesByCompany(companyId: string | null): Promise<LeaveType[]> {
-    if (companyId === null) {
-      return await db.select().from(leaveTypes).where(isNull(leaveTypes.companyId));
-    }
-    return await db.select().from(leaveTypes).where(
-      or(eq(leaveTypes.companyId, companyId), isNull(leaveTypes.companyId))
-    );
-  }
-
-  async createLeaveType(leaveType: InsertLeaveType): Promise<LeaveType> {
-    const id = randomUUID();
-    const result = await db.insert(leaveTypes).values({ ...leaveType, id }).returning();
-    return result[0];
-  }
-
-  async updateLeaveType(id: string, leaveType: Partial<InsertLeaveType>): Promise<LeaveType | undefined> {
-    const result = await db.update(leaveTypes).set(leaveType).where(eq(leaveTypes.id, id)).returning();
-    return result[0];
-  }
-
-  async deleteLeaveType(id: string): Promise<boolean> {
-    const result = await db.delete(leaveTypes).where(eq(leaveTypes.id, id)).returning();
-    return result.length > 0;
-  }
-
-  async getAllLeaveTypes(): Promise<LeaveType[]> {
-    return await db.select().from(leaveTypes);
-  }
-
-  async getLeaveRequest(id: string): Promise<LeaveRequest | undefined> {
-    const result = await db.select().from(leaveRequests).where(eq(leaveRequests.id, id));
-    return result[0];
-  }
-
-  async getLeaveRequestsByEmployee(employeeId: string): Promise<LeaveRequest[]> {
-    return await db.select().from(leaveRequests).where(eq(leaveRequests.employeeId, employeeId));
-  }
-
-  async getLeaveRequestsByCompany(companyId: string): Promise<LeaveRequest[]> {
-    return await db.select().from(leaveRequests).where(eq(leaveRequests.companyId, companyId));
-  }
-
-  async createLeaveRequest(leaveRequest: InsertLeaveRequest): Promise<LeaveRequest> {
-    const id = randomUUID();
-    const result = await db.insert(leaveRequests).values({ ...leaveRequest, id }).returning();
-    return result[0];
-  }
-
-  async updateLeaveRequest(id: string, leaveRequest: Partial<LeaveRequest>): Promise<LeaveRequest | undefined> {
-    const result = await db.update(leaveRequests).set(leaveRequest).where(eq(leaveRequests.id, id)).returning();
-    return result[0];
-  }
-
-  async deleteLeaveRequest(id: string): Promise<boolean> {
-    const result = await db.delete(leaveRequests).where(eq(leaveRequests.id, id)).returning();
-    return result.length > 0;
-  }
-
-  async getAllLeaveRequests(): Promise<LeaveRequest[]> {
-    return await db.select().from(leaveRequests);
-  }
-
-  async getSalaryStructure(id: string): Promise<SalaryStructure | undefined> {
-    const result = await db.select().from(salaryStructures).where(eq(salaryStructures.id, id));
-    return result[0];
-  }
-
-  async getSalaryStructureByEmployee(employeeId: string): Promise<SalaryStructure | undefined> {
-    const result = await db.select().from(salaryStructures).where(
-      and(eq(salaryStructures.employeeId, employeeId), eq(salaryStructures.status, "active"))
-    );
-    return result[0];
-  }
-
-  async getSalaryStructuresByEmployee(employeeId: string): Promise<SalaryStructure[]> {
-    return await db.select().from(salaryStructures).where(eq(salaryStructures.employeeId, employeeId));
-  }
-
-  async createSalaryStructure(salaryStructure: InsertSalaryStructure): Promise<SalaryStructure> {
-    const id = randomUUID();
-    const result = await db.insert(salaryStructures).values({ ...salaryStructure, id }).returning();
-    return result[0];
-  }
-
-  async updateSalaryStructure(id: string, salaryStructure: Partial<InsertSalaryStructure>): Promise<SalaryStructure | undefined> {
-    const result = await db.update(salaryStructures).set(salaryStructure).where(eq(salaryStructures.id, id)).returning();
-    return result[0];
-  }
-
-  async deleteSalaryStructure(id: string): Promise<boolean> {
-    const result = await db.delete(salaryStructures).where(eq(salaryStructures.id, id)).returning();
-    return result.length > 0;
-  }
-
-  async getAllSalaryStructures(): Promise<SalaryStructure[]> {
-    return await db.select().from(salaryStructures);
-  }
-
-  async getPayroll(id: string): Promise<Payroll | undefined> {
-    const result = await db.select().from(payroll).where(eq(payroll.id, id));
-    return result[0];
-  }
-
-  async getPayrollByEmployee(employeeId: string): Promise<Payroll[]> {
-    return await db.select().from(payroll).where(eq(payroll.employeeId, employeeId));
-  }
-
-  async getPayrollByMonth(companyId: string, month: string, year: number): Promise<Payroll[]> {
-    return await db.select().from(payroll).where(
-      and(eq(payroll.companyId, companyId), eq(payroll.month, month), eq(payroll.year, year))
-    );
-  }
-
-  async getPayrollByEmployeeMonth(employeeId: string, month: string, year: number): Promise<Payroll | undefined> {
-    const result = await db.select().from(payroll).where(
-      and(eq(payroll.employeeId, employeeId), eq(payroll.month, month), eq(payroll.year, year))
-    );
-    return result[0];
-  }
-
-  async createPayroll(record: InsertPayroll): Promise<Payroll> {
-    const id = randomUUID();
-    const result = await db.insert(payroll).values({ ...record, id }).returning();
-    return result[0];
-  }
-
-  async updatePayroll(id: string, record: Partial<InsertPayroll>): Promise<Payroll | undefined> {
-    const result = await db.update(payroll).set(record).where(eq(payroll.id, id)).returning();
-    return result[0];
-  }
-
-  async deletePayroll(id: string): Promise<boolean> {
-    const result = await db.delete(payroll).where(eq(payroll.id, id)).returning();
-    return result.length > 0;
-  }
-
-  async getAllPayroll(): Promise<Payroll[]> {
-    return await db.select().from(payroll);
-  }
-
-  async getSetting(id: string): Promise<Setting | undefined> {
-    const result = await db.select().from(settings).where(eq(settings.id, id));
-    return result[0];
-  }
-
-  async getSettingByKey(companyId: string | null, key: string): Promise<Setting | undefined> {
-    const companyFilter = companyId === null ? isNull(settings.companyId) : eq(settings.companyId, companyId);
-    const result = await db.select().from(settings).where(and(companyFilter, eq(settings.key, key)));
-    return result[0];
-  }
-
-  async getSettingsByCategory(companyId: string | null, category: string): Promise<Setting[]> {
-    const companyFilter = companyId === null ? isNull(settings.companyId) : eq(settings.companyId, companyId);
-    return await db.select().from(settings).where(and(companyFilter, eq(settings.category, category)));
-  }
-
-  async createSetting(setting: InsertSetting): Promise<Setting> {
-    const id = randomUUID();
-    const result = await db.insert(settings).values({ ...setting, id }).returning();
-    return result[0];
-  }
-
-  async updateSetting(id: string, setting: Partial<InsertSetting>): Promise<Setting | undefined> {
-    const result = await db.update(settings).set(setting).where(eq(settings.id, id)).returning();
-    return result[0];
-  }
-
-  async deleteSetting(id: string): Promise<boolean> {
-    const result = await db.delete(settings).where(eq(settings.id, id)).returning();
-    return result.length > 0;
-  }
-
-  async getAllSettings(): Promise<Setting[]> {
-    return await db.select().from(settings);
-  }
-
-  async getMasterDepartment(id: string): Promise<MasterDepartment | undefined> {
-    const result = await db.select().from(masterDepartments).where(eq(masterDepartments.id, id));
-    return result[0];
-  }
-
-  async getAllMasterDepartments(): Promise<MasterDepartment[]> {
-    return await db.select().from(masterDepartments);
-  }
-
-  async getMasterDepartmentsByCompany(companyId: string): Promise<MasterDepartment[]> {
-    return await db.select().from(masterDepartments).where(eq(masterDepartments.companyId, companyId));
-  }
-
-  async createMasterDepartment(dept: InsertMasterDepartment): Promise<MasterDepartment> {
-    const id = randomUUID();
-    const result = await db.insert(masterDepartments).values({ ...dept, id }).returning();
-    return result[0];
-  }
-
-  async updateMasterDepartment(id: string, dept: Partial<InsertMasterDepartment>): Promise<MasterDepartment | undefined> {
-    const result = await db.update(masterDepartments).set(dept).where(eq(masterDepartments.id, id)).returning();
-    return result[0];
-  }
-
-  async deleteMasterDepartment(id: string): Promise<boolean> {
-    const result = await db.delete(masterDepartments).where(eq(masterDepartments.id, id)).returning();
-    return result.length > 0;
-  }
-
-  async getMasterDesignation(id: string): Promise<MasterDesignation | undefined> {
-    const result = await db.select().from(masterDesignations).where(eq(masterDesignations.id, id));
-    return result[0];
-  }
-
-  async getAllMasterDesignations(): Promise<MasterDesignation[]> {
-    return await db.select().from(masterDesignations);
-  }
-
-  async getMasterDesignationsByCompany(companyId: string): Promise<MasterDesignation[]> {
-    return await db.select().from(masterDesignations).where(eq(masterDesignations.companyId, companyId));
-  }
-
-  async createMasterDesignation(desg: InsertMasterDesignation): Promise<MasterDesignation> {
-    const id = randomUUID();
-    const result = await db.insert(masterDesignations).values({ ...desg, id }).returning();
-    return result[0];
-  }
-
-  async updateMasterDesignation(id: string, desg: Partial<InsertMasterDesignation>): Promise<MasterDesignation | undefined> {
-    const result = await db.update(masterDesignations).set(desg).where(eq(masterDesignations.id, id)).returning();
-    return result[0];
-  }
-
-  async deleteMasterDesignation(id: string): Promise<boolean> {
-    const result = await db.delete(masterDesignations).where(eq(masterDesignations.id, id)).returning();
-    return result.length > 0;
-  }
-
-  // Leave Policies
-  async getLeavePoliciesByCompany(companyId: string): Promise<LeavePolicy[]> {
-    return await db.select().from(leavePolicies).where(eq(leavePolicies.companyId, companyId));
-  }
-  async getLeavePolicy(id: string): Promise<LeavePolicy | undefined> {
-    const result = await db.select().from(leavePolicies).where(eq(leavePolicies.id, id));
-    return result[0];
-  }
-  async createLeavePolicy(data: InsertLeavePolicy): Promise<LeavePolicy> {
-    const id = randomUUID();
-    const result = await db.insert(leavePolicies).values({ ...data, id }).returning();
-    return result[0];
-  }
-  async updateLeavePolicy(id: string, data: Partial<InsertLeavePolicy>): Promise<LeavePolicy | undefined> {
-    const result = await db.update(leavePolicies).set(data).where(eq(leavePolicies.id, id)).returning();
-    return result[0];
-  }
-  async deleteLeavePolicy(id: string): Promise<boolean> {
-    const result = await db.delete(leavePolicies).where(eq(leavePolicies.id, id)).returning();
-    return result.length > 0;
-  }
-
-  async getMasterLocation(id: string): Promise<MasterLocation | undefined> {
-    const result = await db.select().from(masterLocations).where(eq(masterLocations.id, id));
-    return result[0];
-  }
-
-  async getAllMasterLocations(): Promise<MasterLocation[]> {
-    return await db.select().from(masterLocations);
-  }
-
-  async getMasterLocationsByCompany(companyId: string): Promise<MasterLocation[]> {
-    return await db.select().from(masterLocations).where(eq(masterLocations.companyId, companyId));
-  }
-
-  async createMasterLocation(loc: InsertMasterLocation): Promise<MasterLocation> {
-    const id = randomUUID();
-    const result = await db.insert(masterLocations).values({ ...loc, id }).returning();
-    return result[0];
-  }
-
-  async updateMasterLocation(id: string, loc: Partial<InsertMasterLocation>): Promise<MasterLocation | undefined> {
-    const result = await db.update(masterLocations).set(loc).where(eq(masterLocations.id, id)).returning();
-    return result[0];
-  }
-
-  async deleteMasterLocation(id: string): Promise<boolean> {
-    const result = await db.delete(masterLocations).where(eq(masterLocations.id, id)).returning();
-    return result.length > 0;
-  }
-
-  async getEarningHead(id: string): Promise<EarningHead | undefined> {
-    const result = await db.select().from(earningHeads).where(eq(earningHeads.id, id));
-    return result[0];
-  }
-
-  async getEarningHeadsByCompany(companyId: string): Promise<EarningHead[]> {
-    return await db.select().from(earningHeads).where(eq(earningHeads.companyId, companyId));
-  }
-
-  async createEarningHead(head: InsertEarningHead): Promise<EarningHead> {
-    const id = randomUUID();
-    const result = await db.insert(earningHeads).values({ ...head, id }).returning();
-    return result[0];
-  }
-
-  async updateEarningHead(id: string, head: Partial<InsertEarningHead>): Promise<EarningHead | undefined> {
-    const result = await db.update(earningHeads).set(head).where(eq(earningHeads.id, id)).returning();
-    return result[0];
-  }
-
-  async deleteEarningHead(id: string): Promise<boolean> {
-    const result = await db.delete(earningHeads).where(eq(earningHeads.id, id)).returning();
-    return result.length > 0;
-  }
-
-  async getDeductionHead(id: string): Promise<DeductionHead | undefined> {
-    const result = await db.select().from(deductionHeads).where(eq(deductionHeads.id, id));
-    return result[0];
-  }
-
-  async getDeductionHeadsByCompany(companyId: string): Promise<DeductionHead[]> {
-    return await db.select().from(deductionHeads).where(eq(deductionHeads.companyId, companyId));
-  }
-
-  async createDeductionHead(head: InsertDeductionHead): Promise<DeductionHead> {
-    const id = randomUUID();
-    const result = await db.insert(deductionHeads).values({ ...head, id }).returning();
-    return result[0];
-  }
-
-  async updateDeductionHead(id: string, head: Partial<InsertDeductionHead>): Promise<DeductionHead | undefined> {
-    const result = await db.update(deductionHeads).set(head).where(eq(deductionHeads.id, id)).returning();
-    return result[0];
-  }
-
-  async deleteDeductionHead(id: string): Promise<boolean> {
-    const result = await db.delete(deductionHeads).where(eq(deductionHeads.id, id)).returning();
-    return result.length > 0;
-  }
-
-  async getStatutorySettings(id: string): Promise<StatutorySettings | undefined> {
-    const result = await db.select().from(statutorySettings).where(eq(statutorySettings.id, id));
-    return result[0];
-  }
-
-  async getStatutorySettingsByCompany(companyId: string): Promise<StatutorySettings | undefined> {
-    const result = await db.select().from(statutorySettings).where(eq(statutorySettings.companyId, companyId));
-    return result[0];
-  }
-
-  async createStatutorySettings(s: InsertStatutorySettings): Promise<StatutorySettings> {
-    const id = randomUUID();
-    const result = await db.insert(statutorySettings).values({ ...s, id }).returning();
-    return result[0];
-  }
-
-  async updateStatutorySettings(id: string, s: Partial<InsertStatutorySettings>): Promise<StatutorySettings | undefined> {
-    const result = await db.update(statutorySettings).set(s).where(eq(statutorySettings.id, id)).returning();
-    return result[0];
-  }
-
-  async deleteStatutorySettings(id: string): Promise<boolean> {
-    const result = await db.delete(statutorySettings).where(eq(statutorySettings.id, id)).returning();
-    return result.length > 0;
-  }
-
-  async getTimeOfficePolicy(id: string): Promise<TimeOfficePolicy | undefined> {
-    const result = await db.select().from(timeOfficePolicies).where(eq(timeOfficePolicies.id, id));
-    return result[0];
-  }
-
-  async getTimeOfficePoliciesByCompany(companyId: string): Promise<TimeOfficePolicy[]> {
-    return await db.select().from(timeOfficePolicies).where(eq(timeOfficePolicies.companyId, companyId));
-  }
-
-  async createTimeOfficePolicy(policy: InsertTimeOfficePolicy): Promise<TimeOfficePolicy> {
-    const id = randomUUID();
-    const result = await db.insert(timeOfficePolicies).values({ ...policy, id }).returning();
-    return result[0];
-  }
-
-  async updateTimeOfficePolicy(id: string, policy: Partial<InsertTimeOfficePolicy>): Promise<TimeOfficePolicy | undefined> {
-    const result = await db.update(timeOfficePolicies).set(policy).where(eq(timeOfficePolicies.id, id)).returning();
-    return result[0];
-  }
-
-  async deleteTimeOfficePolicy(id: string): Promise<boolean> {
-    const result = await db.delete(timeOfficePolicies).where(eq(timeOfficePolicies.id, id)).returning();
-    return result.length > 0;
-  }
-
-  async getFnfSettlement(id: string): Promise<FnfSettlement | undefined> {
-    const result = await db.select().from(fnfSettlements).where(eq(fnfSettlements.id, id));
-    return result[0];
-  }
-
-  async getFnfSettlementByEmployee(employeeId: string): Promise<FnfSettlement | undefined> {
-    const result = await db.select().from(fnfSettlements).where(eq(fnfSettlements.employeeId, employeeId));
-    return result[0];
-  }
-
-  async getFnfSettlementsByCompany(companyId: string): Promise<FnfSettlement[]> {
-    return await db.select().from(fnfSettlements).where(eq(fnfSettlements.companyId, companyId));
-  }
-
-  async createFnfSettlement(settlement: InsertFnfSettlement): Promise<FnfSettlement> {
-    const id = randomUUID();
-    const result = await db.insert(fnfSettlements).values({ ...settlement, id }).returning();
-    return result[0];
-  }
-
-  async updateFnfSettlement(id: string, settlement: Partial<InsertFnfSettlement>): Promise<FnfSettlement | undefined> {
-    const result = await db.update(fnfSettlements).set(settlement).where(eq(fnfSettlements.id, id)).returning();
-    return result[0];
-  }
-
-  async deleteFnfSettlement(id: string): Promise<boolean> {
-    const result = await db.delete(fnfSettlements).where(eq(fnfSettlements.id, id)).returning();
-    return result.length > 0;
-  }
-
-  async getAllFnfSettlements(): Promise<FnfSettlement[]> {
-    return await db.select().from(fnfSettlements);
-  }
-
-  async getHoliday(id: string): Promise<Holiday | undefined> {
-    const result = await db.select().from(holidays).where(eq(holidays.id, id));
-    return result[0];
-  }
-
-  async getHolidaysByCompany(companyId: string): Promise<Holiday[]> {
-    return await db.select().from(holidays).where(eq(holidays.companyId, companyId));
-  }
-
-  async createHoliday(holiday: InsertHoliday): Promise<Holiday> {
-    const id = randomUUID();
-    const result = await db.insert(holidays).values({ ...holiday, id }).returning();
-    return result[0];
-  }
-
-  async updateHoliday(id: string, holiday: Partial<InsertHoliday>): Promise<Holiday | undefined> {
-    const result = await db.update(holidays).set(holiday).where(eq(holidays.id, id)).returning();
-    return result[0];
-  }
-
-  async deleteHoliday(id: string): Promise<boolean> {
-    const result = await db.delete(holidays).where(eq(holidays.id, id)).returning();
-    return result.length > 0;
-  }
-
-  async getAllHolidays(): Promise<Holiday[]> {
-    return await db.select().from(holidays);
-  }
-
-  async getBiometricPunchLog(id: string): Promise<BiometricPunchLog | undefined> {
-    const result = await db.select().from(biometricPunchLogs).where(eq(biometricPunchLogs.id, id));
-    return result[0];
-  }
-
-  async getBiometricPunchLogsByCompany(companyId: string): Promise<BiometricPunchLog[]> {
-    return await db.select().from(biometricPunchLogs).where(eq(biometricPunchLogs.companyId, companyId));
-  }
-
-  async getBiometricPunchLogsByDate(companyId: string, date: string): Promise<BiometricPunchLog[]> {
-    return await db.select().from(biometricPunchLogs).where(
-      and(eq(biometricPunchLogs.companyId, companyId), eq(biometricPunchLogs.punchDate, date))
-    );
-  }
-
-  async createBiometricPunchLog(log: InsertBiometricPunchLog): Promise<BiometricPunchLog> {
-    const id = randomUUID();
-    const result = await db.insert(biometricPunchLogs).values({ ...log, id }).returning();
-    return result[0];
-  }
-
-  async updateBiometricPunchLog(id: string, log: Partial<InsertBiometricPunchLog>): Promise<BiometricPunchLog | undefined> {
-    const result = await db.update(biometricPunchLogs).set(log).where(eq(biometricPunchLogs.id, id)).returning();
-    return result[0];
-  }
-
-  async deleteBiometricPunchLog(id: string): Promise<boolean> {
-    const result = await db.delete(biometricPunchLogs).where(eq(biometricPunchLogs.id, id)).returning();
-    return result.length > 0;
-  }
-
-  async getAllBiometricPunchLogs(): Promise<BiometricPunchLog[]> {
-    return await db.select().from(biometricPunchLogs);
-  }
-
-  async findDuplicatePunchLog(companyId: string, deviceEmployeeId: string, punchTime: string, punchDate: string): Promise<BiometricPunchLog | undefined> {
-    const result = await db.select().from(biometricPunchLogs).where(
-      and(
-        eq(biometricPunchLogs.companyId, companyId),
-        eq(biometricPunchLogs.deviceEmployeeId, deviceEmployeeId),
-        eq(biometricPunchLogs.punchTime, punchTime),
-        eq(biometricPunchLogs.punchDate, punchDate)
-      )
-    );
-    return result[0];
-  }
-
-  async getBiometricDevice(id: string): Promise<BiometricDevice | undefined> {
-    const result = await db.select().from(biometricDevices).where(eq(biometricDevices.id, id));
-    return result[0];
-  }
-
-  async getBiometricDevicesByCompany(companyId: string): Promise<BiometricDevice[]> {
-    // Include shared devices (companyId IS NULL) — those serve every company
-    return await db
-      .select()
-      .from(biometricDevices)
-      .where(or(eq(biometricDevices.companyId, companyId), isNull(biometricDevices.companyId)));
-  }
-
-  async createBiometricDevice(device: InsertBiometricDevice): Promise<BiometricDevice> {
-    const id = randomUUID();
-    const result = await db.insert(biometricDevices).values({ ...device, id }).returning();
-    return result[0];
-  }
-
-  async updateBiometricDevice(id: string, device: Partial<InsertBiometricDevice>): Promise<BiometricDevice | undefined> {
-    const result = await db.update(biometricDevices).set(device).where(eq(biometricDevices.id, id)).returning();
-    return result[0];
-  }
-
-  async deleteBiometricDevice(id: string): Promise<boolean> {
-    const result = await db.delete(biometricDevices).where(eq(biometricDevices.id, id)).returning();
-    return result.length > 0;
-  }
-
-  async getAllBiometricDevices(): Promise<BiometricDevice[]> {
-    return await db.select().from(biometricDevices);
-  }
-
-  async getJobPosting(id: string): Promise<JobPosting | undefined> {
-    const result = await db.select().from(jobPostings).where(eq(jobPostings.id, id));
-    return result[0];
-  }
-
-  async getJobPostingsByCompany(companyId: string): Promise<JobPosting[]> {
-    return await db.select().from(jobPostings).where(eq(jobPostings.companyId, companyId));
-  }
-
-  async createJobPosting(posting: InsertJobPosting): Promise<JobPosting> {
-    const id = randomUUID();
-    const result = await db.insert(jobPostings).values({ ...posting, id }).returning();
-    return result[0];
-  }
-
-  async updateJobPosting(id: string, posting: Partial<InsertJobPosting>): Promise<JobPosting | undefined> {
-    const result = await db.update(jobPostings).set(posting).where(eq(jobPostings.id, id)).returning();
-    return result[0];
-  }
-
-  async deleteJobPosting(id: string): Promise<boolean> {
-    const result = await db.delete(jobPostings).where(eq(jobPostings.id, id)).returning();
-    return result.length > 0;
-  }
-
-  async getAllJobPostings(): Promise<JobPosting[]> {
-    return await db.select().from(jobPostings);
-  }
-
-  async getJobApplication(id: string): Promise<JobApplication | undefined> {
-    const result = await db.select().from(jobApplications).where(eq(jobApplications.id, id));
-    return result[0];
-  }
-
-  async getJobApplicationsByPosting(jobPostingId: string): Promise<JobApplication[]> {
-    return await db.select().from(jobApplications).where(eq(jobApplications.jobPostingId, jobPostingId));
-  }
-
-  async getJobApplicationsByEmployee(employeeId: string): Promise<JobApplication[]> {
-    return await db.select().from(jobApplications).where(eq(jobApplications.employeeId, employeeId));
-  }
-
-  async getJobApplicationsByUserId(userId: string): Promise<JobApplication[]> {
-    return await db.select().from(jobApplications).where(eq(jobApplications.applicantUserId, userId));
-  }
-
-  async getJobApplicationsByCompany(companyId: string): Promise<JobApplication[]> {
-    return await db.select().from(jobApplications).where(eq(jobApplications.companyId, companyId));
-  }
-
-  async createJobApplication(application: InsertJobApplication): Promise<JobApplication> {
-    const id = randomUUID();
-    const result = await db.insert(jobApplications).values({ ...application, id }).returning();
-    return result[0];
-  }
-
-  async updateJobApplication(id: string, application: Partial<JobApplication>): Promise<JobApplication | undefined> {
-    const result = await db.update(jobApplications).set(application).where(eq(jobApplications.id, id)).returning();
-    return result[0];
-  }
-
-  async deleteJobApplication(id: string): Promise<boolean> {
-    const result = await db.delete(jobApplications).where(eq(jobApplications.id, id)).returning();
-    return result.length > 0;
-  }
-
-  async getAllJobApplications(): Promise<JobApplication[]> {
-    return await db.select().from(jobApplications);
-  }
-
-  async getCandidateProfile(id: string): Promise<CandidateProfile | undefined> {
-    const result = await db.select().from(candidateProfiles).where(eq(candidateProfiles.id, id));
-    return result[0];
-  }
-
-  async getCandidateProfileByUserId(userId: string): Promise<CandidateProfile | undefined> {
-    const result = await db.select().from(candidateProfiles).where(eq(candidateProfiles.userId, userId));
-    return result[0];
-  }
-
-  async getCandidateProfileByAadhaar(aadhaar: string): Promise<CandidateProfile | undefined> {
-    const result = await db.select().from(candidateProfiles).where(eq(candidateProfiles.aadhaar, aadhaar));
-    return result[0];
-  }
-
-  async createCandidateProfile(profile: InsertCandidateProfile): Promise<CandidateProfile> {
-    const id = randomUUID();
-    const result = await db.insert(candidateProfiles).values({ ...profile, id }).returning();
-    return result[0];
-  }
-
-  async updateCandidateProfile(id: string, profile: Partial<InsertCandidateProfile>): Promise<CandidateProfile | undefined> {
-    const result = await db.update(candidateProfiles).set(profile).where(eq(candidateProfiles.id, id)).returning();
-    return result[0];
-  }
-
-  async getPreviousExperiencesByEmployee(employeeId: string): Promise<PreviousExperience[]> {
-    return await db.select().from(previousExperiences).where(eq(previousExperiences.employeeId, employeeId));
-  }
-
-  async getPreviousExperiencesByCandidate(candidateProfileId: string): Promise<PreviousExperience[]> {
-    return await db.select().from(previousExperiences).where(eq(previousExperiences.candidateProfileId, candidateProfileId));
-  }
-
-  async createPreviousExperience(exp: InsertPreviousExperience): Promise<PreviousExperience> {
-    const id = randomUUID();
-    const result = await db.insert(previousExperiences).values({ ...exp, id }).returning();
-    return result[0];
-  }
-
-  async deletePreviousExperience(id: string): Promise<void> {
-    await db.delete(previousExperiences).where(eq(previousExperiences.id, id));
+    return this.attendanceRepo.getAllAttendance();
   }
 
   async getAttendanceByEmployeeAndDate(employeeId: string, date: string): Promise<Attendance | undefined> {
-    const result = await db.select().from(attendance).where(
-      and(eq(attendance.employeeId, employeeId), eq(attendance.date, date))
-    );
-    return result[0];
-  }
-
-  async getUserPermissions(userId: string): Promise<UserPermission[]> {
-    return await db.select().from(userPermissions).where(eq(userPermissions.userId, userId));
-  }
-
-  async setUserPermissions(userId: string, permissions: { module: string; canAccess: boolean }[], grantedBy: string, companyId: string | null): Promise<UserPermission[]> {
-    const now = new Date().toISOString();
-    const result: UserPermission[] = [];
-    for (const perm of permissions) {
-      const existing = await db.select().from(userPermissions)
-        .where(and(eq(userPermissions.userId, userId), eq(userPermissions.module, perm.module)));
-      if (existing.length > 0) {
-        const updated = await db.update(userPermissions)
-          .set({ canAccess: perm.canAccess, grantedBy, updatedAt: now })
-          .where(and(eq(userPermissions.userId, userId), eq(userPermissions.module, perm.module)))
-          .returning();
-        result.push(updated[0]);
-      } else {
-        const id = randomUUID();
-        const inserted = await db.insert(userPermissions)
-          .values({ id, userId, companyId, module: perm.module, canAccess: perm.canAccess, grantedBy, updatedAt: now })
-          .returning();
-        result.push(inserted[0]);
-      }
-    }
-    return result;
-  }
-
-  async createModuleAccessRequest(data: { userId: string; companyId: string | null; module: string; actions?: string[] | null; reason?: string | null }): Promise<ModuleAccessRequest> {
-    const id = randomUUID();
-    const row = {
-      id,
-      userId: data.userId,
-      companyId: data.companyId,
-      module: data.module,
-      actions: data.actions && data.actions.length > 0 ? data.actions : null,
-      status: "pending",
-      reason: data.reason ?? null,
-      decisionNote: null,
-      decidedBy: null,
-      decidedAt: null,
-      createdAt: new Date().toISOString(),
-    };
-    const inserted = await db.insert(moduleAccessRequests).values(row).returning();
-    return inserted[0];
-  }
-
-  async getModuleAccessRequest(id: string): Promise<ModuleAccessRequest | undefined> {
-    const r = await db.select().from(moduleAccessRequests).where(eq(moduleAccessRequests.id, id));
-    return r[0];
-  }
-
-  async listModuleAccessRequests(filters: { companyId?: string; userId?: string; status?: string }): Promise<ModuleAccessRequest[]> {
-    const conds: any[] = [];
-    if (filters.companyId) conds.push(eq(moduleAccessRequests.companyId, filters.companyId));
-    if (filters.userId)    conds.push(eq(moduleAccessRequests.userId, filters.userId));
-    if (filters.status)    conds.push(eq(moduleAccessRequests.status, filters.status));
-    const q = conds.length === 0
-      ? db.select().from(moduleAccessRequests)
-      : db.select().from(moduleAccessRequests).where(and(...conds));
-    return await q.orderBy(desc(moduleAccessRequests.createdAt));
-  }
-
-  async decideModuleAccessRequest(id: string, status: "approved" | "denied" | "revoked", decidedBy: string, decisionNote?: string | null): Promise<ModuleAccessRequest | undefined> {
-    const result = await db.update(moduleAccessRequests)
-      .set({ status, decidedBy, decidedAt: new Date().toISOString(), decisionNote: decisionNote ?? null })
-      .where(eq(moduleAccessRequests.id, id))
-      .returning();
-    return result[0];
-  }
-
-  async findPendingModuleAccessRequest(userId: string, module: string): Promise<ModuleAccessRequest | undefined> {
-    const r = await db.select().from(moduleAccessRequests).where(
-      and(
-        eq(moduleAccessRequests.userId, userId),
-        eq(moduleAccessRequests.module, module),
-        eq(moduleAccessRequests.status, "pending"),
-      )
-    );
-    return r[0];
-  }
-
-  async deleteModuleAccessRequest(id: string): Promise<boolean> {
-    const result = await db.delete(moduleAccessRequests)
-      .where(eq(moduleAccessRequests.id, id))
-      .returning({ id: moduleAccessRequests.id });
-    return result.length > 0;
-  }
-
-  async getLoanAdvance(id: string): Promise<LoanAdvance | undefined> {
-    const result = await db.select().from(loanAdvances).where(eq(loanAdvances.id, id));
-    return result[0];
-  }
-
-  async getLoanAdvancesByEmployee(employeeId: string): Promise<LoanAdvance[]> {
-    return await db.select().from(loanAdvances).where(eq(loanAdvances.employeeId, employeeId)).orderBy(desc(loanAdvances.createdAt));
-  }
-
-  async getLoanAdvancesByCompany(companyId: string): Promise<LoanAdvance[]> {
-    return await db.select().from(loanAdvances).where(eq(loanAdvances.companyId, companyId)).orderBy(desc(loanAdvances.createdAt));
-  }
-
-  async createLoanAdvance(data: InsertLoanAdvance): Promise<LoanAdvance> {
-    const id = randomUUID();
-    const result = await db.insert(loanAdvances).values({ ...data, id }).returning();
-    return result[0];
-  }
-
-  async updateLoanAdvance(id: string, data: Partial<InsertLoanAdvance> & { approvedBy?: string; approvedAt?: string; updatedAt?: string }): Promise<LoanAdvance | undefined> {
-    const result = await db.update(loanAdvances).set(data).where(eq(loanAdvances.id, id)).returning();
-    return result[0];
-  }
-
-  async deleteLoanAdvance(id: string): Promise<boolean> {
-    const result = await db.delete(loanAdvances).where(eq(loanAdvances.id, id)).returning();
-    return result.length > 0;
-  }
-
-  async getExpensesByCompany(companyId: string): Promise<any[]> {
-    return await db.select().from(expenses).where(eq(expenses.companyId, companyId)).orderBy(desc(expenses.createdAt));
-  }
-  async getExpensesByEmployee(employeeId: string): Promise<any[]> {
-    return await db.select().from(expenses).where(eq(expenses.employeeId, employeeId)).orderBy(desc(expenses.createdAt));
-  }
-  async createExpense(data: any): Promise<any> {
-    const id = randomUUID();
-    const now = new Date().toISOString();
-    const row = { ...data, id, createdAt: now };
-    const result = await db.insert(expenses).values(row).returning();
-    return result[0];
-  }
-  async updateExpense(id: string, data: any): Promise<any> {
-    const result = await db.update(expenses).set(data).where(eq(expenses.id, id)).returning();
-    return result[0];
-  }
-  async deleteExpense(id: string): Promise<boolean> {
-    const result = await db.delete(expenses).where(eq(expenses.id, id)).returning();
-    return result.length > 0;
-  }
-
-  async getLeaveAdjustmentsByCompany(companyId: string): Promise<any[]> {
-    return await db.select().from(leaveAdjustments).where(eq(leaveAdjustments.companyId, companyId)).orderBy(desc(leaveAdjustments.createdAt));
-  }
-  async getLeaveAdjustmentsByEmployee(employeeId: string): Promise<any[]> {
-    return await db.select().from(leaveAdjustments).where(eq(leaveAdjustments.employeeId, employeeId)).orderBy(desc(leaveAdjustments.createdAt));
-  }
-  async createLeaveAdjustment(data: any): Promise<any> {
-    const row = { ...data, id: randomUUID(), createdAt: new Date().toISOString() };
-    const result = await db.insert(leaveAdjustments).values(row).returning();
-    return result[0];
-  }
-  async deleteLeaveAdjustment(id: string): Promise<boolean> {
-    const result = await db.delete(leaveAdjustments).where(eq(leaveAdjustments.id, id)).returning();
-    return result.length > 0;
-  }
-
-  async getAllCompOff(): Promise<any[]> {
-    return await db.select().from(compOffApplications).orderBy(desc(compOffApplications.createdAt));
-  }
-  async getCompOffByCompany(companyId: string): Promise<any[]> {
-    return await db.select().from(compOffApplications).where(eq(compOffApplications.companyId, companyId)).orderBy(desc(compOffApplications.createdAt));
-  }
-  async getCompOffByEmployee(employeeId: string): Promise<any[]> {
-    return await db.select().from(compOffApplications).where(eq(compOffApplications.employeeId, employeeId)).orderBy(desc(compOffApplications.createdAt));
-  }
-  async createCompOff(data: any): Promise<any> {
-    const id = randomUUID();
-    const createdAt = new Date().toISOString();
-    const result = await db.execute(sql`
-      INSERT INTO comp_off_applications
-        (id, company_id, employee_id, worked_date, worked_type, credited_days, purpose, status, created_at)
-      VALUES
-        (${id}, ${data.companyId}, ${data.employeeId}, ${data.workedDate},
-         ${data.workedType || 'weekly_off'}, ${String(data.creditedDays ?? '1')},
-         ${data.purpose || ''}, ${'pending'}, ${createdAt})
-      RETURNING *
-    `);
-    return (result as any).rows?.[0] ?? result[0];
-  }
-  async updateCompOff(id: string, data: any): Promise<any> {
-    const result = await db.update(compOffApplications).set(data).where(eq(compOffApplications.id, id)).returning();
-    return result[0];
-  }
-  async deleteCompOff(id: string): Promise<boolean> {
-    const result = await db.delete(compOffApplications).where(eq(compOffApplications.id, id)).returning();
-    return result.length > 0;
+    return this.attendanceRepo.getAttendanceByEmployeeAndDate(employeeId, date);
   }
 
   async getOutdoorEntriesByCompany(companyId: string): Promise<any[]> {
-    return await db.select().from(outdoorEntries).where(eq(outdoorEntries.companyId, companyId)).orderBy(desc(outdoorEntries.createdAt));
+    return this.attendanceRepo.getOutdoorEntriesByCompany(companyId);
   }
+
   async getOutdoorEntriesByEmployee(employeeId: string): Promise<any[]> {
-    return await db.select().from(outdoorEntries).where(eq(outdoorEntries.employeeId, employeeId)).orderBy(desc(outdoorEntries.createdAt));
+    return this.attendanceRepo.getOutdoorEntriesByEmployee(employeeId);
   }
+
   async createOutdoorEntry(data: any): Promise<any> {
-    const row = { ...data, id: randomUUID(), createdAt: new Date().toISOString() };
-    const result = await db.insert(outdoorEntries).values(row).returning();
-    return result[0];
+    return this.attendanceRepo.createOutdoorEntry(data);
   }
+
   async updateOutdoorEntry(id: string, data: any): Promise<any> {
-    const result = await db.update(outdoorEntries).set(data).where(eq(outdoorEntries.id, id)).returning();
-    return result[0];
+    return this.attendanceRepo.updateOutdoorEntry(id, data);
   }
+
   async deleteOutdoorEntry(id: string): Promise<boolean> {
-    const result = await db.delete(outdoorEntries).where(eq(outdoorEntries.id, id)).returning();
-    return result.length > 0;
+    return this.attendanceRepo.deleteOutdoorEntry(id);
   }
 
-  async getWageGrade(id: string): Promise<WageGrade | undefined> {
-    const result = await db.select().from(wageGrades).where(eq(wageGrades.id, id));
-    return result[0];
+  // ── Audit ──
+  async writeAuditLog(entry: { action: string; userId: string; userName: string; details: string }): Promise<void> {
+    return this.auditRepo.writeAuditLog(entry);
   }
 
-  async getAllWageGrades(): Promise<WageGrade[]> {
-    return await db.select().from(wageGrades);
+  // ── Biometric ──
+  async getBiometricPunchLog(id: string): Promise<BiometricPunchLog | undefined> {
+    return this.biometricRepo.getBiometricPunchLog(id);
   }
 
-  async getWageGradesByCompany(companyId: string): Promise<WageGrade[]> {
-    return await db.select().from(wageGrades).where(eq(wageGrades.companyId, companyId));
+  async getBiometricPunchLogsByCompany(companyId: string): Promise<BiometricPunchLog[]> {
+    return this.biometricRepo.getBiometricPunchLogsByCompany(companyId);
   }
 
-  async createWageGrade(grade: InsertWageGrade): Promise<WageGrade> {
-    const id = randomUUID();
-    const result = await db.insert(wageGrades).values({ ...grade, id }).returning();
-    return result[0];
+  async getBiometricPunchLogsByDate(companyId: string, date: string): Promise<BiometricPunchLog[]> {
+    return this.biometricRepo.getBiometricPunchLogsByDate(companyId, date);
   }
 
-  async updateWageGrade(id: string, grade: Partial<InsertWageGrade>): Promise<WageGrade | undefined> {
-    const result = await db.update(wageGrades).set(grade).where(eq(wageGrades.id, id)).returning();
-    return result[0];
+  async createBiometricPunchLog(log: InsertBiometricPunchLog): Promise<BiometricPunchLog> {
+    return this.biometricRepo.createBiometricPunchLog(log);
   }
 
-  async deleteWageGrade(id: string): Promise<boolean> {
-    const result = await db.delete(wageGrades).where(eq(wageGrades.id, id)).returning();
-    return result.length > 0;
+  async updateBiometricPunchLog(id: string, log: Partial<InsertBiometricPunchLog>): Promise<BiometricPunchLog | undefined> {
+    return this.biometricRepo.updateBiometricPunchLog(id, log);
+  }
+
+  async deleteBiometricPunchLog(id: string): Promise<boolean> {
+    return this.biometricRepo.deleteBiometricPunchLog(id);
+  }
+
+  async getAllBiometricPunchLogs(): Promise<BiometricPunchLog[]> {
+    return this.biometricRepo.getAllBiometricPunchLogs();
+  }
+
+  async findDuplicatePunchLog(companyId: string, deviceEmployeeId: string, punchTime: string, punchDate: string): Promise<BiometricPunchLog | undefined> {
+    return this.biometricRepo.findDuplicatePunchLog(companyId, deviceEmployeeId, punchTime, punchDate);
+  }
+
+  async getBiometricDevice(id: string): Promise<BiometricDevice | undefined> {
+    return this.biometricRepo.getBiometricDevice(id);
+  }
+
+  async getBiometricDevicesByCompany(companyId: string): Promise<BiometricDevice[]> {
+    return this.biometricRepo.getBiometricDevicesByCompany(companyId);
+  }
+
+  async createBiometricDevice(device: InsertBiometricDevice): Promise<BiometricDevice> {
+    return this.biometricRepo.createBiometricDevice(device);
+  }
+
+  async updateBiometricDevice(id: string, device: Partial<InsertBiometricDevice>): Promise<BiometricDevice | undefined> {
+    return this.biometricRepo.updateBiometricDevice(id, device);
+  }
+
+  async deleteBiometricDevice(id: string): Promise<boolean> {
+    return this.biometricRepo.deleteBiometricDevice(id);
+  }
+
+  async getAllBiometricDevices(): Promise<BiometricDevice[]> {
+    return this.biometricRepo.getAllBiometricDevices();
+  }
+
+  // ── Company ──
+  async getCompany(id: string): Promise<Company | undefined> {
+    return this.companyRepo.getCompany(id);
+  }
+
+  async createCompany(company: InsertCompany): Promise<Company> {
+    return this.companyRepo.createCompany(company);
+  }
+
+  async updateCompany(id: string, company: Partial<InsertCompany>): Promise<Company | undefined> {
+    return this.companyRepo.updateCompany(id, company);
+  }
+
+  async deleteCompany(id: string): Promise<boolean> {
+    return this.companyRepo.deleteCompany(id);
+  }
+
+  async getAllCompanies(): Promise<Company[]> {
+    return this.companyRepo.getAllCompanies();
+  }
+
+  async getCompanyContractors(companyId: string): Promise<(CompanyContractor & { contractorName: string })[]> {
+    return this.companyRepo.getCompanyContractors(companyId);
+  }
+
+  async addCompanyContractor(data: InsertCompanyContractor): Promise<CompanyContractor> {
+    return this.companyRepo.addCompanyContractor(data);
+  }
+
+  async removeCompanyContractor(companyId: string, contractorId: string): Promise<boolean> {
+    return this.companyRepo.removeCompanyContractor(companyId, contractorId);
+  }
+
+  async getPrincipalEmployers(contractorId: string): Promise<(CompanyContractor & { companyName: string })[]> {
+    return this.companyRepo.getPrincipalEmployers(contractorId);
+  }
+
+  async getContractorEmployees(companyId: string, contractorId: string): Promise<(Employee & { contractorEmployeeId: string; taggedDate: string | null; taggedBy: string | null })[]> {
+    return this.companyRepo.getContractorEmployees(companyId, contractorId);
+  }
+
+  async addContractorEmployee(companyId: string, contractorId: string, employeeId: string, taggedDate?: string, taggedBy?: string): Promise<void> {
+    return this.companyRepo.addContractorEmployee(companyId, contractorId, employeeId, taggedDate, taggedBy);
+  }
+
+  async removeContractorEmployee(companyId: string, contractorId: string, employeeId: string): Promise<boolean> {
+    return this.companyRepo.removeContractorEmployee(companyId, contractorId, employeeId);
   }
 
   async getContractorMastersByCompany(companyId: string): Promise<ContractorMaster[]> {
-    return await db.select().from(contractorMasters).where(eq(contractorMasters.companyId, companyId));
+    return this.companyRepo.getContractorMastersByCompany(companyId);
   }
 
   async getContractorMaster(id: string): Promise<ContractorMaster | undefined> {
-    const result = await db.select().from(contractorMasters).where(eq(contractorMasters.id, id));
-    return result[0];
+    return this.companyRepo.getContractorMaster(id);
   }
 
   async createContractorMaster(data: InsertContractorMaster): Promise<ContractorMaster> {
-    const id = randomUUID();
-    const result = await db.insert(contractorMasters).values({ ...data, id }).returning();
-    return result[0];
+    return this.companyRepo.createContractorMaster(data);
   }
 
   async updateContractorMaster(id: string, data: Partial<InsertContractorMaster>): Promise<ContractorMaster | undefined> {
-    const result = await db.update(contractorMasters).set(data).where(eq(contractorMasters.id, id)).returning();
-    return result[0];
+    return this.companyRepo.updateContractorMaster(id, data);
   }
 
   async deleteContractorMaster(id: string): Promise<boolean> {
-    const result = await db.delete(contractorMasters).where(eq(contractorMasters.id, id)).returning();
-    return result.length > 0;
+    return this.companyRepo.deleteContractorMaster(id);
   }
 
-  async writeAuditLog(entry: { action: string; userId: string; userName: string; details: string }): Promise<void> {
-    try {
-      await db.execute(
-        sql`INSERT INTO audit_logs (id, action, user_id, user_name, details, created_at)
-            VALUES (gen_random_uuid(), ${entry.action}, ${entry.userId}, ${entry.userName}, ${entry.details}, NOW())
-            ON CONFLICT DO NOTHING`
-      );
-    } catch {
-      console.log(`[AUDIT-FALLBACK] ${entry.action} | user=${entry.userName} | ${entry.details}`);
-    }
+  // ── Compliance ──
+  async getStatutorySettings(id: string): Promise<StatutorySettings | undefined> {
+    return this.complianceRepo.getStatutorySettings(id);
   }
 
-  // ─── KRA Templates ────────────────────────────────────────────────────────────
+  async getStatutorySettingsByCompany(companyId: string): Promise<StatutorySettings | undefined> {
+    return this.complianceRepo.getStatutorySettingsByCompany(companyId);
+  }
+
+  async createStatutorySettings(s: InsertStatutorySettings): Promise<StatutorySettings> {
+    return this.complianceRepo.createStatutorySettings(s);
+  }
+
+  async updateStatutorySettings(id: string, s: Partial<InsertStatutorySettings>): Promise<StatutorySettings | undefined> {
+    return this.complianceRepo.updateStatutorySettings(id, s);
+  }
+
+  async deleteStatutorySettings(id: string): Promise<boolean> {
+    return this.complianceRepo.deleteStatutorySettings(id);
+  }
+
+  // ── Dashboard ──
+  async getDashboardStats(): Promise<DashboardStats> {
+    return this.dashboardRepo.getDashboardStats();
+  }
+
+  async getDashboardStatsByCompany(companyId: string): Promise<DashboardStats> {
+    return this.dashboardRepo.getDashboardStatsByCompany(companyId);
+  }
+
+  // ── Employee ──
+  async getEmployee(id: string): Promise<Employee | undefined> {
+    return this.employeeRepo.getEmployee(id);
+  }
+
+  async getEmployeeByUserId(userId: string): Promise<Employee | undefined> {
+    return this.employeeRepo.getEmployeeByUserId(userId);
+  }
+
+  async getEmployeesByCompany(companyId: string): Promise<Employee[]> {
+    return this.employeeRepo.getEmployeesByCompany(companyId);
+  }
+
+  async createEmployee(employee: InsertEmployee): Promise<Employee> {
+    return this.employeeRepo.createEmployee(employee);
+  }
+
+  async updateEmployee(id: string, employee: Partial<InsertEmployee>): Promise<Employee | undefined> {
+    return this.employeeRepo.updateEmployee(id, employee);
+  }
+
+  async deleteEmployee(id: string): Promise<boolean> {
+    return this.employeeRepo.deleteEmployee(id);
+  }
+
+  async getAllEmployees(): Promise<Employee[]> {
+    return this.employeeRepo.getAllEmployees();
+  }
+
+  async getPreviousExperiencesByEmployee(employeeId: string): Promise<PreviousExperience[]> {
+    return this.employeeRepo.getPreviousExperiencesByEmployee(employeeId);
+  }
+
+  async getPreviousExperiencesByCandidate(candidateProfileId: string): Promise<PreviousExperience[]> {
+    return this.employeeRepo.getPreviousExperiencesByCandidate(candidateProfileId);
+  }
+
+  async createPreviousExperience(exp: InsertPreviousExperience): Promise<PreviousExperience> {
+    return this.employeeRepo.createPreviousExperience(exp);
+  }
+
+  async deletePreviousExperience(id: string): Promise<void> {
+    return this.employeeRepo.deletePreviousExperience(id);
+  }
+
+  // ── Kra ──
   async getKraTemplatesByCompany(companyId: string): Promise<KraTemplate[]> {
-    return await db.select().from(kraTemplates).where(eq(kraTemplates.companyId, companyId)).orderBy(kraTemplates.name);
+    return this.kraRepo.getKraTemplatesByCompany(companyId);
   }
 
   async getKraTemplate(id: string): Promise<KraTemplate | undefined> {
-    const result = await db.select().from(kraTemplates).where(eq(kraTemplates.id, id));
-    return result[0];
+    return this.kraRepo.getKraTemplate(id);
   }
 
   async createKraTemplate(data: InsertKraTemplate): Promise<KraTemplate> {
-    const id = randomUUID();
-    const result = await db.insert(kraTemplates).values({ ...data, id }).returning();
-    return result[0];
+    return this.kraRepo.createKraTemplate(data);
   }
 
   async updateKraTemplate(id: string, data: Partial<InsertKraTemplate>): Promise<KraTemplate | undefined> {
-    const result = await db.update(kraTemplates).set(data).where(eq(kraTemplates.id, id)).returning();
-    return result[0];
+    return this.kraRepo.updateKraTemplate(id, data);
   }
 
   async deleteKraTemplate(id: string): Promise<boolean> {
-    const result = await db.delete(kraTemplates).where(eq(kraTemplates.id, id)).returning();
-    return result.length > 0;
+    return this.kraRepo.deleteKraTemplate(id);
   }
 
-  // ─── KRA Template KPIs ────────────────────────────────────────────────────────
   async getKraTemplateKpis(templateId: string): Promise<KraTemplateKpi[]> {
-    return await db.select().from(kraTemplateKpis).where(eq(kraTemplateKpis.templateId, templateId)).orderBy(kraTemplateKpis.sortOrder);
+    return this.kraRepo.getKraTemplateKpis(templateId);
   }
 
   async createKraTemplateKpi(data: InsertKraTemplateKpi): Promise<KraTemplateKpi> {
-    const id = randomUUID();
-    const result = await db.insert(kraTemplateKpis).values({ ...data, id }).returning();
-    return result[0];
+    return this.kraRepo.createKraTemplateKpi(data);
   }
 
   async updateKraTemplateKpi(id: string, data: Partial<InsertKraTemplateKpi>): Promise<KraTemplateKpi | undefined> {
-    const result = await db.update(kraTemplateKpis).set(data).where(eq(kraTemplateKpis.id, id)).returning();
-    return result[0];
+    return this.kraRepo.updateKraTemplateKpi(id, data);
   }
 
   async deleteKraTemplateKpi(id: string): Promise<boolean> {
-    const result = await db.delete(kraTemplateKpis).where(eq(kraTemplateKpis.id, id)).returning();
-    return result.length > 0;
+    return this.kraRepo.deleteKraTemplateKpi(id);
   }
 
   async deleteKraTemplateKpisByTemplate(templateId: string): Promise<void> {
-    await db.delete(kraTemplateKpis).where(eq(kraTemplateKpis.templateId, templateId));
+    return this.kraRepo.deleteKraTemplateKpisByTemplate(templateId);
   }
 
-  // ─── KRA Assignments ──────────────────────────────────────────────────────────
   async getKraAssignmentsByCompany(companyId: string): Promise<KraAssignment[]> {
-    return await db.select().from(kraAssignments).where(eq(kraAssignments.companyId, companyId)).orderBy(desc(kraAssignments.createdAt));
+    return this.kraRepo.getKraAssignmentsByCompany(companyId);
   }
 
   async getKraAssignmentsByEmployee(employeeId: string): Promise<KraAssignment[]> {
-    return await db.select().from(kraAssignments).where(eq(kraAssignments.employeeId, employeeId)).orderBy(desc(kraAssignments.createdAt));
+    return this.kraRepo.getKraAssignmentsByEmployee(employeeId);
   }
 
   async getKraAssignment(id: string): Promise<KraAssignment | undefined> {
-    const result = await db.select().from(kraAssignments).where(eq(kraAssignments.id, id));
-    return result[0];
+    return this.kraRepo.getKraAssignment(id);
   }
 
   async createKraAssignment(data: InsertKraAssignment): Promise<KraAssignment> {
-    const id = randomUUID();
-    const result = await db.insert(kraAssignments).values({ ...data, id }).returning();
-    return result[0];
+    return this.kraRepo.createKraAssignment(data);
   }
 
   async updateKraAssignment(id: string, data: Partial<InsertKraAssignment>): Promise<KraAssignment | undefined> {
-    const result = await db.update(kraAssignments).set(data).where(eq(kraAssignments.id, id)).returning();
-    return result[0];
+    return this.kraRepo.updateKraAssignment(id, data);
   }
 
   async deleteKraAssignment(id: string): Promise<boolean> {
-    const result = await db.delete(kraAssignments).where(eq(kraAssignments.id, id)).returning();
-    return result.length > 0;
+    return this.kraRepo.deleteKraAssignment(id);
   }
 
-  // ─── KRA Assignment KPIs ──────────────────────────────────────────────────────
   async getKraAssignmentKpis(assignmentId: string): Promise<KraAssignmentKpi[]> {
-    return await db.select().from(kraAssignmentKpis).where(eq(kraAssignmentKpis.assignmentId, assignmentId)).orderBy(kraAssignmentKpis.sortOrder);
+    return this.kraRepo.getKraAssignmentKpis(assignmentId);
   }
 
   async createKraAssignmentKpi(data: InsertKraAssignmentKpi): Promise<KraAssignmentKpi> {
-    const id = randomUUID();
-    const result = await db.insert(kraAssignmentKpis).values({ ...data, id }).returning();
-    return result[0];
+    return this.kraRepo.createKraAssignmentKpi(data);
   }
 
   async updateKraAssignmentKpi(id: string, data: Partial<InsertKraAssignmentKpi>): Promise<KraAssignmentKpi | undefined> {
-    const result = await db.update(kraAssignmentKpis).set(data).where(eq(kraAssignmentKpis.id, id)).returning();
-    return result[0];
+    return this.kraRepo.updateKraAssignmentKpi(id, data);
   }
 
   async deleteKraAssignmentKpisByAssignment(assignmentId: string): Promise<void> {
-    await db.delete(kraAssignmentKpis).where(eq(kraAssignmentKpis.assignmentId, assignmentId));
+    return this.kraRepo.deleteKraAssignmentKpisByAssignment(assignmentId);
   }
+
+  // ── Leave ──
+  async getLeaveType(id: string): Promise<LeaveType | undefined> {
+    return this.leaveRepo.getLeaveType(id);
+  }
+
+  async getLeaveTypesByCompany(companyId: string | null): Promise<LeaveType[]> {
+    return this.leaveRepo.getLeaveTypesByCompany(companyId);
+  }
+
+  async createLeaveType(leaveType: InsertLeaveType): Promise<LeaveType> {
+    return this.leaveRepo.createLeaveType(leaveType);
+  }
+
+  async updateLeaveType(id: string, leaveType: Partial<InsertLeaveType>): Promise<LeaveType | undefined> {
+    return this.leaveRepo.updateLeaveType(id, leaveType);
+  }
+
+  async deleteLeaveType(id: string): Promise<boolean> {
+    return this.leaveRepo.deleteLeaveType(id);
+  }
+
+  async getAllLeaveTypes(): Promise<LeaveType[]> {
+    return this.leaveRepo.getAllLeaveTypes();
+  }
+
+  async getLeaveRequest(id: string): Promise<LeaveRequest | undefined> {
+    return this.leaveRepo.getLeaveRequest(id);
+  }
+
+  async getLeaveRequestsByEmployee(employeeId: string): Promise<LeaveRequest[]> {
+    return this.leaveRepo.getLeaveRequestsByEmployee(employeeId);
+  }
+
+  async getLeaveRequestsByCompany(companyId: string): Promise<LeaveRequest[]> {
+    return this.leaveRepo.getLeaveRequestsByCompany(companyId);
+  }
+
+  async createLeaveRequest(leaveRequest: InsertLeaveRequest): Promise<LeaveRequest> {
+    return this.leaveRepo.createLeaveRequest(leaveRequest);
+  }
+
+  async updateLeaveRequest(id: string, leaveRequest: Partial<LeaveRequest>): Promise<LeaveRequest | undefined> {
+    return this.leaveRepo.updateLeaveRequest(id, leaveRequest);
+  }
+
+  async deleteLeaveRequest(id: string): Promise<boolean> {
+    return this.leaveRepo.deleteLeaveRequest(id);
+  }
+
+  async getAllLeaveRequests(): Promise<LeaveRequest[]> {
+    return this.leaveRepo.getAllLeaveRequests();
+  }
+
+  async getLeavePoliciesByCompany(companyId: string): Promise<LeavePolicy[]> {
+    return this.leaveRepo.getLeavePoliciesByCompany(companyId);
+  }
+
+  async getLeavePolicy(id: string): Promise<LeavePolicy | undefined> {
+    return this.leaveRepo.getLeavePolicy(id);
+  }
+
+  async createLeavePolicy(data: InsertLeavePolicy): Promise<LeavePolicy> {
+    return this.leaveRepo.createLeavePolicy(data);
+  }
+
+  async updateLeavePolicy(id: string, data: Partial<InsertLeavePolicy>): Promise<LeavePolicy | undefined> {
+    return this.leaveRepo.updateLeavePolicy(id, data);
+  }
+
+  async deleteLeavePolicy(id: string): Promise<boolean> {
+    return this.leaveRepo.deleteLeavePolicy(id);
+  }
+
+  async getLeaveAdjustmentsByCompany(companyId: string): Promise<any[]> {
+    return this.leaveRepo.getLeaveAdjustmentsByCompany(companyId);
+  }
+
+  async getLeaveAdjustmentsByEmployee(employeeId: string): Promise<any[]> {
+    return this.leaveRepo.getLeaveAdjustmentsByEmployee(employeeId);
+  }
+
+  async createLeaveAdjustment(data: any): Promise<any> {
+    return this.leaveRepo.createLeaveAdjustment(data);
+  }
+
+  async deleteLeaveAdjustment(id: string): Promise<boolean> {
+    return this.leaveRepo.deleteLeaveAdjustment(id);
+  }
+
+  async getAllCompOff(): Promise<any[]> {
+    return this.leaveRepo.getAllCompOff();
+  }
+
+  async getCompOffByCompany(companyId: string): Promise<any[]> {
+    return this.leaveRepo.getCompOffByCompany(companyId);
+  }
+
+  async getCompOffByEmployee(employeeId: string): Promise<any[]> {
+    return this.leaveRepo.getCompOffByEmployee(employeeId);
+  }
+
+  async createCompOff(data: any): Promise<any> {
+    return this.leaveRepo.createCompOff(data);
+  }
+
+  async updateCompOff(id: string, data: any): Promise<any> {
+    return this.leaveRepo.updateCompOff(id, data);
+  }
+
+  async deleteCompOff(id: string): Promise<boolean> {
+    return this.leaveRepo.deleteCompOff(id);
+  }
+
+  // ── Payroll ──
+  async getSalaryStructure(id: string): Promise<SalaryStructure | undefined> {
+    return this.payrollRepo.getSalaryStructure(id);
+  }
+
+  async getSalaryStructureByEmployee(employeeId: string): Promise<SalaryStructure | undefined> {
+    return this.payrollRepo.getSalaryStructureByEmployee(employeeId);
+  }
+
+  async getSalaryStructuresByEmployee(employeeId: string): Promise<SalaryStructure[]> {
+    return this.payrollRepo.getSalaryStructuresByEmployee(employeeId);
+  }
+
+  async createSalaryStructure(salaryStructure: InsertSalaryStructure): Promise<SalaryStructure> {
+    return this.payrollRepo.createSalaryStructure(salaryStructure);
+  }
+
+  async updateSalaryStructure(id: string, salaryStructure: Partial<InsertSalaryStructure>): Promise<SalaryStructure | undefined> {
+    return this.payrollRepo.updateSalaryStructure(id, salaryStructure);
+  }
+
+  async deleteSalaryStructure(id: string): Promise<boolean> {
+    return this.payrollRepo.deleteSalaryStructure(id);
+  }
+
+  async getAllSalaryStructures(): Promise<SalaryStructure[]> {
+    return this.payrollRepo.getAllSalaryStructures();
+  }
+
+  async getPayroll(id: string): Promise<Payroll | undefined> {
+    return this.payrollRepo.getPayroll(id);
+  }
+
+  async getPayrollByEmployee(employeeId: string): Promise<Payroll[]> {
+    return this.payrollRepo.getPayrollByEmployee(employeeId);
+  }
+
+  async getPayrollByMonth(companyId: string, month: string, year: number): Promise<Payroll[]> {
+    return this.payrollRepo.getPayrollByMonth(companyId, month, year);
+  }
+
+  async getPayrollByEmployeeMonth(employeeId: string, month: string, year: number): Promise<Payroll | undefined> {
+    return this.payrollRepo.getPayrollByEmployeeMonth(employeeId, month, year);
+  }
+
+  async createPayroll(record: InsertPayroll): Promise<Payroll> {
+    return this.payrollRepo.createPayroll(record);
+  }
+
+  async updatePayroll(id: string, record: Partial<InsertPayroll>): Promise<Payroll | undefined> {
+    return this.payrollRepo.updatePayroll(id, record);
+  }
+
+  async deletePayroll(id: string): Promise<boolean> {
+    return this.payrollRepo.deletePayroll(id);
+  }
+
+  async getAllPayroll(): Promise<Payroll[]> {
+    return this.payrollRepo.getAllPayroll();
+  }
+
+  async getFnfSettlement(id: string): Promise<FnfSettlement | undefined> {
+    return this.payrollRepo.getFnfSettlement(id);
+  }
+
+  async getFnfSettlementByEmployee(employeeId: string): Promise<FnfSettlement | undefined> {
+    return this.payrollRepo.getFnfSettlementByEmployee(employeeId);
+  }
+
+  async getFnfSettlementsByCompany(companyId: string): Promise<FnfSettlement[]> {
+    return this.payrollRepo.getFnfSettlementsByCompany(companyId);
+  }
+
+  async createFnfSettlement(settlement: InsertFnfSettlement): Promise<FnfSettlement> {
+    return this.payrollRepo.createFnfSettlement(settlement);
+  }
+
+  async updateFnfSettlement(id: string, settlement: Partial<InsertFnfSettlement>): Promise<FnfSettlement | undefined> {
+    return this.payrollRepo.updateFnfSettlement(id, settlement);
+  }
+
+  async deleteFnfSettlement(id: string): Promise<boolean> {
+    return this.payrollRepo.deleteFnfSettlement(id);
+  }
+
+  async getAllFnfSettlements(): Promise<FnfSettlement[]> {
+    return this.payrollRepo.getAllFnfSettlements();
+  }
+
+  async getLoanAdvance(id: string): Promise<LoanAdvance | undefined> {
+    return this.payrollRepo.getLoanAdvance(id);
+  }
+
+  async getLoanAdvancesByEmployee(employeeId: string): Promise<LoanAdvance[]> {
+    return this.payrollRepo.getLoanAdvancesByEmployee(employeeId);
+  }
+
+  async getLoanAdvancesByCompany(companyId: string): Promise<LoanAdvance[]> {
+    return this.payrollRepo.getLoanAdvancesByCompany(companyId);
+  }
+
+  async createLoanAdvance(data: InsertLoanAdvance): Promise<LoanAdvance> {
+    return this.payrollRepo.createLoanAdvance(data);
+  }
+
+  async updateLoanAdvance(id: string, data: Partial<InsertLoanAdvance> & { approvedBy?: string; approvedAt?: string; updatedAt?: string }): Promise<LoanAdvance | undefined> {
+    return this.payrollRepo.updateLoanAdvance(id, data);
+  }
+
+  async deleteLoanAdvance(id: string): Promise<boolean> {
+    return this.payrollRepo.deleteLoanAdvance(id);
+  }
+
+  async getExpensesByCompany(companyId: string): Promise<any[]> {
+    return this.payrollRepo.getExpensesByCompany(companyId);
+  }
+
+  async getExpensesByEmployee(employeeId: string): Promise<any[]> {
+    return this.payrollRepo.getExpensesByEmployee(employeeId);
+  }
+
+  async createExpense(data: any): Promise<any> {
+    return this.payrollRepo.createExpense(data);
+  }
+
+  async updateExpense(id: string, data: any): Promise<any> {
+    return this.payrollRepo.updateExpense(id, data);
+  }
+
+  async deleteExpense(id: string): Promise<boolean> {
+    return this.payrollRepo.deleteExpense(id);
+  }
+
+  // ── Recruitment ──
+  async getJobPosting(id: string): Promise<JobPosting | undefined> {
+    return this.recruitmentRepo.getJobPosting(id);
+  }
+
+  async getJobPostingsByCompany(companyId: string): Promise<JobPosting[]> {
+    return this.recruitmentRepo.getJobPostingsByCompany(companyId);
+  }
+
+  async createJobPosting(posting: InsertJobPosting): Promise<JobPosting> {
+    return this.recruitmentRepo.createJobPosting(posting);
+  }
+
+  async updateJobPosting(id: string, posting: Partial<InsertJobPosting>): Promise<JobPosting | undefined> {
+    return this.recruitmentRepo.updateJobPosting(id, posting);
+  }
+
+  async deleteJobPosting(id: string): Promise<boolean> {
+    return this.recruitmentRepo.deleteJobPosting(id);
+  }
+
+  async getAllJobPostings(): Promise<JobPosting[]> {
+    return this.recruitmentRepo.getAllJobPostings();
+  }
+
+  async getJobApplication(id: string): Promise<JobApplication | undefined> {
+    return this.recruitmentRepo.getJobApplication(id);
+  }
+
+  async getJobApplicationsByPosting(jobPostingId: string): Promise<JobApplication[]> {
+    return this.recruitmentRepo.getJobApplicationsByPosting(jobPostingId);
+  }
+
+  async getJobApplicationsByEmployee(employeeId: string): Promise<JobApplication[]> {
+    return this.recruitmentRepo.getJobApplicationsByEmployee(employeeId);
+  }
+
+  async getJobApplicationsByUserId(userId: string): Promise<JobApplication[]> {
+    return this.recruitmentRepo.getJobApplicationsByUserId(userId);
+  }
+
+  async getJobApplicationsByCompany(companyId: string): Promise<JobApplication[]> {
+    return this.recruitmentRepo.getJobApplicationsByCompany(companyId);
+  }
+
+  async createJobApplication(application: InsertJobApplication): Promise<JobApplication> {
+    return this.recruitmentRepo.createJobApplication(application);
+  }
+
+  async updateJobApplication(id: string, application: Partial<JobApplication>): Promise<JobApplication | undefined> {
+    return this.recruitmentRepo.updateJobApplication(id, application);
+  }
+
+  async deleteJobApplication(id: string): Promise<boolean> {
+    return this.recruitmentRepo.deleteJobApplication(id);
+  }
+
+  async getAllJobApplications(): Promise<JobApplication[]> {
+    return this.recruitmentRepo.getAllJobApplications();
+  }
+
+  async getCandidateProfile(id: string): Promise<CandidateProfile | undefined> {
+    return this.recruitmentRepo.getCandidateProfile(id);
+  }
+
+  async getCandidateProfileByUserId(userId: string): Promise<CandidateProfile | undefined> {
+    return this.recruitmentRepo.getCandidateProfileByUserId(userId);
+  }
+
+  async getCandidateProfileByAadhaar(aadhaar: string): Promise<CandidateProfile | undefined> {
+    return this.recruitmentRepo.getCandidateProfileByAadhaar(aadhaar);
+  }
+
+  async createCandidateProfile(profile: InsertCandidateProfile): Promise<CandidateProfile> {
+    return this.recruitmentRepo.createCandidateProfile(profile);
+  }
+
+  async updateCandidateProfile(id: string, profile: Partial<InsertCandidateProfile>): Promise<CandidateProfile | undefined> {
+    return this.recruitmentRepo.updateCandidateProfile(id, profile);
+  }
+
+  // ── Settings ──
+  async getSetting(id: string): Promise<Setting | undefined> {
+    return this.settingsRepo.getSetting(id);
+  }
+
+  async getSettingByKey(companyId: string | null, key: string): Promise<Setting | undefined> {
+    return this.settingsRepo.getSettingByKey(companyId, key);
+  }
+
+  async getSettingsByCategory(companyId: string | null, category: string): Promise<Setting[]> {
+    return this.settingsRepo.getSettingsByCategory(companyId, category);
+  }
+
+  async createSetting(setting: InsertSetting): Promise<Setting> {
+    return this.settingsRepo.createSetting(setting);
+  }
+
+  async updateSetting(id: string, setting: Partial<InsertSetting>): Promise<Setting | undefined> {
+    return this.settingsRepo.updateSetting(id, setting);
+  }
+
+  async deleteSetting(id: string): Promise<boolean> {
+    return this.settingsRepo.deleteSetting(id);
+  }
+
+  async getAllSettings(): Promise<Setting[]> {
+    return this.settingsRepo.getAllSettings();
+  }
+
+  async getMasterDepartment(id: string): Promise<MasterDepartment | undefined> {
+    return this.settingsRepo.getMasterDepartment(id);
+  }
+
+  async getAllMasterDepartments(): Promise<MasterDepartment[]> {
+    return this.settingsRepo.getAllMasterDepartments();
+  }
+
+  async getMasterDepartmentsByCompany(companyId: string): Promise<MasterDepartment[]> {
+    return this.settingsRepo.getMasterDepartmentsByCompany(companyId);
+  }
+
+  async createMasterDepartment(dept: InsertMasterDepartment): Promise<MasterDepartment> {
+    return this.settingsRepo.createMasterDepartment(dept);
+  }
+
+  async updateMasterDepartment(id: string, dept: Partial<InsertMasterDepartment>): Promise<MasterDepartment | undefined> {
+    return this.settingsRepo.updateMasterDepartment(id, dept);
+  }
+
+  async deleteMasterDepartment(id: string): Promise<boolean> {
+    return this.settingsRepo.deleteMasterDepartment(id);
+  }
+
+  async getMasterDesignation(id: string): Promise<MasterDesignation | undefined> {
+    return this.settingsRepo.getMasterDesignation(id);
+  }
+
+  async getAllMasterDesignations(): Promise<MasterDesignation[]> {
+    return this.settingsRepo.getAllMasterDesignations();
+  }
+
+  async getMasterDesignationsByCompany(companyId: string): Promise<MasterDesignation[]> {
+    return this.settingsRepo.getMasterDesignationsByCompany(companyId);
+  }
+
+  async createMasterDesignation(desg: InsertMasterDesignation): Promise<MasterDesignation> {
+    return this.settingsRepo.createMasterDesignation(desg);
+  }
+
+  async updateMasterDesignation(id: string, desg: Partial<InsertMasterDesignation>): Promise<MasterDesignation | undefined> {
+    return this.settingsRepo.updateMasterDesignation(id, desg);
+  }
+
+  async deleteMasterDesignation(id: string): Promise<boolean> {
+    return this.settingsRepo.deleteMasterDesignation(id);
+  }
+
+  async getMasterLocation(id: string): Promise<MasterLocation | undefined> {
+    return this.settingsRepo.getMasterLocation(id);
+  }
+
+  async getAllMasterLocations(): Promise<MasterLocation[]> {
+    return this.settingsRepo.getAllMasterLocations();
+  }
+
+  async getMasterLocationsByCompany(companyId: string): Promise<MasterLocation[]> {
+    return this.settingsRepo.getMasterLocationsByCompany(companyId);
+  }
+
+  async createMasterLocation(loc: InsertMasterLocation): Promise<MasterLocation> {
+    return this.settingsRepo.createMasterLocation(loc);
+  }
+
+  async updateMasterLocation(id: string, loc: Partial<InsertMasterLocation>): Promise<MasterLocation | undefined> {
+    return this.settingsRepo.updateMasterLocation(id, loc);
+  }
+
+  async deleteMasterLocation(id: string): Promise<boolean> {
+    return this.settingsRepo.deleteMasterLocation(id);
+  }
+
+  async getEarningHead(id: string): Promise<EarningHead | undefined> {
+    return this.settingsRepo.getEarningHead(id);
+  }
+
+  async getEarningHeadsByCompany(companyId: string): Promise<EarningHead[]> {
+    return this.settingsRepo.getEarningHeadsByCompany(companyId);
+  }
+
+  async createEarningHead(head: InsertEarningHead): Promise<EarningHead> {
+    return this.settingsRepo.createEarningHead(head);
+  }
+
+  async updateEarningHead(id: string, head: Partial<InsertEarningHead>): Promise<EarningHead | undefined> {
+    return this.settingsRepo.updateEarningHead(id, head);
+  }
+
+  async deleteEarningHead(id: string): Promise<boolean> {
+    return this.settingsRepo.deleteEarningHead(id);
+  }
+
+  async getDeductionHead(id: string): Promise<DeductionHead | undefined> {
+    return this.settingsRepo.getDeductionHead(id);
+  }
+
+  async getDeductionHeadsByCompany(companyId: string): Promise<DeductionHead[]> {
+    return this.settingsRepo.getDeductionHeadsByCompany(companyId);
+  }
+
+  async createDeductionHead(head: InsertDeductionHead): Promise<DeductionHead> {
+    return this.settingsRepo.createDeductionHead(head);
+  }
+
+  async updateDeductionHead(id: string, head: Partial<InsertDeductionHead>): Promise<DeductionHead | undefined> {
+    return this.settingsRepo.updateDeductionHead(id, head);
+  }
+
+  async deleteDeductionHead(id: string): Promise<boolean> {
+    return this.settingsRepo.deleteDeductionHead(id);
+  }
+
+  async getTimeOfficePolicy(id: string): Promise<TimeOfficePolicy | undefined> {
+    return this.settingsRepo.getTimeOfficePolicy(id);
+  }
+
+  async getTimeOfficePoliciesByCompany(companyId: string): Promise<TimeOfficePolicy[]> {
+    return this.settingsRepo.getTimeOfficePoliciesByCompany(companyId);
+  }
+
+  async createTimeOfficePolicy(policy: InsertTimeOfficePolicy): Promise<TimeOfficePolicy> {
+    return this.settingsRepo.createTimeOfficePolicy(policy);
+  }
+
+  async updateTimeOfficePolicy(id: string, policy: Partial<InsertTimeOfficePolicy>): Promise<TimeOfficePolicy | undefined> {
+    return this.settingsRepo.updateTimeOfficePolicy(id, policy);
+  }
+
+  async deleteTimeOfficePolicy(id: string): Promise<boolean> {
+    return this.settingsRepo.deleteTimeOfficePolicy(id);
+  }
+
+  async getHoliday(id: string): Promise<Holiday | undefined> {
+    return this.settingsRepo.getHoliday(id);
+  }
+
+  async getHolidaysByCompany(companyId: string): Promise<Holiday[]> {
+    return this.settingsRepo.getHolidaysByCompany(companyId);
+  }
+
+  async createHoliday(holiday: InsertHoliday): Promise<Holiday> {
+    return this.settingsRepo.createHoliday(holiday);
+  }
+
+  async updateHoliday(id: string, holiday: Partial<InsertHoliday>): Promise<Holiday | undefined> {
+    return this.settingsRepo.updateHoliday(id, holiday);
+  }
+
+  async deleteHoliday(id: string): Promise<boolean> {
+    return this.settingsRepo.deleteHoliday(id);
+  }
+
+  async getAllHolidays(): Promise<Holiday[]> {
+    return this.settingsRepo.getAllHolidays();
+  }
+
+  async getWageGrade(id: string): Promise<WageGrade | undefined> {
+    return this.settingsRepo.getWageGrade(id);
+  }
+
+  async getAllWageGrades(): Promise<WageGrade[]> {
+    return this.settingsRepo.getAllWageGrades();
+  }
+
+  async getWageGradesByCompany(companyId: string): Promise<WageGrade[]> {
+    return this.settingsRepo.getWageGradesByCompany(companyId);
+  }
+
+  async createWageGrade(grade: InsertWageGrade): Promise<WageGrade> {
+    return this.settingsRepo.createWageGrade(grade);
+  }
+
+  async updateWageGrade(id: string, grade: Partial<InsertWageGrade>): Promise<WageGrade | undefined> {
+    return this.settingsRepo.updateWageGrade(id, grade);
+  }
+
+  async deleteWageGrade(id: string): Promise<boolean> {
+    return this.settingsRepo.deleteWageGrade(id);
+  }
+
+  // ── User ──
+  async getUser(id: string): Promise<User | undefined> {
+    return this.userRepo.getUser(id);
+  }
+
+  async getUserByUsername(username: string): Promise<User | undefined> {
+    return this.userRepo.getUserByUsername(username);
+  }
+
+  async getUserByEmail(email: string): Promise<User | undefined> {
+    return this.userRepo.getUserByEmail(email);
+  }
+
+  async createUser(user: InsertUser): Promise<User> {
+    return this.userRepo.createUser(user);
+  }
+
+  async updateUser(id: string, user: Partial<InsertUser>): Promise<User | undefined> {
+    return this.userRepo.updateUser(id, user);
+  }
+
+  async deleteUser(id: string): Promise<boolean> {
+    return this.userRepo.deleteUser(id);
+  }
+
+  async getAllUsers(): Promise<User[]> {
+    return this.userRepo.getAllUsers();
+  }
+
+  async getUserPermissions(userId: string): Promise<UserPermission[]> {
+    return this.userRepo.getUserPermissions(userId);
+  }
+
+  async setUserPermissions(userId: string, permissions: { module: string; canAccess: boolean }[], grantedBy: string, companyId: string | null): Promise<UserPermission[]> {
+    return this.userRepo.setUserPermissions(userId, permissions, grantedBy, companyId);
+  }
+
+  async createModuleAccessRequest(data: { userId: string; companyId: string | null; module: string; actions?: string[] | null; reason?: string | null }): Promise<ModuleAccessRequest> {
+    return this.userRepo.createModuleAccessRequest(data);
+  }
+
+  async getModuleAccessRequest(id: string): Promise<ModuleAccessRequest | undefined> {
+    return this.userRepo.getModuleAccessRequest(id);
+  }
+
+  async listModuleAccessRequests(filters: { companyId?: string; userId?: string; status?: string }): Promise<ModuleAccessRequest[]> {
+    return this.userRepo.listModuleAccessRequests(filters);
+  }
+
+  async decideModuleAccessRequest(id: string, status: "approved" | "denied" | "revoked", decidedBy: string, decisionNote?: string | null): Promise<ModuleAccessRequest | undefined> {
+    return this.userRepo.decideModuleAccessRequest(id, status, decidedBy, decisionNote);
+  }
+
+  async findPendingModuleAccessRequest(userId: string, module: string): Promise<ModuleAccessRequest | undefined> {
+    return this.userRepo.findPendingModuleAccessRequest(userId, module);
+  }
+
+  async deleteModuleAccessRequest(id: string): Promise<boolean> {
+    return this.userRepo.deleteModuleAccessRequest(id);
+  }
+
 }

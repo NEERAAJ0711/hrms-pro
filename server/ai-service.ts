@@ -1,5 +1,6 @@
 // AI HR Assistant Service — OpenAI → Gemini → rule-based fallback
 import { db } from "./db";
+import { AiFollowUpRepository } from "./repositories/ai-follow-up-repository";
 import {
   aiMessages,
   aiConversations,
@@ -970,6 +971,8 @@ export function startAiFollowUpScheduler(): void {
 
 // ─── Create follow-up task helper ─────────────────────────────────────────────
 
+const aiFollowUpRepo = new AiFollowUpRepository();
+
 export async function createFollowUpTask(
   employeeId: string,
   userId: string | null,
@@ -981,27 +984,19 @@ export async function createFollowUpTask(
   const nextReminderAt = daysFromNow(1);
 
   // Upsert: if a pending task of same type exists, reset it
-  const existing = await db
-    .select()
-    .from(aiFollowUpTasks)
-    .where(
-      and(
-        eq(aiFollowUpTasks.employeeId, employeeId),
-        eq(aiFollowUpTasks.taskType, taskType),
-        eq(aiFollowUpTasks.status, "pending"),
-      ),
-    )
-    .limit(1);
+  const existing = await aiFollowUpRepo.findPending(employeeId, taskType);
 
   if (existing.length > 0) {
-    await db
-      .update(aiFollowUpTasks)
-      .set({ nextReminderAt, dayNumber: 1, remindersSent: 0, updatedAt: now })
-      .where(eq(aiFollowUpTasks.id, existing[0].id));
+    await aiFollowUpRepo.resetPending(existing[0].id, {
+      nextReminderAt,
+      dayNumber: 1,
+      remindersSent: 0,
+      updatedAt: now,
+    });
     return;
   }
 
-  await db.insert(aiFollowUpTasks).values({
+  await aiFollowUpRepo.create({
     id: randomUUID(),
     employeeId,
     userId: userId ?? undefined,

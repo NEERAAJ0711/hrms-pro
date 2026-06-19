@@ -15,6 +15,7 @@ import {
 import { eq, and, desc, sql, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { createNotification, createNotificationForMany } from "../notifications";
+import { notificationService } from "../services";
 import { addSSEClient, removeSSEClient } from "../sse";
 import { setOpenAIKeyOverride, setGeminiKeyOverride, loadAllApiKeysFromDB } from "../ai-service";
 import { getAdmsActivityLog, getAdmsActivityLogFromDB, getAdmsServerStatus, processAttlog, processUserRecords } from "../adms";
@@ -39,7 +40,7 @@ export async function registerNotificationRoutes(app: Express): Promise<void> {
   app.get("/api/notifications", requireAuth, async (req, res) => {
     try {
       const user = (req as any).user;
-      const rows = await db.select().from(notifications).where(eq(notifications.userId, user.id)).orderBy(desc(notifications.createdAt)).limit(50);
+      const rows = await notificationService.listForUser(user.id);
       res.json(rows);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch notifications" });
@@ -49,8 +50,8 @@ export async function registerNotificationRoutes(app: Express): Promise<void> {
   app.get("/api/notifications/unread-count", requireAuth, async (req, res) => {
     try {
       const user = (req as any).user;
-      const rows = await db.select().from(notifications).where(and(eq(notifications.userId, user.id), eq(notifications.isRead, false)));
-      res.json({ count: rows.length });
+      const count = await notificationService.unreadCount(user.id);
+      res.json({ count });
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch count" });
     }
@@ -59,7 +60,7 @@ export async function registerNotificationRoutes(app: Express): Promise<void> {
   app.patch("/api/notifications/:id/read", requireAuth, async (req, res) => {
     try {
       const user = (req as any).user;
-      await db.update(notifications).set({ isRead: true }).where(and(eq(notifications.id, req.params.id), eq(notifications.userId, user.id)));
+      await notificationService.markRead(req.params.id, user.id);
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: "Failed to mark notification as read" });
@@ -69,7 +70,7 @@ export async function registerNotificationRoutes(app: Express): Promise<void> {
   app.patch("/api/notifications/read-all", requireAuth, async (req, res) => {
     try {
       const user = (req as any).user;
-      await db.update(notifications).set({ isRead: true }).where(eq(notifications.userId, user.id));
+      await notificationService.markAllRead(user.id);
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: "Failed to mark all as read" });
@@ -79,7 +80,7 @@ export async function registerNotificationRoutes(app: Express): Promise<void> {
   app.delete("/api/notifications/clear", requireAuth, async (req, res) => {
     try {
       const user = (req as any).user;
-      await db.delete(notifications).where(eq(notifications.userId, user.id));
+      await notificationService.clearForUser(user.id);
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: "Failed to clear notifications" });
