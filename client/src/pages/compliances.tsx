@@ -2770,10 +2770,13 @@ function WorkmenRegisterView({ data, state }: { data: WorkmenRegisterData; state
       </table>
 
       {/* Footer */}
-      <div style={{ display: "flex", justifyContent: "space-between", marginTop: "32px", fontSize: "11px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", marginTop: "32px", fontSize: "11px", alignItems: "flex-end" }}>
         <div><strong>Place : </strong>{c?.location_of_work || "—"}</div>
-        <div style={{ fontWeight: 700, borderTop: "1px solid #333", paddingTop: "4px", minWidth: "180px", textAlign: "center" }}>
-          Signature of the Contractor
+        <div style={{ minWidth: "180px", textAlign: "center" }}>
+          {(data.company as any).signature && <img src={(data.company as any).signature} alt="Authorized Signature" style={{ display: "block", maxHeight: "44px", maxWidth: "170px", objectFit: "contain", margin: "0 auto 2px" }} />}
+          <div style={{ fontWeight: 700, borderTop: "1px solid #333", paddingTop: "4px" }}>
+            Signature of the Contractor
+          </div>
         </div>
       </div>
     </div>
@@ -2803,10 +2806,18 @@ const CL_HDR  = (c: ClientInfo, company: { name: string; address: string }, extr
     </table>
   );
 };
-const CL_FOOTER = (c: ClientInfo) => (
-  <div style={{ display: "flex", justifyContent: "space-between", marginTop: "28px", fontSize: "10.5px" }}>
+const MONTH_FULL = (m?: string) => {
+  const s = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const f = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+  return m && s.includes(m) ? f[s.indexOf(m)] : (m || "");
+};
+const CL_FOOTER = (c: ClientInfo, sig?: string | null) => (
+  <div style={{ display: "flex", justifyContent: "space-between", marginTop: "28px", fontSize: "10.5px", alignItems: "flex-end" }}>
     <div><strong>Place : </strong>{c?.location_of_work || "—"}</div>
-    <div style={{ fontWeight: 700, borderTop: "1px solid #333", paddingTop: "4px", minWidth: "180px", textAlign: "center" }}>Signature of the Contractor</div>
+    <div style={{ minWidth: "180px", textAlign: "center" }}>
+      {sig && <img src={sig} alt="Authorized Signature" style={{ display: "block", maxHeight: "44px", maxWidth: "170px", objectFit: "contain", margin: "0 auto 2px" }} />}
+      <div style={{ fontWeight: 700, borderTop: "1px solid #333", paddingTop: "4px" }}>Signature of the Contractor</div>
+    </div>
   </div>
 );
 const CL_WRAP = (id: string, children: React.ReactNode) => (
@@ -2929,7 +2940,7 @@ function FormVIIIView({ data, state }: { data: FormVIIIData; state?: string }) {
         </tr>
       </tbody>
     </table>
-    {CL_FOOTER(c)}
+    {CL_FOOTER(c, (company as any).signature)}
   </>);
 }
 
@@ -2983,7 +2994,7 @@ function MusterRollView({ data, state }: { data: MusterRollData; state?: string 
         </tbody>
       </table>
     </div>
-    {CL_FOOTER(c)}
+    {CL_FOOTER(c, (company as any).signature)}
   </>);
 }
 
@@ -3109,7 +3120,7 @@ function WagesRegisterView({ data, state }: { data: WagesRegisterData; state?: s
         })()}
       </tbody>
     </table>
-    {CL_FOOTER(c)}
+    {CL_FOOTER(c, (company as any).signature)}
   </>);
 }
 
@@ -3189,10 +3200,11 @@ function WageSlipView({ data, state }: { data: WagesRegisterData; state?: string
 }
 
 // ─── Form XV — Register of Deductions ─────────────────────────────────────────
-function DeductionsRegisterView({ data, state }: { data: WorkmenRegisterData; state?: string }) {
+function DeductionsRegisterView({ data, month, year, state }: { data: WorkmenRegisterData; month: string; year: string; state?: string }) {
   const { company, client: c } = data;
   const f = clraForm(state, "deductions");
   const isNil = clraVariant(state) === "central";
+  const nilText = `No deduction for damage or Loss during the month of ${MONTH_FULL(month)} ${year}.`;
   return CL_WRAP("deductions-register-print", <>
     {CL_TITLE(f.no, f.rule, f.title)}
     {CL_HDR(c as ClientInfo, company)}
@@ -3214,7 +3226,7 @@ function DeductionsRegisterView({ data, state }: { data: WorkmenRegisterData; st
       </thead>
       <tbody>
         {isNil
-          ? <tr><td colSpan={11} style={{ ...CL_TD, textAlign: "center", padding: "20px", fontWeight: 700, letterSpacing: "1px" }}>NIL</td></tr>
+          ? <tr><td colSpan={11} style={{ ...CL_TD, textAlign: "center", padding: "20px", fontWeight: 700 }}>{nilText}</td></tr>
           : data.employees.map(e => (
           <tr key={e.serialNo}>
             <td style={{ ...CL_TD, textAlign: "center" }}>{e.serialNo}</td>
@@ -3226,15 +3238,16 @@ function DeductionsRegisterView({ data, state }: { data: WorkmenRegisterData; st
         ))}
       </tbody>
     </table>
-    {CL_FOOTER(c as ClientInfo)}
+    {CL_FOOTER(c as ClientInfo, (company as any).signature)}
   </>);
 }
 
 // ─── Form XVI — Register of Fines ─────────────────────────────────────────────
-function FinesRegisterView({ data, state }: { data: WorkmenRegisterData; state?: string }) {
+function FinesRegisterView({ data, month, year, state }: { data: WorkmenRegisterData; month: string; year: string; state?: string }) {
   const { company, client: c } = data;
   const f = clraForm(state, "fines");
   const isNil = clraVariant(state) === "central";
+  const nilText = `No Fine Imposed to employee during the month of ${MONTH_FULL(month)} ${year}.`;
   return CL_WRAP("fines-register-print", <>
     {CL_TITLE(f.no, f.rule, f.title)}
     {CL_HDR(c as ClientInfo, company)}
@@ -3256,7 +3269,7 @@ function FinesRegisterView({ data, state }: { data: WorkmenRegisterData; state?:
       </thead>
       <tbody>
         {isNil
-          ? <tr><td colSpan={11} style={{ ...CL_TD, textAlign: "center", padding: "20px", fontWeight: 700, letterSpacing: "1px" }}>NIL</td></tr>
+          ? <tr><td colSpan={11} style={{ ...CL_TD, textAlign: "center", padding: "20px", fontWeight: 700 }}>{nilText}</td></tr>
           : data.employees.map(e => (
           <tr key={e.serialNo}>
             <td style={{ ...CL_TD, textAlign: "center" }}>{e.serialNo}</td>
@@ -3268,7 +3281,7 @@ function FinesRegisterView({ data, state }: { data: WorkmenRegisterData; state?:
         ))}
       </tbody>
     </table>
-    {CL_FOOTER(c as ClientInfo)}
+    {CL_FOOTER(c as ClientInfo, (company as any).signature)}
   </>);
 }
 
@@ -3302,7 +3315,7 @@ function AdvancesRegisterView({ data, state }: { data: WagesRegisterData; state?
       </thead>
       <tbody>
         {isNil
-          ? null
+          ? <tr><td colSpan={12} style={{ ...CL_TD, textAlign: "center", padding: "20px", fontWeight: 700 }}>{`No Advance paid to employee during the month of ${monthFull} ${year}.`}</td></tr>
           : <>
         {employees.length === 0 && <tr><td colSpan={12} style={{ ...CL_TD, textAlign: "center", padding: "16px" }}>No data</td></tr>}
         {employees.map(e => (
@@ -3324,7 +3337,7 @@ function AdvancesRegisterView({ data, state }: { data: WagesRegisterData; state?
           </>}
       </tbody>
     </table>
-    {CL_FOOTER(c)}
+    {CL_FOOTER(c, (company as any).signature)}
   </>);
 }
 
@@ -3340,6 +3353,7 @@ function OTRegisterView({ data, state }: { data: OTRegisterData; state?: string 
     otHours: a.otHours + e.otHours, normalWages: a.normalWages + e.normalWages,
     otWages: a.otWages + e.otWages,
   }), { normalDays:0, otDays:0, otHours:0, normalWages:0, otWages:0 });
+  const hasOT = totals.otHours > 0 || totals.otWages > 0;
   return CL_WRAP("ot-register-print", <>
     {CL_TITLE(f.no, f.rule, f.title)}
     {CL_HDR(c, company, [["For the month of", `${monthFull} ${year}`]])}
@@ -3359,7 +3373,9 @@ function OTRegisterView({ data, state }: { data: OTRegisterData; state?: string 
         </tr>
       </thead>
       <tbody>
-        {employees.length === 0 && <tr><td colSpan={10} style={{ ...CL_TD, textAlign: "center", padding: "16px" }}>No OT data for this month</td></tr>}
+        {!hasOT
+          ? <tr><td colSpan={10} style={{ ...CL_TD, textAlign: "center", padding: "20px", fontWeight: 700 }}>{`No Overtime during the month of ${monthFull} ${year}.`}</td></tr>
+          : <>
         {employees.map(e => (
           <tr key={e.serialNo}>
             <td style={{ ...CL_TD, textAlign: "center" }}>{e.serialNo}</td>
@@ -3386,9 +3402,10 @@ function OTRegisterView({ data, state }: { data: OTRegisterData; state?: string 
             <td style={CL_TD}></td>
           </tr>
         )}
+          </>}
       </tbody>
     </table>
-    {CL_FOOTER(c)}
+    {CL_FOOTER(c, (company as any).signature)}
   </>);
 }
 
@@ -3428,7 +3445,7 @@ function AnnualReturnView({ data, fromYear, toYear, state }: { data: WorkmenRegi
         ))}
       </tbody>
     </table>
-    {CL_FOOTER(c as ClientInfo)}
+    {CL_FOOTER(c as ClientInfo, (company as any).signature)}
   </>);
 }
 
@@ -3630,9 +3647,9 @@ function CLRAPackageView({ data, state }: { data: ClraPackageData; state?: strin
       {SEP}
       <WageSlipView data={data.xiii} state={state} />
       {SEP}
-      <DeductionsRegisterView data={data.ix} state={state} />
+      <DeductionsRegisterView data={data.ix} month={data.xiii.month} year={data.xiii.year} state={state} />
       {SEP}
-      <FinesRegisterView data={data.ix} state={state} />
+      <FinesRegisterView data={data.ix} month={data.xiii.month} year={data.xiii.year} state={state} />
       {SEP}
       <AdvancesRegisterView data={data.xiii} state={state} />
       {SEP}
@@ -3820,6 +3837,11 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
       const monthFull = monthIdx >= 0 ? MONTHS[monthIdx] : toMonth;
       const pf = (k: string) => clraForm(selectedState, k);
       const isCentral = clraVariant(selectedState) === "central";
+      const nilDeduct = `No deduction for damage or Loss during the month of ${monthFull} ${toYear}.`;
+      const nilFine   = `No Fine Imposed to employee during the month of ${monthFull} ${toYear}.`;
+      const nilAdv    = `No Advance paid to employee during the month of ${monthFull} ${toYear}.`;
+      const nilOT     = `No Overtime during the month of ${monthFull} ${toYear}.`;
+      const otHasData = clraData.xviii.employees.some((e: any) => e.otHours > 0 || e.otWages > 0);
       const v = (...ps: (string | null | undefined)[]) => ps.filter(Boolean).join(", ") || "—";
 
       // Load company authorized signature as base64 for PDF embedding
@@ -4421,7 +4443,7 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
         startY: y,
         head: [["S.\nNo.", "Name & Surname\nof Workman", "Designation", "Nature of Damage\nor Loss", "Date of Damage\nor Loss", "Amount of\nDeduction (Rs.)", "Date of\nDeduction", "No. of\nInstalments", "Remarks", "Signature of\nContractor", "Signature /\nThumb Impression\nof Workman"]],
         body: isCentral
-          ? [[{ content: "NIL", colSpan: 11, styles: { halign: "center", fontStyle: "bold" } }]]
+          ? [[{ content: nilDeduct, colSpan: 11, styles: { halign: "center", fontStyle: "bold" } }]]
           : clraData.ix.employees.map(e => [e.serialNo, e.name, e.designation||"—", "", "", "", "", "", "", "", ""]),
         styles: { ...TS, minCellHeight: 10 }, headStyles: TH,
         columnStyles: { 0:{ cellWidth:10, halign:"center" }, 1:{ cellWidth:30 }, 10:{ cellWidth:22 } },
@@ -4436,7 +4458,7 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
         startY: y,
         head: [["S.\nNo.", "Name & Surname\nof Workman", "Designation", "Act or Omission\nfor which Fined", "Date of Act\nor Omission", "Date of Imposition\nof Fine", "Amount of\nFine (Rs.)", "Date of\nRecovery", "Amount of\nRecovery (Rs.)", "Remarks", "Signature /\nThumb Impression\nof Workman"]],
         body: isCentral
-          ? [[{ content: "NIL", colSpan: 11, styles: { halign: "center", fontStyle: "bold" } }]]
+          ? [[{ content: nilFine, colSpan: 11, styles: { halign: "center", fontStyle: "bold" } }]]
           : clraData.ix.employees.map(e => [e.serialNo, e.name, e.designation||"—", "", "", "", "", "", "", "", ""]),
         styles: { ...TS, minCellHeight: 10 }, headStyles: TH,
         tableWidth: pw - 2 * M,
@@ -4452,7 +4474,7 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
         startY: y,
         head: [["S.\nNo.", "Name & Surname\nof Workman", "Designation", "Purpose of\nAdvance", "Date of\nAdvance", "Amount of\nAdvance (Rs.)", "Recovery Per\nInstalment (Rs.)", "No. of\nInstalments", "Amount\nRecovered (Rs.)", "Balance\nOutstanding (Rs.)", "Remarks", "Signature /\nThumb Impression\nof Workman"]],
         body: isCentral
-          ? []
+          ? [[{ content: nilAdv, colSpan: 12, styles: { halign: "center", fontStyle: "bold" } }]]
           : clraData.xiii.employees.map(e => [e.serialNo, e.name, e.designation||"—", "—", "", e.loanDeduction > 0 ? e.loanDeduction.toLocaleString("en-IN") : "—", e.loanDeduction > 0 ? e.loanDeduction.toLocaleString("en-IN") : "—", e.loanDeduction > 0 ? "1" : "—", e.loanDeduction > 0 ? e.loanDeduction.toLocaleString("en-IN") : "—", "", "", ""]),
         styles: { ...TS, minCellHeight: 10 }, headStyles: TH,
         tableWidth: pw - 2 * M,
@@ -4469,7 +4491,9 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
       autoTbl(doc, {
         startY: y,
         head: [["S.\nNo.", "Name & Surname\nof Workman", "Designation", "Normal\nWorking\nDays", "OT\nDays", "OT\nHours", "Normal\nWages (Rs.)", "OT\nWages (Rs.)", "Total\nWages (Rs.)", "Signature /\nThumb\nImpression"]],
-        body: clraData.xviii.employees.map(e => [e.serialNo, e.name, e.designation||"—", e.normalDays, e.otDays, e.otHours, e.normalWages.toLocaleString("en-IN"), e.otWages > 0 ? e.otWages.toLocaleString("en-IN") : "—", (e.normalWages + e.otWages).toLocaleString("en-IN"), ""]),
+        body: otHasData
+          ? clraData.xviii.employees.map(e => [e.serialNo, e.name, e.designation||"—", e.normalDays, e.otDays, e.otHours, e.normalWages.toLocaleString("en-IN"), e.otWages > 0 ? e.otWages.toLocaleString("en-IN") : "—", (e.normalWages + e.otWages).toLocaleString("en-IN"), ""])
+          : [[{ content: nilOT, colSpan: 10, styles: { halign: "center", fontStyle: "bold" } }]],
         styles: TS, headStyles: TH,
         tableWidth: pw - 2 * M,
         columnStyles: {
@@ -4559,7 +4583,7 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
     a.click();
   };
 
-  const downloadPDF = () => {
+  const downloadPDF = async () => {
     if (!workmenData) { toast({ title: "No report", description: "Generate a report first.", variant: "destructive" }); return; }
     if (!selectedState) { toast({ title: "Select a state", description: "Please choose a state before downloading. Form numbering depends on the state.", variant: "destructive" }); return; }
     const c = workmenData.client;
@@ -4639,6 +4663,26 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
     doc.setFont("times", "normal");
     doc.setFontSize(9);
     doc.text(`Place : ${val(c?.location_of_work)}`, 10, lastY);
+
+    const sigUrl = (workmenData.company as any).signature;
+    if (sigUrl) {
+      try {
+        const b64 = await new Promise<string>((res, rej) => {
+          const img = new Image();
+          img.crossOrigin = "anonymous";
+          img.onload = () => {
+            const cv = document.createElement("canvas");
+            cv.width = img.naturalWidth; cv.height = img.naturalHeight;
+            cv.getContext("2d")!.drawImage(img, 0, 0);
+            res(cv.toDataURL("image/png"));
+          };
+          img.onerror = rej;
+          img.src = sigUrl;
+        });
+        const sigW = 32, sigH = 14;
+        doc.addImage(b64, "PNG", pw - 10 - sigW, lastY - sigH - 1, sigW, sigH);
+      } catch { /* signature image failed to load — fall back to text only */ }
+    }
     doc.setFont("times", "bold");
     doc.text("Signature of the Contractor", pw - 10, lastY, { align: "right" });
 
@@ -4725,8 +4769,8 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
             {selectedReport === "Form XII – Muster Roll"              && musterData   && <MusterRollView data={musterData} state={selectedState} />}
             {selectedReport === "Form XIII – Wages Register"          && wagesData    && <WagesRegisterView data={wagesData} state={selectedState} />}
             {selectedReport === "Form XIV – Wage Slip"                && wagesData    && <WageSlipView data={wagesData} state={selectedState} />}
-            {selectedReport === "Form XV – Deductions Register"       && workmenData  && <DeductionsRegisterView data={workmenData} state={selectedState} />}
-            {selectedReport === "Form XVI – Fines Register"           && workmenData  && <FinesRegisterView data={workmenData} state={selectedState} />}
+            {selectedReport === "Form XV – Deductions Register"       && workmenData  && <DeductionsRegisterView data={workmenData} month={toMonth} year={toYear} state={selectedState} />}
+            {selectedReport === "Form XVI – Fines Register"           && workmenData  && <FinesRegisterView data={workmenData} month={toMonth} year={toYear} state={selectedState} />}
             {selectedReport === "Form XVII – Advances Register"       && wagesData    && <AdvancesRegisterView data={wagesData} state={selectedState} />}
             {selectedReport === "Form XVIII – OT Register"            && otData       && <OTRegisterView data={otData} state={selectedState} />}
             {selectedReport === "Form XIX – Annual Return"            && workmenData  && <AnnualReturnView data={workmenData} fromYear={toYear} toYear={toYear} state={selectedState} />}

@@ -1033,7 +1033,7 @@ export function registerComplianceRoutes(app: Express) {
 
       // Company info
       const companyRow = await db.execute(sql`
-        SELECT company_name, legal_name, registered_address FROM companies WHERE id = ${targetCompanyId} LIMIT 1
+        SELECT company_name, legal_name, registered_address, signature FROM companies WHERE id = ${targetCompanyId} LIMIT 1
       `);
       const company = companyRow.rows[0] as any;
 
@@ -1139,6 +1139,7 @@ export function registerComplianceRoutes(app: Express) {
         company: {
           name:    company?.company_name || company?.legal_name || "",
           address: company?.registered_address || "",
+          signature: company?.signature || null,
         },
         client,
         employees,
@@ -1225,7 +1226,7 @@ export function registerComplianceRoutes(app: Express) {
       if (monthNum === 0) return res.status(400).json({ error: "Invalid month" });
       const daysInMonth = new Date(parseInt(year), monthNum, 0).getDate();
 
-      const companyRow = await db.execute(sql`SELECT company_name, legal_name, registered_address FROM companies WHERE id = ${targetCompanyId} LIMIT 1`);
+      const companyRow = await db.execute(sql`SELECT company_name, legal_name, registered_address, signature FROM companies WHERE id = ${targetCompanyId} LIMIT 1`);
       const company = companyRow.rows[0] as any;
 
       let client: any = null;
@@ -1304,7 +1305,7 @@ export function registerComplianceRoutes(app: Express) {
         };
       });
 
-      return res.json({ company: { name: company?.company_name || company?.legal_name || "", address: company?.registered_address || "" }, client, month, year, daysInMonth, employees });
+      return res.json({ company: { name: company?.company_name || company?.legal_name || "", address: company?.registered_address || "", signature: company?.signature || null }, client, month, year, daysInMonth, employees });
     } catch (err: any) {
       return res.status(500).json({ error: err.message });
     }
@@ -1324,7 +1325,7 @@ export function registerComplianceRoutes(app: Express) {
       const monthStr = ["January","February","March","April","May","June","July","August","September","October","November","December"][monthNum - 1] || month;
       const PF_CEILING = 15000; const ESIC_CEILING = 21000;
 
-      const companyRow = await db.execute(sql`SELECT company_name, legal_name, registered_address FROM companies WHERE id = ${targetCompanyId} LIMIT 1`);
+      const companyRow = await db.execute(sql`SELECT company_name, legal_name, registered_address, signature FROM companies WHERE id = ${targetCompanyId} LIMIT 1`);
       const company = companyRow.rows[0] as any;
 
       let client: any = null;
@@ -1556,7 +1557,7 @@ export function registerComplianceRoutes(app: Express) {
         };
       });
 
-      return res.json({ company: { name: company?.company_name || company?.legal_name || "", address: company?.registered_address || "" }, client, month, year, employees });
+      return res.json({ company: { name: company?.company_name || company?.legal_name || "", address: company?.registered_address || "", signature: company?.signature || null }, client, month, year, employees });
     } catch (err: any) {
       return res.status(500).json({ error: err.message });
     }
@@ -1573,7 +1574,7 @@ export function registerComplianceRoutes(app: Express) {
       const monthNum = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"].indexOf(month) + 1;
       const monthStr = ["January","February","March","April","May","June","July","August","September","October","November","December"][monthNum - 1] || month;
 
-      const companyRow = await db.execute(sql`SELECT company_name, legal_name, registered_address FROM companies WHERE id = ${targetCompanyId} LIMIT 1`);
+      const companyRow = await db.execute(sql`SELECT company_name, legal_name, registered_address, signature FROM companies WHERE id = ${targetCompanyId} LIMIT 1`);
       const company = companyRow.rows[0] as any;
 
       let client: any = null;
@@ -1690,7 +1691,7 @@ export function registerComplianceRoutes(app: Express) {
         };
       });
 
-      return res.json({ company: { name: company?.company_name || company?.legal_name || "", address: company?.registered_address || "" }, client, month, year, employees });
+      return res.json({ company: { name: company?.company_name || company?.legal_name || "", address: company?.registered_address || "", signature: company?.signature || null }, client, month, year, employees });
     } catch (err: any) {
       return res.status(500).json({ error: err.message });
     }
