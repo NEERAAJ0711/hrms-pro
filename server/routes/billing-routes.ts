@@ -1,0 +1,496 @@
+// HRMS Pro — API Routes (modularized)
+import type { Express, Request, Response, NextFunction } from "express";
+import { storage } from "../storage";
+import { db } from "../db";
+import {
+  notifications, profileUpdateRequests, users as usersTable,
+  contractorEmployees as contractorEmployeesTable, employees,
+  insertUserSchema, insertCompanySchema, insertEmployeeSchema, insertAttendanceSchema,
+  insertLeaveTypeSchema, insertLeaveRequestSchema, insertSalaryStructureSchema, insertPayrollSchema,
+  insertSettingSchema, insertMasterDepartmentSchema, insertMasterDesignationSchema, insertMasterLocationSchema,
+  insertEarningHeadSchema, insertDeductionHeadSchema, insertStatutorySettingsSchema, insertTimeOfficePolicySchema,
+  insertFnfSettlementSchema, insertHolidaySchema, insertBiometricDeviceSchema, insertJobPostingSchema,
+  insertJobApplicationSchema, insertWageGradeSchema, insertContractorMasterSchema
+} from "@shared/schema";
+import { eq, and, desc, sql, inArray, isNull } from "drizzle-orm";
+import { z } from "zod";
+import { createNotification, createNotificationForMany } from "../notifications";
+import { addSSEClient, removeSSEClient } from "../sse";
+import { setOpenAIKeyOverride, setGeminiKeyOverride, loadAllApiKeysFromDB } from "../ai-service";
+import { getAdmsActivityLog, getAdmsActivityLogFromDB, getAdmsServerStatus, processAttlog, processUserRecords } from "../adms";
+import * as dnsPromises from "dns/promises";
+import multer from "multer";
+import { makeFileFilter, DOCUMENT_EXTENSIONS, DATA_EXTENSIONS, APK_EXTENSIONS } from "../upload-security";
+import * as XLSX from "xlsx";
+import { randomUUID } from "crypto";
+import * as fs from "fs";
+import * as path from "path";
+import * as net from "net";
+import {
+  requireAuth, requireRole, requireModuleAccess, requireAction,
+  userHasAccess, MODULE_ACCESS, formatAge, resolveEmployeeUserId, getHrAdminIds,
+  resolveAllowedLocationNames, getAllowedEmployeeIdsForUser,
+  validateBiometricDeviceAuth, validateBiometricNetwork,
+  upload, docUpload, companyAssetUpload, safeUnlinkCompanyAsset,
+  COMPANY_ASSETS_DIR, DOC_UPLOAD_DIR, daysInMonth,
+} from "./shared";
+
+export async function registerBillingRoutes(app: Express): Promise<void> {
+  // ===== CD Accounts (Credits & Billing) =====
+
+  // Auto-create CD accounts for companies whose trial has completed
+  async function autoCreateCdAccounts() {
+    try {
+      const now = new Date();
+      const companies = await db.execute(sql`
+        SELECT id, company_name, trial_start_date, trial_days, trial_extended_days
+        FROM companies
+        WHERE trial_start_date IS NOT NULL
+          AND id NOT IN (SELECT company_id FROM cd_accounts)
+      `);
+      for (const c of companies.rows as any[]) {
+        const startDate = new Date(c.trial_start_date);
+        const totalDays = (c.trial_days ?? 3) + (c.trial_extended_days ?? 0);
+        const expiryDate = new Date(startDate);
+        expiryDate.setDate(expiryDate.getDate() + totalDays);
+        if (now >= expiryDate) {
+          const id = randomUUID();
+          const ts = now.toISOString();
+          await db.execute(sql`
+            INSERT INTO cd_accounts (id, company_id, credit_balance, cost_per_employee_per_day, rate_effective_from, low_balance_threshold, allow_negative, notes, created_at, updated_at)
+            VALUES (${id}, ${c.id}, 0, 15, ${ts.slice(0,10)}, 1000, false, 'Auto-created on trial completion', ${ts}, ${ts})
+          `).catch(() => {});
+        }
+      }
+    } catch (_) {}
+  }
+
+  // Run auto-creation on startup + every hour
+  autoCreateCdAccounts();
+
+  // ── Monthly Invoice Auto-Generation ─────────────────────────────────────
+  function isLastDayOfMonth(d: Date): boolean {
+    const next = new Date(d);
+    next.setDate(next.getDate() + 1);
+    return next.getDate() === 1;
+  }
+
+  // ── Daily Billing Engine ──────────────────────────────────────────────────
+  // Runs every hour. For each company, bills every unbilled day from account
+  // creation up to today — skipping any month that already has a monthly invoice.
+  // Each daily entry deducts from the CD balance immediately.
+  async function runDailyBilling() {
+    try {
+      const now = new Date();
+      const todayStr = now.toISOString().slice(0, 10); // YYYY-MM-DD
+
+      const accounts = await db.execute(sql`
+        SELECT a.company_id, a.cost_per_employee_per_day, a.created_at,
+          (SELECT COUNT(*) FROM employees e WHERE e.company_id = a.company_id AND e.status = 'active') as emp_count
+        FROM cd_accounts a
+      `);
+
+      let billedDays = 0;
+      for (const acct of accounts.rows as any[]) {
+        const empCount = parseInt(acct.emp_count) || 0;
+        const rate = parseFloat(acct.cost_per_employee_per_day) || 0;
+        const acctCreatedDate = acct.created_at.slice(0, 10);
+
+        // Find all dates from account creation to today that:
+        // 1. Don't already have a daily_billing_log
+        // 2. Don't belong to a month that already has a monthly invoice
+        //    (prevents double-deduction if an invoice was already generated)
+        const missingDates = await db.execute(sql`
+          SELECT gs::date::text AS date
+          FROM generate_series(
+            ${acctCreatedDate}::date,
+            ${todayStr}::date,
+            '1 day'::interval
+          ) gs
+          WHERE gs::date::text NOT IN (
+            SELECT date FROM daily_billing_logs WHERE company_id = ${acct.company_id}
+          )
+          AND LEFT(gs::date::text, 7) NOT IN (
+            SELECT period_month FROM invoices WHERE company_id = ${acct.company_id}
+          )
+          ORDER BY gs::date
+        `);
+
+        for (const row of missingDates.rows as any[]) {
+          const date = row.date;
+          const amount = empCount * rate;
+          const ts = now.toISOString();
+          const logId = randomUUID();
+
+          // Insert daily log (ON CONFLICT DO NOTHING as safety)
+          await db.execute(sql`
+            INSERT INTO daily_billing_logs (id, company_id, date, employee_count, rate_per_day, amount, created_at)
+            VALUES (${logId}, ${acct.company_id}, ${date}, ${empCount}, ${rate}, ${amount}, ${ts})
+            ON CONFLICT (company_id, date) DO NOTHING
+          `);
+
+          // Only deduct if the log was actually inserted (not a duplicate)
+          const inserted = await db.execute(sql`
+            SELECT id FROM daily_billing_logs WHERE id = ${logId}
+          `);
+          if ((inserted.rows as any[]).length === 0) continue;
+
+          // Deduct from CD balance
+          await db.execute(sql`
+            UPDATE cd_accounts SET credit_balance = credit_balance - ${amount}, updated_at = ${ts}
+            WHERE company_id = ${acct.company_id}
+          `);
+
+          // Record transaction
+          const balRow = await db.execute(sql`SELECT credit_balance FROM cd_accounts WHERE company_id = ${acct.company_id}`);
+          const balAfter = (balRow.rows[0] as any)?.credit_balance ?? 0;
+          const txId = randomUUID();
+          await db.execute(sql`
+            INSERT INTO cd_transactions (id, company_id, type, amount, balance_after, description, reference_no, created_by, created_at)
+            VALUES (${txId}, ${acct.company_id}, 'debit', ${amount}, ${balAfter},
+              ${`Daily charge: ${date} — ${empCount} emp × ₹${rate}/day`}, ${date}, null, ${ts})
+          `);
+
+          billedDays++;
+        }
+      }
+
+      if (billedDays > 0) {
+        console.log(`[DailyBilling] Processed ${billedDays} day(s) across all accounts`);
+      }
+    } catch (err) {
+      console.error("[DailyBilling] Error:", err);
+    }
+  }
+
+  // ── Monthly Invoice Generation ────────────────────────────────────────────
+  // Runs on the last day of each month. Sums up daily_billing_logs for the
+  // month and creates a summary invoice. NO balance deduction here — daily
+  // billing already deducted each day.
+  async function generateMonthlyInvoices(force = false) {
+    try {
+      const now = new Date();
+      if (!force && !isLastDayOfMonth(now)) return;
+
+      // Ensure today's daily billing is done before generating invoice
+      await runDailyBilling();
+
+      const year = now.getFullYear();
+      const month = now.getMonth() + 1;
+      const periodMonth = `${year}-${String(month).padStart(2, "0")}`;
+      const periodFrom = `${periodMonth}-01`;
+      const days = daysInMonth(year, month);
+      const periodTo = `${periodMonth}-${String(days).padStart(2, "0")}`;
+
+      // Get companies that have daily logs this month but no invoice yet
+      const accounts = await db.execute(sql`
+        SELECT DISTINCT dbl.company_id, c.company_name
+        FROM daily_billing_logs dbl
+        JOIN companies c ON c.id = dbl.company_id
+        WHERE LEFT(dbl.date, 7) = ${periodMonth}
+          AND dbl.company_id NOT IN (
+            SELECT company_id FROM invoices WHERE period_month = ${periodMonth}
+          )
+      `);
+
+      let generatedCount = 0;
+      for (const acct of accounts.rows as any[]) {
+        // Aggregate this month's daily logs
+        const summary = await db.execute(sql`
+          SELECT
+            COUNT(*)::integer AS days_billed,
+            SUM(amount) AS total_amount,
+            ROUND(AVG(employee_count))::integer AS avg_emp_count,
+            MIN(rate_per_day) AS rate_per_day
+          FROM daily_billing_logs
+          WHERE company_id = ${acct.company_id}
+            AND date >= ${periodFrom} AND date <= ${periodTo}
+        `);
+        const s = summary.rows[0] as any;
+        const daysBilled = parseInt(s?.days_billed) || 0;
+        const totalAmount = parseFloat(s?.total_amount) || 0;
+        const avgEmpCount = parseInt(s?.avg_emp_count) || 0;
+        const ratePerDay = parseFloat(s?.rate_per_day) || 0;
+
+        if (daysBilled === 0) continue;
+
+        const seqRow = await db.execute(sql`
+          SELECT COUNT(*) as cnt FROM invoices WHERE period_month = ${periodMonth}
+        `);
+        const seq = (parseInt((seqRow.rows[0] as any)?.cnt) || 0) + 1;
+        const invoiceNo = `INV-${periodMonth.replace("-", "")}-${String(seq).padStart(4, "0")}`;
+
+        const invoiceId = randomUUID();
+        const ts = now.toISOString();
+
+        // Insert invoice — balance already deducted daily, no re-deduction
+        await db.execute(sql`
+          INSERT INTO invoices (id, invoice_no, company_id, period_month, period_from, period_to, employee_count, rate_per_day, days_in_period, total_amount, status, notes, created_at)
+          VALUES (${invoiceId}, ${invoiceNo}, ${acct.company_id}, ${periodMonth}, ${periodFrom}, ${periodTo},
+            ${avgEmpCount}, ${ratePerDay}, ${daysBilled}, ${totalAmount},
+            'credited', ${`Auto-generated for ${periodMonth} — ${daysBilled} days billed`}, ${ts})
+        `);
+
+        generatedCount++;
+        console.log(`[Invoice] Generated ${invoiceNo} for ${acct.company_name} — ₹${totalAmount} (${daysBilled} days)`);
+      }
+
+      if (generatedCount > 0) {
+        console.log(`[Invoice] ${generatedCount} invoice(s) generated for ${periodMonth}`);
+      }
+    } catch (err) {
+      console.error("[Invoice] Error generating monthly invoices:", err);
+    }
+  }
+
+  // Run daily billing on startup + every hour; invoice check and CD account creation also runs hourly
+  runDailyBilling();
+  setInterval(() => {
+    autoCreateCdAccounts();   // Create CD accounts for newly-expired trials
+    runDailyBilling();        // Bill each company for today
+    generateMonthlyInvoices(); // Generate monthly invoice on last day of month
+  }, 60 * 60 * 1000);
+
+  // Get all CD accounts (super_admin) or own (company_admin)
+  app.get("/api/billing/accounts", requireAuth, requireRole("super_admin", "company_admin"), async (req, res) => {
+    try {
+      const user = (req as any).user;
+      let rows;
+      if (user.role === "super_admin") {
+        rows = await db.execute(sql`
+          SELECT a.*, c.company_name, c.status as company_status,
+            (SELECT COUNT(*) FROM employees e WHERE e.company_id = a.company_id AND e.status = 'active') as active_employee_count
+          FROM cd_accounts a
+          JOIN companies c ON c.id = a.company_id
+          ORDER BY c.company_name ASC
+        `);
+      } else {
+        rows = await db.execute(sql`
+          SELECT a.*, c.company_name, c.status as company_status,
+            (SELECT COUNT(*) FROM employees e WHERE e.company_id = a.company_id AND e.status = 'active') as active_employee_count
+          FROM cd_accounts a
+          JOIN companies c ON c.id = a.company_id
+          WHERE a.company_id = ${user.companyId}
+        `);
+      }
+      res.json(rows.rows);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch billing accounts" });
+    }
+  });
+
+  // Get companies without a CD account (for setup)
+  app.get("/api/billing/unregistered-companies", requireAuth, requireRole("super_admin"), async (req, res) => {
+    try {
+      const rows = await db.execute(sql`
+        SELECT c.id, c.company_name FROM companies c
+        WHERE c.id NOT IN (SELECT company_id FROM cd_accounts)
+        ORDER BY c.company_name ASC
+      `);
+      res.json(rows.rows);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch unregistered companies" });
+    }
+  });
+
+  // Create CD account for a company
+  app.post("/api/billing/accounts", requireAuth, requireRole("super_admin"), async (req, res) => {
+    try {
+      const { companyId, costPerEmployeePerDay, rateEffectiveFrom, lowBalanceThreshold, allowNegative, notes } = req.body;
+      if (!companyId) return res.status(400).json({ error: "companyId is required" });
+      const id = randomUUID();
+      const now = new Date().toISOString();
+      await db.execute(sql`
+        INSERT INTO cd_accounts (id, company_id, credit_balance, cost_per_employee_per_day, rate_effective_from, low_balance_threshold, allow_negative, notes, created_at, updated_at)
+        VALUES (${id}, ${companyId}, 0, ${Number(costPerEmployeePerDay) || 15}, ${rateEffectiveFrom || now.slice(0,10)}, ${Number(lowBalanceThreshold) || 1000}, ${allowNegative === true}, ${notes || null}, ${now}, ${now})
+      `);
+      const row = await db.execute(sql`
+        SELECT a.*, c.company_name, c.status as company_status,
+          (SELECT COUNT(*) FROM employees e WHERE e.company_id = a.company_id AND e.status = 'active') as active_employee_count
+        FROM cd_accounts a JOIN companies c ON c.id = a.company_id WHERE a.id = ${id}
+      `);
+      res.json(row.rows[0]);
+    } catch (error: any) {
+      if (error?.message?.includes("unique")) return res.status(409).json({ error: "CD account already exists for this company" });
+      res.status(500).json({ error: "Failed to create billing account" });
+    }
+  });
+
+  // Update CD account settings (rate, threshold, allowNegative, notes)
+  app.patch("/api/billing/accounts/:companyId", requireAuth, requireRole("super_admin"), async (req, res) => {
+    try {
+      const { companyId } = req.params;
+      const { costPerEmployeePerDay, lowBalanceThreshold, allowNegative, rateEffectiveFrom, notes } = req.body;
+      const now = new Date().toISOString();
+      await db.execute(sql`
+        UPDATE cd_accounts
+        SET cost_per_employee_per_day = ${Number(costPerEmployeePerDay) ?? 15},
+            rate_effective_from = ${rateEffectiveFrom ?? null},
+            low_balance_threshold = ${Number(lowBalanceThreshold) ?? 1000},
+            allow_negative = ${allowNegative === true},
+            notes = ${notes ?? null},
+            updated_at = ${now}
+        WHERE company_id = ${companyId}
+      `);
+      const row = await db.execute(sql`
+        SELECT a.*, c.company_name, c.status as company_status,
+          (SELECT COUNT(*) FROM employees e WHERE e.company_id = a.company_id AND e.status = 'active') as active_employee_count
+        FROM cd_accounts a JOIN companies c ON c.id = a.company_id WHERE a.company_id = ${companyId}
+      `);
+      res.json(row.rows[0]);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update billing account" });
+    }
+  });
+
+  // Toggle allow-negative for a company
+  app.patch("/api/billing/accounts/:companyId/toggle-negative", requireAuth, requireRole("super_admin"), async (req, res) => {
+    try {
+      const { companyId } = req.params;
+      const now = new Date().toISOString();
+      await db.execute(sql`
+        UPDATE cd_accounts SET allow_negative = NOT allow_negative, updated_at = ${now}
+        WHERE company_id = ${companyId}
+      `);
+      const row = await db.execute(sql`SELECT allow_negative FROM cd_accounts WHERE company_id = ${companyId}`);
+      res.json({ allowNegative: row.rows[0]?.allow_negative });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to toggle allow-negative" });
+    }
+  });
+
+  // Add credits (super_admin manual top-up)
+  app.post("/api/billing/accounts/:companyId/credit", requireAuth, requireRole("super_admin"), async (req, res) => {
+    try {
+      const { companyId } = req.params;
+      const { amount, description, referenceNo } = req.body;
+      const amt = Number(amount);
+      if (!amt || amt <= 0) return res.status(400).json({ error: "Amount must be positive" });
+      const user = (req as any).user;
+      const now = new Date().toISOString();
+      // Update balance
+      await db.execute(sql`UPDATE cd_accounts SET credit_balance = credit_balance + ${amt}, updated_at = ${now} WHERE company_id = ${companyId}`);
+      const acct = await db.execute(sql`SELECT credit_balance FROM cd_accounts WHERE company_id = ${companyId}`);
+      const balAfter = acct.rows[0]?.credit_balance ?? 0;
+      const txId = randomUUID();
+      await db.execute(sql`
+        INSERT INTO cd_transactions (id, company_id, type, amount, balance_after, description, reference_no, created_by, created_at)
+        VALUES (${txId}, ${companyId}, 'credit', ${amt}, ${balAfter}, ${description || "Manual top-up"}, ${referenceNo || null}, ${user.id}, ${now})
+      `);
+      res.json({ success: true, balanceAfter: Number(balAfter) });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to add credits" });
+    }
+  });
+
+  // Deduct credits (super_admin manual adjustment)
+  app.post("/api/billing/accounts/:companyId/debit", requireAuth, requireRole("super_admin"), async (req, res) => {
+    try {
+      const { companyId } = req.params;
+      const { amount, description, referenceNo } = req.body;
+      const amt = Number(amount);
+      if (!amt || amt <= 0) return res.status(400).json({ error: "Amount must be positive" });
+      const user = (req as any).user;
+      const now = new Date().toISOString();
+      await db.execute(sql`UPDATE cd_accounts SET credit_balance = credit_balance - ${amt}, updated_at = ${now} WHERE company_id = ${companyId}`);
+      const acct = await db.execute(sql`SELECT credit_balance FROM cd_accounts WHERE company_id = ${companyId}`);
+      const balAfter = acct.rows[0]?.credit_balance ?? 0;
+      const txId = randomUUID();
+      await db.execute(sql`
+        INSERT INTO cd_transactions (id, company_id, type, amount, balance_after, description, reference_no, created_by, created_at)
+        VALUES (${txId}, ${companyId}, 'debit', ${amt}, ${balAfter}, ${description || "Manual debit"}, ${referenceNo || null}, ${user.id}, ${now})
+      `);
+      res.json({ success: true, balanceAfter: Number(balAfter) });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to debit credits" });
+    }
+  });
+
+  // ── Invoice Routes ──────────────────────────────────────────────────────
+
+  // List all invoices (super_admin) or own (company_admin)
+  app.get("/api/billing/invoices", requireAuth, requireRole("super_admin", "company_admin"), async (req, res) => {
+    try {
+      const user = (req as any).user;
+      let rows;
+      if (user.role === "super_admin") {
+        rows = await db.execute(sql`
+          SELECT i.*, c.company_name FROM invoices i
+          JOIN companies c ON c.id = i.company_id
+          ORDER BY i.period_month DESC, i.created_at DESC
+          LIMIT 500
+        `);
+      } else {
+        rows = await db.execute(sql`
+          SELECT i.*, c.company_name FROM invoices i
+          JOIN companies c ON c.id = i.company_id
+          WHERE i.company_id = ${user.companyId}
+          ORDER BY i.period_month DESC, i.created_at DESC
+        `);
+      }
+      res.json(rows.rows);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch invoices" });
+    }
+  });
+
+  // Manual trigger invoice generation for a specific month (super_admin only)
+  app.post("/api/billing/invoices/generate", requireAuth, requireRole("super_admin"), async (req, res) => {
+    try {
+      await generateMonthlyInvoices(true);
+      res.json({ success: true, message: "Invoice generation triggered for current month." });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to generate invoices" });
+    }
+  });
+
+  // Get daily billing logs for a company (optionally filtered by month YYYY-MM)
+  app.get("/api/billing/daily-logs/:companyId", requireAuth, requireRole("super_admin", "company_admin"), async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const { companyId } = req.params;
+      const { month } = req.query as { month?: string };
+      if (user.role === "company_admin" && user.companyId !== companyId) return res.status(403).json({ error: "Forbidden" });
+      const rows = await db.execute(sql`
+        SELECT * FROM daily_billing_logs
+        WHERE company_id = ${companyId}
+          ${month ? sql`AND LEFT(date, 7) = ${month}` : sql``}
+        ORDER BY date DESC
+        LIMIT 400
+      `);
+      res.json(rows.rows);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch daily billing logs" });
+    }
+  });
+
+  // Manual trigger for daily billing (super_admin only)
+  app.post("/api/billing/daily/run", requireAuth, requireRole("super_admin"), async (req, res) => {
+    try {
+      await runDailyBilling();
+      res.json({ success: true, message: "Daily billing run completed." });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to run daily billing" });
+    }
+  });
+
+  // Get transactions for a company
+  app.get("/api/billing/transactions/:companyId", requireAuth, requireRole("super_admin", "company_admin"), async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const { companyId } = req.params;
+      if (user.role === "company_admin" && user.companyId !== companyId) return res.status(403).json({ error: "Forbidden" });
+      const rows = await db.execute(sql`
+        SELECT t.*, u.first_name, u.last_name
+        FROM cd_transactions t
+        LEFT JOIN users u ON u.id = t.created_by
+        WHERE t.company_id = ${companyId}
+        ORDER BY t.created_at DESC
+        LIMIT 200
+      `);
+      res.json(rows.rows);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch transactions" });
+    }
+  });
+}

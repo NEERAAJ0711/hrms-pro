@@ -19,7 +19,7 @@ HRMS Pro is an enterprise-grade Multi-Company Human Resource Management System f
 - **Frontend Source**: `src/`
 - **Backend Source**: `server/`
   - DB Schema: `server/schema.ts`
-  - API Routes: `server/routes.ts`, `server/mobile-routes.ts`
+  - API Routes: `server/routes/` (modular — `index.ts` orchestrator + per-domain files like `employee-routes.ts`, `payroll-routes.ts`; `shared.ts` holds middleware/helpers), `server/mobile-routes.ts`
 - **Mobile App Source**: `flutter_app/`
   - API Client: `flutter_app/lib/core/api_client.dart`
 - **Static Assets**: `uploads/company-assets/` (served via `/uploads`)

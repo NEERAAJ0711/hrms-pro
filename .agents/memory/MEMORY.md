@@ -5,5 +5,6 @@
 - [Automation queue concurrency](automation-queue-concurrency.md) — one poll timer chain, reserve slot before async claim, abortJob kills running/paused jobs
 - [CLRA wage source of truth](compliance-wage-source.md) — all compliance reports must mirror Adjustment-tab rate logic (grade_min_wage, ss active, no NULLIF)
 - [Company asset uploads](company-asset-uploads.md) — logo/signature: unique filenames (cache), use upload-response company for state, safeUnlink within assets dir
+- [Routes modularization](routes-modularization.md) — server/routes/ split; index.ts registration order is load-bearing; queueService intentionally unimported (pre-existing bug)
 - [EPFO/ESIC captcha UI](automation-captcha-ui.md) — CAPTCHA/OTP panel + live view + resume target must all follow the SAME paused job; bulk fan-out must throw on 0 children
 - [Env load ordering](env-load-ordering.md) — import-time secret checks (jwt-auth throw) run before entrypoint body; .env loader must be a first-imported side-effect module (server/load-env.ts)
