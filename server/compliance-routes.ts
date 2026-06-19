@@ -1058,14 +1058,28 @@ export function registerComplianceRoutes(app: Express) {
   app.patch("/api/compliance/clients/assignments/:assignId/update", requireAuth, attachUser, requireAdminRole, async (req: Request, res: Response) => {
     try {
       const { assignId } = req.params;
-      const { designation, presentAddress } = req.body;
+      const { designation, presentAddress, assignedDate } = req.body;
       const now = new Date().toISOString();
       await db.execute(sql`
         UPDATE compliance_client_employees
         SET designation    = ${designation    ?? null},
             present_address = ${presentAddress ?? null},
+            assigned_date   = COALESCE(${assignedDate || null}, assigned_date),
             updated_at      = ${now}
         WHERE id = ${assignId}
+      `);
+      return res.json({ success: true });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── DELETE /api/compliance/clients/assignments/:assignId — permanently remove an assignment
+  app.delete("/api/compliance/clients/assignments/:assignId", requireAuth, attachUser, requireAdminRole, async (req: Request, res: Response) => {
+    try {
+      const { assignId } = req.params;
+      await db.execute(sql`
+        DELETE FROM compliance_client_employees WHERE id = ${assignId}
       `);
       return res.json({ success: true });
     } catch (err: any) {

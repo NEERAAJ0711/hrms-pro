@@ -2107,11 +2107,16 @@ function ClientSetupTab({ companyId, isSuperAdmin, toast }: {
   const [deassignDate, setDeassignDate] = useState("");
   const [deassignSaving, setDeassignSaving] = useState(false);
 
-  // Edit assignment (designation + present address)
+  // Edit assignment (designation + present address + assigned date)
   const [editAssignId, setEditAssignId] = useState<string | null>(null);
   const [editDesignation, setEditDesignation] = useState("");
   const [editPresentAddress, setEditPresentAddress] = useState("");
+  const [editAssignDate, setEditAssignDate] = useState("");
   const [editSaving, setEditSaving] = useState(false);
+
+  // Delete assignment
+  const [deleteAssignId, setDeleteAssignId] = useState<string | null>(null);
+  const [deleteAssignSaving, setDeleteAssignSaving] = useState(false);
 
   // Assignment list search
   const [assignSearch, setAssignSearch] = useState("");
@@ -2305,12 +2310,16 @@ function ClientSetupTab({ companyId, isSuperAdmin, toast }: {
 
   const submitEditAssignment = async () => {
     if (!editAssignId) return;
+    if (!editAssignDate) {
+      toast({ title: "Date required", description: "Please select the assigned date", variant: "destructive" });
+      return;
+    }
     setEditSaving(true);
     try {
       const res = await fetch(`/api/compliance/clients/assignments/${editAssignId}/update`, {
         method: "PATCH", credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ designation: editDesignation || null, presentAddress: editPresentAddress || null }),
+        body: JSON.stringify({ designation: editDesignation || null, presentAddress: editPresentAddress || null, assignedDate: editAssignDate || null }),
       });
       if (!res.ok) throw new Error("Failed to update");
       toast({ title: "Updated", description: "Assignment details updated successfully" });
@@ -2323,7 +2332,30 @@ function ClientSetupTab({ companyId, isSuperAdmin, toast }: {
     setEditSaving(false);
   };
 
+  const submitDeleteAssignment = async () => {
+    if (!deleteAssignId) return;
+    setDeleteAssignSaving(true);
+    try {
+      const res = await fetch(`/api/compliance/clients/assignments/${deleteAssignId}`, {
+        method: "DELETE", credentials: "include",
+      });
+      if (!res.ok) throw new Error("Failed to delete");
+      toast({ title: "Deleted", description: "Assignment removed successfully" });
+      setDeleteAssignId(null);
+      const res2 = await fetch(`/api/compliance/clients/${assignClientId}/employees`, { credentials: "include" });
+      setAssignments(await res2.json());
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    }
+    setDeleteAssignSaving(false);
+  };
+
   const fmt = (d: string | null) => d ? new Date(d).toLocaleDateString("en-IN") : "—";
+  const toDateInput = (d: string | null) => {
+    if (!d) return "";
+    const m = String(d).match(/^(\d{4})-(\d{2})-(\d{2})/);
+    return m ? m[0].slice(0, 10) : "";
+  };
 
   return (
     <div className="space-y-4">
@@ -2739,6 +2771,7 @@ function ClientSetupTab({ companyId, isSuperAdmin, toast }: {
                                 setEditAssignId(a.id);
                                 setEditDesignation(a.designation || "");
                                 setEditPresentAddress(a.present_address || "");
+                                setEditAssignDate(toDateInput(a.assigned_date));
                               }}>
                               <Pencil className="h-3 w-3 mr-1" /> Edit
                             </Button>
@@ -2750,6 +2783,11 @@ function ClientSetupTab({ companyId, isSuperAdmin, toast }: {
                               <UserMinus className="h-3 w-3 mr-1" /> De-assign
                             </Button>
                           )}
+                          <Button size="sm" variant="outline"
+                            className="h-7 px-2 text-xs border-red-200 text-red-600 hover:bg-red-50"
+                            onClick={() => setDeleteAssignId(a.id)}>
+                            <Trash2 className="h-3 w-3 mr-1" /> Delete
+                          </Button>
                         </div>
                       </TableCell>
                     </TableRow>
@@ -2808,6 +2846,15 @@ function ClientSetupTab({ companyId, isSuperAdmin, toast }: {
               <p className="text-xs text-gray-400">This overrides the employee's profile designation in all CLRA forms.</p>
             </div>
             <div className="space-y-1.5">
+              <Label className="text-sm font-medium">Assigned Date <span className="text-red-500">*</span></Label>
+              <Input
+                type="date"
+                value={editAssignDate}
+                onChange={e => setEditAssignDate(e.target.value)}
+                className="h-9"
+              />
+            </div>
+            <div className="space-y-1.5">
               <Label className="text-sm font-medium">Present Address</Label>
               <Input
                 value={editPresentAddress}
@@ -2822,6 +2869,27 @@ function ClientSetupTab({ companyId, isSuperAdmin, toast }: {
             <Button onClick={submitEditAssignment} disabled={editSaving}
               className="bg-blue-600 hover:bg-blue-700 text-white">
               {editSaving ? "Saving..." : "Save Changes"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Delete Assignment Confirm Dialog */}
+      <Dialog open={!!deleteAssignId} onOpenChange={() => setDeleteAssignId(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Trash2 className="h-5 w-5 text-red-500" /> Delete Assignment
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-2">
+            <p className="text-sm text-gray-600">This permanently removes the assignment record from the project. This cannot be undone. To keep history instead, use De-assign.</p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteAssignId(null)}>Cancel</Button>
+            <Button onClick={submitDeleteAssignment} disabled={deleteAssignSaving}
+              className="bg-red-600 hover:bg-red-700 text-white">
+              {deleteAssignSaving ? "Deleting..." : "Delete"}
             </Button>
           </DialogFooter>
         </DialogContent>
