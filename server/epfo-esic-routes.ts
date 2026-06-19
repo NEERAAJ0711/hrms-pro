@@ -31,7 +31,9 @@ import {
   payroll,
   statutorySettings,
   automationJobTypes,
+  users as usersTable,
 } from "@shared/schema";
+import { sendComplianceReminderEmail } from "./services/email-service";
 import { eq, and, desc, sql, inArray, gte, lte, or } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { z } from "zod";
@@ -39,6 +41,25 @@ import { queueService } from "./queue-service";
 import { portalSessionService } from "./portal-session-service";
 import * as XLSX from "xlsx";
 import PDFDocument from "pdfkit";
+
+// Resolve admin/HR email addresses for a company to notify about compliance events.
+async function getComplianceRecipientEmails(companyId: string): Promise<string[]> {
+  try {
+    const rows = await db
+      .select({ email: usersTable.email })
+      .from(usersTable)
+      .where(
+        and(
+          eq(usersTable.companyId, companyId),
+          or(eq(usersTable.role, "company_admin"), eq(usersTable.role, "hr_admin")),
+        ),
+      );
+    return rows.map((r) => r.email).filter((e): e is string => !!e);
+  } catch (err) {
+    console.error("[Email] compliance recipients lookup failed:", err);
+    return [];
+  }
+}
 
 // ─── Shared Zod schemas ───────────────────────────────────────────────────────
 
@@ -1530,6 +1551,24 @@ export function registerEpfoEsicRoutes(
       const [row] = await db.select().from(complianceCalendarEvents)
         .where(eq(complianceCalendarEvents.companyId, cidResult.companyId))
         .orderBy(desc(complianceCalendarEvents.createdAt)).limit(1);
+
+      // Notify company admins/HR of the new compliance obligation
+      try {
+        const to = await getComplianceRecipientEmails(cidResult.companyId);
+        if (to.length) {
+          await sendComplianceReminderEmail({
+            to,
+            title: data.title,
+            dueDate: data.dueDate,
+            eventType: data.eventType,
+            description: data.description,
+            companyId: cidResult.companyId,
+          });
+        }
+      } catch (err) {
+        console.error("[Email] compliance reminder failed:", err);
+      }
+
       res.status(201).json(row);
     } catch (err: any) {
       res.status(500).json({ error: err?.message || "Failed to create calendar event" });
@@ -1560,6 +1599,26 @@ export function registerEpfoEsicRoutes(
       await db.update(complianceCalendarEvents).set(set).where(eq(complianceCalendarEvents.id, eventId));
       const [updated] = await db.select().from(complianceCalendarEvents)
         .where(eq(complianceCalendarEvents.id, eventId)).limit(1);
+
+      // Notify admins/HR when the due date or status meaningfully changed
+      if ((data.dueDate || data.status) && updated) {
+        try {
+          const to = await getComplianceRecipientEmails(updated.companyId);
+          if (to.length) {
+            await sendComplianceReminderEmail({
+              to,
+              title: updated.title,
+              dueDate: updated.dueDate,
+              eventType: updated.eventType,
+              description: updated.description,
+              companyId: updated.companyId,
+            });
+          }
+        } catch (err) {
+          console.error("[Email] compliance reminder failed:", err);
+        }
+      }
+
       res.json(updated);
     } catch (err: any) {
       res.status(500).json({ error: err?.message || "Failed to update event" });

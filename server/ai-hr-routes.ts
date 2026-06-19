@@ -25,6 +25,7 @@ import * as path from "path";
 import * as fs from "fs";
 import { generateAiReply, computeKycOverallStatus, createFollowUpTask, startAiFollowUpScheduler, generateComplianceReply, analyzeJobError, type EmployeeContext } from "./ai-service";
 import { createNotification } from "./notifications";
+import { sendKycReminderEmail, sendAiFollowUpEmail } from "./services/email-service";
 
 // ─── Multer for KYC document uploads ─────────────────────────────────────────
 
@@ -779,6 +780,23 @@ export async function registerAiHrRoutes(
         .where(eq(kycSubmissionStatus.employeeId, req.params.employeeId))
         .limit(1);
 
+      // Email a KYC reminder to the employee when verification is still incomplete
+      if (overallStatus !== "complete") {
+        try {
+          const emp = (await db.select().from(employees).where(eq(employees.id, req.params.employeeId as string)).limit(1))[0];
+          if (emp?.officialEmail) {
+            await sendKycReminderEmail({
+              to: emp.officialEmail,
+              employeeName: `${emp.firstName} ${emp.lastName}`.trim(),
+              note: req.body.rejectionReason ?? null,
+              companyId: emp.companyId,
+            });
+          }
+        } catch (err) {
+          console.error("[Email] KYC reminder failed:", err);
+        }
+      }
+
       return res.json(refreshed[0]);
     } catch (err: any) {
       return res.status(500).json({ message: "Server error" });
@@ -1017,6 +1035,17 @@ export async function registerAiHrRoutes(
           title: "Action Required: HR Request",
           message: `Your HR team has requested you to complete: ${taskType.replace(/_/g, " ")}. Please use the AI Assistant to submit.`,
           link: "/ai-assistant",
+        });
+      }
+      if (emp.officialEmail) {
+        const label = taskType.replace(/_/g, " ");
+        await sendAiFollowUpEmail({
+          to: emp.officialEmail,
+          recipientName: `${emp.firstName} ${emp.lastName}`.trim(),
+          taskLabel: label,
+          message: `Your HR team has requested you to complete: ${label}. Please use the AI Assistant in the app to submit.`,
+          kind: "employee",
+          companyId: emp.companyId,
         });
       }
 

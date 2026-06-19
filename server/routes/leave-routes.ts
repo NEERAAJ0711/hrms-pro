@@ -1,6 +1,6 @@
 // HRMS Pro — API Routes (modularized)
 import type { Express, Request, Response, NextFunction } from "express";
-import { employeeService, leaveService } from "../services";
+import { employeeService, leaveService, sendLeaveDecisionEmail } from "../services";
 import { storage } from "../storage";
 import { db } from "../db";
 import {
@@ -169,6 +169,17 @@ export async function registerLeaveRoutes(app: Express): Promise<void> {
               ? "Your leave request has been approved."
               : `Your leave request has been rejected.${req.body.rejectionReason ? " Reason: " + req.body.rejectionReason : ""}`;
             await createNotification({ userId: empUserId, companyId: existing.companyId, type: `leave_${req.body.status}`, title: `Leave Request ${statusLabel}`, message: msg, link: "/leave" });
+          }
+          if (leaveEmp?.officialEmail) {
+            await sendLeaveDecisionEmail({
+              to: leaveEmp.officialEmail,
+              employeeName: `${leaveEmp.firstName} ${leaveEmp.lastName}`.trim(),
+              status: req.body.status,
+              startDate: existing.startDate,
+              endDate: existing.endDate,
+              rejectionReason: req.body.rejectionReason,
+              companyId: existing.companyId,
+            });
           }
         } catch (err) {
           console.error("[Notification] leave approval notify failed:", err);

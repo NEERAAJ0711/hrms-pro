@@ -12,6 +12,7 @@ import {
 import { eq, and, lte, or } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { createNotification } from "./notifications";
+import { sendAiFollowUpEmail } from "./services/email-service";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -818,16 +819,18 @@ async function runFollowUpSweep(): Promise<{ processed: number; sent: number }> 
       // Resolve employee user
       let targetUserId = task.userId;
       let employeeName = "Employee";
+      let employeeEmail: string | null = null;
 
-      if (!targetUserId && task.employeeId) {
+      if (task.employeeId) {
         const emp = await db
-          .select({ userId: employees.userId, firstName: employees.firstName, lastName: employees.lastName })
+          .select({ userId: employees.userId, firstName: employees.firstName, lastName: employees.lastName, officialEmail: employees.officialEmail })
           .from(employees)
           .where(eq(employees.id, task.employeeId))
           .limit(1);
         if (emp[0]) {
-          targetUserId = emp[0].userId;
-          employeeName = `${emp[0].firstName} ${emp[0].lastName}`.trim();
+          if (!targetUserId) targetUserId = emp[0].userId;
+          employeeName = `${emp[0].firstName} ${emp[0].lastName}`.trim() || "Employee";
+          employeeEmail = emp[0].officialEmail;
         }
       }
 
@@ -849,13 +852,23 @@ async function runFollowUpSweep(): Promise<{ processed: number; sent: number }> 
           message: dayMsg[task.dayNumber] ?? `Please complete your ${taskLabel}.`,
           link: "/ai-assistant",
         });
+        if (employeeEmail) {
+          await sendAiFollowUpEmail({
+            to: employeeEmail,
+            recipientName: employeeName,
+            taskLabel,
+            message: dayMsg[task.dayNumber] ?? `Please complete your ${taskLabel}.`,
+            kind: "employee",
+            companyId: task.companyId,
+          });
+        }
         sent++;
       }
 
       // Day 7+: also notify HR admin(s) in the company
       if (task.dayNumber >= 7) {
         const hrAdmins = await db
-          .select({ id: usersTable.id })
+          .select({ id: usersTable.id, email: usersTable.email })
           .from(usersTable)
           .where(
             and(
@@ -873,6 +886,17 @@ async function runFollowUpSweep(): Promise<{ processed: number; sent: number }> 
             message: `${employeeName} has not completed ${taskLabel} for ${task.dayNumber} days. Immediate action may be required.`,
             link: "/ai-hr-dashboard",
           });
+          if (hr.email) {
+            await sendAiFollowUpEmail({
+              to: hr.email,
+              recipientName: "HR Team",
+              taskLabel,
+              message: `${employeeName} has not completed ${taskLabel} for ${task.dayNumber} days. Immediate action may be required.`,
+              kind: "escalation",
+              employeeName,
+              companyId: task.companyId,
+            });
+          }
           sent++;
         }
 
@@ -893,7 +917,7 @@ async function runFollowUpSweep(): Promise<{ processed: number; sent: number }> 
         const managerId = emp[0]?.reportingManager;
         if (managerId) {
           const mgr = await db
-            .select({ userId: employees.userId })
+            .select({ userId: employees.userId, officialEmail: employees.officialEmail })
             .from(employees)
             .where(eq(employees.id, managerId))
             .limit(1);
@@ -908,6 +932,17 @@ async function runFollowUpSweep(): Promise<{ processed: number; sent: number }> 
               link: "/ai-hr-dashboard",
             });
             sent++;
+          }
+          if (mgr[0]?.officialEmail) {
+            await sendAiFollowUpEmail({
+              to: mgr[0].officialEmail,
+              recipientName: "Manager",
+              taskLabel,
+              message: `Your team member ${employeeName} has not completed ${taskLabel} for 10+ days. Please follow up directly.`,
+              kind: "manager",
+              employeeName,
+              companyId: task.companyId,
+            });
           }
         }
 

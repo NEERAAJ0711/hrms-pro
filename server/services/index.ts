@@ -12,3 +12,4 @@ export { PayrollService, payrollService } from "./payroll-service";
 export { RecruitmentService, recruitmentService } from "./recruitment-service";
 export { SettingsService, settingsService } from "./settings-service";
 export { UserService, userService } from "./user-service";
+export * from "./email-service";

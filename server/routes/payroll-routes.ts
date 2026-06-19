@@ -1,6 +1,6 @@
 // HRMS Pro — API Routes (modularized)
 import type { Express, Request, Response, NextFunction } from "express";
-import { attendanceService, auditService, companyService, complianceService, employeeService, payrollService, settingsService } from "../services";
+import { attendanceService, auditService, companyService, complianceService, employeeService, payrollService, sendPayslipEmail, settingsService } from "../services";
 import { storage } from "../storage";
 import { db } from "../db";
 import {
@@ -673,6 +673,17 @@ export async function registerPayrollRoutes(app: Express): Promise<void> {
             // Send employees to the Payslips tab in My Finance (employee
             // self-service), not the admin-only /payroll module.
             await createNotification({ userId: empUserId, companyId: existing.companyId, type: "payroll_" + req.body.status, title: label, message: msg, link: "/loan-advances?tab=payslips" });
+          }
+          if (emp?.officialEmail) {
+            await sendPayslipEmail({
+              to: emp.officialEmail,
+              employeeName: `${emp.firstName} ${emp.lastName}`.trim(),
+              month: existing.month,
+              year: existing.year,
+              netPay: Number((updated as any).netPay || (updated as any).netSalary || 0),
+              status: req.body.status,
+              companyId: existing.companyId,
+            });
           }
         } catch (err) {
           console.error("[Notification] payroll notify failed:", err);

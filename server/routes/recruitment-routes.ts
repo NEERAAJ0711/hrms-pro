@@ -1,6 +1,6 @@
 // HRMS Pro — API Routes (modularized)
 import type { Express, Request, Response, NextFunction } from "express";
-import { employeeService, recruitmentService } from "../services";
+import { employeeService, recruitmentService, sendOfferLetterEmail } from "../services";
 import { storage } from "../storage";
 import { db } from "../db";
 import {
@@ -238,6 +238,22 @@ export async function registerRecruitmentRoutes(app: Express): Promise<void> {
         reviewedAt: new Date().toISOString(),
       };
       const application = await recruitmentService.updateJobApplication(req.params.id, updates);
+
+      // Email the candidate when an offer is extended
+      if (updates.status === "offered" && existing.applicantEmail) {
+        try {
+          const posting = await recruitmentService.getJobPosting(existing.jobPostingId);
+          await sendOfferLetterEmail({
+            to: existing.applicantEmail,
+            candidateName: existing.applicantName ?? "Candidate",
+            jobTitle: posting?.title ?? null,
+            companyId: existing.companyId,
+          });
+        } catch (err) {
+          console.error("[Email] offer letter notify failed:", err);
+        }
+      }
+
       res.json(application);
     } catch (error) {
       res.status(500).json({ error: "Failed to update application" });
