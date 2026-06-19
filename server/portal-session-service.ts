@@ -143,7 +143,16 @@ export class PortalSessionService {
         password: decrypt(rows[0].encryptedPassword),
       };
     } catch {
-      return null;
+      // A row exists but the stored password can't be decrypted. This almost
+      // always means the encryption key changed since the credentials were
+      // saved (e.g. .session.key was not persisted across a redeploy, or
+      // SESSION_ENCRYPTION_KEY changed). Surface a clear, actionable error
+      // instead of returning null (which falsely reads as "no credentials").
+      throw new Error(
+        `Saved ${portal.toUpperCase()} credentials for this company could not be decrypted — ` +
+        `the encryption key has changed since they were saved. ` +
+        `Please open the ${portal.toUpperCase()} automation settings and re-save the portal username and password.`
+      );
     }
   }
 
