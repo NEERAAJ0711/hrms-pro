@@ -86,7 +86,7 @@ export default function EpfoPage() {
   });
 
   // Page-level: find any running EPFO job for live screen
-  const { data: runningJobs = [] } = useQuery<Array<{ id: string; status: string; jobType: string }>>({
+  const { data: runningJobs = [] } = useQuery<Array<{ id: string; status: string; jobType: string; screenshotPath?: string | null }>>({
     queryKey: ["/api/automation/jobs/page-live-epfo", companyId],
     queryFn: async () => {
       const r = await fetch(`/api/automation/jobs?companyId=${companyId}&limit=10`, { credentials:"include" });
@@ -110,12 +110,34 @@ export default function EpfoPage() {
     refetchInterval: 5000,
   });
 
-  // Live screen: prefer test job, else page-level running job
-  const latestRunning = testJobId ? null : (runningJobs[0] ?? null);
+  // Active employee list fetched from the EPFO portal via automation
+  const { data: empList } = useQuery<{ employees: Record<string, string>[]; count: number; fetchedAt: string | null }>({
+    queryKey: ["/api/automation/epfo-employees", companyId],
+    queryFn: async () => {
+      const r = await fetch(`/api/automation/epfo-employees?companyId=${companyId}`, { credentials:"include" });
+      return r.ok ? r.json() : { employees: [], count: 0, fetchedAt: null };
+    },
+    enabled: !!companyId,
+    refetchInterval: 8000,
+  });
+
+  // A paused action job (needs CAPTCHA/OTP) takes priority so the live view AND the
+  // resume target always point at the SAME job.
+  const pausedActionJob = !testJobId ? (runningJobs.find(j => j.status === "paused") ?? null) : null;
+
+  // Live screen: prefer test job, else the paused job, else any running job
+  const latestRunning = testJobId ? null : (pausedActionJob ?? runningJobs[0] ?? null);
   const activeJobId: string | null = testJobId ?? latestRunning?.id ?? null;
   if (activeJobId) lastJobIdRef.current = activeJobId;
   const displayJobId = activeJobId ?? lastJobIdRef.current;
   const displayActive = !!activeJobId || !!displayJobId;
+
+  // Paused job needing CAPTCHA/OTP — works for BOTH the login test AND real action jobs
+  const loginPaused = !!testJobId && (testPhase === "captcha" || testPhase === "otp");
+  const pausedJobId: string | null = loginPaused ? testJobId : (pausedActionJob?.id ?? null);
+  const pauseKind: "captcha" | "otp" = loginPaused
+    ? (testPhase === "otp" ? "otp" : "captcha")
+    : (pausedActionJob?.screenshotPath?.toLowerCase().includes("otp") ? "otp" : "captcha");
 
   // Active label
   const displayLabel = testJobId
@@ -171,8 +193,12 @@ export default function EpfoPage() {
   });
 
   const resumeMutation = useMutation({
-    mutationFn: async () => (await apiRequest("POST", `/api/automation/jobs/${testJobId}/resume`, { answer: captchaAnswer })).json(),
-    onSuccess: () => { setCaptchaAnswer(""); setTestPhase("running"); },
+    mutationFn: async () => (await apiRequest("POST", `/api/automation/jobs/${pausedJobId}/resume`, { answer: captchaAnswer })).json(),
+    onSuccess: () => {
+      setCaptchaAnswer("");
+      if (testJobId) setTestPhase("running");
+      queryClient.invalidateQueries({ queryKey: ["/api/automation/jobs/page-live-epfo", companyId] });
+    },
     onError: (e: any) => toast({ title: "Submit failed", description: e.message, variant: "destructive" }),
   });
 
@@ -256,7 +282,7 @@ export default function EpfoPage() {
                 )}
 
                 {/* Login button */}
-                {(testPhase === "idle" || testPhase === "done") && (
+                {(testPhase === "idle" || testPhase === "done") && !pausedActionJob && (
                   <Button className="w-full h-8 text-sm" onClick={() => { resetTest(); loginMutation.mutate(); }}
                     disabled={isLoginActive || ((!session?.configured || changingCreds) && (!username || !password))}
                     data-testid="button-epfo-login">
@@ -273,17 +299,17 @@ export default function EpfoPage() {
                   </div>
                 )}
 
-                {/* CAPTCHA / OTP */}
-                {(testPhase === "captcha" || testPhase === "otp") && (
+                {/* CAPTCHA / OTP — shown for the login test AND any paused action job */}
+                {pausedJobId && (
                   <div className="rounded-lg border-2 border-orange-300 bg-orange-50 p-3 space-y-2">
                     <p className="text-xs text-orange-800 font-semibold flex items-center gap-1">
                       <AlertTriangle className="h-3.5 w-3.5" />
-                      {testPhase === "captcha" ? "CAPTCHA required — see live view" : "OTP sent to registered mobile"}
+                      {pauseKind === "captcha" ? "CAPTCHA required — type the code from the live view →" : "OTP sent to registered mobile"}
                     </p>
                     <div className="flex gap-2">
                       <Input value={captchaAnswer} onChange={e => setCaptchaAnswer(e.target.value)}
                         onKeyDown={e => { if (e.key === "Enter" && captchaAnswer.trim()) resumeMutation.mutate(); }}
-                        placeholder={testPhase === "captcha" ? "Enter CAPTCHA" : "Enter OTP"}
+                        placeholder={pauseKind === "captcha" ? "Enter CAPTCHA" : "Enter OTP"}
                         className="h-8 text-sm font-mono tracking-widest" autoFocus data-testid="input-epfo-captcha" />
                       <Button size="sm" className="h-8 px-3" onClick={() => resumeMutation.mutate()} disabled={!captchaAnswer.trim() || resumeMutation.isPending} data-testid="button-epfo-submit-captcha">
                         {resumeMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Submit"}
@@ -381,6 +407,11 @@ export default function EpfoPage() {
                   onClick={() => triggerJob.mutate({ jobType: "epfo_exit_management", companyId })} data-testid="action-epfo-exit">
                   <RefreshCw className="h-4 w-4 mr-2 text-red-500" /> Exit Management
                 </Button>
+
+                <Button variant="outline" size="sm" className="w-full justify-start h-9 text-sm" disabled={triggerJob.isPending}
+                  onClick={() => triggerJob.mutate({ jobType: "epfo_employee_list", companyId })} data-testid="action-epfo-emplist">
+                  <Users className="h-4 w-4 mr-2 text-slate-600" /> Sync Employee List
+                </Button>
               </CardContent>
             </Card>
 
@@ -441,6 +472,42 @@ export default function EpfoPage() {
                   </p>
                 </div>
               </div>
+            )}
+
+            {/* Active employee list fetched from EPFO via automation */}
+            {empList && empList.count > 0 && (
+              <Card className="mt-3">
+                <CardHeader className="pb-2 pt-3 px-4 flex-row items-center justify-between space-y-0">
+                  <CardTitle className="text-sm flex items-center gap-1.5"><Users className="h-3.5 w-3.5" /> Active Employees — EPFO ({empList.count})</CardTitle>
+                  {empList.fetchedAt && (
+                    <span className="text-[11px] text-muted-foreground">
+                      Synced {new Date(empList.fetchedAt).toLocaleString("en-IN",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"})}
+                    </span>
+                  )}
+                </CardHeader>
+                <CardContent className="px-0 pb-2">
+                  <div className="max-h-[420px] overflow-auto border-t">
+                    <table className="w-full text-xs" data-testid="table-epfo-employees">
+                      <thead className="sticky top-0 bg-muted">
+                        <tr>
+                          {Object.keys(empList.employees[0]).map(h => (
+                            <th key={h} className="text-left font-semibold px-3 py-2 whitespace-nowrap">{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {empList.employees.map((emp, i) => (
+                          <tr key={i} className="border-b last:border-0 hover-elevate" data-testid={`row-epfo-employee-${i}`}>
+                            {Object.keys(empList.employees[0]).map(h => (
+                              <td key={h} className="px-3 py-1.5 whitespace-nowrap">{emp[h] ?? ""}</td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </CardContent>
+              </Card>
             )}
           </div>
         </div>

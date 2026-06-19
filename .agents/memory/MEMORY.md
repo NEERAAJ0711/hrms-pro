@@ -5,3 +5,4 @@
 - [Automation queue concurrency](automation-queue-concurrency.md) — one poll timer chain, reserve slot before async claim, abortJob kills running/paused jobs
 - [CLRA wage source of truth](compliance-wage-source.md) — all compliance reports must mirror Adjustment-tab rate logic (grade_min_wage, ss active, no NULLIF)
 - [Company asset uploads](company-asset-uploads.md) — logo/signature: unique filenames (cache), use upload-response company for state, safeUnlink within assets dir
+- [EPFO/ESIC captcha UI](automation-captcha-ui.md) — CAPTCHA/OTP panel + live view + resume target must all follow the SAME paused job; bulk fan-out must throw on 0 children

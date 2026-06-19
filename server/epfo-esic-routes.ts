@@ -1860,6 +1860,33 @@ export function registerEpfoEsicRoutes(
     }
   });
 
+  // GET /api/automation/epfo-employees — latest fetched EPFO member list (from job result)
+  app.get("/api/automation/epfo-employees", requireAuth, adminRoles, async (req: Request, res: Response) => {
+    try {
+      const user = (req as any).user;
+      const { companyId: qCid } = req.query as Record<string, string>;
+      const cid = user.role === "super_admin" && qCid ? qCid : user.companyId;
+      if (!cid) return res.status(400).json({ error: "companyId required" });
+
+      const rows = await db
+        .select()
+        .from(automationJobs)
+        .where(and(
+          eq(automationJobs.companyId, cid),
+          eq(automationJobs.jobType, "epfo_employee_list"),
+          eq(automationJobs.status, "completed"),
+        ))
+        .orderBy(desc(automationJobs.completedAt))
+        .limit(1);
+
+      const result = (rows[0]?.result ?? null) as { employees?: Record<string, string>[]; fetchedAt?: string } | null;
+      const employees = Array.isArray(result?.employees) ? result!.employees : [];
+      res.json({ employees, count: employees.length, fetchedAt: result?.fetchedAt ?? null });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || "Failed to fetch EPFO employees" });
+    }
+  });
+
   app.get("/api/automation/summary", requireAuth, adminRoles, async (req: Request, res: Response) => {
     try {
       const user = (req as any).user;

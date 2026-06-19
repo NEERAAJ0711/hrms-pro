@@ -296,6 +296,7 @@ async function dispatch(
     // ── EPFO bulk fan-out (no browser — just enqueue child jobs) ──────────
     case "epfo_bulk_register": {
       const jobs = epfo.getBulkRegisterJobs(p as any);
+      if (jobs.length === 0) throw new Error("No employees eligible for EPFO registration — nothing was enqueued.");
       for (const j of jobs) {
         await queueService.enqueueJob({
           jobType: j.jobType,
@@ -309,6 +310,7 @@ async function dispatch(
     }
     case "epfo_bulk_ecr": {
       const jobs = epfo.getBulkEcrJobs(p as any);
+      if (jobs.length === 0) throw new Error("No ECR filings to process — nothing was enqueued.");
       for (const j of jobs) {
         await queueService.enqueueJob({
           jobType: j.jobType,
@@ -376,6 +378,7 @@ async function dispatch(
     // ── ESIC bulk fan-out ──────────────────────────────────────────────────
     case "esic_bulk_register": {
       const employees = (p.employees as Array<Record<string, unknown>>) ?? [];
+      if (employees.length === 0) throw new Error("No employees eligible for ESIC registration — nothing was enqueued.");
       for (const emp of employees) {
         await queueService.enqueueJob({
           jobType: "esic_ip_generate",
