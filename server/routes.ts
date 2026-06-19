@@ -42,6 +42,7 @@ import { z } from "zod";
 import { registerAdmsRoutes, getAdmsActivityLog, getAdmsActivityLogFromDB, getAdmsServerStatus, processAttlog, processUserRecords } from './adms';
 import * as dnsPromises from 'dns/promises';
 import multer from 'multer';
+import { makeFileFilter, DOCUMENT_EXTENSIONS, DATA_EXTENSIONS, APK_EXTENSIONS } from './upload-security';
 import * as XLSX from 'xlsx';
 import { randomUUID } from 'crypto';
 import * as fs from 'fs';
@@ -113,7 +114,11 @@ function validateBiometricNetwork(ip: unknown, port: unknown): string | null {
   return null;
 }
 
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: makeFileFilter(DATA_EXTENSIONS),
+});
 
 // Document disk storage (10 MB limit)
 const DOC_UPLOAD_DIR = path.join(process.cwd(), 'uploads', 'employee-docs');
@@ -125,7 +130,11 @@ const docStorage = multer.diskStorage({
     cb(null, `${Date.now()}-${randomUUID().slice(0, 8)}${ext}`);
   },
 });
-const docUpload = multer({ storage: docStorage, limits: { fileSize: 10 * 1024 * 1024 } });
+const docUpload = multer({
+  storage: docStorage,
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: makeFileFilter(DOCUMENT_EXTENSIONS),
+});
 
 const COMPANY_ASSETS_DIR = path.join(process.cwd(), 'uploads', 'company-assets');
 if (!fs.existsSync(COMPANY_ASSETS_DIR)) fs.mkdirSync(COMPANY_ASSETS_DIR, { recursive: true });
@@ -7467,7 +7476,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     },
     filename: (_req, _file, cb) => cb(null, "hrms-app-latest.apk"),
   });
-  const apkUpload = multer({ storage: apkStorage, limits: { fileSize: 200 * 1024 * 1024 } });
+  const apkUpload = multer({
+    storage: apkStorage,
+    limits: { fileSize: 200 * 1024 * 1024 },
+    fileFilter: makeFileFilter(APK_EXTENSIONS),
+  });
 
   app.get("/api/admin/app-version", requireAuth, requireRole("super_admin"), async (_req, res) => {
     try {
@@ -7577,27 +7590,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // ─── Automation: resume a paused job (OTP / CAPTCHA answer) ─────────────────
-  app.post("/api/automation/jobs/:id/resume", requireAuth, async (req: Request, res: Response) => {
-    try {
-      const { id } = req.params;
-      const { answer } = req.body as { answer?: string };
-      if (!answer || typeof answer !== "string") {
-        return res.status(400).json({ error: "answer is required" });
-      }
-      const { resumeResolvers } = await import("./automation/queue-worker");
-      const resolver = resumeResolvers.get(id);
-      if (!resolver) {
-        return res.status(404).json({ error: "Job is not waiting for input or does not exist" });
-      }
-      resumeResolvers.delete(id);
-      resolver(answer);
-      res.json({ success: true });
-    } catch (err) {
-      console.error("[Routes] Resume job error:", err);
-      res.status(500).json({ error: "Failed to resume job" });
-    }
-  });
+  // NOTE: The automation resume route (POST /api/automation/jobs/:id/resume) is
+  // registered by registerEpfoEsicRoutes() above with full admin authorization and
+  // company-isolation checks. A duplicate, less-secure handler that previously lived
+  // here (requireAuth only) was removed in the Phase-1 security hardening.
 
   // Start the automation queue worker (fire-and-forget background process)
   try {

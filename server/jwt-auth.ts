@@ -2,7 +2,14 @@ import jwt from "jsonwebtoken";
 import type { Request, Response, NextFunction } from "express";
 import { storage } from "./storage";
 
-const JWT_SECRET = process.env.JWT_SECRET || "hrms-jwt-secret-key-2026";
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+  throw new Error(
+    "JWT_SECRET environment variable is required and is not set. " +
+    "Refusing to start with an insecure hardcoded fallback. " +
+    "Set JWT_SECRET to a long random string before starting the server.",
+  );
+}
 const JWT_EXPIRES_IN = "7d";
 const JWT_REFRESH_EXPIRES_IN = "30d";
 

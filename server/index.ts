@@ -1,5 +1,4 @@
-import { readFileSync } from "fs";
-import { join } from "path";
+import "./load-env";
 import express, { type Request, Response, NextFunction } from "express";
 import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
@@ -10,27 +9,6 @@ import { startAdmsServer, registerAdmsRoutes } from "./adms";
 import { startBiometricAttendanceSync } from "./biometric-attendance-sync";
 import { serveStatic } from "./static";
 import { createServer } from "http";
-
-// Always load .env from disk, merging into process.env without overwriting
-// vars already set by PM2's --update-env or the shell. This ensures
-// GIT_COMMIT and BUILD_TIME are always available regardless of how PM2
-// passes (or doesn't pass) those variables to the process.
-try {
-  const raw = readFileSync(join(process.cwd(), ".env"), "utf8");
-  for (const line of raw.split(/\r?\n/)) {
-    const eq = line.indexOf("=");
-    if (eq < 1) continue;
-    const key = line.slice(0, eq).trim();
-    if (!/^[A-Z_][A-Z0-9_]*$/.test(key)) continue;
-    if (process.env[key]) continue;
-    let val = line.slice(eq + 1).trim();
-    if ((val.startsWith('"') && val.endsWith('"')) ||
-        (val.startsWith("'") && val.endsWith("'"))) {
-      val = val.slice(1, -1);
-    }
-    process.env[key] = val;
-  }
-} catch { /* no .env file — dev environment or first boot, continue */ }
 
 const app = express();
 const httpServer = createServer(app);
@@ -74,9 +52,18 @@ app.use(express.urlencoded({ extended: false }));
 
 app.set("trust proxy", 1);
 
+const SESSION_SECRET = process.env.SESSION_SECRET;
+if (!SESSION_SECRET) {
+  throw new Error(
+    "SESSION_SECRET environment variable is required and is not set. " +
+    "Refusing to start with an insecure hardcoded fallback. " +
+    "Set SESSION_SECRET to a long random string before starting the server.",
+  );
+}
+
 app.use(
   session({
-    secret: process.env.SESSION_SECRET || "hrms-dev-secret-key-2026",
+    secret: SESSION_SECRET,
     resave: false,
     saveUninitialized: false,
     store: new PgStore({

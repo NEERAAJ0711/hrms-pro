@@ -1,4 +1,4 @@
-import { pgTable, text, varchar, boolean, timestamp, integer, real, numeric, bigserial, json, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, boolean, timestamp, integer, real, numeric, bigserial, json, jsonb, index } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -148,7 +148,11 @@ export const employees = pgTable("employees", {
   address: text("address"),
   addressState: text("address_state"),
   addressDistrict: text("address_district"),
-});
+}, (table) => [
+  index("idx_employees_company").on(table.companyId),
+  index("idx_employees_company_status").on(table.companyId, table.status),
+  index("idx_employees_user").on(table.userId),
+]);
 
 export const insertEmployeeSchema = createInsertSchema(employees).omit({ id: true });
 export type InsertEmployee = z.infer<typeof insertEmployeeSchema>;
@@ -378,7 +382,10 @@ export const attendance = pgTable("attendance", {
   clockOutFaceVerified: boolean("clock_out_face_verified").default(false),
   clockOutMethod: text("clock_out_method"),
   leaveTypeCode: text("leave_type_code"),
-});
+}, (table) => [
+  index("idx_attendance_employee_date").on(table.employeeId, table.date),
+  index("idx_attendance_company_date").on(table.companyId, table.date),
+]);
 
 export const insertAttendanceSchema = createInsertSchema(attendance).omit({ id: true });
 export type InsertAttendance = z.infer<typeof insertAttendanceSchema>;
@@ -419,7 +426,11 @@ export const leaveRequests = pgTable("leave_requests", {
   approvedBy: varchar("approved_by", { length: 36 }),
   approvedAt: text("approved_at"),
   createdAt: text("created_at").notNull(),
-});
+}, (table) => [
+  index("idx_leave_requests_company").on(table.companyId),
+  index("idx_leave_requests_employee").on(table.employeeId),
+  index("idx_leave_requests_status").on(table.status),
+]);
 
 export const insertLeaveRequestSchema = createInsertSchema(leaveRequests).omit({ id: true, approvedBy: true, approvedAt: true });
 export type InsertLeaveRequest = z.infer<typeof insertLeaveRequestSchema>;
@@ -471,7 +482,10 @@ export const salaryStructures = pgTable("salary_structures", {
   netSalary: integer("net_salary").notNull(),
   effectiveFrom: text("effective_from").notNull(),
   status: text("status").notNull().default("active"),
-});
+}, (table) => [
+  index("idx_salary_structures_employee").on(table.employeeId),
+  index("idx_salary_structures_company").on(table.companyId),
+]);
 
 export const insertSalaryStructureSchema = createInsertSchema(salaryStructures).omit({ id: true });
 export type InsertSalaryStructure = z.infer<typeof insertSalaryStructureSchema>;
@@ -513,7 +527,10 @@ export const payroll = pgTable("payroll", {
   status: text("status").notNull().default("draft"),
   paidOn: text("paid_on"),
   generatedAt: text("generated_at").notNull(),
-});
+}, (table) => [
+  index("idx_payroll_company_month_year").on(table.companyId, table.month, table.year),
+  index("idx_payroll_employee").on(table.employeeId),
+]);
 
 export const insertPayrollSchema = createInsertSchema(payroll).omit({ id: true }).extend({
   presentDays: z.union([z.string(), z.number()]).transform(v => String(v)),
@@ -681,7 +698,10 @@ export const biometricPunchLogs = pgTable("biometric_punch_logs", {
   createdAt: text("created_at"),
   // How the identity was verified on the device: face, fingerprint, card, password, palm
   verifyMode: text("verify_mode"),
-});
+}, (table) => [
+  index("idx_biometric_punch_company_date").on(table.companyId, table.punchDate),
+  index("idx_biometric_punch_employee").on(table.employeeId),
+]);
 
 export const insertBiometricPunchLogSchema = createInsertSchema(biometricPunchLogs).omit({ id: true });
 export type InsertBiometricPunchLog = z.infer<typeof insertBiometricPunchLogSchema>;
@@ -934,7 +954,9 @@ export const notifications = pgTable("notifications", {
   link: text("link"),
   isRead: boolean("is_read").notNull().default(false),
   createdAt: text("created_at").notNull(),
-});
+}, (table) => [
+  index("idx_notifications_user_read").on(table.userId, table.isRead),
+]);
 
 export const insertNotificationSchema = createInsertSchema(notifications).omit({ id: true });
 export type InsertNotification = z.infer<typeof insertNotificationSchema>;
@@ -1262,7 +1284,10 @@ export const automationJobs = pgTable("automation_jobs", {
   createdBy: varchar("created_by", { length: 36 }),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
-});
+}, (table) => [
+  index("idx_automation_jobs_company_type_status").on(table.companyId, table.jobType, table.status),
+  index("idx_automation_jobs_type_status_completed").on(table.jobType, table.status, table.completedAt),
+]);
 export const insertAutomationJobSchema = createInsertSchema(automationJobs).omit({ id: true });
 export type InsertAutomationJob = z.infer<typeof insertAutomationJobSchema>;
 export type AutomationJob = typeof automationJobs.$inferSelect;
@@ -1281,7 +1306,9 @@ export const automationLogs = pgTable("automation_logs", {
   createdBy: varchar("created_by", { length: 36 }),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
-});
+}, (table) => [
+  index("idx_automation_logs_job").on(table.jobId),
+]);
 export const insertAutomationLogSchema = createInsertSchema(automationLogs).omit({ id: true });
 export type InsertAutomationLog = z.infer<typeof insertAutomationLogSchema>;
 export type AutomationLog = typeof automationLogs.$inferSelect;
@@ -1520,7 +1547,9 @@ export const esicFetchedEmployees = pgTable("esic_fetched_employees", {
   jobId: varchar("job_id", { length: 36 }),
   fetchedAt: text("fetched_at").notNull(),
   createdAt: text("created_at").notNull(),
-});
+}, (table) => [
+  index("idx_esic_fetched_company").on(table.companyId),
+]);
 export const insertEsicFetchedEmployeeSchema = createInsertSchema(esicFetchedEmployees).omit({ id: true });
 export type InsertEsicFetchedEmployee = z.infer<typeof insertEsicFetchedEmployeeSchema>;
 export type EsicFetchedEmployee = typeof esicFetchedEmployees.$inferSelect;

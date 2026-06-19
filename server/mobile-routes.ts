@@ -11,6 +11,7 @@ import path from "path";
 import { randomUUID } from "crypto";
 import fs from "fs";
 import { matchFaces, loadFaceModels } from "./face-match";
+import { makeFileFilter, IMAGE_EXTENSIONS } from "./upload-security";
 
 const faceUpload = multer({
   storage: multer.diskStorage({
@@ -24,6 +25,7 @@ const faceUpload = multer({
     },
   }),
   limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: makeFileFilter(IMAGE_EXTENSIONS),
 });
 
 export function registerMobileRoutes(app: Express) {
