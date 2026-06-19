@@ -7,6 +7,7 @@ import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import { useSort, sortData } from "@/lib/use-sort";
 import { SortableHead } from "@/components/sortable-head";
+import { fetchJson, mutateJson } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -75,12 +76,9 @@ export function AdjustmentsTab({ companyId, isSuperAdmin, user, toast }: {
     setEdits({});
     setDirty(new Set());
     try {
-      const res = await fetch(
-        `/api/compliance/employees?companyId=${companyId}&month=${selectedMonth}&year=${selectedYear}`,
-        { credentials: "include" }
+      const data = await fetchJson<EmployeeRow[]>(
+        `/api/compliance/employees?companyId=${companyId}&month=${selectedMonth}&year=${selectedYear}`
       );
-      if (!res.ok) { let _e = `Server error (${res.status})`; try { const _j = await res.json(); _e = _j.error || _e; } catch {} throw new Error(_e); }
-      const data: EmployeeRow[] = await res.json();
       setRows(data);
       const initEdits: Record<string, EditState> = {};
       for (const row of data) {
@@ -191,14 +189,7 @@ export function AdjustmentsTab({ companyId, isSuperAdmin, user, toast }: {
           status: "draft",
         };
       });
-      const res = await fetch("/api/compliance/adjustments/bulk", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ companyId, month: selectedMonth, year: parseInt(selectedYear), complianceType, partyName: partyName || null, adjustments }),
-      });
-      if (!res.ok) { let _e = `Server error (${res.status})`; try { const _j = await res.json(); _e = _j.error || _e; } catch {} throw new Error(_e); }
-      const result = await res.json();
+      const result = await mutateJson<{ saved: number }>("POST", "/api/compliance/adjustments/bulk", { companyId, month: selectedMonth, year: parseInt(selectedYear), complianceType, partyName: partyName || null, adjustments });
       toast({ title: "Saved", description: `${result.saved} record(s) saved.` });
       setDirty(new Set());
       await loadEmployees();

@@ -12,8 +12,10 @@ import { useToast } from "@/hooks/use-toast";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { queryClient, apiRequest } from "@/lib/queryClient";
+import { fetchJson, fetchJsonOrEmpty, mutateJson } from "@/lib/api";
 import type { Payroll, SalaryStructure, Employee, Company, StatutorySettings, Attendance, WageGrade, EarningHead, DeductionHead } from "@shared/schema";
 import FnfSettlementPage from "@/pages/fnf-settlement";
+import { PageHeader } from "@/components/page-header";
 import { salaryStructureSchema, statusColors, months, type SalaryStructureFormValues } from "@/components/payroll/constants";
 import { PayrollSummaryCards } from "@/components/payroll/summary-cards";
 import { PayrollTab } from "@/components/payroll/payroll-tab";
@@ -63,21 +65,13 @@ export default function PayrollPage() {
 
   const { data: myContractors = [] } = useQuery<ContractorRow[]>({
     queryKey: ["/api/companies", user?.companyId, "contractors"],
-    queryFn: async () => {
-      const res = await fetch(`/api/companies/${user?.companyId}/contractors`, { credentials: "include" });
-      if (!res.ok) throw new Error("Failed");
-      return res.json();
-    },
+    queryFn: () => fetchJson(`/api/companies/${user?.companyId}/contractors`),
     enabled: !isSuperAdmin && !!user?.companyId,
   });
 
   const { data: myPrincipalEmployers = [] } = useQuery<PERow[]>({
     queryKey: ["/api/companies", user?.companyId, "principal-employers"],
-    queryFn: async () => {
-      const res = await fetch(`/api/companies/${user?.companyId}/principal-employers`, { credentials: "include" });
-      if (!res.ok) throw new Error("Failed");
-      return res.json();
-    },
+    queryFn: () => fetchJson(`/api/companies/${user?.companyId}/principal-employers`),
     enabled: !isSuperAdmin && !!user?.companyId,
   });
 
@@ -92,11 +86,7 @@ export default function PayrollPage() {
 
   const { data: prTaggedRecords = [] } = useQuery<ContractorEmployee[]>({
     queryKey: ["/api/companies", prFilterCompanyId, "contractors", prFilterContractorId, "employees"],
-    queryFn: async () => {
-      const res = await fetch(`/api/companies/${prFilterCompanyId}/contractors/${prFilterContractorId}/employees`, { credentials: "include" });
-      if (!res.ok) throw new Error("Failed");
-      return res.json();
-    },
+    queryFn: () => fetchJson(`/api/companies/${prFilterCompanyId}/contractors/${prFilterContractorId}/employees`),
     enabled: prIsContractorView && !!prFilterCompanyId && !!prFilterContractorId,
   });
 
@@ -105,11 +95,7 @@ export default function PayrollPage() {
   const prContractorCompanyId = prFilterType === "c" ? prFilterContractorId : "";
   const { data: prContractorEmployees = [] } = useQuery<Employee[]>({
     queryKey: ["/api/companies", prContractorCompanyId, "employees"],
-    queryFn: async () => {
-      const res = await fetch(`/api/companies/${prContractorCompanyId}/employees`, { credentials: "include" });
-      if (!res.ok) throw new Error("Failed");
-      return res.json();
-    },
+    queryFn: () => fetchJson(`/api/companies/${prContractorCompanyId}/employees`),
     enabled: prFilterType === "c" && !!prContractorCompanyId,
   });
 
@@ -136,10 +122,7 @@ export default function PayrollPage() {
 
   const { data: wageGrades = [] } = useQuery<WageGrade[]>({
     queryKey: ["/api/wage-grades"],
-    queryFn: async () => {
-      const res = await apiRequest("GET", "/api/wage-grades");
-      return res.json();
-    },
+    queryFn: () => mutateJson("GET", "/api/wage-grades"),
   });
 
   const getEmployeeWageGrade = (employeeId: string): WageGrade | undefined => {
@@ -214,11 +197,9 @@ export default function PayrollPage() {
 
   const { data: earningHeads = [] } = useQuery<EarningHead[]>({
     queryKey: ["/api/earning-heads", watchCompanyId],
-    queryFn: async () => {
+    queryFn: () => {
       if (!watchCompanyId) return [];
-      const res = await fetch(`/api/earning-heads?companyId=${watchCompanyId}`, { credentials: "include" });
-      if (!res.ok) return [];
-      return res.json();
+      return fetchJsonOrEmpty(`/api/earning-heads?companyId=${watchCompanyId}`, []);
     },
     enabled: !!watchCompanyId,
   });
@@ -226,11 +207,9 @@ export default function PayrollPage() {
 
   const { data: deductionHeads = [] } = useQuery<DeductionHead[]>({
     queryKey: ["/api/deduction-heads", watchCompanyId],
-    queryFn: async () => {
+    queryFn: () => {
       if (!watchCompanyId) return [];
-      const res = await fetch(`/api/deduction-heads?companyId=${watchCompanyId}`, { credentials: "include" });
-      if (!res.ok) return [];
-      return res.json();
+      return fetchJsonOrEmpty(`/api/deduction-heads?companyId=${watchCompanyId}`, []);
     },
     enabled: !!watchCompanyId,
   });
@@ -238,10 +217,9 @@ export default function PayrollPage() {
 
   const { data: statutoryData } = useQuery<StatutorySettings | StatutorySettings[]>({
     queryKey: ["/api/statutory-settings", watchCompanyId],
-    queryFn: async () => {
+    queryFn: () => {
       const companyId = form.getValues("companyId");
-      const res = await apiRequest("GET", companyId ? `/api/statutory-settings?companyId=${companyId}` : "/api/statutory-settings");
-      return res.json();
+      return mutateJson("GET", companyId ? `/api/statutory-settings?companyId=${companyId}` : "/api/statutory-settings");
     }
   });
 
@@ -1090,12 +1068,12 @@ export default function PayrollPage() {
 
   return (
     <div className="p-6" data-testid="payroll-page">
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold">Payroll Management</h1>
-          <p className="text-muted-foreground">Manage salary structures and process payroll</p>
-        </div>
-        <div className="flex gap-2">
+      <PageHeader
+        className="mb-6"
+        title="Payroll Management"
+        description="Manage salary structures and process payroll"
+        actions={
+          <>
           <Button
             variant="outline"
             onClick={() => { setBulkUploadOpen(true); setBulkResult(null); }}
@@ -1137,8 +1115,9 @@ export default function PayrollPage() {
             minEffectiveDateStr={minEffectiveDateStr}
             latestEmpPayroll={latestEmpPayroll}
           />
-        </div>
-      </div>
+          </>
+        }
+      />
 
       <PayrollSummaryCards
         totalPayroll={totalPayroll}

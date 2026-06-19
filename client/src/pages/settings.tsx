@@ -5,7 +5,9 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
-import { queryClient, apiRequest } from "@/lib/queryClient";
+import { queryClient } from "@/lib/queryClient";
+import { api } from "@/lib/api";
+import { PageHeader } from "@/components/page-header";
 import { useAuth } from "@/lib/auth";
 import type { Company, Setting } from "@shared/schema";
 import type { SettingFormData } from "@/components/settings/types";
@@ -69,7 +71,7 @@ export default function SettingsPage() {
       }));
       
       for (const setting of settingsToSave) {
-        await apiRequest("POST", "/api/settings", setting);
+        await api.settings.save(setting);
       }
     },
     onSuccess: () => {
@@ -102,33 +104,34 @@ export default function SettingsPage() {
 
   return (
     <div className="p-6" data-testid="settings-page">
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold">Settings</h1>
-          <p className="text-muted-foreground">Configure system preferences and company settings</p>
-        </div>
-        <div className="flex items-center gap-4">
-          {user?.role === "super_admin" && (
-            <Select value={selectedCompany} onValueChange={setSelectedCompany}>
-              <SelectTrigger className="w-48" data-testid="select-settings-company">
-                <SelectValue placeholder="Global Settings" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__global__">Global Settings</SelectItem>
-                {companies.map((company) => (
-                  <SelectItem key={company.id} value={company.id}>{company.companyName}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
-          {activeTab === "general" && (
-            <Button onClick={() => saveMutation.mutate(formData)} disabled={saveMutation.isPending} data-testid="button-save-settings">
-              <Save className="h-4 w-4 mr-2" />
-              {saveMutation.isPending ? "Saving..." : "Save Changes"}
-            </Button>
-          )}
-        </div>
-      </div>
+      <PageHeader
+        title="Settings"
+        description="Configure system preferences and company settings"
+        className="mb-6"
+        actions={
+          <>
+            {user?.role === "super_admin" && (
+              <Select value={selectedCompany} onValueChange={setSelectedCompany}>
+                <SelectTrigger className="w-48" data-testid="select-settings-company">
+                  <SelectValue placeholder="Global Settings" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__global__">Global Settings</SelectItem>
+                  {companies.map((company) => (
+                    <SelectItem key={company.id} value={company.id}>{company.companyName}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+            {activeTab === "general" && (
+              <Button onClick={() => saveMutation.mutate(formData)} disabled={saveMutation.isPending} data-testid="button-save-settings">
+                <Save className="h-4 w-4 mr-2" />
+                {saveMutation.isPending ? "Saving..." : "Save Changes"}
+              </Button>
+            )}
+          </>
+        }
+      />
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="mb-6">

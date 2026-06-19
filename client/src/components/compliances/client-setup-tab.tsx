@@ -7,6 +7,7 @@ import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import { useSort, sortData } from "@/lib/use-sort";
 import { SortableHead } from "@/components/sortable-head";
+import { fetchJson } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -112,9 +113,7 @@ export function ClientSetupTab({ companyId, isSuperAdmin, toast }: {
       const url = isSuperAdmin
         ? `/api/compliance/clients?companyId=${companyId}`
         : "/api/compliance/clients";
-      const res = await fetch(url, { credentials: "include" });
-      if (!res.ok) throw new Error("Failed to load clients");
-      setClients(await res.json());
+      setClients(await fetchJson<ComplianceClient[]>(url));
     } catch (e: any) {
       toast({ title: "Error", description: e.message, variant: "destructive" });
     }
@@ -234,9 +233,7 @@ export function ClientSetupTab({ companyId, isSuperAdmin, toast }: {
     setAssignClientName(client.project_name);
     setAssignLoading(true);
     try {
-      const res = await fetch(`/api/compliance/clients/${client.id}/employees`, { credentials: "include" });
-      if (!res.ok) throw new Error("Failed");
-      setAssignments(await res.json());
+      setAssignments(await fetchJson<ClientAssignment[]>(`/api/compliance/clients/${client.id}/employees`));
     } catch (e: any) {
       toast({ title: "Error", description: e.message, variant: "destructive" });
     }
@@ -257,8 +254,7 @@ export function ClientSetupTab({ companyId, isSuperAdmin, toast }: {
       if (!res.ok) throw new Error("Failed to assign");
       toast({ title: "Assigned", description: "Employee assigned to project" });
       setAssignEmpId(""); setAssignDate(""); setAssignDesignation(""); setAssignPresentAddress("");
-      const res2 = await fetch(`/api/compliance/clients/${assignClientId}/employees`, { credentials: "include" });
-      setAssignments(await res2.json());
+      setAssignments(await fetchJson<ClientAssignment[]>(`/api/compliance/clients/${assignClientId}/employees`));
       loadClients();
     } catch (e: any) {
       toast({ title: "Error", description: e.message, variant: "destructive" });
@@ -280,8 +276,7 @@ export function ClientSetupTab({ companyId, isSuperAdmin, toast }: {
       if (!res.ok) throw new Error("Failed to de-assign");
       toast({ title: "De-assigned", description: "Employee de-assigned from project" });
       setDeassignId(null); setDeassignDate("");
-      const res2 = await fetch(`/api/compliance/clients/${assignClientId}/employees`, { credentials: "include" });
-      setAssignments(await res2.json());
+      setAssignments(await fetchJson<ClientAssignment[]>(`/api/compliance/clients/${assignClientId}/employees`));
       loadClients();
     } catch (e: any) {
       toast({ title: "Error", description: e.message, variant: "destructive" });
@@ -305,8 +300,7 @@ export function ClientSetupTab({ companyId, isSuperAdmin, toast }: {
       if (!res.ok) throw new Error("Failed to update");
       toast({ title: "Updated", description: "Assignment details updated successfully" });
       setEditAssignId(null);
-      const res2 = await fetch(`/api/compliance/clients/${assignClientId}/employees`, { credentials: "include" });
-      setAssignments(await res2.json());
+      setAssignments(await fetchJson<ClientAssignment[]>(`/api/compliance/clients/${assignClientId}/employees`));
     } catch (e: any) {
       toast({ title: "Error", description: e.message, variant: "destructive" });
     }
@@ -323,8 +317,7 @@ export function ClientSetupTab({ companyId, isSuperAdmin, toast }: {
       if (!res.ok) throw new Error("Failed to delete");
       toast({ title: "Deleted", description: "Assignment removed successfully" });
       setDeleteAssignId(null);
-      const res2 = await fetch(`/api/compliance/clients/${assignClientId}/employees`, { credentials: "include" });
-      setAssignments(await res2.json());
+      setAssignments(await fetchJson<ClientAssignment[]>(`/api/compliance/clients/${assignClientId}/employees`));
     } catch (e: any) {
       toast({ title: "Error", description: e.message, variant: "destructive" });
     }

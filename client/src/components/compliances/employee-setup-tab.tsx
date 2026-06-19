@@ -7,6 +7,7 @@ import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import { useSort, sortData } from "@/lib/use-sort";
 import { SortableHead } from "@/components/sortable-head";
+import { fetchJsonOrEmpty } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -566,11 +567,7 @@ function SetupForm({ setup, companyId, onBack, onSaved, toast }: {
   // Fetch wage grades for this company
   const { data: wageGrades = [] } = useQuery<any[]>({
     queryKey: ["/api/wage-grades", companyId],
-    queryFn: async () => {
-      const r = await fetch(`/api/wage-grades?companyId=${companyId}`, { credentials: "include" });
-      if (!r.ok) return [];
-      return r.json();
-    },
+    queryFn: () => fetchJsonOrEmpty<any[]>(`/api/wage-grades?companyId=${companyId}`, []),
   });
 
   const set = (field: keyof EmployeeSetup, value: any) =>

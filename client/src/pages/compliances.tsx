@@ -18,6 +18,8 @@ import { EmployeeSetupTab } from "@/components/compliances/employee-setup-tab";
 import { AdjustmentsTab } from "@/components/compliances/adjustments-tab";
 import { ClientSetupTab } from "@/components/compliances/client-setup-tab";
 import { ComplianceReportTab } from "@/components/compliances/compliance-report-tab";
+import { PageHeader } from "@/components/page-header";
+import { fetchJson } from "@/lib/api";
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function CompliancesPage() {
@@ -39,8 +41,7 @@ export default function CompliancesPage() {
   // Load companies once for super_admin
   useEffect(() => {
     if (isSuperAdmin && hasComplianceAccess) {
-      fetch("/api/compliance/companies", { credentials: "include" })
-        .then(r => r.json())
+      fetchJson<{ id: string; company_name: string }[]>("/api/compliance/companies")
         .then(data => { setCompanies(data); if (data.length > 0) setSelectedCompany(data[0].id); })
         .catch(() => {});
     }
@@ -70,15 +71,15 @@ export default function CompliancesPage() {
   return (
     <div className="p-6 space-y-4">
       {/* ── Page header */}
-      <div className="flex items-center gap-3">
-        <div className="p-2 bg-blue-600 rounded-lg">
-          <ShieldCheck className="h-6 w-6 text-white" />
-        </div>
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Compliance Management</h1>
-          <p className="text-sm text-gray-500">Configure employee-wise statutory settings and manage compliance adjustments</p>
-        </div>
-      </div>
+      <PageHeader
+        title="Compliance Management"
+        description="Configure employee-wise statutory settings and manage compliance adjustments"
+        icon={
+          <div className="p-2 bg-blue-600 rounded-lg">
+            <ShieldCheck className="h-6 w-6 text-white" />
+          </div>
+        }
+      />
 
       {/* ── Company selector (super_admin only) */}
       {isSuperAdmin && (

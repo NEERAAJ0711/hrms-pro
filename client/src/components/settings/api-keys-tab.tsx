@@ -13,7 +13,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { queryClient, apiRequest } from "@/lib/queryClient";
+import { queryClient } from "@/lib/queryClient";
+import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { useCan } from "@/hooks/use-can";
 import type { Company, Setting, MasterDepartment, MasterDesignation, MasterLocation, EarningHead, DeductionHead, StatutorySettings, TimeOfficePolicy, Holiday, WageGrade, ContractorMaster, LeavePolicy } from "@shared/schema";
@@ -128,7 +129,7 @@ export function ApiKeysTab() {
 
   const saveMutation = useMutation({
     mutationFn: (payload: { openaiApiKey?: string; geminiApiKey?: string }) =>
-      apiRequest("POST", "/api/settings/api-keys", payload),
+      api.settings.saveApiKeys(payload),
     onSuccess: (_data, vars) => {
       queryClient.invalidateQueries({ queryKey: ["/api/settings/api-keys"] });
       if (vars.openaiApiKey !== undefined) setOpenaiKey("");

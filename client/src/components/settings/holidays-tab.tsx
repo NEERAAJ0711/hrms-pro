@@ -13,7 +13,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { queryClient, apiRequest } from "@/lib/queryClient";
+import { queryClient } from "@/lib/queryClient";
+import { fetchJson, apiRequest } from "@/lib/api";
+import { StatusBadge } from "@/components/status-badge";
 import { useAuth } from "@/lib/auth";
 import { useCan } from "@/hooks/use-can";
 import type { Company, Setting, MasterDepartment, MasterDesignation, MasterLocation, EarningHead, DeductionHead, StatutorySettings, TimeOfficePolicy, Holiday, WageGrade, ContractorMaster, LeavePolicy } from "@shared/schema";
@@ -66,13 +68,11 @@ export function HolidayCalendarTab({ companyId, selectedCompany, userRole }: { c
 
   const { data: holidays = [], isLoading } = useQuery<Holiday[]>({
     queryKey,
-    queryFn: async () => {
+    queryFn: () => {
       const url = effectiveCompanyId
         ? `/api/holidays?companyId=${effectiveCompanyId}`
         : "/api/holidays";
-      const res = await fetch(url, { credentials: "include" });
-      if (!res.ok) throw new Error("Failed to fetch holidays");
-      return res.json();
+      return fetchJson<Holiday[]>(url);
     },
   });
 
@@ -226,9 +226,11 @@ export function HolidayCalendarTab({ companyId, selectedCompany, userRole }: { c
                       <TableCell className="font-medium">{holiday.date}</TableCell>
                       <TableCell>{holiday.name}</TableCell>
                       <TableCell>
-                        <Badge className={holidayTypeColors[holiday.type] || ""} variant="secondary">
-                          {holiday.type.charAt(0).toUpperCase() + holiday.type.slice(1)}
-                        </Badge>
+                        <StatusBadge
+                          status={holiday.type}
+                          styles={holidayTypeColors}
+                          label={holiday.type.charAt(0).toUpperCase() + holiday.type.slice(1)}
+                        />
                       </TableCell>
                       <TableCell className="max-w-[200px] truncate">{holiday.description || "—"}</TableCell>
                       {isSuperAdmin && <TableCell>{getCompanyName(holiday.companyId)}</TableCell>}

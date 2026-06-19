@@ -13,7 +13,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { queryClient, apiRequest } from "@/lib/queryClient";
+import { queryClient } from "@/lib/queryClient";
+import { fetchJson, apiRequest } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { useCan } from "@/hooks/use-can";
 import type { Company, Setting, MasterDepartment, MasterDesignation, MasterLocation, EarningHead, DeductionHead, StatutorySettings, TimeOfficePolicy, Holiday, WageGrade, ContractorMaster, LeavePolicy } from "@shared/schema";
@@ -53,10 +54,7 @@ export function StatutorySettingsTab({ companyId, selectedCompany }: { companyId
 
   const { data: statutorySettingsArr, isLoading } = useQuery<StatutorySettings[]>({
     queryKey: [`/api/statutory-settings`, companyId],
-    queryFn: async () => {
-      const res = await apiRequest("GET", `/api/statutory-settings?companyId=${companyId}`);
-      return res.json();
-    },
+    queryFn: () => fetchJson<StatutorySettings[]>(`/api/statutory-settings?companyId=${companyId}`),
     enabled: !!companyId,
   });
 

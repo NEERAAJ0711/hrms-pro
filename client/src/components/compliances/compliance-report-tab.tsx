@@ -7,6 +7,7 @@ import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import { useSort, sortData } from "@/lib/use-sort";
 import { SortableHead } from "@/components/sortable-head";
+import { fetchJson } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -75,14 +76,13 @@ export function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
   // Load company name and projects for the selector
   useEffect(() => {
     if (!companyId) return;
-    fetch("/api/compliance/companies", { credentials: "include" })
-      .then(r => r.json())
-      .then((list: { id: string; company_name: string }[]) => {
+    fetchJson<{ id: string; company_name: string }[]>("/api/compliance/companies")
+      .then((list) => {
         const match = list.find(c => c.id === companyId);
         if (match) setCompanyName(match.company_name);
       }).catch(() => {});
     const projectsUrl = isSuperAdmin ? `/api/compliance/clients?companyId=${companyId}` : "/api/compliance/clients";
-    fetch(projectsUrl, { credentials: "include" }).then(r => r.json()).then(setProjects).catch(() => {});
+    fetchJson<ComplianceClient[]>(projectsUrl).then(setProjects).catch(() => {});
   }, [companyId, isSuperAdmin]);
 
   const loadReport = async () => {

@@ -1,8 +1,9 @@
+import { useState } from "react";
 import { format } from "date-fns";
 import { Building2, Edit, Trash2, ShieldCheck, AlertTriangle, Search, Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { SortableHead } from "@/components/sortable-head";
@@ -40,6 +41,7 @@ export function StructuresTab({
   onEditStructure,
   onDeleteStructure,
 }: StructuresTabProps) {
+  const [deleteStructureId, setDeleteStructureId] = useState<string | null>(null);
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between gap-4 flex-wrap">
@@ -132,23 +134,9 @@ export function StructuresTab({
                           <Button variant="ghost" size="icon" onClick={() => onEditStructure(structure)}>
                             <Edit className="h-4 w-4" />
                           </Button>
-                          <AlertDialog>
-                            <AlertDialogTrigger asChild>
-                              <Button variant="ghost" size="icon">
-                                <Trash2 className="h-4 w-4 text-red-500" />
-                              </Button>
-                            </AlertDialogTrigger>
-                            <AlertDialogContent>
-                              <AlertDialogHeader>
-                                <AlertDialogTitle>Delete Salary Structure</AlertDialogTitle>
-                                <AlertDialogDescription>Are you sure you want to delete this salary structure? This action cannot be undone.</AlertDialogDescription>
-                              </AlertDialogHeader>
-                              <AlertDialogFooter>
-                                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                <AlertDialogAction onClick={() => onDeleteStructure(structure.id)}>Delete</AlertDialogAction>
-                              </AlertDialogFooter>
-                            </AlertDialogContent>
-                          </AlertDialog>
+                          <Button variant="ghost" size="icon" onClick={() => setDeleteStructureId(structure.id)}>
+                            <Trash2 className="h-4 w-4 text-red-500" />
+                          </Button>
                         </>
                       )}
                     </div>
@@ -159,6 +147,16 @@ export function StructuresTab({
             </TableBody>
           </Table>
         )}
+
+        <ConfirmDialog
+          open={!!deleteStructureId}
+          onOpenChange={(open) => { if (!open) setDeleteStructureId(null); }}
+          title="Delete Salary Structure"
+          description="Are you sure you want to delete this salary structure? This action cannot be undone."
+          confirmLabel="Delete"
+          onConfirm={() => { if (deleteStructureId) onDeleteStructure(deleteStructureId); }}
+          testIdPrefix="delete-structure"
+        />
       </CardContent>
     </Card>
   );

@@ -3,6 +3,7 @@ import { ViewReportDialog } from "@/components/reports/view-report-dialog";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { PageHeader } from "@/components/page-header";
 import { BarChart3, Calendar, CreditCard, Shield, TrendingUp, UserRound, FilePen, Building2, Filter, X } from "lucide-react";
 
 export default function ReportsPage() {
@@ -128,15 +129,12 @@ export default function ReportsPage() {
       <div className="flex-1 min-w-0 p-6">
 
         {/* Page header */}
-        <div className="flex items-center gap-3 mb-5">
-          <div>
-            <h1 className="text-xl font-bold flex items-center gap-2">
-              <BarChart3 className="h-5 w-5 text-primary" />
-              {sidebarCategories.find(c => c.id === activeTab)?.label ?? "Reports"}
-            </h1>
-            <p className="text-sm text-muted-foreground mt-0.5">Generate and download reports in Excel and PDF format</p>
-          </div>
-        </div>
+        <PageHeader
+          className="mb-5"
+          icon={<BarChart3 className="h-5 w-5 text-primary" />}
+          title={sidebarCategories.find(c => c.id === activeTab)?.label ?? "Reports"}
+          description="Generate and download reports in Excel and PDF format"
+        />
 
         {/* ── Global Filter Panel ── */}
         {(() => {

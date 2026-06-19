@@ -45,7 +45,7 @@ import { useToast } from "@/hooks/use-toast";
 import * as XLSX from "xlsx";
 import { jsPDF, autoTable } from "@/lib/jspdf-shim";
 import type { Company, Employee, Payroll, SalaryStructure, Attendance, StatutorySettings, FnfSettlement, LeaveRequest, TimeOfficePolicy, Holiday, LoanAdvance, EarningHead, DeductionHead, ContractorMaster } from "@shared/schema";
-import { apiRequest } from "@/lib/queryClient";
+import { fetchJsonOrEmpty, apiRequest } from "@/lib/api";
 
 import { months, REPORTS_ALLOWED_ROLES, loadImageBase64 } from "@/lib/reports/helpers";
 
@@ -103,9 +103,7 @@ export function useReports() {
       const cid = selectedCompany && selectedCompany !== "__all__" ? selectedCompany : "";
       const params = new URLSearchParams({ date: selectedDate });
       if (cid) params.set("companyId", cid);
-      const res = await fetch(`/api/attendance?${params}`, { credentials: "include" });
-      if (!res.ok) return [];
-      return res.json();
+      return fetchJsonOrEmpty<Attendance[]>(`/api/attendance?${params}`, []);
     },
     enabled: !!hasAccess && !!selectedDate,
     staleTime: 30_000,
@@ -129,101 +127,61 @@ export function useReports() {
   const { data: fnfSettlements = [] } = useQuery<FnfSettlement[]>({
     queryKey: ["/api/fnf-settlements"],
     enabled: !!hasAccess,
-    queryFn: async () => {
-      const res = await fetch("/api/fnf-settlements", { credentials: "include" });
-      if (!res.ok) return [];
-      return res.json();
-    },
+    queryFn: () => fetchJsonOrEmpty<FnfSettlement[]>("/api/fnf-settlements", []),
   });
 
   const { data: leaveRequests = [] } = useQuery<LeaveRequest[]>({
     queryKey: ["/api/leave-requests"],
     enabled: !!hasAccess,
-    queryFn: async () => {
-      const res = await fetch("/api/leave-requests", { credentials: "include" });
-      if (!res.ok) return [];
-      return res.json();
-    },
+    queryFn: () => fetchJsonOrEmpty<LeaveRequest[]>("/api/leave-requests", []),
   });
 
   const { data: timeOfficePolicies = [] } = useQuery<TimeOfficePolicy[]>({
     queryKey: ["/api/time-office-policies"],
     enabled: !!hasAccess,
-    queryFn: async () => {
-      const res = await fetch("/api/time-office-policies", { credentials: "include" });
-      if (!res.ok) return [];
-      return res.json();
-    },
+    queryFn: () => fetchJsonOrEmpty<TimeOfficePolicy[]>("/api/time-office-policies", []),
   });
 
   const { data: holidays = [] } = useQuery<Holiday[]>({
     queryKey: ["/api/holidays"],
     enabled: !!hasAccess,
-    queryFn: async () => {
-      const res = await fetch("/api/holidays", { credentials: "include" });
-      if (!res.ok) return [];
-      return res.json();
-    },
+    queryFn: () => fetchJsonOrEmpty<Holiday[]>("/api/holidays", []),
   });
   const { data: earningHeads = [] } = useQuery<EarningHead[]>({
     queryKey: ["/api/earning-heads"],
     enabled: !!hasAccess,
-    queryFn: async () => {
-      const res = await fetch("/api/earning-heads", { credentials: "include" });
-      if (!res.ok) return [];
-      return res.json();
-    },
+    queryFn: () => fetchJsonOrEmpty<EarningHead[]>("/api/earning-heads", []),
   });
   const { data: deductionHeads = [] } = useQuery<DeductionHead[]>({
     queryKey: ["/api/deduction-heads"],
     enabled: !!hasAccess,
-    queryFn: async () => {
-      const res = await fetch("/api/deduction-heads", { credentials: "include" });
-      if (!res.ok) return [];
-      return res.json();
-    },
+    queryFn: () => fetchJsonOrEmpty<DeductionHead[]>("/api/deduction-heads", []),
   });
 
   const { data: loanAdvances = [] } = useQuery<LoanAdvance[]>({
     queryKey: ["/api/loan-advances"],
     enabled: !!hasAccess,
-    queryFn: async () => {
-      const res = await fetch("/api/loan-advances", { credentials: "include" });
-      if (!res.ok) return [];
-      return res.json();
-    },
+    queryFn: () => fetchJsonOrEmpty<LoanAdvance[]>("/api/loan-advances", []),
   });
 
   const { data: leaveTypes = [] } = useQuery<{ id: string; name: string; code: string }[]>({
     queryKey: ["/api/leave-types"],
     enabled: !!hasAccess,
-    queryFn: async () => {
-      const res = await fetch("/api/leave-types", { credentials: "include" });
-      if (!res.ok) return [];
-      return res.json();
-    },
+    queryFn: () => fetchJsonOrEmpty<{ id: string; name: string; code: string }[]>("/api/leave-types", []),
   });
 
   const { data: companyContractors = [] } = useQuery<{ contractorId: string; contractorName: string; startDate: string }[]>({
     queryKey: ["/api/companies", contractorPrincipalId, "contractors"],
-    queryFn: async () => {
-      const res = await fetch(`/api/companies/${contractorPrincipalId}/contractors`, { credentials: "include" });
-      if (!res.ok) return [];
-      return res.json();
-    },
+    queryFn: () => fetchJsonOrEmpty<{ contractorId: string; contractorName: string; startDate: string }[]>(`/api/companies/${contractorPrincipalId}/contractors`, []),
     enabled: !!hasAccess && !!contractorPrincipalId,
   });
 
   const { data: contractorTaggedEmpList = [] } = useQuery<Employee[]>({
     queryKey: ["/api/companies", contractorPrincipalId, "contractors", selectedContractorId, "employees"],
-    queryFn: async () => {
-      const res = await fetch(
-        `/api/companies/${contractorPrincipalId}/contractors/${selectedContractorId}/employees`,
-        { credentials: "include" }
-      );
-      if (!res.ok) return [];
-      return res.json();
-    },
+    queryFn: () => fetchJsonOrEmpty<Employee[]>(
+      `/api/companies/${contractorPrincipalId}/contractors/${selectedContractorId}/employees`,
+      []
+    ),
     enabled: !!hasAccess && !!contractorPrincipalId && !!selectedContractorId,
   });
 
@@ -232,9 +190,7 @@ export function useReports() {
     queryFn: async () => {
       const cid = selectedCompany && selectedCompany !== "__all__" ? selectedCompany : (user?.companyId || "");
       const url = cid ? `/api/contractor-masters?companyId=${cid}` : "/api/contractor-masters";
-      const res = await fetch(url, { credentials: "include" });
-      if (!res.ok) return [];
-      return res.json();
+      return fetchJsonOrEmpty<ContractorMaster[]>(url, []);
     },
     enabled: !!hasAccess,
   });

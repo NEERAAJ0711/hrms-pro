@@ -1,12 +1,13 @@
+import { useState } from "react";
 import { FileText, Edit, Trash2, CheckCircle, Eye, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Badge } from "@/components/ui/badge";
 import { Calculator } from "lucide-react";
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { StatusBadge } from "@/components/status-badge";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import type { Payroll, Company } from "@shared/schema";
 
 interface ContractorRow { id: string; companyId: string; contractorId: string; startDate: string; contractorName: string }
@@ -89,6 +90,7 @@ export function PayrollTab({
   getEmployeeName,
   formatCurrency,
 }: PayrollTabProps) {
+  const [deletePayrollId, setDeletePayrollId] = useState<string | null>(null);
   return (
     <Card>
       <CardHeader>
@@ -243,26 +245,28 @@ export function PayrollTab({
         </div>
 
         {/* Bulk delete confirmation */}
-        <AlertDialog open={bulkDeleteConfirmOpen} onOpenChange={setBulkDeleteConfirmOpen}>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Delete {selectedPayrollIds.size} Payroll Record(s)?</AlertDialogTitle>
-              <AlertDialogDescription>
-                This will permanently delete {selectedPayrollIds.size} selected payroll record(s). This action cannot be undone.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>Cancel</AlertDialogCancel>
-              <AlertDialogAction
-                className="bg-red-600 hover:bg-red-700"
-                onClick={() => onBulkDelete(Array.from(selectedPayrollIds))}
-                disabled={isBulkDeletePending}
-              >
-                {isBulkDeletePending ? "Deleting…" : "Delete"}
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
+        <ConfirmDialog
+          open={bulkDeleteConfirmOpen}
+          onOpenChange={setBulkDeleteConfirmOpen}
+          title={`Delete ${selectedPayrollIds.size} Payroll Record(s)?`}
+          description={`This will permanently delete ${selectedPayrollIds.size} selected payroll record(s). This action cannot be undone.`}
+          confirmLabel={isBulkDeletePending ? "Deleting…" : "Delete"}
+          onConfirm={() => onBulkDelete(Array.from(selectedPayrollIds))}
+          disabled={isBulkDeletePending}
+          destructive
+          testIdPrefix="bulk-delete-payroll"
+        />
+
+        {/* Per-row delete confirmation */}
+        <ConfirmDialog
+          open={!!deletePayrollId}
+          onOpenChange={(open) => { if (!open) setDeletePayrollId(null); }}
+          title="Delete Payroll Record"
+          description="Are you sure you want to delete this payroll record? This action cannot be undone."
+          confirmLabel="Delete"
+          onConfirm={() => { if (deletePayrollId) onDelete(deletePayrollId); }}
+          testIdPrefix="delete-payroll"
+        />
 
         {isLoadingPayroll ? (
           <div className="space-y-4">
@@ -335,9 +339,7 @@ export function PayrollTab({
                     {Number((record as any).otHours) > 0 ? `${Number((record as any).otHours).toFixed(1)}h` : "—"}
                   </TableCell>
                   <TableCell>
-                    <Badge className={statusColors[record.status] || ""}>
-                      {record.status.charAt(0).toUpperCase() + record.status.slice(1)}
-                    </Badge>
+                    <StatusBadge status={record.status} styles={statusColors} />
                   </TableCell>
                   <TableCell>
                     <div className="flex items-center gap-1">
@@ -352,23 +354,9 @@ export function PayrollTab({
                           <CheckCircle className="h-4 w-4 text-green-600" />
                         </Button>
                       )}
-                      <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                          <Button variant="ghost" size="icon">
-                            <Trash2 className="h-4 w-4 text-red-500" />
-                          </Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                          <AlertDialogHeader>
-                            <AlertDialogTitle>Delete Payroll Record</AlertDialogTitle>
-                            <AlertDialogDescription>Are you sure you want to delete this payroll record? This action cannot be undone.</AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel>Cancel</AlertDialogCancel>
-                            <AlertDialogAction onClick={() => onDelete(record.id)}>Delete</AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
+                      <Button variant="ghost" size="icon" onClick={() => setDeletePayrollId(record.id)}>
+                        <Trash2 className="h-4 w-4 text-red-500" />
+                      </Button>
                     </div>
                   </TableCell>
                 </TableRow>

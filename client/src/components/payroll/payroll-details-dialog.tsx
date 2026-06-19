@@ -1,5 +1,5 @@
-import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { StatusBadge } from "@/components/status-badge";
 import type { Payroll, Employee, EarningHead, DeductionHead } from "@shared/schema";
 
 interface PayrollDetailsDialogProps {
@@ -67,7 +67,7 @@ export function PayrollDetailsDialog({
                 </div>
                 <div className="space-y-1">
                   <p className="text-muted-foreground">Status</p>
-                  <Badge className={statusColors[record.status] || ""}>{record.status.charAt(0).toUpperCase() + record.status.slice(1)}</Badge>
+                  <StatusBadge status={record.status} styles={statusColors} />
                 </div>
                 <div className="space-y-1">
                   <p className="text-muted-foreground">Working Days</p>

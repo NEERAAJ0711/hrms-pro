@@ -13,7 +13,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { queryClient, apiRequest } from "@/lib/queryClient";
+import { queryClient } from "@/lib/queryClient";
+import { fetchJson, apiRequest } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { useCan } from "@/hooks/use-can";
 import type { Company, Setting, MasterDepartment, MasterDesignation, MasterLocation, EarningHead, DeductionHead, StatutorySettings, TimeOfficePolicy, Holiday, WageGrade, ContractorMaster, LeavePolicy } from "@shared/schema";
@@ -61,11 +62,9 @@ export function TimeOfficePolicyTab({ companyId, selectedCompany }: { companyId:
 
   const { data: policies = [], isLoading } = useQuery<TimeOfficePolicy[]>({
     queryKey: [`/api/time-office-policies?companyId=${companyId}`],
-    queryFn: async () => {
+    queryFn: () => {
       const params = companyId ? `?companyId=${companyId}` : "";
-      const res = await fetch(`/api/time-office-policies${params}`, { credentials: "include" });
-      if (!res.ok) throw new Error("Failed to fetch");
-      return res.json();
+      return fetchJson<TimeOfficePolicy[]>(`/api/time-office-policies${params}`);
     },
     enabled: selectedCompany !== "__global__",
   });

@@ -13,7 +13,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { queryClient, apiRequest } from "@/lib/queryClient";
+import { queryClient } from "@/lib/queryClient";
+import { fetchJson, apiRequest } from "@/lib/api";
+import { DataTable } from "@/components/data-table";
 import { useAuth } from "@/lib/auth";
 import { useCan } from "@/hooks/use-can";
 import type { Company, Setting, MasterDepartment, MasterDesignation, MasterLocation, EarningHead, DeductionHead, StatutorySettings, TimeOfficePolicy, Holiday, WageGrade, ContractorMaster, LeavePolicy } from "@shared/schema";
@@ -95,11 +97,7 @@ function DepartmentsManager({ companyId }: { companyId: string }) {
 
   const { data: departments = [], isLoading } = useQuery<MasterDepartment[]>({
     queryKey: [`/api/master-departments?companyId=${companyId}`],
-    queryFn: async () => {
-      const res = await fetch(`/api/master-departments${companyId ? `?companyId=${companyId}` : ''}`, { credentials: "include" });
-      if (!res.ok) throw new Error("Failed to fetch departments");
-      return res.json();
-    },
+    queryFn: () => fetchJson<MasterDepartment[]>(`/api/master-departments${companyId ? `?companyId=${companyId}` : ''}`),
     enabled: !!companyId,
   });
 
@@ -184,39 +182,29 @@ function DepartmentsManager({ companyId }: { companyId: string }) {
             No departments configured. Click "Add Department" to create one.
           </div>
         ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Code</TableHead>
-                <TableHead>Description</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="w-24">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {departments.map((dept) => (
-                <TableRow key={dept.id} data-testid={`row-department-${dept.id}`}>
-                  <TableCell className="font-medium">{dept.name}</TableCell>
-                  <TableCell>{dept.code || "-"}</TableCell>
-                  <TableCell>{dept.description || "-"}</TableCell>
-                  <TableCell>
-                    <Badge variant={dept.status === "active" ? "default" : "secondary"}>{dept.status}</Badge>
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex gap-1">
-                      <Button size="icon" variant="ghost" onClick={() => handleEdit(dept)} data-testid={`button-edit-department-${dept.id}`}>
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                      <Button size="icon" variant="ghost" onClick={() => deleteMutation.mutate(dept.id)} data-testid={`button-delete-department-${dept.id}`}>
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+          <DataTable
+            data={departments}
+            rowKey={(dept) => dept.id}
+            rowTestId={(dept) => `row-department-${dept.id}`}
+            columns={[
+              { key: "name", header: "Name", className: "font-medium", cell: (dept: MasterDepartment) => dept.name },
+              { key: "code", header: "Code", cell: (dept: MasterDepartment) => dept.code || "-" },
+              { key: "description", header: "Description", cell: (dept: MasterDepartment) => dept.description || "-" },
+              { key: "status", header: "Status", cell: (dept: MasterDepartment) => (
+                <Badge variant={dept.status === "active" ? "default" : "secondary"}>{dept.status}</Badge>
+              ) },
+              { key: "actions", header: "Actions", headClassName: "w-24", cell: (dept: MasterDepartment) => (
+                <div className="flex gap-1">
+                  <Button size="icon" variant="ghost" onClick={() => handleEdit(dept)} data-testid={`button-edit-department-${dept.id}`}>
+                    <Pencil className="h-4 w-4" />
+                  </Button>
+                  <Button size="icon" variant="ghost" onClick={() => deleteMutation.mutate(dept.id)} data-testid={`button-delete-department-${dept.id}`}>
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+              ) },
+            ]}
+          />
         )}
       </CardContent>
 
@@ -261,11 +249,7 @@ function DesignationsManager({ companyId }: { companyId: string }) {
 
   const { data: designations = [], isLoading } = useQuery<MasterDesignation[]>({
     queryKey: [`/api/master-designations?companyId=${companyId}`],
-    queryFn: async () => {
-      const res = await fetch(`/api/master-designations${companyId ? `?companyId=${companyId}` : ''}`, { credentials: "include" });
-      if (!res.ok) throw new Error("Failed to fetch designations");
-      return res.json();
-    },
+    queryFn: () => fetchJson<MasterDesignation[]>(`/api/master-designations${companyId ? `?companyId=${companyId}` : ''}`),
     enabled: !!companyId,
   });
 
@@ -350,39 +334,29 @@ function DesignationsManager({ companyId }: { companyId: string }) {
             No designations configured. Click "Add Designation" to create one.
           </div>
         ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Code</TableHead>
-                <TableHead>Level</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="w-24">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {designations.map((desg) => (
-                <TableRow key={desg.id} data-testid={`row-designation-${desg.id}`}>
-                  <TableCell className="font-medium">{desg.name}</TableCell>
-                  <TableCell>{desg.code || "-"}</TableCell>
-                  <TableCell>{desg.level}</TableCell>
-                  <TableCell>
-                    <Badge variant={desg.status === "active" ? "default" : "secondary"}>{desg.status}</Badge>
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex gap-1">
-                      <Button size="icon" variant="ghost" onClick={() => handleEdit(desg)} data-testid={`button-edit-designation-${desg.id}`}>
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                      <Button size="icon" variant="ghost" onClick={() => deleteMutation.mutate(desg.id)} data-testid={`button-delete-designation-${desg.id}`}>
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+          <DataTable
+            data={designations}
+            rowKey={(desg) => desg.id}
+            rowTestId={(desg) => `row-designation-${desg.id}`}
+            columns={[
+              { key: "name", header: "Name", className: "font-medium", cell: (desg: MasterDesignation) => desg.name },
+              { key: "code", header: "Code", cell: (desg: MasterDesignation) => desg.code || "-" },
+              { key: "level", header: "Level", cell: (desg: MasterDesignation) => desg.level },
+              { key: "status", header: "Status", cell: (desg: MasterDesignation) => (
+                <Badge variant={desg.status === "active" ? "default" : "secondary"}>{desg.status}</Badge>
+              ) },
+              { key: "actions", header: "Actions", headClassName: "w-24", cell: (desg: MasterDesignation) => (
+                <div className="flex gap-1">
+                  <Button size="icon" variant="ghost" onClick={() => handleEdit(desg)} data-testid={`button-edit-designation-${desg.id}`}>
+                    <Pencil className="h-4 w-4" />
+                  </Button>
+                  <Button size="icon" variant="ghost" onClick={() => deleteMutation.mutate(desg.id)} data-testid={`button-delete-designation-${desg.id}`}>
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+              ) },
+            ]}
+          />
         )}
       </CardContent>
 
@@ -486,11 +460,7 @@ function LocationsManager({ companyId }: { companyId: string }) {
 
   const { data: locations = [], isLoading } = useQuery<MasterLocation[]>({
     queryKey: [`/api/master-locations?companyId=${companyId}`],
-    queryFn: async () => {
-      const res = await fetch(`/api/master-locations${companyId ? `?companyId=${companyId}` : ''}`, { credentials: "include" });
-      if (!res.ok) throw new Error("Failed to fetch locations");
-      return res.json();
-    },
+    queryFn: () => fetchJson<MasterLocation[]>(`/api/master-locations${companyId ? `?companyId=${companyId}` : ''}`),
     enabled: !!companyId,
   });
 
@@ -589,51 +559,38 @@ function LocationsManager({ companyId }: { companyId: string }) {
             No locations configured. Click "Add Location" to create one.
           </div>
         ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Code</TableHead>
-                <TableHead>City</TableHead>
-                <TableHead>District</TableHead>
-                <TableHead>State</TableHead>
-                <TableHead>GPS</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="w-24">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {locations.map((loc) => (
-                <TableRow key={loc.id} data-testid={`row-location-${loc.id}`}>
-                  <TableCell className="font-medium">{loc.name}</TableCell>
-                  <TableCell>{loc.code || "-"}</TableCell>
-                  <TableCell>{loc.city || "-"}</TableCell>
-                  <TableCell>{(loc as any).district || "-"}</TableCell>
-                  <TableCell>{loc.state || "-"}</TableCell>
-                  <TableCell>
-                    {(loc as any).latitude ? (
-                      <span className="text-xs text-green-600 flex items-center gap-1">
-                        <MapPin className="h-3 w-3" />Tagged
-                      </span>
-                    ) : <span className="text-xs text-muted-foreground">-</span>}
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant={loc.status === "active" ? "default" : "secondary"}>{loc.status}</Badge>
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex gap-1">
-                      <Button size="icon" variant="ghost" onClick={() => handleEdit(loc)} data-testid={`button-edit-location-${loc.id}`}>
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                      <Button size="icon" variant="ghost" onClick={() => deleteMutation.mutate(loc.id)} data-testid={`button-delete-location-${loc.id}`}>
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+          <DataTable
+            data={locations}
+            rowKey={(loc) => loc.id}
+            rowTestId={(loc) => `row-location-${loc.id}`}
+            columns={[
+              { key: "name", header: "Name", className: "font-medium", cell: (loc: MasterLocation) => loc.name },
+              { key: "code", header: "Code", cell: (loc: MasterLocation) => loc.code || "-" },
+              { key: "city", header: "City", cell: (loc: MasterLocation) => loc.city || "-" },
+              { key: "district", header: "District", cell: (loc: MasterLocation) => (loc as any).district || "-" },
+              { key: "state", header: "State", cell: (loc: MasterLocation) => loc.state || "-" },
+              { key: "gps", header: "GPS", cell: (loc: MasterLocation) => (
+                (loc as any).latitude ? (
+                  <span className="text-xs text-green-600 flex items-center gap-1">
+                    <MapPin className="h-3 w-3" />Tagged
+                  </span>
+                ) : <span className="text-xs text-muted-foreground">-</span>
+              ) },
+              { key: "status", header: "Status", cell: (loc: MasterLocation) => (
+                <Badge variant={loc.status === "active" ? "default" : "secondary"}>{loc.status}</Badge>
+              ) },
+              { key: "actions", header: "Actions", headClassName: "w-24", cell: (loc: MasterLocation) => (
+                <div className="flex gap-1">
+                  <Button size="icon" variant="ghost" onClick={() => handleEdit(loc)} data-testid={`button-edit-location-${loc.id}`}>
+                    <Pencil className="h-4 w-4" />
+                  </Button>
+                  <Button size="icon" variant="ghost" onClick={() => deleteMutation.mutate(loc.id)} data-testid={`button-delete-location-${loc.id}`}>
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+              ) },
+            ]}
+          />
         )}
       </CardContent>
 
@@ -731,11 +688,7 @@ function EarningHeadsManager({ companyId }: { companyId: string }) {
   const earningHeadsQueryKey = [`/api/earning-heads?companyId=${companyId}`];
   const { data: earningHeads = [], isLoading } = useQuery<EarningHead[]>({
     queryKey: earningHeadsQueryKey,
-    queryFn: async () => {
-      const res = await fetch(`/api/earning-heads?companyId=${companyId}`, { credentials: "include" });
-      if (!res.ok) throw new Error("Failed to fetch earning heads");
-      return res.json();
-    },
+    queryFn: () => fetchJson<EarningHead[]>(`/api/earning-heads?companyId=${companyId}`),
   });
 
   const createMutation = useMutation({
@@ -823,43 +776,31 @@ function EarningHeadsManager({ companyId }: { companyId: string }) {
             No earning heads configured. Click "Add Earning Head" to create one.
           </div>
         ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Code</TableHead>
-                <TableHead>Type</TableHead>
-                <TableHead>Taxable</TableHead>
-                <TableHead>Part of CTC</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="w-24">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {earningHeads.map((head) => (
-                <TableRow key={head.id} data-testid={`row-earning-head-${head.id}`}>
-                  <TableCell className="font-medium">{head.name}</TableCell>
-                  <TableCell>{head.code}</TableCell>
-                  <TableCell className="capitalize">{head.type}</TableCell>
-                  <TableCell>{head.isTaxable ? "Yes" : "No"}</TableCell>
-                  <TableCell>{head.isPartOfCTC ? "Yes" : "No"}</TableCell>
-                  <TableCell>
-                    <Badge variant={head.status === "active" ? "default" : "secondary"}>{head.status}</Badge>
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex gap-1">
-                      <Button size="icon" variant="ghost" onClick={() => handleEdit(head)} data-testid={`button-edit-earning-head-${head.id}`}>
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                      <Button size="icon" variant="ghost" onClick={() => deleteMutation.mutate(head.id)} data-testid={`button-delete-earning-head-${head.id}`}>
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+          <DataTable
+            data={earningHeads}
+            rowKey={(head) => head.id}
+            rowTestId={(head) => `row-earning-head-${head.id}`}
+            columns={[
+              { key: "name", header: "Name", className: "font-medium", cell: (head: EarningHead) => head.name },
+              { key: "code", header: "Code", cell: (head: EarningHead) => head.code },
+              { key: "type", header: "Type", className: "capitalize", cell: (head: EarningHead) => head.type },
+              { key: "taxable", header: "Taxable", cell: (head: EarningHead) => (head.isTaxable ? "Yes" : "No") },
+              { key: "ctc", header: "Part of CTC", cell: (head: EarningHead) => (head.isPartOfCTC ? "Yes" : "No") },
+              { key: "status", header: "Status", cell: (head: EarningHead) => (
+                <Badge variant={head.status === "active" ? "default" : "secondary"}>{head.status}</Badge>
+              ) },
+              { key: "actions", header: "Actions", headClassName: "w-24", cell: (head: EarningHead) => (
+                <div className="flex gap-1">
+                  <Button size="icon" variant="ghost" onClick={() => handleEdit(head)} data-testid={`button-edit-earning-head-${head.id}`}>
+                    <Pencil className="h-4 w-4" />
+                  </Button>
+                  <Button size="icon" variant="ghost" onClick={() => deleteMutation.mutate(head.id)} data-testid={`button-delete-earning-head-${head.id}`}>
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+              ) },
+            ]}
+          />
         )}
       </CardContent>
 
@@ -947,11 +888,7 @@ function DeductionHeadsManager({ companyId }: { companyId: string }) {
   const deductionHeadsQueryKey = [`/api/deduction-heads?companyId=${companyId}`];
   const { data: deductionHeads = [], isLoading } = useQuery<DeductionHead[]>({
     queryKey: deductionHeadsQueryKey,
-    queryFn: async () => {
-      const res = await fetch(`/api/deduction-heads?companyId=${companyId}`, { credentials: "include" });
-      if (!res.ok) throw new Error("Failed to fetch deduction heads");
-      return res.json();
-    },
+    queryFn: () => fetchJson<DeductionHead[]>(`/api/deduction-heads?companyId=${companyId}`),
   });
 
   const createMutation = useMutation({
@@ -1038,41 +975,30 @@ function DeductionHeadsManager({ companyId }: { companyId: string }) {
             No deduction heads configured. Click "Add Deduction Head" to create one.
           </div>
         ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Code</TableHead>
-                <TableHead>Type</TableHead>
-                <TableHead>Statutory</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="w-24">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {deductionHeads.map((head) => (
-                <TableRow key={head.id} data-testid={`row-deduction-head-${head.id}`}>
-                  <TableCell className="font-medium">{head.name}</TableCell>
-                  <TableCell>{head.code}</TableCell>
-                  <TableCell className="capitalize">{head.type}</TableCell>
-                  <TableCell>{head.isStatutory ? "Yes" : "No"}</TableCell>
-                  <TableCell>
-                    <Badge variant={head.status === "active" ? "default" : "secondary"}>{head.status}</Badge>
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex gap-1">
-                      <Button size="icon" variant="ghost" onClick={() => handleEdit(head)} data-testid={`button-edit-deduction-head-${head.id}`}>
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                      <Button size="icon" variant="ghost" onClick={() => deleteMutation.mutate(head.id)} data-testid={`button-delete-deduction-head-${head.id}`}>
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+          <DataTable
+            data={deductionHeads}
+            rowKey={(head) => head.id}
+            rowTestId={(head) => `row-deduction-head-${head.id}`}
+            columns={[
+              { key: "name", header: "Name", className: "font-medium", cell: (head: DeductionHead) => head.name },
+              { key: "code", header: "Code", cell: (head: DeductionHead) => head.code },
+              { key: "type", header: "Type", className: "capitalize", cell: (head: DeductionHead) => head.type },
+              { key: "statutory", header: "Statutory", cell: (head: DeductionHead) => (head.isStatutory ? "Yes" : "No") },
+              { key: "status", header: "Status", cell: (head: DeductionHead) => (
+                <Badge variant={head.status === "active" ? "default" : "secondary"}>{head.status}</Badge>
+              ) },
+              { key: "actions", header: "Actions", headClassName: "w-24", cell: (head: DeductionHead) => (
+                <div className="flex gap-1">
+                  <Button size="icon" variant="ghost" onClick={() => handleEdit(head)} data-testid={`button-edit-deduction-head-${head.id}`}>
+                    <Pencil className="h-4 w-4" />
+                  </Button>
+                  <Button size="icon" variant="ghost" onClick={() => deleteMutation.mutate(head.id)} data-testid={`button-delete-deduction-head-${head.id}`}>
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+              ) },
+            ]}
+          />
         )}
       </CardContent>
 
@@ -1164,11 +1090,7 @@ function WageGradesManager({ companyId }: { companyId: string }) {
 
   const { data: grades = [], isLoading } = useQuery<WageGrade[]>({
     queryKey: [`/api/wage-grades?companyId=${companyId}`],
-    queryFn: async () => {
-      const res = await fetch(`/api/wage-grades${companyId ? `?companyId=${companyId}` : ''}`, { credentials: "include" });
-      if (!res.ok) throw new Error("Failed to fetch wage grades");
-      return res.json();
-    },
+    queryFn: () => fetchJson<WageGrade[]>(`/api/wage-grades${companyId ? `?companyId=${companyId}` : ''}`),
     enabled: !!companyId,
   });
 
@@ -1330,44 +1252,35 @@ function WageGradesManager({ companyId }: { companyId: string }) {
         ) : grades.length === 0 ? (
           <div className="text-center py-8 text-muted-foreground">No wage grades yet. Click "Add Wage Grade" to create one.</div>
         ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Grade</TableHead>
-                <TableHead>State</TableHead>
-                <TableHead>Minimum Wage (INR)</TableHead>
-                <TableHead>Effective From</TableHead>
-                <TableHead>Effective To</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="w-32">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {[...grades].sort((a, b) => {
-                const nameCmp = a.name.localeCompare(b.name);
-                if (nameCmp !== 0) return nameCmp;
-                return (b.effectiveFrom ?? "").localeCompare(a.effectiveFrom ?? "");
-              }).map((g) => (
-                <TableRow key={g.id} data-testid={`row-wage-grade-${g.id}`} className={g.status === "closed" ? "opacity-60" : ""}>
-                  <TableCell className="font-medium">{g.name}</TableCell>
-                  <TableCell>{g.state || "—"}</TableCell>
-                  <TableCell>₹{g.minimumWage.toLocaleString("en-IN")}</TableCell>
-                  <TableCell>{g.effectiveFrom || "—"}</TableCell>
-                  <TableCell>{g.effectiveTo || <span className="text-muted-foreground text-xs">Ongoing</span>}</TableCell>
-                  <TableCell>
-                    <Badge variant={g.status === "active" ? "default" : "secondary"}
-                      className={g.status === "closed" ? "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400" : ""}>
-                      {g.status}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>
-                    <Button variant="ghost" size="icon" onClick={() => openEdit(g)} disabled={g.status === "closed"} data-testid={`button-edit-wage-grade-${g.id}`}><Pencil className="h-4 w-4" /></Button>
-                    <Button variant="ghost" size="icon" onClick={() => { if (confirm(`Delete wage grade "${g.name}"?`)) deleteMutation.mutate(g.id); }} data-testid={`button-delete-wage-grade-${g.id}`}><Trash2 className="h-4 w-4" /></Button>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+          <DataTable
+            data={[...grades].sort((a, b) => {
+              const nameCmp = a.name.localeCompare(b.name);
+              if (nameCmp !== 0) return nameCmp;
+              return (b.effectiveFrom ?? "").localeCompare(a.effectiveFrom ?? "");
+            })}
+            rowKey={(g) => g.id}
+            rowTestId={(g) => `row-wage-grade-${g.id}`}
+            rowClassName={(g) => g.status === "closed" ? "opacity-60" : ""}
+            columns={[
+              { key: "name", header: "Grade", className: "font-medium", cell: (g: WageGrade) => g.name },
+              { key: "state", header: "State", cell: (g: WageGrade) => g.state || "—" },
+              { key: "minimumWage", header: "Minimum Wage (INR)", cell: (g: WageGrade) => `₹${g.minimumWage.toLocaleString("en-IN")}` },
+              { key: "effectiveFrom", header: "Effective From", cell: (g: WageGrade) => g.effectiveFrom || "—" },
+              { key: "effectiveTo", header: "Effective To", cell: (g: WageGrade) => g.effectiveTo || <span className="text-muted-foreground text-xs">Ongoing</span> },
+              { key: "status", header: "Status", cell: (g: WageGrade) => (
+                <Badge variant={g.status === "active" ? "default" : "secondary"}
+                  className={g.status === "closed" ? "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400" : ""}>
+                  {g.status}
+                </Badge>
+              ) },
+              { key: "actions", header: "Actions", headClassName: "w-32", cell: (g: WageGrade) => (
+                <>
+                  <Button variant="ghost" size="icon" onClick={() => openEdit(g)} disabled={g.status === "closed"} data-testid={`button-edit-wage-grade-${g.id}`}><Pencil className="h-4 w-4" /></Button>
+                  <Button variant="ghost" size="icon" onClick={() => { if (confirm(`Delete wage grade "${g.name}"?`)) deleteMutation.mutate(g.id); }} data-testid={`button-delete-wage-grade-${g.id}`}><Trash2 className="h-4 w-4" /></Button>
+                </>
+              ) },
+            ]}
+          />
         )}
       </CardContent>
     </Card>
@@ -1394,11 +1307,7 @@ function LeavePoliciesManager({ companyId }: { companyId: string }) {
 
   const { data: records = [], isLoading } = useQuery<LeavePolicy[]>({
     queryKey: [`/api/leave-policies?companyId=${companyId}`],
-    queryFn: async () => {
-      const res = await fetch(`/api/leave-policies?companyId=${companyId}`, { credentials: "include" });
-      if (!res.ok) throw new Error("Failed to fetch leave policies");
-      return res.json();
-    },
+    queryFn: () => fetchJson<LeavePolicy[]>(`/api/leave-policies?companyId=${companyId}`),
     enabled: !!companyId,
   });
 
@@ -1481,48 +1390,37 @@ function LeavePoliciesManager({ companyId }: { companyId: string }) {
         ) : records.length === 0 ? (
           <div className="text-center py-8 text-muted-foreground">No leave policies configured. Click "Add Policy" to create one.</div>
         ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Policy Name</TableHead>
-                <TableHead>Annual</TableHead>
-                <TableHead>Sick</TableHead>
-                <TableHead>Casual</TableHead>
-                <TableHead>Maternity</TableHead>
-                <TableHead>Paternity</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="w-24">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {records.map((r) => (
-                <TableRow key={r.id} data-testid={`row-leave-policy-${r.id}`}>
-                  <TableCell className="font-medium">
-                    <div>{r.name}</div>
-                    {r.description && <div className="text-xs text-muted-foreground">{r.description}</div>}
-                  </TableCell>
-                  <TableCell>{r.annualLeaveDays} days</TableCell>
-                  <TableCell>{r.sickLeaveDays} days</TableCell>
-                  <TableCell>{r.casualLeaveDays} days</TableCell>
-                  <TableCell>{r.maternityLeaveDays} days</TableCell>
-                  <TableCell>{r.paternityLeaveDays} days</TableCell>
-                  <TableCell>
-                    <Badge variant={r.status === "active" ? "default" : "secondary"}>{r.status}</Badge>
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex gap-1">
-                      <Button size="icon" variant="ghost" onClick={() => handleEdit(r)} data-testid={`button-edit-leave-policy-${r.id}`}>
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                      <Button size="icon" variant="ghost" onClick={() => { if (confirm(`Delete "${r.name}"?`)) deleteMutation.mutate(r.id); }} data-testid={`button-delete-leave-policy-${r.id}`}>
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+          <DataTable
+            data={records}
+            rowKey={(r) => r.id}
+            rowTestId={(r) => `row-leave-policy-${r.id}`}
+            columns={[
+              { key: "name", header: "Policy Name", className: "font-medium", cell: (r: LeavePolicy) => (
+                <>
+                  <div>{r.name}</div>
+                  {r.description && <div className="text-xs text-muted-foreground">{r.description}</div>}
+                </>
+              ) },
+              { key: "annual", header: "Annual", cell: (r: LeavePolicy) => `${r.annualLeaveDays} days` },
+              { key: "sick", header: "Sick", cell: (r: LeavePolicy) => `${r.sickLeaveDays} days` },
+              { key: "casual", header: "Casual", cell: (r: LeavePolicy) => `${r.casualLeaveDays} days` },
+              { key: "maternity", header: "Maternity", cell: (r: LeavePolicy) => `${r.maternityLeaveDays} days` },
+              { key: "paternity", header: "Paternity", cell: (r: LeavePolicy) => `${r.paternityLeaveDays} days` },
+              { key: "status", header: "Status", cell: (r: LeavePolicy) => (
+                <Badge variant={r.status === "active" ? "default" : "secondary"}>{r.status}</Badge>
+              ) },
+              { key: "actions", header: "Actions", headClassName: "w-24", cell: (r: LeavePolicy) => (
+                <div className="flex gap-1">
+                  <Button size="icon" variant="ghost" onClick={() => handleEdit(r)} data-testid={`button-edit-leave-policy-${r.id}`}>
+                    <Pencil className="h-4 w-4" />
+                  </Button>
+                  <Button size="icon" variant="ghost" onClick={() => { if (confirm(`Delete "${r.name}"?`)) deleteMutation.mutate(r.id); }} data-testid={`button-delete-leave-policy-${r.id}`}>
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+              ) },
+            ]}
+          />
         )}
       </CardContent>
 
@@ -1601,11 +1499,7 @@ function ContractorMastersManager({ companyId }: { companyId: string }) {
 
   const { data: records = [], isLoading } = useQuery<ContractorMaster[]>({
     queryKey: [`/api/contractor-masters?companyId=${companyId}`],
-    queryFn: async () => {
-      const res = await fetch(`/api/contractor-masters?companyId=${companyId}`, { credentials: "include" });
-      if (!res.ok) throw new Error("Failed to fetch contractor masters");
-      return res.json();
-    },
+    queryFn: () => fetchJson<ContractorMaster[]>(`/api/contractor-masters?companyId=${companyId}`),
     enabled: !!companyId,
   });
 
@@ -1695,47 +1589,36 @@ function ContractorMastersManager({ companyId }: { companyId: string }) {
             No contractors configured. Click "Add Contractor" to create one.
           </div>
         ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Contractor Name</TableHead>
-                <TableHead>Address</TableHead>
-                <TableHead>Service Charge %</TableHead>
-                <TableHead>Applicable Compliances</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="w-24">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {records.map((r) => (
-                <TableRow key={r.id} data-testid={`row-contractor-master-${r.id}`}>
-                  <TableCell className="font-medium">{r.contractorName}</TableCell>
-                  <TableCell className="max-w-[200px] truncate">{r.contractorAddress || "-"}</TableCell>
-                  <TableCell>{r.serviceChargePercent != null ? `${r.serviceChargePercent}%` : "-"}</TableCell>
-                  <TableCell>
-                    <div className="flex flex-wrap gap-1">
-                      {(r.applicableCompliances ?? []).length > 0
-                        ? (r.applicableCompliances ?? []).map((c) => <Badge key={c} variant="secondary">{c}</Badge>)
-                        : <span className="text-muted-foreground">-</span>}
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant={r.status === "active" ? "default" : "secondary"}>{r.status}</Badge>
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex gap-1">
-                      <Button size="icon" variant="ghost" onClick={() => handleEdit(r)} data-testid={`button-edit-contractor-master-${r.id}`}>
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                      <Button size="icon" variant="ghost" onClick={() => { if (confirm(`Delete "${r.contractorName}"?`)) deleteMutation.mutate(r.id); }} data-testid={`button-delete-contractor-master-${r.id}`}>
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+          <DataTable
+            data={records}
+            rowKey={(r) => r.id}
+            rowTestId={(r) => `row-contractor-master-${r.id}`}
+            columns={[
+              { key: "contractorName", header: "Contractor Name", className: "font-medium", cell: (r: ContractorMaster) => r.contractorName },
+              { key: "contractorAddress", header: "Address", className: "max-w-[200px] truncate", cell: (r: ContractorMaster) => r.contractorAddress || "-" },
+              { key: "serviceChargePercent", header: "Service Charge %", cell: (r: ContractorMaster) => r.serviceChargePercent != null ? `${r.serviceChargePercent}%` : "-" },
+              { key: "applicableCompliances", header: "Applicable Compliances", cell: (r: ContractorMaster) => (
+                <div className="flex flex-wrap gap-1">
+                  {(r.applicableCompliances ?? []).length > 0
+                    ? (r.applicableCompliances ?? []).map((c) => <Badge key={c} variant="secondary">{c}</Badge>)
+                    : <span className="text-muted-foreground">-</span>}
+                </div>
+              ) },
+              { key: "status", header: "Status", cell: (r: ContractorMaster) => (
+                <Badge variant={r.status === "active" ? "default" : "secondary"}>{r.status}</Badge>
+              ) },
+              { key: "actions", header: "Actions", headClassName: "w-24", cell: (r: ContractorMaster) => (
+                <div className="flex gap-1">
+                  <Button size="icon" variant="ghost" onClick={() => handleEdit(r)} data-testid={`button-edit-contractor-master-${r.id}`}>
+                    <Pencil className="h-4 w-4" />
+                  </Button>
+                  <Button size="icon" variant="ghost" onClick={() => { if (confirm(`Delete "${r.contractorName}"?`)) deleteMutation.mutate(r.id); }} data-testid={`button-delete-contractor-master-${r.id}`}>
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+              ) },
+            ]}
+          />
         )}
       </CardContent>
 
