@@ -1,119 +1,27 @@
 import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useSort, sortData } from "@/lib/use-sort";
-import { SortableHead } from "@/components/sortable-head";
 import { useAuth } from "@/lib/auth";
 import { useCan } from "@/hooks/use-can";
 import { format } from "date-fns";
-import { DollarSign, Plus, FileText, Users, Calculator, Download, Building2, Edit, Trash2, CheckCircle, Upload, FileSpreadsheet, Loader2, Eye, AlertTriangle, ShieldCheck, Search, Lock } from "lucide-react";
-import { SearchableEmployeeSelect } from "@/components/searchable-employee-select";
+import { Plus, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { Input } from "@/components/ui/input";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import type { Payroll, SalaryStructure, Employee, Company, StatutorySettings, Attendance, WageGrade, EarningHead, DeductionHead } from "@shared/schema";
 import FnfSettlementPage from "@/pages/fnf-settlement";
-
-const salaryStructureSchema = z.object({
-  employeeId: z.string().min(1, "Employee is required"),
-  companyId: z.string().min(1, "Company is required"),
-  basicSalary: z.coerce.number().min(1, "Basic salary is required"),
-  hra: z.coerce.number().default(0),
-  conveyance: z.coerce.number().default(0),
-  specialAllowance: z.coerce.number().default(0),
-  otherAllowances: z.coerce.number().default(0),
-  grossSalary: z.coerce.number(),
-  pfEmployee: z.coerce.number().default(0),
-  pfEmployer: z.coerce.number().default(0),
-  vpfAmount: z.coerce.number().min(0).default(0),
-  esi: z.coerce.number().default(0),
-  professionalTax: z.coerce.number().default(0),
-  lwfEmployee: z.coerce.number().default(0),
-  tds: z.coerce.number().default(0),
-  otherDeductions: z.coerce.number().default(0),
-  netSalary: z.coerce.number(),
-  effectiveFrom: z.string().min(1, "Effective date is required"),
-});
-
-type SalaryStructureFormValues = z.infer<typeof salaryStructureSchema>;
-
-const statusColors: Record<string, string> = {
-  draft: "bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-300",
-  processed: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300",
-  paid: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300",
-};
-
-const months = [
-  "January", "February", "March", "April", "May", "June",
-  "July", "August", "September", "October", "November", "December"
-];
-
-function PayrollEditForm({ payroll, onSubmit, isPending }: { payroll: Payroll; onSubmit: (data: { id: string; totalEarnings: number; totalDeductions: number; netSalary: number; status: string }) => void; isPending: boolean }) {
-  const [totalEarnings, setTotalEarnings] = useState(payroll.totalEarnings);
-  const [totalDeductions, setTotalDeductions] = useState(payroll.totalDeductions);
-  const [netSalary, setNetSalary] = useState(payroll.netSalary);
-  const [status, setStatus] = useState(payroll.status);
-
-  useEffect(() => {
-    setTotalEarnings(payroll.totalEarnings);
-    setTotalDeductions(payroll.totalDeductions);
-    setNetSalary(payroll.netSalary);
-    setStatus(payroll.status);
-  }, [payroll.id]);
-
-  useEffect(() => {
-    setNetSalary(totalEarnings - totalDeductions);
-  }, [totalEarnings, totalDeductions]);
-
-  return (
-    <form onSubmit={(e) => { e.preventDefault(); onSubmit({ id: payroll.id, totalEarnings, totalDeductions, netSalary: totalEarnings - totalDeductions, status }); }} className="space-y-4">
-      <div className="grid grid-cols-2 gap-4">
-        <div className="space-y-2">
-          <label className="text-sm font-medium">Total Earnings</label>
-          <Input type="number" value={totalEarnings} onChange={(e) => setTotalEarnings(Number(e.target.value))} />
-        </div>
-        <div className="space-y-2">
-          <label className="text-sm font-medium">Total Deductions</label>
-          <Input type="number" value={totalDeductions} onChange={(e) => setTotalDeductions(Number(e.target.value))} />
-        </div>
-        <div className="space-y-2">
-          <label className="text-sm font-medium">Net Salary</label>
-          <Input type="number" value={netSalary} readOnly className="bg-muted font-bold" />
-        </div>
-        <div className="space-y-2">
-          <label className="text-sm font-medium">Status</label>
-          <Select value={status} onValueChange={setStatus}>
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="draft">Draft</SelectItem>
-              <SelectItem value="processed">Processed</SelectItem>
-              <SelectItem value="paid">Paid</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-      </div>
-      <DialogFooter>
-        <Button type="submit" disabled={isPending}>
-          {isPending ? "Updating..." : "Update Payroll"}
-        </Button>
-      </DialogFooter>
-    </form>
-  );
-}
+import { salaryStructureSchema, statusColors, months, type SalaryStructureFormValues } from "@/components/payroll/constants";
+import { PayrollSummaryCards } from "@/components/payroll/summary-cards";
+import { PayrollTab } from "@/components/payroll/payroll-tab";
+import { StructuresTab } from "@/components/payroll/structures-tab";
+import { SalaryStructureDialog } from "@/components/payroll/salary-structure-dialog";
+import { BulkUploadDialog } from "@/components/payroll/bulk-upload-dialog";
+import { PayrollDetailsDialog } from "@/components/payroll/payroll-details-dialog";
+import { PayrollEditForm } from "@/components/payroll/payroll-edit-form";
 
 export default function PayrollPage() {
   const { toast } = useToast();
@@ -137,7 +45,7 @@ export default function PayrollPage() {
   const [bulkUploadOpen, setBulkUploadOpen] = useState(false);
   const [bulkUploading, setBulkUploading] = useState(false);
   const [bulkResult, setBulkResult] = useState<{ created: number; skipped: number; errors: string[] } | null>(null);
-  const bulkFileInputRef = useRef<HTMLInputElement | null>(null);
+  const bulkFileInputRef = useRef<HTMLInputElement>(null);
   const [grossInputAmt, setGrossInputAmt] = useState<string>("");
   const [customEarningAmounts, setCustomEarningAmounts] = useState<Record<string, number>>({});
   const [customDeductionAmounts, setCustomDeductionAmounts] = useState<Record<string, number>>({});
@@ -1195,521 +1103,52 @@ export default function PayrollPage() {
             <Upload className="h-4 w-4 mr-2" />
             Bulk Upload
           </Button>
-          <Dialog open={isCreateOpen} onOpenChange={handleStructureDialogClose}>
-            {can("payroll", "process") && (
-            <DialogTrigger asChild>
-              <Button data-testid="button-create-structure">
-                <Plus className="h-4 w-4 mr-2" />
-                Add Salary Structure
-              </Button>
-            </DialogTrigger>
-            )}
-          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle>{editingStructureId ? "Edit Salary Structure" : "Create Salary Structure"}</DialogTitle>
-              <DialogDescription>Define salary components for an employee</DialogDescription>
-            </DialogHeader>
-            <Form {...form}>
-              <form onSubmit={form.handleSubmit((data) => {
-                const customSum = Object.values(customEarningAmounts).reduce((acc, v) => acc + (v || 0), 0);
-                const payload = { ...data, medicalAllowance: 0, otherAllowances: data.otherAllowances + customSum, customEarnings: customEarningAmounts, customDeductions: customDeductionAmounts };
-                if (editingStructureId) {
-                  updateStructureMutation.mutate({ ...payload, id: editingStructureId });
-                } else {
-                  createStructureMutation.mutate(payload as any);
-                }
-              })} className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  {isSuperAdmin ? (
-                    <FormField
-                      control={form.control}
-                      name="companyId"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Company</FormLabel>
-                          <Select 
-                            value={field.value} 
-                            onValueChange={(value) => {
-                              field.onChange(value);
-                              form.setValue("employeeId", "");
-                            }}
-                          >
-                            <FormControl>
-                              <SelectTrigger data-testid="select-structure-company">
-                                <SelectValue placeholder="Select company" />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              {companies.map((company) => (
-                                <SelectItem key={company.id} value={company.id}>{company.companyName}</SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                  ) : (
-                    <div className="space-y-2">
-                      <FormLabel>Company</FormLabel>
-                      <p className="text-sm font-medium">{companies.find(c => c.id === user?.companyId)?.companyName || "—"}</p>
-                    </div>
-                  )}
-                  <FormField
-                    control={form.control}
-                    name="employeeId"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Employee</FormLabel>
-                        <SearchableEmployeeSelect
-                          employees={employees.filter(e => e.companyId === form.watch("companyId"))}
-                          value={field.value}
-                          onValueChange={(value) => {
-                            field.onChange(value);
-                            if (!editingStructureId) {
-                              const emp = employees.find(e => e.id === value);
-                              // Auto-set effectiveFrom: DOJ for new employee, 1st of next payroll month for existing
-                              const empPayrollAll = payrollRecords.filter(p => p.employeeId === value);
-                              if (empPayrollAll.length === 0) {
-                                const doj = emp?.dateOfJoining?.trim();
-                                form.setValue("effectiveFrom", doj || format(new Date(), "yyyy-MM-dd"));
-                              } else {
-                                const latestPR = empPayrollAll.reduce((a, b) =>
-                                  (b.year * 100 + (SS_MONTH_NAMES.indexOf(b.month) + 1)) > (a.year * 100 + (SS_MONTH_NAMES.indexOf(a.month) + 1)) ? b : a
-                                );
-                                const next = new Date(latestPR.year, SS_MONTH_NAMES.indexOf(latestPR.month) + 1, 1);
-                                form.setValue("effectiveFrom", `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}-01`);
-                              }
-                              const grade = emp?.wageGradeId
-                                ? wageGrades.find(g => g.id === emp.wageGradeId && g.status === "active")
-                                : undefined;
-                              if (grade && grade.minimumWage > 0) {
-                                applyGross(grade.minimumWage, grade.minimumWage);
-                                return;
-                              }
-                            }
-                            calculateSalary();
-                          }}
-                          placeholder="Search by name or ID..."
-                          data-testid="select-structure-employee"
-                        />
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
-
-                {dialogWageGrade && (
-                  <div className={`flex items-start gap-3 rounded-lg border px-4 py-3 text-sm ${isGrossCompliantWithMinWage ? "border-green-200 bg-green-50 dark:border-green-800 dark:bg-green-950" : "border-amber-300 bg-amber-50 dark:border-amber-700 dark:bg-amber-950"}`}>
-                    {isGrossCompliantWithMinWage ? (
-                      <ShieldCheck className="h-5 w-5 mt-0.5 shrink-0 text-green-600 dark:text-green-400" />
-                    ) : (
-                      <AlertTriangle className="h-5 w-5 mt-0.5 shrink-0 text-amber-600 dark:text-amber-400" />
-                    )}
-                    <div className="flex-1">
-                      <p className={`font-medium ${isGrossCompliantWithMinWage ? "text-green-800 dark:text-green-300" : "text-amber-800 dark:text-amber-300"}`}>
-                        {isGrossCompliantWithMinWage ? "Minimum Wage Compliant" : "Below Minimum Wage"}
-                      </p>
-                      <p className={`mt-0.5 ${isGrossCompliantWithMinWage ? "text-green-700 dark:text-green-400" : "text-amber-700 dark:text-amber-400"}`}>
-                        Wage Grade: <strong>{dialogWageGrade.name}</strong> — Minimum Wage:{" "}
-                        <strong>
-                          {new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(dialogWageGrade.minimumWage)}
-                          {dialogWageGrade.period ? `/${dialogWageGrade.period}` : "/month"}
-                        </strong>
-                        {!isGrossCompliantWithMinWage && (
-                          <span className="block mt-0.5">
-                            Shortfall:{" "}
-                            <strong>
-                              {new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(dialogWageGrade.minimumWage - watchGrossSalary)}
-                            </strong>
-                          </span>
-                        )}
-                      </p>
-                    </div>
-                  </div>
-                )}
-
-                {/* ── Auto Breakdown from Gross ─────────────────────────── */}
-                <div className="rounded-lg border bg-blue-50 dark:bg-blue-950 border-blue-200 dark:border-blue-800 p-3">
-                  {(() => {
-                    const empId = form.watch("employeeId");
-                    const emp   = employees.find(e => e.id === empId);
-                    const grade = emp?.wageGradeId
-                      ? wageGrades.find(g => g.id === emp.wageGradeId && g.status === "active")
-                      : undefined;
-                    return (
-                      <p className="text-xs font-semibold text-blue-800 dark:text-blue-300 mb-2 flex items-center gap-1.5 flex-wrap">
-                        <Calculator className="h-3.5 w-3.5 shrink-0" />
-                        Set Gross Salary
-                        {grade && grade.minimumWage > 0 ? (
-                          <span className="ml-auto font-normal text-amber-700 dark:text-amber-400 bg-amber-100 dark:bg-amber-900 px-2 py-0.5 rounded-full text-[10px]">
-                            Wage Grade: {grade.name} · Min. Wage ₹{grade.minimumWage.toLocaleString("en-IN")} · Gross cannot be less than ₹{grade.minimumWage.toLocaleString("en-IN")}
-                          </span>
-                        ) : (
-                          <span className="ml-auto font-normal text-blue-600 dark:text-blue-400 text-[10px]">
-                            Basic = Gross · HRA &amp; Special auto-computed · Conv/Medical/Other = 0
-                          </span>
-                        )}
-                      </p>
-                    );
-                  })()}
-                  <div className="flex gap-2 items-center">
-                    <div className="relative flex-1">
-                      <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">₹</span>
-                      <Input
-                        type="number"
-                        placeholder="Enter gross salary (e.g. 18000)"
-                        className="pl-6 h-8 text-sm"
-                        value={grossInputAmt}
-                        onChange={(e) => setGrossInputAmt(e.target.value)}
-                        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); autoBreakdownGross(grossInputAmt); } }}
-                        data-testid="input-gross-breakdown"
-                      />
-                    </div>
-                    <Button
-                      type="button"
-                      size="sm"
-                      className="h-8 whitespace-nowrap"
-                      onClick={() => autoBreakdownGross(grossInputAmt)}
-                      data-testid="button-auto-breakdown"
-                    >
-                      <Calculator className="h-3.5 w-3.5 mr-1.5" />
-                      Auto Fill
-                    </Button>
-                  </div>
-                  <p className="text-[10px] text-blue-600 dark:text-blue-400 mt-1.5">
-                    Basic = max(Min.Wage, 50% of Gross) · HRA = min(50% of Basic, rem.) · Conveyance = min(50% of HRA, rem.) · Special = balance
-                  </p>
-                </div>
-                {/* ─────────────────────────────────────────────────────── */}
-
-                <div className="border-t pt-4">
-                  <h4 className="font-medium mb-3">Earnings</h4>
-                  <div className="grid grid-cols-3 gap-4">
-                    <FormField
-                      control={form.control}
-                      name="basicSalary"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Basic Salary</FormLabel>
-                          <FormControl>
-                            <Input type="number" {...field} onChange={(e) => { field.onChange(e); calculateSalary(); }} data-testid="input-basic-salary" />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <FormField
-                      control={form.control}
-                      name="hra"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>HRA</FormLabel>
-                          <FormControl>
-                            <Input type="number" {...field} onChange={(e) => { field.onChange(e); calculateSalary(); }} data-testid="input-hra" />
-                          </FormControl>
-                        </FormItem>
-                      )}
-                    />
-                    <FormField
-                      control={form.control}
-                      name="conveyance"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Conveyance</FormLabel>
-                          <FormControl>
-                            <Input type="number" {...field} onChange={(e) => { field.onChange(e); calculateSalary(); }} data-testid="input-conveyance" />
-                          </FormControl>
-                        </FormItem>
-                      )}
-                    />
-                    {activeEarningHeads.map((head) => {
-                      const isPct = head.type === "percentage" && (head.percentage ?? 0) > 0;
-                      const pctLabel = isPct
-                        ? ` (${head.percentage}% of ${head.calculationBase === "basic" ? "Basic" : "Gross"} – auto)`
-                        : "";
-                      return (
-                        <FormItem key={head.id}>
-                          <FormLabel>
-                            {head.name}
-                            {isPct && (
-                              <span className="text-xs font-normal text-muted-foreground ml-1">{pctLabel}</span>
-                            )}
-                          </FormLabel>
-                          <FormControl>
-                            <Input
-                              type="number"
-                              value={customEarningAmounts[head.id] ?? 0}
-                              readOnly={isPct}
-                              className={isPct ? "bg-muted" : ""}
-                              onChange={isPct ? undefined : (e) => {
-                                const val = Number(e.target.value) || 0;
-                                const newAmounts = { ...customEarningAmounts, [head.id]: val };
-                                setCustomEarningAmounts(newAmounts);
-                                calculateSalary(true, newAmounts);
-                              }}
-                              data-testid={`input-earning-${head.id}`}
-                            />
-                          </FormControl>
-                        </FormItem>
-                      );
-                    })}
-                    <FormField
-                      control={form.control}
-                      name="specialAllowance"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Special Allowance</FormLabel>
-                          <FormControl>
-                            <Input type="number" {...field} onChange={(e) => { field.onChange(e); calculateSalary(); }} />
-                          </FormControl>
-                        </FormItem>
-                      )}
-                    />
-                    <FormField
-                      control={form.control}
-                      name="grossSalary"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Gross Salary</FormLabel>
-                          <FormControl>
-                            <Input type="number" {...field} readOnly className="bg-muted" />
-                          </FormControl>
-                        </FormItem>
-                      )}
-                    />
-                  </div>
-                </div>
-
-                <div className="border-t pt-4">
-                  <h4 className="font-medium mb-3">Deductions</h4>
-                  <div className="grid grid-cols-3 gap-4">
-                    <FormField
-                      control={form.control}
-                      name="pfEmployee"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>PF (Employee) - Auto-calculated</FormLabel>
-                          <FormControl>
-                            <Input type="number" {...field} onChange={(e) => { field.onChange(e); calculateSalary(false); }} data-testid="input-pf" />
-                          </FormControl>
-                        </FormItem>
-                      )}
-                    />
-                    {/* VPF — only show when employee is PF-applicable */}
-                    {(() => {
-                      const selEmpId = form.watch("employeeId");
-                      const selEmp = employees.find(e => e.id === selEmpId);
-                      const pfEnabled = !!statutorySettingsList.find(s => s.companyId === watchCompanyId)?.pfEnabled;
-                      if (!pfEnabled || !selEmp?.pfApplicable) return null;
-                      return (
-                        <FormField
-                          control={form.control}
-                          name="vpfAmount"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>VPF (Voluntary PF)</FormLabel>
-                              <FormControl>
-                                <Input
-                                  type="number"
-                                  min={0}
-                                  placeholder="0"
-                                  {...field}
-                                  onChange={(e) => { field.onChange(e); calculateSalary(false); }}
-                                  data-testid="input-vpf"
-                                />
-                              </FormControl>
-                              <p className="text-xs text-muted-foreground">Extra PF contributed voluntarily by employee. Employer contribution does not change.</p>
-                            </FormItem>
-                          )}
-                        />
-                      );
-                    })()}
-                    <FormField
-                      control={form.control}
-                      name="esi"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>ESI - Auto-calculated</FormLabel>
-                          <FormControl>
-                            <Input type="number" {...field} onChange={(e) => { field.onChange(e); calculateSalary(false); }} />
-                          </FormControl>
-                        </FormItem>
-                      )}
-                    />
-                    <FormField
-                      control={form.control}
-                      name="professionalTax"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>PT - Auto-calculated</FormLabel>
-                          <FormControl>
-                            <Input type="number" {...field} onChange={(e) => { field.onChange(e); calculateSalary(false); }} />
-                          </FormControl>
-                        </FormItem>
-                      )}
-                    />
-                    <FormField
-                      control={form.control}
-                      name="lwfEmployee"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>LWF - Auto-calculated</FormLabel>
-                          <FormControl>
-                            <Input type="number" {...field} onChange={(e) => { field.onChange(e); calculateSalary(false); }} />
-                          </FormControl>
-                        </FormItem>
-                      )}
-                    />
-                    <FormField
-                      control={form.control}
-                      name="tds"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>TDS</FormLabel>
-                          <FormControl>
-                            <Input type="number" {...field} onChange={(e) => { field.onChange(e); calculateSalary(false); }} />
-                          </FormControl>
-                        </FormItem>
-                      )}
-                    />
-                    {activeDeductionHeads.map((head) => {
-                      const isPct = head.type === "percentage" && (head.percentage ?? 0) > 0;
-                      const pctLabel = isPct
-                        ? ` (${head.percentage}% of ${head.calculationBase === "basic" ? "Basic" : "Gross"} – auto)`
-                        : "";
-                      return (
-                        <FormItem key={head.id}>
-                          <FormLabel>
-                            {head.name}
-                            {isPct && (
-                              <span className="text-xs font-normal text-muted-foreground ml-1">{pctLabel}</span>
-                            )}
-                          </FormLabel>
-                          <FormControl>
-                            <Input
-                              type="number"
-                              value={customDeductionAmounts[head.id] ?? 0}
-                              readOnly={isPct}
-                              className={isPct ? "bg-muted" : ""}
-                              onChange={isPct ? undefined : (e) => {
-                                const val = Number(e.target.value) || 0;
-                                setCustomDeductionAmounts(prev => ({ ...prev, [head.id]: val }));
-                                calculateSalary(false);
-                              }}
-                              data-testid={`input-deduction-${head.id}`}
-                            />
-                          </FormControl>
-                        </FormItem>
-                      );
-                    })}
-                    <FormField
-                      control={form.control}
-                      name="netSalary"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Net Salary</FormLabel>
-                          <FormControl>
-                            <Input type="number" {...field} readOnly className="bg-muted font-bold" />
-                          </FormControl>
-                        </FormItem>
-                      )}
-                    />
-                  </div>
-                </div>
-
-                <FormField
-                  control={form.control}
-                  name="effectiveFrom"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Effective From</FormLabel>
-                      <FormControl>
-                        <Input
-                          type="date"
-                          {...field}
-                          min={minEffectiveDateStr || undefined}
-                          onChange={(e) => {
-                            const val = e.target.value;
-                            if (val) {
-                              // Always snap to 1st of the chosen month
-                              const [y, m] = val.split("-");
-                              field.onChange(`${y}-${m}-01`);
-                            } else {
-                              field.onChange(val);
-                            }
-                          }}
-                          data-testid="input-effective-date"
-                        />
-                      </FormControl>
-                      {editingStructureId && latestEmpPayroll && (
-                        <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
-                          Payroll already generated up to <strong>{latestEmpPayroll.month} {latestEmpPayroll.year}</strong>. Effective date must be <strong>{SS_MONTH_NAMES[(SS_MONTH_NAMES.indexOf(latestEmpPayroll.month) + 1) % 12]} {minEffectiveDateStr.slice(0, 4)}</strong> or later.
-                        </p>
-                      )}
-                      {!editingStructureId && (
-                        <p className="text-xs text-muted-foreground mt-1">
-                          Date is auto-set to the 1st of the selected month. Salary structures take effect from the start of a month.
-                        </p>
-                      )}
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <DialogFooter>
-                  <Button type="submit" disabled={createStructureMutation.isPending || updateStructureMutation.isPending} data-testid="button-submit-structure">
-                    {editingStructureId
-                      ? (updateStructureMutation.isPending ? "Updating..." : "Update Structure")
-                      : (createStructureMutation.isPending ? "Creating..." : "Create Structure")}
-                  </Button>
-                </DialogFooter>
-              </form>
-            </Form>
-          </DialogContent>
-          </Dialog>
+          <SalaryStructureDialog
+            open={isCreateOpen}
+            onOpenChange={handleStructureDialogClose}
+            can={can}
+            editingStructureId={editingStructureId}
+            form={form}
+            customEarningAmounts={customEarningAmounts}
+            setCustomEarningAmounts={setCustomEarningAmounts}
+            customDeductionAmounts={customDeductionAmounts}
+            setCustomDeductionAmounts={setCustomDeductionAmounts}
+            createStructureMutation={createStructureMutation}
+            updateStructureMutation={updateStructureMutation}
+            isSuperAdmin={isSuperAdmin}
+            companies={companies}
+            userCompanyId={user?.companyId ?? undefined}
+            employees={employees}
+            payrollRecords={payrollRecords}
+            monthNames={SS_MONTH_NAMES}
+            wageGrades={wageGrades}
+            applyGross={applyGross}
+            calculateSalary={calculateSalary}
+            dialogWageGrade={dialogWageGrade}
+            isGrossCompliantWithMinWage={isGrossCompliantWithMinWage}
+            watchGrossSalary={watchGrossSalary}
+            grossInputAmt={grossInputAmt}
+            setGrossInputAmt={setGrossInputAmt}
+            autoBreakdownGross={autoBreakdownGross}
+            activeEarningHeads={activeEarningHeads}
+            activeDeductionHeads={activeDeductionHeads}
+            statutorySettingsList={statutorySettingsList}
+            watchCompanyId={watchCompanyId}
+            minEffectiveDateStr={minEffectiveDateStr}
+            latestEmpPayroll={latestEmpPayroll}
+          />
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Payroll</CardTitle>
-            <DollarSign className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{formatCurrency(totalPayroll)}</div>
-            <p className="text-xs text-muted-foreground">{selectedMonth} {selectedYear}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Earnings</CardTitle>
-            <Calculator className="h-4 w-4 text-green-500" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-green-600">{formatCurrency(totalEarnings)}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Deductions</CardTitle>
-            <Calculator className="h-4 w-4 text-red-500" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-red-600">{formatCurrency(totalDeductions)}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Employees</CardTitle>
-            <Users className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{filteredPayroll.length}</div>
-          </CardContent>
-        </Card>
-      </div>
+      <PayrollSummaryCards
+        totalPayroll={totalPayroll}
+        totalEarnings={totalEarnings}
+        totalDeductions={totalDeductions}
+        employeeCount={filteredPayroll.length}
+        selectedMonth={selectedMonth}
+        selectedYear={selectedYear}
+        formatCurrency={formatCurrency}
+      />
 
       <Tabs defaultValue="payroll">
         <TabsList className="mb-4">
@@ -1719,419 +1158,63 @@ export default function PayrollPage() {
         </TabsList>
 
         <TabsContent value="payroll">
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle>Payroll Records</CardTitle>
-                  <CardDescription>View and process monthly payroll</CardDescription>
-                </div>
-                <div className="flex items-center gap-4">
-                  {isSuperAdmin ? (
-                    <Select value={selectedCompany} onValueChange={setSelectedCompany}>
-                      <SelectTrigger className="w-48" data-testid="select-payroll-company">
-                        <SelectValue placeholder="All Companies" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="__all__">All Companies</SelectItem>
-                        {companies.map((company) => (
-                          <SelectItem key={company.id} value={company.id}>{company.companyName}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  ) : (
-                    <span className="text-sm font-medium">{companies.find(c => c.id === user?.companyId)?.companyName || ""}</span>
-                  )}
-                  {!isSuperAdmin && (myContractors.length > 0 || myPrincipalEmployers.length > 0) && (
-                    <Select value={contractorFilter} onValueChange={setContractorFilter}>
-                      <SelectTrigger className="w-52" data-testid="select-payroll-contractor-filter">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="own">Own Employees</SelectItem>
-                        {myContractors.map((c) => (
-                          <SelectItem key={c.id} value={`c:${c.companyId}:${c.contractorId}`}>
-                            Contractor: {c.contractorName}
-                          </SelectItem>
-                        ))}
-                        {myPrincipalEmployers.map((pe) => (
-                          <SelectItem key={pe.id} value={`pe:${pe.companyId}:${pe.contractorId}`}>
-                            PE: {pe.companyName}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )}
-                  <Select value={selectedMonth} onValueChange={setSelectedMonth}>
-                    <SelectTrigger className="w-36" data-testid="select-payroll-month">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {months.map((month) => (
-                        <SelectItem key={month} value={month}>{month}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <Select value={selectedYear} onValueChange={setSelectedYear}>
-                    <SelectTrigger className="w-24" data-testid="select-payroll-year">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {[2024, 2025, 2026].map((year) => (
-                        <SelectItem key={year} value={year.toString()}>{year}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  {companies.length > 0 && selectedCompany !== "__all__" && (() => {
-                    const allPaid = filteredPayroll.length > 0 && filteredPayroll.every(p => p.status === "paid");
-                    const hasExisting = filteredPayroll.length > 0;
-                    const monthIndex = months.indexOf(selectedMonth);
-                    const lastDayOfPayMonth = new Date(parseInt(selectedYear), monthIndex + 1, 0);
-                    lastDayOfPayMonth.setHours(23, 59, 59, 999);
-                    const isMonthIncomplete = new Date() <= lastDayOfPayMonth;
-                    const disableReason = allPaid
-                      ? "All payroll records are finalized (Paid) for this month"
-                      : isMonthIncomplete
-                        ? `${selectedMonth} ${selectedYear} is not yet complete — payroll can only be generated after the month ends`
-                        : "";
-                    if (!can("payroll", "process")) return null;
-                    return (
-                      <Button
-                        onClick={() => generatePayrollMutation.mutate(selectedCompany)}
-                        disabled={generatePayrollMutation.isPending || allPaid || isMonthIncomplete}
-                        data-testid="button-generate-payroll"
-                        title={disableReason}
-                      >
-                        <Calculator className="h-4 w-4 mr-2" />
-                        {generatePayrollMutation.isPending
-                          ? "Generating..."
-                          : allPaid
-                            ? "Payroll Finalized"
-                            : isMonthIncomplete
-                              ? "Month Incomplete"
-                              : hasExisting
-                                ? "Regenerate Payroll"
-                                : "Generate Payroll"}
-                      </Button>
-                    );
-                  })()}
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="flex items-center gap-3 mb-4 flex-wrap">
-                <div className="relative max-w-xs flex-1 min-w-[200px]">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-                  <input
-                    type="text"
-                    placeholder="Search employee name or code…"
-                    value={payrollSearch}
-                    onChange={e => setPayrollSearch(e.target.value)}
-                    data-testid="input-payroll-search"
-                    className="w-full pl-9 pr-3 py-2 text-sm rounded-md border border-input bg-background shadow-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                  />
-                </div>
-                {selectedPayrollIds.size > 0 && (
-                  <div className="flex items-center gap-2 bg-muted px-3 py-1.5 rounded-md">
-                    <span className="text-sm font-medium">{selectedPayrollIds.size} selected</span>
-                    {can("payroll", "mark_paid") && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="h-7 text-green-700 border-green-300 hover:bg-green-50"
-                      disabled={bulkFinalizePayrollMutation.isPending}
-                      onClick={() => bulkFinalizePayrollMutation.mutate(Array.from(selectedPayrollIds))}
-                      data-testid="button-bulk-finalize"
-                    >
-                      <CheckCircle className="h-3.5 w-3.5 mr-1" />
-                      Finalize
-                    </Button>
-                    )}
-                    {can("payroll", "process") && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="h-7 text-red-700 border-red-300 hover:bg-red-50"
-                      onClick={() => setBulkDeleteConfirmOpen(true)}
-                      data-testid="button-bulk-delete"
-                    >
-                      <Trash2 className="h-3.5 w-3.5 mr-1" />
-                      Delete
-                    </Button>
-                    )}
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="h-7 text-muted-foreground"
-                      onClick={() => setSelectedPayrollIds(new Set())}
-                    >
-                      Clear
-                    </Button>
-                  </div>
-                )}
-              </div>
-
-              {/* Bulk delete confirmation */}
-              <AlertDialog open={bulkDeleteConfirmOpen} onOpenChange={setBulkDeleteConfirmOpen}>
-                <AlertDialogContent>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>Delete {selectedPayrollIds.size} Payroll Record(s)?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                      This will permanently delete {selectedPayrollIds.size} selected payroll record(s). This action cannot be undone.
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel>Cancel</AlertDialogCancel>
-                    <AlertDialogAction
-                      className="bg-red-600 hover:bg-red-700"
-                      onClick={() => bulkDeletePayrollMutation.mutate(Array.from(selectedPayrollIds))}
-                      disabled={bulkDeletePayrollMutation.isPending}
-                    >
-                      {bulkDeletePayrollMutation.isPending ? "Deleting…" : "Delete"}
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
-
-              {isLoadingPayroll ? (
-                <div className="space-y-4">
-                  {[...Array(5)].map((_, i) => (
-                    <Skeleton key={i} className="h-12 w-full" />
-                  ))}
-                </div>
-              ) : filteredPayroll.length === 0 ? (
-                <div className="text-center py-12">
-                  <FileText className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                  <h3 className="text-lg font-medium mb-2">No payroll records</h3>
-                  <p className="text-muted-foreground">Generate payroll for the selected period</p>
-                </div>
-              ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="w-8">
-                        <input
-                          type="checkbox"
-                          data-testid="checkbox-select-all"
-                          className="h-4 w-4 rounded border-gray-300 cursor-pointer"
-                          checked={filteredPayroll.length > 0 && filteredPayroll.every(p => selectedPayrollIds.has(p.id))}
-                          ref={el => { if (el) el.indeterminate = selectedPayrollIds.size > 0 && !filteredPayroll.every(p => selectedPayrollIds.has(p.id)); }}
-                          onChange={e => {
-                            if (e.target.checked) {
-                              setSelectedPayrollIds(new Set(filteredPayroll.map(p => p.id)));
-                            } else {
-                              setSelectedPayrollIds(new Set());
-                            }
-                          }}
-                        />
-                      </TableHead>
-                      <TableHead className="w-10 text-center">Sr.</TableHead>
-                      <TableHead>Employee</TableHead>
-                      <TableHead className="text-right">Earnings</TableHead>
-                      <TableHead className="text-right">Deductions</TableHead>
-                      <TableHead className="text-right">Net Salary</TableHead>
-                      <TableHead className="text-center">Pay Days</TableHead>
-                      <TableHead className="text-center">OT Hrs</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filteredPayroll.map((record, idx) => (
-                      <TableRow key={record.id} data-testid={`row-payroll-${record.id}`} className={selectedPayrollIds.has(record.id) ? "bg-muted/50" : ""}>
-                        <TableCell>
-                          <input
-                            type="checkbox"
-                            data-testid={`checkbox-payroll-${record.id}`}
-                            className="h-4 w-4 rounded border-gray-300 cursor-pointer"
-                            checked={selectedPayrollIds.has(record.id)}
-                            onChange={e => {
-                              const next = new Set(selectedPayrollIds);
-                              if (e.target.checked) next.add(record.id); else next.delete(record.id);
-                              setSelectedPayrollIds(next);
-                            }}
-                          />
-                        </TableCell>
-                        <TableCell className="text-center text-muted-foreground font-medium text-sm">{idx + 1}</TableCell>
-                        <TableCell className="font-medium">{getEmployeeName(record.employeeId)}</TableCell>
-                        <TableCell className="text-right text-green-600">{formatCurrency(record.totalEarnings)}</TableCell>
-                        <TableCell className="text-right text-red-600">{formatCurrency(record.totalDeductions)}</TableCell>
-                        <TableCell className="text-right font-bold">{formatCurrency(record.netSalary)}</TableCell>
-                        <TableCell className="text-center">
-                          <span className="text-sm">{Number(record.payDays ?? record.presentDays)}<span className="text-muted-foreground">/{record.workingDays}</span></span>
-                        </TableCell>
-                        <TableCell className="text-center text-orange-600 font-medium">
-                          {Number((record as any).otHours) > 0 ? `${Number((record as any).otHours).toFixed(1)}h` : "—"}
-                        </TableCell>
-                        <TableCell>
-                          <Badge className={statusColors[record.status] || ""}>
-                            {record.status.charAt(0).toUpperCase() + record.status.slice(1)}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-1">
-                            <Button variant="ghost" size="icon" onClick={() => setViewingPayrollRecord(record)} title="View Details">
-                              <Eye className="h-4 w-4 text-blue-600" />
-                            </Button>
-                            <Button variant="ghost" size="icon" onClick={() => { setEditingPayroll(record); setIsPayrollEditOpen(true); }}>
-                              <Edit className="h-4 w-4" />
-                            </Button>
-                            {record.status === "draft" && (
-                              <Button variant="ghost" size="icon" onClick={() => finalizePayrollMutation.mutate(record.id)}>
-                                <CheckCircle className="h-4 w-4 text-green-600" />
-                              </Button>
-                            )}
-                            <AlertDialog>
-                              <AlertDialogTrigger asChild>
-                                <Button variant="ghost" size="icon">
-                                  <Trash2 className="h-4 w-4 text-red-500" />
-                                </Button>
-                              </AlertDialogTrigger>
-                              <AlertDialogContent>
-                                <AlertDialogHeader>
-                                  <AlertDialogTitle>Delete Payroll Record</AlertDialogTitle>
-                                  <AlertDialogDescription>Are you sure you want to delete this payroll record? This action cannot be undone.</AlertDialogDescription>
-                                </AlertDialogHeader>
-                                <AlertDialogFooter>
-                                  <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                  <AlertDialogAction onClick={() => deletePayrollMutation.mutate(record.id)}>Delete</AlertDialogAction>
-                                </AlertDialogFooter>
-                              </AlertDialogContent>
-                            </AlertDialog>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              )}
-            </CardContent>
-          </Card>
+          <PayrollTab
+            isSuperAdmin={isSuperAdmin}
+            userCompanyName={companies.find(c => c.id === user?.companyId)?.companyName || ""}
+            companies={companies}
+            selectedCompany={selectedCompany}
+            setSelectedCompany={setSelectedCompany}
+            myContractors={myContractors}
+            myPrincipalEmployers={myPrincipalEmployers}
+            contractorFilter={contractorFilter}
+            setContractorFilter={setContractorFilter}
+            selectedMonth={selectedMonth}
+            setSelectedMonth={setSelectedMonth}
+            selectedYear={selectedYear}
+            setSelectedYear={setSelectedYear}
+            months={months}
+            filteredPayroll={filteredPayroll}
+            isLoadingPayroll={isLoadingPayroll}
+            payrollSearch={payrollSearch}
+            setPayrollSearch={setPayrollSearch}
+            selectedPayrollIds={selectedPayrollIds}
+            setSelectedPayrollIds={setSelectedPayrollIds}
+            bulkDeleteConfirmOpen={bulkDeleteConfirmOpen}
+            setBulkDeleteConfirmOpen={setBulkDeleteConfirmOpen}
+            statusColors={statusColors}
+            can={can}
+            isGeneratePending={generatePayrollMutation.isPending}
+            onGenerate={(companyId) => generatePayrollMutation.mutate(companyId)}
+            onBulkFinalize={(ids) => bulkFinalizePayrollMutation.mutate(ids)}
+            isBulkFinalizePending={bulkFinalizePayrollMutation.isPending}
+            onBulkDelete={(ids) => bulkDeletePayrollMutation.mutate(ids)}
+            isBulkDeletePending={bulkDeletePayrollMutation.isPending}
+            onFinalize={(id) => finalizePayrollMutation.mutate(id)}
+            onDelete={(id) => deletePayrollMutation.mutate(id)}
+            onView={(record) => setViewingPayrollRecord(record)}
+            onEdit={(record) => { setEditingPayroll(record); setIsPayrollEditOpen(true); }}
+            getEmployeeName={getEmployeeName}
+            formatCurrency={formatCurrency}
+          />
         </TabsContent>
 
         <TabsContent value="structures">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between gap-4 flex-wrap">
-              <div>
-                <CardTitle>Salary Structures</CardTitle>
-                <CardDescription>Employee salary components and breakdowns</CardDescription>
-              </div>
-              <div className="relative w-64">
-                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground pointer-events-none" />
-                <input
-                  type="text"
-                  placeholder="Search employee…"
-                  value={structureSearch}
-                  onChange={e => setStructureSearch(e.target.value)}
-                  data-testid="input-structure-search"
-                  className="w-full pl-8 pr-3 py-2 text-sm border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring"
-                />
-              </div>
-            </CardHeader>
-            <CardContent>
-              {isLoadingStructures ? (
-                <div className="space-y-4">
-                  {[...Array(5)].map((_, i) => (
-                    <Skeleton key={i} className="h-12 w-full" />
-                  ))}
-                </div>
-              ) : filteredStructures.length === 0 ? (
-                <div className="text-center py-12">
-                  <Building2 className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                  <h3 className="text-lg font-medium mb-2">No salary structures</h3>
-                  <p className="text-muted-foreground">Add salary structures for employees</p>
-                </div>
-              ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="w-10 text-center">Sr.</TableHead>
-                      <SortableHead col="name" sort={structSort} onToggle={toggleStructSort}>Employee</SortableHead>
-                      <SortableHead col="basic" sort={structSort} onToggle={toggleStructSort} className="text-right">Basic</SortableHead>
-                      <SortableHead col="hra" sort={structSort} onToggle={toggleStructSort} className="text-right">HRA</SortableHead>
-                      <SortableHead col="gross" sort={structSort} onToggle={toggleStructSort} className="text-right">Gross</SortableHead>
-                      <TableHead className="text-right">Deductions</TableHead>
-                      <SortableHead col="net" sort={structSort} onToggle={toggleStructSort} className="text-right">Net</SortableHead>
-                      <SortableHead col="effective" sort={structSort} onToggle={toggleStructSort}>Effective</SortableHead>
-                      <TableHead>Min. Wage</TableHead>
-                      <TableHead>Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {sortedStructures.map((structure, idx) => {
-                      const structureWageGrade = getEmployeeWageGrade(structure.employeeId);
-                      const structureMinWageCompliant = !structureWageGrade || structure.grossSalary >= (structureWageGrade.minimumWage ?? 0);
-                      return (
-                      <TableRow key={structure.id} data-testid={`row-structure-${structure.id}`}>
-                        <TableCell className="text-center text-muted-foreground font-medium text-sm">{idx + 1}</TableCell>
-                        <TableCell className="font-medium">{getEmployeeName(structure.employeeId)}</TableCell>
-                        <TableCell className="text-right">{formatCurrency(structure.basicSalary)}</TableCell>
-                        <TableCell className="text-right">{formatCurrency(structure.hra || 0)}</TableCell>
-                        <TableCell className="text-right">{formatCurrency(structure.grossSalary)}</TableCell>
-                        <TableCell className="text-right text-red-600">
-                          {formatCurrency((structure.pfEmployee || 0) + (structure.esi || 0) + (structure.professionalTax || 0) + (structure.tds || 0))}
-                        </TableCell>
-                        <TableCell className="text-right font-bold">{formatCurrency(structure.netSalary)}</TableCell>
-                        <TableCell>{format(new Date(structure.effectiveFrom), "MMM d, yyyy")}</TableCell>
-                        <TableCell>
-                          {structureWageGrade ? (
-                            <div className="flex flex-col gap-1">
-                              <span className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full w-fit ${structureMinWageCompliant ? "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300" : "bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300"}`}>
-                                {structureMinWageCompliant ? <ShieldCheck className="h-3 w-3" /> : <AlertTriangle className="h-3 w-3" />}
-                                {structureMinWageCompliant ? "Compliant" : "Below Min"}
-                              </span>
-                              <span className="text-xs text-muted-foreground">{structureWageGrade.name}: {formatCurrency(structureWageGrade.minimumWage)}</span>
-                            </div>
-                          ) : (
-                            <span className="text-xs text-muted-foreground">No grade</span>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-1">
-                            {payrollRecords.some(p => p.employeeId === structure.employeeId) ? (
-                              <span
-                                title="Payroll has been generated — create a new structure to make changes"
-                                className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs text-amber-700 bg-amber-50 border border-amber-200 cursor-default select-none"
-                              >
-                                <Lock className="h-3 w-3" />
-                                Locked
-                              </span>
-                            ) : (
-                              <>
-                                <Button variant="ghost" size="icon" onClick={() => handleEditStructure(structure)}>
-                                  <Edit className="h-4 w-4" />
-                                </Button>
-                                <AlertDialog>
-                                  <AlertDialogTrigger asChild>
-                                    <Button variant="ghost" size="icon">
-                                      <Trash2 className="h-4 w-4 text-red-500" />
-                                    </Button>
-                                  </AlertDialogTrigger>
-                                  <AlertDialogContent>
-                                    <AlertDialogHeader>
-                                      <AlertDialogTitle>Delete Salary Structure</AlertDialogTitle>
-                                      <AlertDialogDescription>Are you sure you want to delete this salary structure? This action cannot be undone.</AlertDialogDescription>
-                                    </AlertDialogHeader>
-                                    <AlertDialogFooter>
-                                      <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                      <AlertDialogAction onClick={() => deleteStructureMutation.mutate(structure.id)}>Delete</AlertDialogAction>
-                                    </AlertDialogFooter>
-                                  </AlertDialogContent>
-                                </AlertDialog>
-                              </>
-                            )}
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    );
-                    })}
-                  </TableBody>
-                </Table>
-              )}
-            </CardContent>
-          </Card>
+          <StructuresTab
+            isLoading={isLoadingStructures}
+            filteredStructures={filteredStructures}
+            sortedStructures={sortedStructures}
+            structSort={structSort}
+            toggleStructSort={toggleStructSort}
+            structureSearch={structureSearch}
+            setStructureSearch={setStructureSearch}
+            payrollRecords={payrollRecords}
+            getEmployeeName={getEmployeeName}
+            formatCurrency={formatCurrency}
+            getEmployeeWageGrade={getEmployeeWageGrade}
+            onEditStructure={handleEditStructure}
+            onDeleteStructure={(id) => deleteStructureMutation.mutate(id)}
+          />
         </TabsContent>
-
         <TabsContent value="fnf">
           <FnfSettlementPage />
         </TabsContent>
@@ -2153,360 +1236,31 @@ export default function PayrollPage() {
         </Dialog>
       )}
 
-      <Dialog open={bulkUploadOpen} onOpenChange={setBulkUploadOpen}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <FileSpreadsheet className="h-5 w-5" />
-              Bulk Salary Structure Upload
-            </DialogTitle>
-            <DialogDescription>
-              Upload an Excel file to create salary structures for multiple employees at once.
-            </DialogDescription>
-          </DialogHeader>
+      <BulkUploadDialog
+        open={bulkUploadOpen}
+        onOpenChange={setBulkUploadOpen}
+        isSuperAdmin={isSuperAdmin}
+        selectedCompany={selectedCompany}
+        setSelectedCompany={setSelectedCompany}
+        companies={companies}
+        bulkFileInputRef={bulkFileInputRef}
+        bulkUploading={bulkUploading}
+        bulkResult={bulkResult}
+        onDownloadTemplate={handleDownloadSalaryTemplate}
+        onUpload={handleBulkSalaryUpload}
+      />
 
-          <div className="space-y-4">
-            {isSuperAdmin && (
-              <div className="space-y-1">
-                <label className="text-sm font-medium">Company</label>
-                <Select value={selectedCompany} onValueChange={setSelectedCompany}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select a company" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {companies.map((company) => (
-                      <SelectItem key={company.id} value={company.id}>{company.companyName}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {selectedCompany === "__all__" && (
-                  <p className="text-xs text-amber-600">Please select a company to continue.</p>
-                )}
-              </div>
-            )}
-            <div className="border-2 border-dashed border-muted-foreground/25 rounded-lg p-6 text-center">
-              <FileSpreadsheet className="h-10 w-10 mx-auto mb-3 text-muted-foreground" />
-              <p className="text-sm text-muted-foreground mb-3">
-                Upload an Excel file (.xlsx) with salary structure data
-              </p>
-              <input
-                ref={bulkFileInputRef}
-                type="file"
-                accept=".xlsx,.xls"
-                className="hidden"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) handleBulkSalaryUpload(file);
-                  e.target.value = "";
-                }}
-              />
-              <div className="flex gap-2 justify-center">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleDownloadSalaryTemplate}
-                >
-                  <Download className="h-4 w-4 mr-2" />
-                  Download Template
-                </Button>
-                <Button
-                  size="sm"
-                  onClick={() => bulkFileInputRef.current?.click()}
-                  disabled={bulkUploading || (isSuperAdmin && selectedCompany === "__all__")}
-                >
-                  {bulkUploading ? (
-                    <>
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      Uploading...
-                    </>
-                  ) : (
-                    <>
-                      <Upload className="h-4 w-4 mr-2" />
-                      Select File
-                    </>
-                  )}
-                </Button>
-              </div>
-            </div>
-
-            {bulkResult && (
-              <div className="space-y-3">
-                <div className="flex gap-3">
-                  <div className="flex-1 bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800 rounded-lg p-3 text-center">
-                    <p className="text-2xl font-bold text-green-700 dark:text-green-400">{bulkResult.created}</p>
-                    <p className="text-xs text-green-600 dark:text-green-500">Created</p>
-                  </div>
-                  <div className="flex-1 bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-lg p-3 text-center">
-                    <p className="text-2xl font-bold text-blue-700 dark:text-blue-400">{(bulkResult as any).updated ?? 0}</p>
-                    <p className="text-xs text-blue-600 dark:text-blue-500">Updated</p>
-                  </div>
-                  <div className="flex-1 bg-yellow-50 dark:bg-yellow-950 border border-yellow-200 dark:border-yellow-800 rounded-lg p-3 text-center">
-                    <p className="text-2xl font-bold text-yellow-700 dark:text-yellow-400">{bulkResult.skipped}</p>
-                    <p className="text-xs text-yellow-600 dark:text-yellow-500">Skipped</p>
-                  </div>
-                </div>
-                {bulkResult.errors.length > 0 && (
-                  <div className="bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 rounded-lg p-3">
-                    <p className="text-sm font-medium text-red-800 dark:text-red-300 mb-2">Issues Found:</p>
-                    <div className="max-h-40 overflow-y-auto space-y-1">
-                      {bulkResult.errors.map((err, i) => (
-                        <p key={i} className="text-xs text-red-700 dark:text-red-400">{err}</p>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setBulkUploadOpen(false)}>
-              Close
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={!!viewingPayrollRecord} onOpenChange={(open) => { if (!open) setViewingPayrollRecord(null); }}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Payroll Details - {viewingPayrollRecord?.month} {viewingPayrollRecord?.year}</DialogTitle>
-            <DialogDescription>
-              {viewingPayrollRecord && getEmployeeName(viewingPayrollRecord.employeeId)}
-            </DialogDescription>
-          </DialogHeader>
-          {viewingPayrollRecord && (() => {
-            const record = viewingPayrollRecord;
-            const emp = prAllEmployees.find(e => e.id === record.employeeId);
-            const MONTH_NAMES = ["January","February","March","April","May","June","July","August","September","October","November","December"];
-            const mIdx = MONTH_NAMES.indexOf(record.month);
-            const payrollYM = mIdx >= 0 ? `${record.year}-${String(mIdx + 1).padStart(2, "0")}` : "";
-            const activeLoans = loanAdvances.filter((l: any) =>
-              l.employeeId === record.employeeId &&
-              l.status === "active" &&
-              l.deductionStartMonth &&
-              payrollYM &&
-              l.deductionStartMonth <= payrollYM &&
-              Number(l.installmentAmount) > 0
-            );
-            const storedLoanDeduction = (record as any).loanDeduction || 0;
-            const hasUnrecordedLoans = activeLoans.length > 0 && storedLoanDeduction === 0;
-            return (
-              <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-4 text-sm">
-                  <div className="space-y-1">
-                    <p className="text-muted-foreground">Employee</p>
-                    <p className="font-medium">{getEmployeeName(record.employeeId)}</p>
-                  </div>
-                  <div className="space-y-1">
-                    <p className="text-muted-foreground">Department</p>
-                    <p className="font-medium">{emp?.department || "—"}</p>
-                  </div>
-                  <div className="space-y-1">
-                    <p className="text-muted-foreground">Period</p>
-                    <p className="font-medium">{record.month} {record.year}</p>
-                  </div>
-                  <div className="space-y-1">
-                    <p className="text-muted-foreground">Status</p>
-                    <Badge className={statusColors[record.status] || ""}>{record.status.charAt(0).toUpperCase() + record.status.slice(1)}</Badge>
-                  </div>
-                  <div className="space-y-1">
-                    <p className="text-muted-foreground">Working Days</p>
-                    <p className="font-medium">{record.workingDays}</p>
-                  </div>
-                  <div className="space-y-1">
-                    <p className="text-muted-foreground">Present Days</p>
-                    <p className="font-medium">{Number(record.presentDays)}</p>
-                  </div>
-                  <div className="space-y-1">
-                    <p className="text-muted-foreground">Pay Days</p>
-                    <p className="font-medium text-primary">{Number(record.payDays ?? record.workingDays)}</p>
-                  </div>
-                  <div className="space-y-1">
-                    <p className="text-muted-foreground">Off Days</p>
-                    <p className="font-medium text-blue-600">{Math.max(0, Number(record.payDays ?? 0) - Number(record.presentDays) - (record.leaveDays || 0))}</p>
-                  </div>
-                  <div className="space-y-1">
-                    <p className="text-muted-foreground">Absent Days</p>
-                    <p className="font-medium text-red-500">{Math.max(0, record.workingDays - Number(record.payDays ?? record.workingDays))}</p>
-                  </div>
-                  <div className="space-y-1">
-                    <p className="text-muted-foreground">Leave Days</p>
-                    <p className="font-medium">{record.leaveDays || 0}</p>
-                  </div>
-                </div>
-                <div className="border rounded-lg overflow-hidden">
-                  <div className="bg-green-50 dark:bg-green-950 p-3 border-b">
-                    <h4 className="font-semibold text-green-800 dark:text-green-300">Earnings</h4>
-                  </div>
-                  <div className="p-3 space-y-2 text-sm">
-                    <div className="flex justify-between"><span>Basic Salary</span><span className="font-medium">{formatCurrency(record.basicSalary || 0)}</span></div>
-                    <div className="flex justify-between"><span>HRA</span><span className="font-medium">{formatCurrency(record.hra || 0)}</span></div>
-                    <div className="flex justify-between"><span>Conveyance</span><span className="font-medium">{formatCurrency(record.conveyance || 0)}</span></div>
-                    <div className="flex justify-between"><span>Special Allowance</span><span className="font-medium">{formatCurrency(record.specialAllowance || 0)}</span></div>
-                    {/* Custom earning heads stored on the payroll record */}
-                    {Object.entries((record as any).customEarnings || {}).map(([headId, amt]) => {
-                      const head = earningHeads.find(h => h.id === headId);
-                      if (!head || !amt) return null;
-                      const isPct = head.type === "percentage" && (head.percentage ?? 0) > 0;
-                      return (
-                        <div key={headId} className="flex justify-between">
-                          <span>
-                            {head.name}
-                            {isPct && (
-                              <span className="text-xs text-muted-foreground ml-1">
-                                ({head.percentage}% of {head.calculationBase === "basic" ? "Basic" : "Gross"})
-                              </span>
-                            )}
-                          </span>
-                          <span className="font-medium">{formatCurrency(amt as number)}</span>
-                        </div>
-                      );
-                    })}
-                    {/* Other Allowances: only show when there's a residual amount not covered by named heads (absorbs any legacy medicalAllowance) */}
-                    {(() => {
-                      const customSum = Object.values((record as any).customEarnings || {}).reduce((a: number, v) => a + (Number(v) || 0), 0);
-                      const residual = (record.otherAllowances || 0) + (record.medicalAllowance || 0) - customSum;
-                      return residual > 0
-                        ? <div className="flex justify-between"><span>Other Allowances</span><span className="font-medium">{formatCurrency(residual)}</span></div>
-                        : null;
-                    })()}
-                    {(record.bonus || 0) > 0 && <div className="flex justify-between"><span>Bonus</span><span className="font-medium">{formatCurrency(record.bonus || 0)}</span></div>}
-                    {Number((record as any).otHours) > 0 && (
-                      <div className="flex justify-between text-orange-700 dark:text-orange-400">
-                        <span>OT ({Number((record as any).otHours).toFixed(2)} hrs)</span>
-                        <span className="font-medium">{formatCurrency((record as any).otAmount || 0)}</span>
-                      </div>
-                    )}
-                    <div className="flex justify-between border-t pt-2 font-bold text-green-700 dark:text-green-400">
-                      <span>Total Earnings</span><span>{formatCurrency(record.totalEarnings)}</span>
-                    </div>
-                  </div>
-                </div>
-                <div className="border rounded-lg overflow-hidden">
-                  <div className="bg-red-50 dark:bg-red-950 p-3 border-b flex items-center justify-between">
-                    <h4 className="font-semibold text-red-800 dark:text-red-300">Deductions</h4>
-                    {hasUnrecordedLoans && (
-                      <span className="text-xs bg-amber-100 text-amber-800 border border-amber-300 rounded px-2 py-0.5 font-medium">
-                        ⚠ Regenerate payroll to include loan deduction
-                      </span>
-                    )}
-                  </div>
-                  <div className="p-3 space-y-2 text-sm">
-                    <div className="flex justify-between"><span>PF (Employee)</span><span className="font-medium">{formatCurrency(record.pfEmployee || 0)}</span></div>
-                    {((record as any).vpfAmount || 0) > 0 && (
-                      <div className="flex justify-between"><span>VPF (Voluntary PF)</span><span className="font-medium">{formatCurrency((record as any).vpfAmount)}</span></div>
-                    )}
-                    <div className="flex justify-between"><span>ESI</span><span className="font-medium">{formatCurrency(record.esi || 0)}</span></div>
-                    <div className="flex justify-between"><span>Professional Tax</span><span className="font-medium">{formatCurrency(record.professionalTax || 0)}</span></div>
-                    <div className="flex justify-between"><span>LWF (Employee)</span><span className="font-medium">{formatCurrency(record.lwfEmployee || 0)}</span></div>
-                    <div className="flex justify-between"><span>TDS</span><span className="font-medium">{formatCurrency(record.tds || 0)}</span></div>
-                    <div className="flex justify-between"><span>Other Deductions</span><span className="font-medium">{formatCurrency(record.otherDeductions || 0)}</span></div>
-                    {/* Custom deduction heads stored on the payroll record */}
-                    {Object.entries((record as any).customDeductions || {}).map(([headId, amt]) => {
-                      const head = deductionHeads.find(h => h.id === headId);
-                      if (!head || !amt) return null;
-                      const isPct = head.type === "percentage" && (head.percentage ?? 0) > 0;
-                      return (
-                        <div key={headId} className="flex justify-between">
-                          <span>
-                            {head.name}
-                            {isPct && (
-                              <span className="text-xs text-muted-foreground ml-1">
-                                ({head.percentage}% of {head.calculationBase === "basic" ? "Basic" : "Gross"})
-                              </span>
-                            )}
-                          </span>
-                          <span className="font-medium">{formatCurrency(amt as number)}</span>
-                        </div>
-                      );
-                    })}
-                    <div className={`flex justify-between ${storedLoanDeduction > 0 ? "text-indigo-700 font-medium" : "text-muted-foreground"}`}>
-                      <span>Loan / Advance Deduction</span>
-                      <span className="font-medium">{formatCurrency(storedLoanDeduction)}</span>
-                    </div>
-                    <div className="flex justify-between border-t pt-2 font-bold text-red-700 dark:text-red-400">
-                      <span>Total Deductions</span><span>{formatCurrency(record.totalDeductions)}</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Active Loan / Advance Detail Card */}
-                {activeLoans.length > 0 && (
-                  <div className="border border-indigo-200 rounded-lg overflow-hidden">
-                    <div className="bg-indigo-50 p-3 border-b border-indigo-200">
-                      <h4 className="font-semibold text-indigo-800 text-sm">Active Loan / Advance Details</h4>
-                      <p className="text-xs text-indigo-600 mt-0.5">Installments scheduled for {record.month} {record.year}</p>
-                    </div>
-                    <div className="p-3 space-y-3 text-sm">
-                      {(() => {
-                        const totalScheduled = activeLoans.reduce((s: number, l: any) => s + Number(l.installmentAmount), 0);
-                        return activeLoans.map((loan: any) => {
-                          const scheduled = Number(loan.installmentAmount);
-                          // Actual deduction = proportional share of storedLoanDeduction
-                          const share = totalScheduled > 0 ? scheduled / totalScheduled : 1;
-                          const actualDeduction = storedLoanDeduction > 0
-                            ? Math.min(scheduled, Math.round(storedLoanDeduction * share))
-                            : scheduled; // if not yet generated, show scheduled
-                          const isCapped = storedLoanDeduction > 0 && actualDeduction < scheduled;
-                          const afterDeduction = Math.max(0, (Number(loan.remainingBalance) || 0) - actualDeduction);
-                          return (
-                            <div key={loan.id} className="border rounded p-3 bg-white space-y-2">
-                              <div className="flex items-center justify-between">
-                                <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold ${loan.type === "loan" ? "bg-indigo-100 text-indigo-700" : "bg-teal-100 text-teal-700"}`}>
-                                  {loan.type === "loan" ? "Loan" : "Advance"}
-                                </span>
-                                <span className="text-xs text-muted-foreground">Since {loan.deductionStartMonth}</span>
-                              </div>
-                              <div className="grid grid-cols-3 gap-2 text-xs">
-                                <div>
-                                  <p className="text-muted-foreground">Scheduled Installment</p>
-                                  <p className={`font-bold ${isCapped ? "line-through text-muted-foreground" : "text-red-600"}`}>{formatCurrency(scheduled)}</p>
-                                  {isCapped && <p className="font-bold text-orange-600">Deducted: {formatCurrency(actualDeduction)}</p>}
-                                  {isCapped && <p className="text-orange-500">(capped at net pay)</p>}
-                                </div>
-                                <div>
-                                  <p className="text-muted-foreground">Current Balance</p>
-                                  <p className="font-bold text-indigo-700">{formatCurrency(loan.remainingBalance)}</p>
-                                </div>
-                                <div>
-                                  <p className="text-muted-foreground">Balance After Deduction</p>
-                                  <p className={`font-bold ${afterDeduction <= 0 ? "text-green-600" : "text-orange-600"}`}>
-                                    {afterDeduction <= 0 ? "Fully Recovered ✓" : formatCurrency(afterDeduction)}
-                                  </p>
-                                </div>
-                              </div>
-                              {loan.purpose && <p className="text-xs text-muted-foreground truncate">Purpose: {loan.purpose}</p>}
-                            </div>
-                          );
-                        });
-                      })()}
-                      {hasUnrecordedLoans && (
-                        <div className="rounded bg-amber-50 border border-amber-200 p-2 text-xs text-amber-800">
-                          <strong>Note:</strong> This payroll was generated before the loan was active. Regenerate payroll to include the ₹{activeLoans.reduce((s: number, l: any) => s + Number(l.installmentAmount), 0).toLocaleString("en-IN")} deduction in the payslip calculations.
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                <div className="border rounded-lg p-4 bg-primary/5">
-                  <div className="flex justify-between text-lg font-bold">
-                    <span>Net Salary</span>
-                    <span className="text-primary">{formatCurrency(record.netSalary)}</span>
-                  </div>
-                  {hasUnrecordedLoans && (
-                    <div className="flex justify-between text-sm text-amber-700 mt-1">
-                      <span>Net (after loan, if regenerated)</span>
-                      <span className="font-medium">{formatCurrency(Math.max(0, record.netSalary - Math.min(activeLoans.reduce((s: number, l: any) => s + Number(l.installmentAmount), 0), record.netSalary)))}</span>
-                    </div>
-                  )}
-                </div>
-              </div>
-            );
-          })()}
-        </DialogContent>
-      </Dialog>
+      <PayrollDetailsDialog
+        record={viewingPayrollRecord}
+        onOpenChange={(open) => { if (!open) setViewingPayrollRecord(null); }}
+        allEmployees={prAllEmployees}
+        earningHeads={earningHeads}
+        deductionHeads={deductionHeads}
+        loanAdvances={loanAdvances}
+        statusColors={statusColors}
+        getEmployeeName={getEmployeeName}
+        formatCurrency={formatCurrency}
+      />
     </div>
   );
 }
