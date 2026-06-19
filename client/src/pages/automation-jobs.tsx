@@ -141,19 +141,22 @@ function JobActions({ job }: { job: AutomationJob }) {
 
   const isPending = cancelMutation.isPending || deleteMutation.isPending;
 
-  if (job.status === "pending") {
+  if (["pending", "running", "paused"].includes(job.status)) {
+    const isLive = job.status === "running" || job.status === "paused";
     return (
       <Button
         size="sm"
         variant="outline"
-        className="h-7 px-2 text-xs border-yellow-300 text-yellow-700 hover:bg-yellow-50 hover:text-yellow-800"
+        className={isLive
+          ? "h-7 px-2 text-xs border-red-300 text-red-700 hover:bg-red-50 hover:text-red-800"
+          : "h-7 px-2 text-xs border-yellow-300 text-yellow-700 hover:bg-yellow-50 hover:text-yellow-800"}
         onClick={() => cancelMutation.mutate(job.id)}
         disabled={isPending}
         data-testid={`button-cancel-job-${job.id}`}
-        title="Cancel this queued job"
+        title={isLive ? "Stop this running job now" : "Cancel this queued job"}
       >
         {cancelMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Ban className="h-3 w-3 mr-1" />}
-        Cancel
+        {isLive ? "Kill" : "Cancel"}
       </Button>
     );
   }

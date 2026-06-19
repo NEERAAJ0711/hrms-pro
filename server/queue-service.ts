@@ -157,6 +157,19 @@ export class QueueService {
   }
 
   /**
+   * Force-cancel a job in ANY non-terminal state (pending, running, or paused).
+   * Used by the "Kill" action so a stuck/long-running job can be stopped on demand
+   * instead of waiting for the 15-minute recovery cron.
+   */
+  async forceCancelJob(id: string): Promise<void> {
+    const now = new Date().toISOString();
+    await db
+      .update(automationJobs)
+      .set({ status: "cancelled", completedAt: now, updatedAt: now })
+      .where(and(eq(automationJobs.id, id), inArray(automationJobs.status, ["pending", "running", "paused"])));
+  }
+
+  /**
    * Cancel ALL pending + paused jobs for a given company whose jobType starts
    * with the portal prefix (e.g. "epfo" cancels all epfo_* jobs).
    * Called before a fresh login test so the queue is clean.

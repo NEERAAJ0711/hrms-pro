@@ -441,11 +441,16 @@ export function registerEpfoEsicRoutes(
         return res.json({ ok: true, deleted: true });
       }
 
-      // Soft cancel — pending → cancelled
-      if (job.status !== "pending") {
-        return res.status(409).json({ error: `Only pending jobs can be cancelled (current: ${job.status})` });
+      // Soft cancel / kill — works for pending, running, AND paused jobs.
+      if (!["pending", "running", "paused"].includes(job.status)) {
+        return res.status(409).json({ error: `Cannot cancel a ${job.status} job` });
       }
-      await queueService.cancelJob(job.id);
+      // Tear down any live browser / paused wait first so the worker records it
+      // as 'cancelled' rather than retrying, then force the DB status to cancelled
+      // (covers pending jobs the worker isn't tracking).
+      const { abortJob } = await import("./automation/queue-worker");
+      await abortJob(job.id);
+      await queueService.forceCancelJob(job.id);
       res.json({ ok: true, cancelled: true });
     } catch (err: any) {
       res.status(500).json({ error: err?.message || "Failed to process job request" });

@@ -61,6 +61,63 @@ const idleSessions = new Map<string, IdleSession>();
 const idleByPortal = new Map<string, string>();
 
 /**
+ * Live browser resources for jobs that are CURRENTLY executing.
+ * Used by abortJob() to tear down a running job's browser on demand so a
+ * "Kill" action takes effect immediately instead of waiting for recovery.
+ */
+interface RunningSession {
+  page: Page;
+  context: BrowserContext;
+  browser: import("playwright").Browser;
+  portal: string;
+}
+const runningSessions = new Map<string, RunningSession>();
+
+/** Job ids the user asked to kill — checked in the catch/finally so the job
+ *  is marked 'cancelled' (not retried) and its browser is fully torn down. */
+const cancelledJobIds = new Set<string>();
+
+/**
+ * Kill a job on demand (called from the cancel/kill API route).
+ * Works whether the job is running or paused:
+ *  - unblocks a paused CAPTCHA/OTP wait,
+ *  - closes the live page so any in-flight Playwright call aborts quickly,
+ *  - marks the job so the worker records it as 'cancelled' rather than retrying.
+ * The processJob finally-block performs the full context/browser teardown.
+ */
+export async function abortJob(jobId: string): Promise<void> {
+  cancelledJobIds.add(jobId);
+
+  // 1. Unblock a paused job waiting on a resume resolver
+  const resolver = resumeResolvers.get(jobId);
+  if (resolver) {
+    resumeResolvers.delete(jobId);
+    try { resolver("__cancelled__"); } catch { /* ignore */ }
+  }
+
+  // 2. Close the live page so the running automation call rejects immediately.
+  //    Context/browser release is left to processJob's finally to avoid double-release.
+  const running = runningSessions.get(jobId);
+  if (running) {
+    try { await running.page.close(); } catch { /* ignore */ }
+  }
+
+  // 3. If this job's session is sitting idle (already completed), tear it down fully.
+  const idle = idleSessions.get(jobId);
+  if (idle) {
+    clearTimeout(idle.timer);
+    idleSessions.delete(jobId);
+    for (const [k, v] of Array.from(idleByPortal.entries())) {
+      if (v === jobId) idleByPortal.delete(k);
+    }
+    activePages.delete(jobId);
+    try { await idle.page.close(); } catch { /* ignore */ }
+    try { await idle.context.close(); } catch { /* ignore */ }
+    browserPool.releaseBrowser(idle.portal, idle.browser);
+  }
+}
+
+/**
  * Kill the idle browser session for a given company+portal.
  * Called before a fresh login so the browser starts clean (no stale cookies/state).
  */
@@ -161,6 +218,13 @@ function buildContext(job: JobRecord, screenshotDir: string): AutomationContext 
 
       // Reclaim the slot now that we are about to resume execution
       activeJobCount++;
+
+      // A killed job unblocks the pause with this sentinel — abort immediately
+      // instead of feeding it to the automation as a CAPTCHA/OTP answer, so no
+      // further form fills or clicks happen on the portal.
+      if (answer === "__cancelled__") {
+        throw new Error("Job cancelled by user");
+      }
       return answer;
     },
   };
@@ -375,7 +439,8 @@ const BROWSER_FREE_JOB_TYPES = new Set(["epfo_bulk_register", "epfo_bulk_ecr", "
 
 // ─── Main job processor ───────────────────────────────────────────────────────
 async function processJob(job: JobRecord): Promise<void> {
-  activeJobCount++;
+  // NOTE: the activeJobCount slot is reserved by tryClaimAndRun() before this
+  // job is claimed; processJob's finally releases it. Do not increment here.
   const screenshotDir = path.join(SCREENSHOT_BASE, job.id);
   ensureDir(screenshotDir);
 
@@ -447,6 +512,14 @@ async function processJob(job: JobRecord): Promise<void> {
     page.on("dialog", dialog => { dialog.dismiss().catch(() => {}); });
     // Register page so the live-screenshot API can capture it
     activePages.set(job.id, page);
+    // Register live browser resources so abortJob() can kill this job on demand
+    if (browser && portal) {
+      runningSessions.set(job.id, { page, context, browser, portal });
+    }
+    // If a kill arrived before the page was ready, honour it now
+    if (cancelledJobIds.has(job.id)) {
+      throw new Error("Job cancelled by user");
+    }
 
     // Build context with page bound for real screenshots
     const baseCtx = buildContext(job, screenshotDir);
@@ -560,6 +633,19 @@ async function processJob(job: JobRecord): Promise<void> {
     jobSucceeded = true;
   } catch (err: unknown) {
     let errorMessage = err instanceof Error ? err.message : String(err);
+
+    // ── User-requested kill ──────────────────────────────────────────────────
+    // If this job was cancelled on demand, record it as 'cancelled' (never retry)
+    // and skip the error translation / back-off logic entirely.
+    if (cancelledJobIds.has(job.id)) {
+      const now = new Date().toISOString();
+      await db.update(automationJobs)
+        .set({ status: "cancelled", completedAt: now, updatedAt: now })
+        .where(eq(automationJobs.id, job.id))
+        .catch(() => {});
+      await queueService.addLog(job.id, job.companyId, "info", "Job cancelled by user").catch(() => {});
+      return; // finally-block handles teardown
+    }
 
     const portal = job.jobType.startsWith("epfo") ? "EPFO" : "ESIC";
 
@@ -676,7 +762,15 @@ async function processJob(job: JobRecord): Promise<void> {
       ).catch(() => {});
     }
   } finally {
-    if (jobSucceeded && page && context && browser && portal) {
+    const wasCancelled = cancelledJobIds.delete(job.id);
+    runningSessions.delete(job.id);
+    if (wasCancelled) {
+      // ── Killed by user — full teardown, never revive an idle session ─────────
+      activePages.delete(job.id);
+      try { await page?.close(); } catch { /* ignore */ }
+      try { await context?.close(); } catch { /* ignore */ }
+      if (browser && portal) browserPool.releaseBrowser(portal, browser);
+    } else if (jobSucceeded && page && context && browser && portal) {
       // ── Keep context alive for reuse by the next job ─────────────────────────
       // activePages entry is kept so live-screenshot keeps serving frames.
       // The secondary idleByPortal index lets the next job find this session.
@@ -741,41 +835,62 @@ async function processJob(job: JobRecord): Promise<void> {
       }
     }
     activeJobCount--;
-    // Login-test jobs complete with a live browser ready — immediately trigger
-    // the next poll so any pre-queued operations run without the 5s delay.
-    if (isLoginTestJob && jobSucceeded) {
-      setImmediate(() => poll().catch(() => {}));
-    }
+    // Drain the queue continuously: after EVERY job finishes (success, failure,
+    // or cancellation) immediately try to claim the next one instead of waiting
+    // the full 5s POLL_INTERVAL. This lets a real multi-step job flow straight
+    // through to completion rather than stalling between steps. We call
+    // tryClaimAndRun (not poll) so we don't spawn an extra recurring timer chain.
+    setImmediate(() => tryClaimAndRun().catch(() => {}));
   }
 }
 
 // ─── Polling loop ─────────────────────────────────────────────────────────────
-async function poll(): Promise<void> {
-  if (activeJobCount < MAX_CONCURRENT) {
-    try {
-      const job = await queueService.claimNextJob();
-      if (job) {
-        // Wrap every job in a hard timeout so a hung Playwright call can never
-        // leave a job stuck in "running" forever.
-        const jobPromise = processJob(job);
-        const timeoutPromise = new Promise<void>((_, reject) =>
-          setTimeout(
-            () => reject(new Error(`Job timed out after ${JOB_TIMEOUT_MS / 1000}s`)),
-            JOB_TIMEOUT_MS
-          )
-        );
-        Promise.race([jobPromise, timeoutPromise]).catch(async (err) => {
-          const msg = err instanceof Error ? err.message : String(err);
-          console.error(`[QueueWorker] Job ${job.id} (${job.jobType}) error: ${msg}`);
-          // Best-effort: mark the job failed if it is still in a running state
-          await queueService.markJobFailed(job.id, msg).catch(() => {});
-        });
-      }
-    } catch (err) {
-      console.error("[QueueWorker] poll error:", err);
+/**
+ * Claim and start at most one job if there is spare capacity.
+ *
+ * The capacity slot is reserved *synchronously* (activeJobCount++) BEFORE the
+ * async claim, so two callers racing here (the recurring poll timer and an
+ * immediate post-job drain) can never both pass the capacity check and
+ * over-claim beyond MAX_CONCURRENT. If nothing is claimed, the reservation is
+ * released; otherwise ownership of the slot passes to processJob's finally.
+ *
+ * This function never re-arms the recurring timer — that is poll()'s job — so
+ * calling it for an immediate drain does not spawn extra polling chains.
+ */
+async function tryClaimAndRun(): Promise<void> {
+  if (activeJobCount >= MAX_CONCURRENT) return;
+  activeJobCount++; // reserve the slot before the async claim
+  let started = false;
+  try {
+    const job = await queueService.claimNextJob();
+    if (job) {
+      started = true; // slot ownership handed off to processJob's finally
+      // Wrap every job in a hard timeout so a hung Playwright call can never
+      // leave a job stuck in "running" forever.
+      const jobPromise = processJob(job);
+      const timeoutPromise = new Promise<void>((_, reject) =>
+        setTimeout(
+          () => reject(new Error(`Job timed out after ${JOB_TIMEOUT_MS / 1000}s`)),
+          JOB_TIMEOUT_MS
+        )
+      );
+      Promise.race([jobPromise, timeoutPromise]).catch(async (err) => {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error(`[QueueWorker] Job ${job.id} (${job.jobType}) error: ${msg}`);
+        // Best-effort: mark the job failed if it is still in a running state
+        await queueService.markJobFailed(job.id, msg).catch(() => {});
+      });
     }
+  } catch (err) {
+    console.error("[QueueWorker] poll error:", err);
+  } finally {
+    if (!started) activeJobCount--; // release the reservation — nothing claimed
   }
+}
 
+/** The single recurring poll chain. Only this re-arms the timer. */
+async function poll(): Promise<void> {
+  await tryClaimAndRun();
   setTimeout(poll, POLL_INTERVAL_MS);
 }
 

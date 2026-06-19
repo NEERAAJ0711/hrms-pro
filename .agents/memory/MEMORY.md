@@ -2,5 +2,6 @@
 - [EPFO/ESIC TS fixes](epfo-esic-ts.md) — patterns that fixed all TS errors in the 1800-line epfo-esic-routes.ts
 - [VPS Playwright system libs](vps-playwright-libs.md) — Ubuntu 24.04 t64 package names needed for Playwright Chromium headless
 - [GitHub push method](github-push.md) — use node -e + git push --force via GITHUB_PERSONAL_ACCESS_TOKEN (not GITHUB_PAT)
+- [Automation queue concurrency](automation-queue-concurrency.md) — one poll timer chain, reserve slot before async claim, abortJob kills running/paused jobs
 - [CLRA wage source of truth](compliance-wage-source.md) — all compliance reports must mirror Adjustment-tab rate logic (grade_min_wage, ss active, no NULLIF)
 - [Company asset uploads](company-asset-uploads.md) — logo/signature: unique filenames (cache), use upload-response company for state, safeUnlink within assets dir
