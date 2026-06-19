@@ -330,7 +330,7 @@ function AssetUploadZone({
   assetType: "logo" | "signature";
   companyId: string;
   icon: React.ElementType;
-  onDone: () => void;
+  onDone: (company?: any) => void;
 }) {
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -346,15 +346,17 @@ function AssetUploadZone({
       formData.append("file", file);
       const res = await fetch(`/api/companies/${companyId}/assets/${assetType}`, {
         method: "POST",
+        credentials: "include",
         body: formData,
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         throw new Error(err.error || "Upload failed");
       }
+      const data = await res.json().catch(() => ({}));
       queryClient.invalidateQueries({ queryKey: ["/api/companies"] });
       toast({ title: `${label} uploaded`, description: "Successfully updated." });
-      onDone();
+      onDone(data.company);
     } catch (err: any) {
       toast({ title: "Upload failed", description: err.message, variant: "destructive" });
     } finally {
@@ -881,8 +883,8 @@ export default function Companies() {
                   assetType="logo"
                   companyId={editingCompany.id}
                   icon={ImageIcon}
-                  onDone={() => {
-                    const fresh = companies.find(c => c.id === editingCompany.id);
+                  onDone={(company) => {
+                    const fresh = company || companies.find(c => c.id === editingCompany.id);
                     if (fresh) setEditingCompany({ ...fresh });
                   }}
                 />
@@ -897,8 +899,8 @@ export default function Companies() {
                   assetType="signature"
                   companyId={editingCompany.id}
                   icon={PenLine}
-                  onDone={() => {
-                    const fresh = companies.find(c => c.id === editingCompany.id);
+                  onDone={(company) => {
+                    const fresh = company || companies.find(c => c.id === editingCompany.id);
                     if (fresh) setEditingCompany({ ...fresh });
                   }}
                 />

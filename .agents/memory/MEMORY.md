@@ -3,3 +3,4 @@
 - [VPS Playwright system libs](vps-playwright-libs.md) — Ubuntu 24.04 t64 package names needed for Playwright Chromium headless
 - [GitHub push method](github-push.md) — use node -e + git push --force via GITHUB_PERSONAL_ACCESS_TOKEN (not GITHUB_PAT)
 - [CLRA wage source of truth](compliance-wage-source.md) — all compliance reports must mirror Adjustment-tab rate logic (grade_min_wage, ss active, no NULLIF)
+- [Company asset uploads](company-asset-uploads.md) — logo/signature: unique filenames (cache), use upload-response company for state, safeUnlink within assets dir

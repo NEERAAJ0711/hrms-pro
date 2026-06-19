@@ -129,13 +129,26 @@ const docUpload = multer({ storage: docStorage, limits: { fileSize: 10 * 1024 * 
 
 const COMPANY_ASSETS_DIR = path.join(process.cwd(), 'uploads', 'company-assets');
 if (!fs.existsSync(COMPANY_ASSETS_DIR)) fs.mkdirSync(COMPANY_ASSETS_DIR, { recursive: true });
+// Best-effort deletion constrained to the company-assets dir (prevents path traversal/injection
+// from a DB-stored asset path being used to unlink arbitrary files).
+function safeUnlinkCompanyAsset(storedPath: string | null | undefined) {
+  if (!storedPath) return;
+  try {
+    const clean = storedPath.split("?")[0];
+    const resolved = path.resolve(process.cwd(), "." + (clean.startsWith("/") ? clean : "/" + clean));
+    const base = path.resolve(COMPANY_ASSETS_DIR);
+    if (resolved !== base && !resolved.startsWith(base + path.sep)) return;
+    if (fs.existsSync(resolved)) fs.unlinkSync(resolved);
+  } catch { /* best-effort cleanup */ }
+}
 const companyAssetStorage = multer.diskStorage({
   destination: (_req, _file, cb) => cb(null, COMPANY_ASSETS_DIR),
   filename: (req, file, cb) => {
     const ext = path.extname(file.originalname);
     const companyId = (req.params as any).id || "unknown";
     const type = (req.params as any).type || "asset";
-    cb(null, `${companyId}-${type}${ext}`);
+    // Unique per upload so a replaced asset gets a new URL (avoids stale browser/proxy cache)
+    cb(null, `${companyId}-${type}-${Date.now()}${ext}`);
   },
 });
 const companyAssetUpload = multer({
@@ -1074,11 +1087,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.status(403).json({ error: "Forbidden" });
         }
         if (!req.file) return res.status(400).json({ error: "No file uploaded or invalid type (jpeg/png/webp/gif only)" });
+        // Remove the previous file (if any) so old assets don't accumulate
+        const prev = await storage.getCompany(id);
+        const oldPath = type === "logo" ? prev?.logo : (prev as any)?.signature;
         const urlPath = `/uploads/company-assets/${req.file.filename}`;
         if (type === "logo") {
           await db.execute(sql`UPDATE companies SET logo = ${urlPath} WHERE id = ${id}`);
         } else {
           await db.execute(sql`UPDATE companies SET signature = ${urlPath} WHERE id = ${id}`);
+        }
+        if (oldPath && oldPath !== urlPath) {
+          safeUnlinkCompanyAsset(oldPath);
         }
         const company = await storage.getCompany(id);
         res.json({ success: true, url: urlPath, company });
@@ -1105,10 +1124,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const company = await storage.getCompany(id);
         if (company) {
           const existing = type === "logo" ? company.logo : (company as any).signature;
-          if (existing) {
-            const filePath = path.join(process.cwd(), existing);
-            if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-          }
+          safeUnlinkCompanyAsset(existing);
         }
         if (type === "logo") {
           await db.execute(sql`UPDATE companies SET logo = NULL WHERE id = ${id}`);
