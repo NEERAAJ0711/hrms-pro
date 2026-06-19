@@ -1,9 +1,8 @@
 import { useState } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ShieldCheck, Activity, CalendarDays, Bot } from "lucide-react";
+import { ShieldCheck, Activity, Bot } from "lucide-react";
 import EpfoPage from "./epfo";
 import EsicPage from "./esic";
-import ComplianceCalendarPage from "./compliance-calendar";
 import AutomationJobsPage from "./automation-jobs";
 
 export default function ComplianceAutomationPage() {
@@ -22,10 +21,6 @@ export default function ComplianceAutomationPage() {
               <Activity className="h-4 w-4" />
               ESIC Automation
             </TabsTrigger>
-            <TabsTrigger value="calendar" className="gap-1.5" data-testid="tab-compliance-calendar">
-              <CalendarDays className="h-4 w-4" />
-              Compliance Calendar
-            </TabsTrigger>
             <TabsTrigger value="jobs" className="gap-1.5" data-testid="tab-compliance-jobs">
               <Bot className="h-4 w-4" />
               Automation Jobs
@@ -38,9 +33,6 @@ export default function ComplianceAutomationPage() {
         </TabsContent>
         <TabsContent value="esic" className="mt-0 p-0 focus-visible:outline-none focus-visible:ring-0">
           <EsicPage />
-        </TabsContent>
-        <TabsContent value="calendar" className="mt-0 p-0 focus-visible:outline-none focus-visible:ring-0">
-          <ComplianceCalendarPage />
         </TabsContent>
         <TabsContent value="jobs" className="mt-0 p-0 focus-visible:outline-none focus-visible:ring-0">
           <AutomationJobsPage />
