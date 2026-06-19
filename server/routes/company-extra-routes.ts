@@ -1,5 +1,6 @@
 // HRMS Pro — API Routes (modularized)
 import type { Express, Request, Response, NextFunction } from "express";
+import { companyService, employeeService } from "../services";
 import { storage } from "../storage";
 import { db } from "../db";
 import {
@@ -39,12 +40,12 @@ export async function registerCompanyExtraRoutes(app: Express): Promise<void> {
   app.patch("/api/companies/:id", requireAuth, requireRole("super_admin", "company_admin"), async (req, res) => {
     try {
       const user = (req as any).user;
-      const existing = await storage.getCompany(req.params.id);
+      const existing = await companyService.getCompany(req.params.id);
       if (!existing) return res.status(404).json({ error: "Company not found" });
       if (user.role !== "super_admin" && existing.id !== user.companyId) {
         return res.status(403).json({ error: "Access denied" });
       }
-      const updated = await storage.updateCompany(req.params.id, req.body);
+      const updated = await companyService.updateCompany(req.params.id, req.body);
       res.json(updated);
     } catch (error) {
       res.status(500).json({ error: "Failed to update company" });
@@ -53,9 +54,9 @@ export async function registerCompanyExtraRoutes(app: Express): Promise<void> {
 
   app.delete("/api/companies/:id", requireAuth, requireRole("super_admin"), async (req, res) => {
     try {
-      const existing = await storage.getCompany(req.params.id);
+      const existing = await companyService.getCompany(req.params.id);
       if (!existing) return res.status(404).json({ error: "Company not found" });
-      const success = await storage.deleteCompany(req.params.id);
+      const success = await companyService.deleteCompany(req.params.id);
       res.json({ success });
     } catch (error) {
       res.status(500).json({ error: "Failed to delete company" });
@@ -65,7 +66,7 @@ export async function registerCompanyExtraRoutes(app: Express): Promise<void> {
   // Company Contractors
   app.get("/api/companies/:id/principal-employers", requireAuth, async (req, res) => {
     try {
-      const employers = await storage.getPrincipalEmployers(req.params.id);
+      const employers = await companyService.getPrincipalEmployers(req.params.id);
       res.json(employers);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch principal employers" });
@@ -74,7 +75,7 @@ export async function registerCompanyExtraRoutes(app: Express): Promise<void> {
 
   app.get("/api/companies/:id/contractors", requireAuth, async (req, res) => {
     try {
-      const contractors = await storage.getCompanyContractors(req.params.id);
+      const contractors = await companyService.getCompanyContractors(req.params.id);
       res.json(contractors);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch contractors" });
@@ -85,7 +86,7 @@ export async function registerCompanyExtraRoutes(app: Express): Promise<void> {
     try {
       const { contractorId, startDate } = req.body;
       if (!contractorId || !startDate) return res.status(400).json({ error: "contractorId and startDate are required" });
-      const record = await storage.addCompanyContractor({ companyId: req.params.id, contractorId, startDate });
+      const record = await companyService.addCompanyContractor({ companyId: req.params.id, contractorId, startDate });
       res.status(201).json(record);
     } catch (error: any) {
       if (String(error?.message || "").includes("unique")) {
@@ -97,7 +98,7 @@ export async function registerCompanyExtraRoutes(app: Express): Promise<void> {
 
   app.delete("/api/companies/:id/contractors/:contractorId", requireAuth, requireRole("super_admin", "company_admin"), async (req, res) => {
     try {
-      const success = await storage.removeCompanyContractor(req.params.id, req.params.contractorId);
+      const success = await companyService.removeCompanyContractor(req.params.id, req.params.contractorId);
       if (!success) return res.status(404).json({ error: "Contractor association not found" });
       res.json({ success: true });
     } catch (error) {
@@ -109,7 +110,7 @@ export async function registerCompanyExtraRoutes(app: Express): Promise<void> {
 
   app.get("/api/companies/:companyId/employees", requireAuth, async (req, res) => {
     try {
-      const emps = await storage.getEmployeesByCompany(req.params.companyId);
+      const emps = await employeeService.getEmployeesByCompany(req.params.companyId);
       res.json(emps);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch employees" });
@@ -118,7 +119,7 @@ export async function registerCompanyExtraRoutes(app: Express): Promise<void> {
 
   app.get("/api/companies/:id/contractors/:contractorId/employees", requireAuth, async (req, res) => {
     try {
-      const tagged = await storage.getContractorEmployees(req.params.id, req.params.contractorId);
+      const tagged = await companyService.getContractorEmployees(req.params.id, req.params.contractorId);
       res.json(tagged);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch contractor employees" });
@@ -132,7 +133,7 @@ export async function registerCompanyExtraRoutes(app: Express): Promise<void> {
       const u = (req as any).user;
       const taggedBy = u ? [u.firstName, u.lastName].filter(Boolean).join(" ").trim() || u.username : null;
       console.log("[tag-employee] companyId=%s contractorId=%s employeeId=%s taggedDate=%s", req.params.id, req.params.contractorId, employeeId, taggedDate);
-      await storage.addContractorEmployee(req.params.id, req.params.contractorId, employeeId, taggedDate, taggedBy);
+      await companyService.addContractorEmployee(req.params.id, req.params.contractorId, employeeId, taggedDate, taggedBy);
       res.status(201).json({ success: true });
     } catch (error: any) {
       if (String(error?.message || "").includes("unique")) {
@@ -145,7 +146,7 @@ export async function registerCompanyExtraRoutes(app: Express): Promise<void> {
 
   app.delete("/api/companies/:id/contractors/:contractorId/employees/:employeeId", requireAuth, requireRole("super_admin", "company_admin"), async (req, res) => {
     try {
-      const success = await storage.removeContractorEmployee(req.params.id, req.params.contractorId, req.params.employeeId);
+      const success = await companyService.removeContractorEmployee(req.params.id, req.params.contractorId, req.params.employeeId);
       if (!success) return res.status(404).json({ error: "Tagged employee not found" });
       res.json({ success: true });
     } catch (error) {

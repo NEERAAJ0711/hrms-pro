@@ -1,3 +1,4 @@
+import { AttendanceRepository } from "../repositories/attendance-repository";
 import {
   type User,
   type InsertUser,
@@ -109,92 +110,70 @@ import {
   compOffApplications,
   outdoorEntries,
 } from "@shared/schema";
-import { eq, and, isNull, desc, sql, count, or } from "drizzle-orm";
-import { db } from "../db";
-import { randomUUID } from "crypto";
 
-// AttendanceRepository — DB access for the Attendance domain (Task #5 Phase B).
-// Methods moved verbatim from the former DatabaseStorage; behavior unchanged.
-export class AttendanceRepository {
+// AttendanceService — business/service layer for the Attendance domain (Task: storage layering).
+// Wraps AttendanceRepository so route handlers depend on a service seam instead of
+// reaching into storage/Drizzle directly. Delegation preserves exact behavior;
+// domain-specific calculation logic can migrate here incrementally.
+export class AttendanceService {
+  constructor(private attendanceRepo = new AttendanceRepository()) {}
+
   async getAttendance(id: string): Promise<Attendance | undefined> {
-    const result = await db.select().from(attendance).where(eq(attendance.id, id));
-    return result[0];
+    return this.attendanceRepo.getAttendance(id);
   }
 
   async getAttendanceByEmployee(employeeId: string, date?: string): Promise<Attendance[]> {
-    if (date) {
-      return await db.select().from(attendance).where(and(eq(attendance.employeeId, employeeId), eq(attendance.date, date)));
-    }
-    return await db.select().from(attendance).where(eq(attendance.employeeId, employeeId));
+    return this.attendanceRepo.getAttendanceByEmployee(employeeId, date);
   }
 
   async getAttendanceByDate(companyId: string, date: string): Promise<Attendance[]> {
-    return await db.select().from(attendance).where(and(eq(attendance.companyId, companyId), eq(attendance.date, date)));
+    return this.attendanceRepo.getAttendanceByDate(companyId, date);
   }
 
   async createAttendance(record: InsertAttendance): Promise<Attendance> {
-    const id = randomUUID();
-    const result = await db.insert(attendance).values({ ...record, id }).returning();
-    return result[0];
+    return this.attendanceRepo.createAttendance(record);
   }
 
   async updateAttendance(id: string, record: Partial<InsertAttendance>): Promise<Attendance | undefined> {
-    const result = await db.update(attendance).set(record).where(eq(attendance.id, id)).returning();
-    return result[0];
+    return this.attendanceRepo.updateAttendance(id, record);
   }
 
   async deleteAttendance(id: string): Promise<boolean> {
-    const result = await db.delete(attendance).where(eq(attendance.id, id)).returning();
-    return result.length > 0;
+    return this.attendanceRepo.deleteAttendance(id);
   }
 
   async getAllAttendance(): Promise<Attendance[]> {
-    return await db.select().from(attendance);
+    return this.attendanceRepo.getAllAttendance();
   }
 
   async getAttendanceByEmployeeAndDate(employeeId: string, date: string): Promise<Attendance | undefined> {
-    const result = await db.select().from(attendance).where(
-      and(eq(attendance.employeeId, employeeId), eq(attendance.date, date))
-    );
-    return result[0];
+    return this.attendanceRepo.getAttendanceByEmployeeAndDate(employeeId, date);
   }
 
   async getOutdoorEntriesByCompany(companyId: string): Promise<any[]> {
-    return await db.select().from(outdoorEntries).where(eq(outdoorEntries.companyId, companyId)).orderBy(desc(outdoorEntries.createdAt));
+    return this.attendanceRepo.getOutdoorEntriesByCompany(companyId);
   }
 
   async getOutdoorEntriesByEmployee(employeeId: string): Promise<any[]> {
-    return await db.select().from(outdoorEntries).where(eq(outdoorEntries.employeeId, employeeId)).orderBy(desc(outdoorEntries.createdAt));
+    return this.attendanceRepo.getOutdoorEntriesByEmployee(employeeId);
   }
 
   async createOutdoorEntry(data: any): Promise<any> {
-    const row = { ...data, id: randomUUID(), createdAt: new Date().toISOString() };
-    const result = await db.insert(outdoorEntries).values(row).returning();
-    return result[0];
+    return this.attendanceRepo.createOutdoorEntry(data);
   }
 
   async updateOutdoorEntry(id: string, data: any): Promise<any> {
-    const result = await db.update(outdoorEntries).set(data).where(eq(outdoorEntries.id, id)).returning();
-    return result[0];
+    return this.attendanceRepo.updateOutdoorEntry(id, data);
   }
 
   async deleteOutdoorEntry(id: string): Promise<boolean> {
-    const result = await db.delete(outdoorEntries).where(eq(outdoorEntries.id, id)).returning();
-    return result.length > 0;
+    return this.attendanceRepo.deleteOutdoorEntry(id);
   }
 
-  // Raw attendance window pull (date/status/ot/clock fields) used by the comp-off
-  // qualifying-dates self-service endpoint. Returns the raw execute result so the
-  // caller's existing `.rows ?? rows` unwrapping behaves identically.
-  async getAttendanceWindowRaw(employeeId: string, cutoffStr: string, todayStr: string) {
-    return await db.execute(sql`
-        SELECT date, status, ot_hours AS "otHours",
-               clock_in AS "clockIn", clock_out AS "clockOut"
-        FROM   attendance
-        WHERE  employee_id = ${employeeId}
-          AND  date >= ${cutoffStr}
-          AND  date <= ${todayStr}
-        ORDER  BY date DESC
-      `);
+  getAttendanceWindowRaw(employeeId: string, cutoffStr: string, todayStr: string) {
+    return this.attendanceRepo.getAttendanceWindowRaw(employeeId, cutoffStr, todayStr);
   }
+
 }
+
+export const attendanceService = new AttendanceService();

@@ -5,6 +5,7 @@
 import {
   type User,
   type InsertUser,
+  type Notification,
   type Company,
   type InsertCompany,
   type Employee,
@@ -418,6 +419,18 @@ export interface IKraStorage {
 // ─── Audit ──────────────────────────────────────────────────────────────────
 export interface IAuditStorage {
   writeAuditLog(entry: { action: string; userId: string; userName: string; details: string }): Promise<void>;
+}
+
+// ─── Notification domain ─────────────────────────────────────────────────────
+// Notification persistence used by the notification routes. Kept as a standalone
+// domain interface (not part of the composite IStorage) because these queries
+// were never on DatabaseStorage; NotificationRepository is the sole implementer.
+export interface INotificationStorage {
+  listForUser(userId: string): Promise<Notification[]>;
+  listUnreadForUser(userId: string): Promise<Notification[]>;
+  markRead(id: string, userId: string): Promise<void>;
+  markAllRead(userId: string): Promise<void>;
+  clearForUser(userId: string): Promise<void>;
 }
 
 // ─── Composite storage interface ────────────────────────────────────────────

@@ -1,5 +1,6 @@
 // HRMS Pro — API Routes (modularized)
 import type { Express, Request, Response, NextFunction } from "express";
+import { companyService, employeeService, settingsService } from "../services";
 import { storage } from "../storage";
 import { db } from "../db";
 import {
@@ -39,7 +40,7 @@ export async function registerEmployeeBulkRoutes(app: Express): Promise<void> {
   app.get("/api/employees/me", requireAuth, async (req, res) => {
     try {
       const user = (req as any).user;
-      const employee = await storage.getEmployeeByUserId(user.id);
+      const employee = await employeeService.getEmployeeByUserId(user.id);
       if (!employee) return res.status(404).json({ error: "No employee record linked to your account" });
       res.json(employee);
     } catch (error) {
@@ -52,9 +53,9 @@ export async function registerEmployeeBulkRoutes(app: Express): Promise<void> {
       const user = (req as any).user;
       let employees;
       if (user.role === "super_admin") {
-        employees = await storage.getAllEmployees();
+        employees = await employeeService.getAllEmployees();
       } else if (user.companyId) {
-        employees = await storage.getEmployeesByCompany(user.companyId);
+        employees = await employeeService.getEmployeesByCompany(user.companyId);
         const allowedEmployeeIds = await getAllowedEmployeeIdsForUser(user);
         if (allowedEmployeeIds !== null) {
           employees = employees.filter((e: any) => allowedEmployeeIds.has(e.id));
@@ -120,7 +121,7 @@ export async function registerEmployeeBulkRoutes(app: Express): Promise<void> {
       const companyId = user.role === "super_admin" ? req.body.companyId : user.companyId;
       if (!companyId) return res.status(400).json({ error: "Company ID is required" });
 
-      const company = await storage.getCompany(companyId);
+      const company = await companyService.getCompany(companyId);
       if (!company) return res.status(400).json({ error: "Invalid company ID" });
 
       const workbook = XLSX.read(file.buffer, { type: "buffer", cellDates: true });
@@ -131,7 +132,7 @@ export async function registerEmployeeBulkRoutes(app: Express): Promise<void> {
       if (rows.length === 0) return res.status(400).json({ error: "Excel file is empty" });
 
       const results = { created: 0, skipped: 0, errors: [] as string[] };
-      const existingEmployees = await storage.getEmployeesByCompany(companyId);
+      const existingEmployees = await employeeService.getEmployeesByCompany(companyId);
 
       for (let i = 0; i < rows.length; i++) {
         const row = rows[i];
@@ -247,7 +248,7 @@ export async function registerEmployeeBulkRoutes(app: Express): Promise<void> {
             status: "active",
           };
 
-          await storage.createEmployee(empData as any);
+          await employeeService.createEmployee(empData as any);
           existingEmployees.push({ ...empData, id: "temp" } as any);
           results.created++;
         } catch (err: any) {
@@ -410,14 +411,14 @@ export async function registerEmployeeBulkRoutes(app: Express): Promise<void> {
       const companyId = user.role === "super_admin" ? String(req.query.companyId || "") : user.companyId;
       if (!companyId) return res.status(400).json({ error: "Company ID is required" });
 
-      const employees = await storage.getEmployeesByCompany(companyId);
+      const employees = await employeeService.getEmployeesByCompany(companyId);
       if (employees.length === 0) return res.status(400).json({ error: "No employees found for this company" });
 
       // Pre-fetch lookup tables if needed
       const needsWageGrade = rawFields.includes("Wage Grade");
       const needsContractor = rawFields.includes("Contractor");
-      const wageGrades = needsWageGrade ? await storage.getWageGradesByCompany(companyId) : [];
-      const contractors = needsContractor ? await storage.getContractorMastersByCompany(companyId) : [];
+      const wageGrades = needsWageGrade ? await settingsService.getWageGradesByCompany(companyId) : [];
+      const contractors = needsContractor ? await companyService.getContractorMastersByCompany(companyId) : [];
       const wageGradeIdToName = new Map(wageGrades.map((g: any) => [g.id, g.name]));
       const contractorIdToName = new Map(contractors.map((c: any) => [c.id, c.contractorName]));
 
@@ -497,14 +498,14 @@ export async function registerEmployeeBulkRoutes(app: Express): Promise<void> {
       const allKeys = Object.keys(rows[0] || {});
       const updateLabels = allKeys.filter(k => k !== "Employee Code" && k !== "Employee Name" && BULK_UPDATE_FIELD_MAP[k]);
 
-      const employees = await storage.getEmployeesByCompany(companyId);
+      const employees = await employeeService.getEmployeesByCompany(companyId);
       const empMap = new Map(employees.map(e => [e.employeeCode.toLowerCase(), e]));
 
       // Pre-fetch name→ID maps for lookup fields if those columns exist in the file
       const hasWageGrade = updateLabels.includes("Wage Grade");
       const hasContractor = updateLabels.includes("Contractor");
-      const wageGradesList = hasWageGrade ? await storage.getWageGradesByCompany(companyId) : [];
-      const contractorsList = hasContractor ? await storage.getContractorMastersByCompany(companyId) : [];
+      const wageGradesList = hasWageGrade ? await settingsService.getWageGradesByCompany(companyId) : [];
+      const contractorsList = hasContractor ? await companyService.getContractorMastersByCompany(companyId) : [];
       const wageGradeNameToId = new Map(wageGradesList.map((g: any) => [g.name.toLowerCase(), g.id]));
       const contractorNameToId = new Map(contractorsList.map((c: any) => [c.contractorName.toLowerCase(), c.id]));
 
@@ -548,7 +549,7 @@ export async function registerEmployeeBulkRoutes(app: Express): Promise<void> {
         if (Object.keys(updates).length === 0) { results.skipped++; continue; }
 
         try {
-          await storage.updateEmployee(emp.id, updates as any);
+          await employeeService.updateEmployee(emp.id, updates as any);
           results.updated++;
         } catch (err: any) {
           results.errors.push(`Row ${rowNum} (${code}): ${err.message}`);

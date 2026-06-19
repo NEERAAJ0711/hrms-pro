@@ -1,1 +1,14 @@
 export { NotificationService, notificationService } from "./notification-service";
+export { AttendanceService, attendanceService } from "./attendance-service";
+export { AuditService, auditService } from "./audit-service";
+export { BiometricService, biometricService } from "./biometric-service";
+export { CompanyService, companyService } from "./company-service";
+export { ComplianceService, complianceService } from "./compliance-service";
+export { DashboardService, dashboardService } from "./dashboard-service";
+export { EmployeeService, employeeService } from "./employee-service";
+export { KraService, kraService } from "./kra-service";
+export { LeaveService, leaveService } from "./leave-service";
+export { PayrollService, payrollService } from "./payroll-service";
+export { RecruitmentService, recruitmentService } from "./recruitment-service";
+export { SettingsService, settingsService } from "./settings-service";
+export { UserService, userService } from "./user-service";

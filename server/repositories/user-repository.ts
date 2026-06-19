@@ -109,7 +109,7 @@ import {
   compOffApplications,
   outdoorEntries,
 } from "@shared/schema";
-import { eq, and, isNull, desc, sql, count, or } from "drizzle-orm";
+import { eq, and, isNull, desc, sql, count, or, inArray } from "drizzle-orm";
 import { db } from "../db";
 import { randomUUID } from "crypto";
 
@@ -237,5 +237,62 @@ export class UserRepository {
       .where(eq(moduleAccessRequests.id, id))
       .returning({ id: moduleAccessRequests.id });
     return result.length > 0;
+  }
+
+  async insertSignupCompany(companyId: string, companyName: string, today: string): Promise<void> {
+    await db.execute(sql`
+      INSERT INTO companies (id, company_name, legal_name, status, trial_start_date, trial_days, trial_extended_days)
+      VALUES (${companyId}, ${companyName}, ${companyName}, 'active', ${today}, 3, 0)
+    `);
+  }
+
+  async insertSignupUser(userId: string, username: string, email: string, password: string, firstName: string, lastName: string, companyId: string): Promise<void> {
+    await db.execute(sql`
+      INSERT INTO users (id, username, email, password, first_name, last_name, role, company_id, status)
+      VALUES (${userId}, ${username}, ${email}, ${password}, ${firstName || ""}, ${lastName || ""}, 'company_admin', ${companyId}, 'active')
+    `);
+  }
+
+  async getAuditLogs(action: string | undefined, limit: number) {
+    return await db.execute(
+      sql`SELECT id, action, user_id, user_name, details, created_at FROM audit_logs ${action ? sql`WHERE action = ${action}` : sql``} ORDER BY created_at DESC LIMIT ${limit}`
+    );
+  }
+
+  async revokeModuleActionPermissions(targetUserId: string, module: string, grantedBy: string): Promise<void> {
+    await db.execute(sql`
+      UPDATE user_permissions
+         SET can_access = false,
+             granted_by = ${grantedBy},
+             updated_at = ${new Date().toISOString()}
+       WHERE user_id = ${targetUserId}
+         AND module LIKE ${module + ':%'}
+         AND can_access = true
+    `);
+  }
+
+  async revokeApprovedModuleRequests(targetUserId: string, module: string, decidedBy: string): Promise<void> {
+    await db.execute(sql`
+      UPDATE module_access_requests
+         SET status = 'revoked',
+             decided_by = ${decidedBy},
+             decided_at = ${new Date().toISOString()}
+       WHERE user_id = ${targetUserId}
+         AND module = ${module}
+         AND status = 'approved'
+    `);
+  }
+
+  async getUserIdByEmail(email: string): Promise<{ id: string }[]> {
+    return await db.select({ id: users.id })
+      .from(users)
+      .where(eq(users.email, email))
+      .limit(1);
+  }
+
+  async getUsersByRoles(roles: string[]): Promise<{ id: string; role: string; companyId: string | null }[]> {
+    return await db.select({ id: users.id, role: users.role, companyId: users.companyId })
+      .from(users)
+      .where(inArray(users.role, roles));
   }
 }

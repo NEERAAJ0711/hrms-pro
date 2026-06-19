@@ -1,46 +1,53 @@
 ---
-name: Storage layering (interfaces / repositories / facade)
-description: How the IStorage god-interface and DatabaseStorage god-class were split into domain interfaces + per-domain repositories with a delegating facade, and the gotchas.
+name: Storage layering (interfaces / repositories / services / facade)
+description: Durable pattern + pitfalls for the layered storage decomposition (domain interfaces, per-domain repositories, per-domain services, delegating facade) used by the HRMS backend.
 ---
 
-# Storage layering pattern (Task #5)
+# Storage layering pattern
 
 The backend storage was one god-interface (`IStorage`) + one god-class
-(`DatabaseStorage`). It was decomposed in layers, all behavior-neutral:
+(`DatabaseStorage`). It is decomposed into behavior-neutral layers:
 
-- **Interfaces**: `server/storage-interfaces.ts` holds 13 per-domain interfaces
-  (IUser/ICompany/IEmployee/IDashboard/IAttendance/ILeave/IPayroll/ISettings/
-  ICompliance/IRecruitment/IBiometric/IKra/IAuditStorage); `IStorage extends` all.
-  `server/storage.ts` re-exports them so existing `import { IStorage } from "./storage"`
-  keeps working. There is NO INotificationStorage — notifications live outside IStorage.
-- **Repositories**: `server/repositories/<domain>-repository.ts` hold the actual
-  Drizzle queries moved verbatim from DatabaseStorage. `DatabaseStorage` is now a
-  thin delegating facade (`this.<domain>Repo.method(...)`). The `storage` singleton
-  surface is unchanged → routes untouched → zero behavior change.
-- **Services**: `server/services/` is the business-logic seam wrapping repositories.
-  Only the Notification slice is fully wired end-to-end so far (route → service →
-  repo → db); other domains' route handlers still call `storage.*` directly.
+- **Interfaces** — per-domain storage interfaces; `IStorage extends` all of them,
+  re-exported from `storage.ts` so existing imports keep working.
+  `INotificationStorage` is **standalone** (NOT part of composite `IStorage`),
+  because notification queries were never on DatabaseStorage.
+- **Repositories** — own ALL Drizzle/`db` access. `DatabaseStorage` is now a thin
+  delegating facade, kept for non-route callers (seed, notification utility).
+- **Services** — the only layer routes may call. Each wraps its repository and
+  delegates. Routes do `validate → service → return`; routes never touch `db`.
 
-**Why facade, not big-bang**: ~30 files import `db` directly and routes are ~7.6k
-lines. Rewiring every handler at once is unsafe. The facade keeps the public surface
-identical while physically relocating queries, so the risky handler-level migration
-can happen incrementally.
+**Why facade + service seam, not a big-bang logic move**: many files import `db`
+directly and routes are thousands of lines. The facade keeps the public surface
+identical while relocating queries; the service seam lets handler logic migrate
+incrementally without changing response shapes.
 
-## Gotchas when mechanically splitting a class by brace-counting
-- `getAllCompOff` exists on DatabaseStorage but is NOT declared in any interface —
-  an extra public method. A name→domain map built from interfaces will miss it; it
-  needs a manual override (mapped to Leave). Do not add it to ILeaveStorage or you
-  change the IStorage surface.
-- Several methods have **inline object types in the return signature**, e.g.
-  `Promise<(CompanyContractor & { contractorName: string })[]>`. A naive "first `{`
-  after the params" finder grabs the brace inside the return type and corrupts the
-  split. The body-open brace must be found with depth-aware scanning over `< ( [ {`
-  (the body `{` is the first one seen at depth 0).
-- Safe preconditions verified before splitting: DatabaseStorage had ZERO `this.`
-  cross-method calls and all method signatures were single-line.
-- `noUnusedLocals` is OFF in this project, so copying the full import header into
-  every repo file is safe (unused imports don't error).
+**Scope boundary**: infra DDL (startup migrations) legitimately uses `db`
+directly — it is not domain data access. A domain that is out of a layering
+task's scope (e.g. billing) may keep direct `db` until its own task; document it
+as drift rather than half-migrating it.
 
-**How to apply**: when migrating more handlers to services, keep `storage.*`/repo
-queries verbatim, preserve exact response shapes, and verify tsc error count stays
-at the 295 baseline plus a clean boot + endpoint smoke test.
+## Pitfalls when mechanically splitting / rewiring
+- **Generated service wrappers must re-import the same `@shared/schema` type
+  block the repos use** — copied method signatures reference those types and
+  won't compile otherwise.
+- **When regex-rewiring `storage.NAME(` → `service.NAME(`, keep the method name**
+  (`inst + "." + name`). Dropping it (replacing the whole `storage.NAME(` with
+  `inst(`) silently produces a flood of "expression is not callable" errors.
+- **Adding a cross-domain service call to a route requires importing that
+  service** — the bulk rewire only imports services a file already referenced, so
+  a hand-added call (e.g. an auth route now calling employeeService) needs the
+  import added manually or you get "Cannot find name".
+- **Extra public methods not declared in any interface** (e.g. a compoff getter)
+  are missed by a name→domain map built from interfaces; map them manually and do
+  NOT add them to the interface (that changes the IStorage surface).
+- **Inline object types in return signatures** (e.g.
+  `Promise<(X & { y: string })[]>`) break a naive "first `{` after params" body
+  finder. Find the body brace with depth-aware scanning over `< ( [ {`.
+- **Preconditions that make a class safe to split**: zero `this.`
+  cross-method calls and single-line method signatures.
+- `noUnusedLocals` is OFF here, so leftover/broad imports don't error.
+
+**How to apply**: keep moved queries verbatim, preserve exact response shapes and
+error handling, and verify the tsc error count stays at/below the established
+baseline plus a clean boot and endpoint smoke test.

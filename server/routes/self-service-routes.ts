@@ -1,5 +1,6 @@
 // HRMS Pro — API Routes (modularized)
 import type { Express, Request, Response, NextFunction } from "express";
+import { attendanceService, employeeService, leaveService, payrollService, settingsService } from "../services";
 import { storage } from "../storage";
 import { db } from "../db";
 import {
@@ -39,9 +40,9 @@ export async function registerSelfServiceRoutes(app: Express): Promise<void> {
   app.get("/api/my-payslips", requireAuth, async (req, res) => {
     try {
       const user = (req as any).user;
-      const employee = await storage.getEmployeeByUserId(user.id);
+      const employee = await employeeService.getEmployeeByUserId(user.id);
       if (!employee) return res.status(404).json({ error: "Employee record not found" });
-      const records = await storage.getPayrollByEmployee(employee.id);
+      const records = await payrollService.getPayrollByEmployee(employee.id);
       res.json(records.filter((p: any) => p.status === "paid" || p.status === "processed"));
     } catch (err) {
       res.status(500).json({ error: "Failed to fetch payslips" });
@@ -54,12 +55,12 @@ export async function registerSelfServiceRoutes(app: Express): Promise<void> {
       const user = (req as any).user;
       const isAdmin = ["super_admin", "company_admin", "hr_admin"].includes(user.role);
       if (isAdmin) {
-        const rows = await storage.getLeaveAdjustmentsByCompany(user.companyId || "");
+        const rows = await leaveService.getLeaveAdjustmentsByCompany(user.companyId || "");
         return res.json(rows);
       }
-      const employee = await storage.getEmployeeByUserId(user.id);
+      const employee = await employeeService.getEmployeeByUserId(user.id);
       if (!employee) return res.json([]);
-      res.json(await storage.getLeaveAdjustmentsByEmployee(employee.id));
+      res.json(await leaveService.getLeaveAdjustmentsByEmployee(employee.id));
     } catch (err) {
       res.status(500).json({ error: "Failed to fetch leave adjustments" });
     }
@@ -68,7 +69,7 @@ export async function registerSelfServiceRoutes(app: Express): Promise<void> {
   app.post("/api/leave-adjustments", requireAuth, requireRole("super_admin", "company_admin", "hr_admin"), requireAction("leave", "configure"), async (req, res) => {
     try {
       const user = (req as any).user;
-      const row = await storage.createLeaveAdjustment({ ...req.body, companyId: req.body.companyId || user.companyId, adjustedBy: String(user.id) });
+      const row = await leaveService.createLeaveAdjustment({ ...req.body, companyId: req.body.companyId || user.companyId, adjustedBy: String(user.id) });
       res.json(row);
     } catch (err) {
       res.status(500).json({ error: "Failed to create leave adjustment" });
@@ -77,7 +78,7 @@ export async function registerSelfServiceRoutes(app: Express): Promise<void> {
 
   app.delete("/api/leave-adjustments/:id", requireAuth, requireRole("super_admin", "company_admin", "hr_admin"), requireAction("leave", "configure"), async (req, res) => {
     try {
-      await storage.deleteLeaveAdjustment(req.params.id);
+      await leaveService.deleteLeaveAdjustment(req.params.id);
       res.json({ success: true });
     } catch (err) {
       res.status(500).json({ error: "Failed to delete" });
@@ -102,7 +103,7 @@ export async function registerSelfServiceRoutes(app: Express): Promise<void> {
       const type = (req.query.type as string) || "weekly_off";
       console.log(`[comp-off/qualifying-dates] user.id=${user.id} role=${user.role} type=${type}`);
 
-      const employee = await storage.getEmployeeByUserId(String(user.id));
+      const employee = await employeeService.getEmployeeByUserId(String(user.id));
       console.log(`[comp-off/qualifying-dates] employee=${employee?.id ?? "NOT FOUND"}`);
       if (!employee) return res.json([]);
 
@@ -114,15 +115,7 @@ export async function registerSelfServiceRoutes(app: Express): Promise<void> {
       const cutoffStr = fmt(cutoffD);
 
       // Pull all attendance for this employee in the 90-day window via raw SQL
-      const rows = await db.execute(sql`
-        SELECT date, status, ot_hours AS "otHours",
-               clock_in AS "clockIn", clock_out AS "clockOut"
-        FROM   attendance
-        WHERE  employee_id = ${employee.id}
-          AND  date >= ${cutoffStr}
-          AND  date <= ${todayStr}
-        ORDER  BY date DESC
-      `);
+      const rows = await attendanceService.getAttendanceWindowRaw(employee.id, cutoffStr, todayStr);
       const attRows = ((rows as any).rows ?? rows) as Array<{
         date: string; status: string; otHours: string | null;
         clockIn: string | null; clockOut: string | null;
@@ -130,13 +123,13 @@ export async function registerSelfServiceRoutes(app: Express): Promise<void> {
       console.log(`[comp-off/qualifying-dates] attRows=${attRows.length} type=${type}`);
 
       // Company holidays for "holiday" type
-      const holidays = await storage.getHolidaysByCompany(employee.companyId);
+      const holidays = await settingsService.getHolidaysByCompany(employee.companyId);
       const holidaySet = new Set(holidays.map((h: any) => h.date as string));
 
       // Employee's weekly-off schedule (lowercase day names: "sunday", "saturday", etc.)
       let weeklyOffDays: Set<string> = new Set(["sunday"]); // safe default
       if (employee.timeOfficePolicyId) {
-        const policy = await storage.getTimeOfficePolicy(employee.timeOfficePolicyId);
+        const policy = await settingsService.getTimeOfficePolicy(employee.timeOfficePolicyId);
         if (policy) {
           weeklyOffDays = new Set();
           if (policy.weeklyOff1) weeklyOffDays.add(String(policy.weeklyOff1).toLowerCase());
@@ -200,7 +193,7 @@ export async function registerSelfServiceRoutes(app: Express): Promise<void> {
 
       // Remove dates that already have a non-rejected comp-off application.
       // Rejected applications should NOT block re-applying for the same date.
-      const existing = await storage.getCompOffByEmployee(employee.id);
+      const existing = await leaveService.getCompOffByEmployee(employee.id);
       const usedDates = new Set(
         existing
           .filter((c: any) => (c.status ?? "").toLowerCase() !== "rejected")
@@ -223,15 +216,15 @@ export async function registerSelfServiceRoutes(app: Express): Promise<void> {
       const isAdmin = ["super_admin", "company_admin", "hr_admin", "manager"].includes(user.role);
       if (isAdmin) {
         if (user.role === "super_admin" && !user.companyId) {
-          const rows = await storage.getAllCompOff();
+          const rows = await leaveService.getAllCompOff();
           return res.json(rows);
         }
-        const rows = await storage.getCompOffByCompany(user.companyId || "");
+        const rows = await leaveService.getCompOffByCompany(user.companyId || "");
         return res.json(rows);
       }
-      const employee = await storage.getEmployeeByUserId(user.id);
+      const employee = await employeeService.getEmployeeByUserId(user.id);
       if (!employee) return res.json([]);
-      res.json(await storage.getCompOffByEmployee(employee.id));
+      res.json(await leaveService.getCompOffByEmployee(employee.id));
     } catch (err) {
       res.status(500).json({ error: "Failed to fetch comp-off applications" });
     }
@@ -244,12 +237,12 @@ export async function registerSelfServiceRoutes(app: Express): Promise<void> {
       let employeeId = req.body.employeeId;
       let companyId = req.body.companyId || user.companyId;
       if (!isAdmin) {
-        const employee = await storage.getEmployeeByUserId(user.id);
+        const employee = await employeeService.getEmployeeByUserId(user.id);
         if (!employee) return res.status(400).json({ error: "No employee record linked" });
         employeeId = employee.id;
         companyId = employee.companyId;
       }
-      const row = await storage.createCompOff({ ...req.body, employeeId, companyId, status: "pending" });
+      const row = await leaveService.createCompOff({ ...req.body, employeeId, companyId, status: "pending" });
       res.json(row);
     } catch (err) {
       console.error("[comp-off POST]", err);
@@ -259,7 +252,7 @@ export async function registerSelfServiceRoutes(app: Express): Promise<void> {
 
   app.patch("/api/comp-off/:id", requireAuth, requireRole("super_admin", "company_admin", "hr_admin", "manager"), async (req, res) => {
     try {
-      const row = await storage.updateCompOff(req.params.id, req.body);
+      const row = await leaveService.updateCompOff(req.params.id, req.body);
       if (!row) return res.status(404).json({ error: "Not found" });
       res.json(row);
     } catch (err) {
@@ -269,7 +262,7 @@ export async function registerSelfServiceRoutes(app: Express): Promise<void> {
 
   app.delete("/api/comp-off/:id", requireAuth, async (req, res) => {
     try {
-      await storage.deleteCompOff(req.params.id);
+      await leaveService.deleteCompOff(req.params.id);
       res.json({ success: true });
     } catch (err) {
       res.status(500).json({ error: "Failed to delete" });
@@ -282,12 +275,12 @@ export async function registerSelfServiceRoutes(app: Express): Promise<void> {
       const user = (req as any).user;
       const isAdmin = ["super_admin", "company_admin", "hr_admin", "manager"].includes(user.role);
       if (isAdmin) {
-        const rows = await storage.getOutdoorEntriesByCompany(user.companyId || "");
+        const rows = await attendanceService.getOutdoorEntriesByCompany(user.companyId || "");
         return res.json(rows);
       }
-      const employee = await storage.getEmployeeByUserId(user.id);
+      const employee = await employeeService.getEmployeeByUserId(user.id);
       if (!employee) return res.json([]);
-      res.json(await storage.getOutdoorEntriesByEmployee(employee.id));
+      res.json(await attendanceService.getOutdoorEntriesByEmployee(employee.id));
     } catch (err) {
       res.status(500).json({ error: "Failed to fetch outdoor entries" });
     }
@@ -300,12 +293,12 @@ export async function registerSelfServiceRoutes(app: Express): Promise<void> {
       let employeeId = req.body.employeeId;
       let companyId = req.body.companyId || user.companyId;
       if (!isAdmin) {
-        const employee = await storage.getEmployeeByUserId(user.id);
+        const employee = await employeeService.getEmployeeByUserId(user.id);
         if (!employee) return res.status(400).json({ error: "No employee record linked" });
         employeeId = employee.id;
         companyId = employee.companyId;
       }
-      const row = await storage.createOutdoorEntry({ ...req.body, employeeId, companyId, status: "pending" });
+      const row = await attendanceService.createOutdoorEntry({ ...req.body, employeeId, companyId, status: "pending" });
       res.json(row);
     } catch (err) {
       res.status(500).json({ error: "Failed to create outdoor entry" });
@@ -314,7 +307,7 @@ export async function registerSelfServiceRoutes(app: Express): Promise<void> {
 
   app.patch("/api/outdoor-entries/:id", requireAuth, requireRole("super_admin", "company_admin", "hr_admin", "manager"), async (req, res) => {
     try {
-      const row = await storage.updateOutdoorEntry(req.params.id, req.body);
+      const row = await attendanceService.updateOutdoorEntry(req.params.id, req.body);
       if (!row) return res.status(404).json({ error: "Not found" });
       res.json(row);
     } catch (err) {
@@ -324,7 +317,7 @@ export async function registerSelfServiceRoutes(app: Express): Promise<void> {
 
   app.delete("/api/outdoor-entries/:id", requireAuth, async (req, res) => {
     try {
-      await storage.deleteOutdoorEntry(req.params.id);
+      await attendanceService.deleteOutdoorEntry(req.params.id);
       res.json({ success: true });
     } catch (err) {
       res.status(500).json({ error: "Failed to delete outdoor entry" });

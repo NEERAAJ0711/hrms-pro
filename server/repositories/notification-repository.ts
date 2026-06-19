@@ -1,11 +1,12 @@
 import { db } from "../db";
 import { notifications } from "@shared/schema";
 import { eq, and, desc } from "drizzle-orm";
+import type { INotificationStorage } from "../storage-interfaces";
 
-// NotificationRepository — DB access for the Notification domain (Task #5 Phase C).
+// NotificationRepository — DB access for the Notification domain.
 // These notification queries previously lived inline in the route handlers and
 // accessed `db` directly; they are moved here verbatim with behavior unchanged.
-export class NotificationRepository {
+export class NotificationRepository implements INotificationStorage {
   async listForUser(userId: string) {
     return await db
       .select()

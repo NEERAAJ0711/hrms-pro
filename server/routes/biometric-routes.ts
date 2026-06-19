@@ -1,7 +1,7 @@
 // HRMS Pro — API Routes (modularized)
 import type { Express, Request, Response, NextFunction } from "express";
+import { biometricService, employeeService } from "../services";
 import { storage } from "../storage";
-import { db } from "../db";
 import {
   notifications, profileUpdateRequests, users as usersTable,
   contractorEmployees as contractorEmployeesTable, employees,
@@ -41,9 +41,9 @@ export async function registerBiometricRoutes(app: Express): Promise<void> {
       const user = (req as any).user;
       let devices;
       if (user.role === "super_admin") {
-        devices = await storage.getAllBiometricDevices();
+        devices = await biometricService.getAllBiometricDevices();
       } else if (user.companyId) {
-        devices = await storage.getBiometricDevicesByCompany(user.companyId);
+        devices = await biometricService.getBiometricDevicesByCompany(user.companyId);
       } else {
         devices = [];
       }
@@ -76,7 +76,7 @@ export async function registerBiometricRoutes(app: Express): Promise<void> {
       if (authError) {
         return res.status(400).json({ error: authError });
       }
-      const device = await storage.createBiometricDevice(data);
+      const device = await biometricService.createBiometricDevice(data);
       res.status(201).json(device);
     } catch (error: any) {
       if (error?.code === "23505" && error?.constraint?.includes("device_serial_unique")) {
@@ -92,7 +92,7 @@ export async function registerBiometricRoutes(app: Express): Promise<void> {
   app.patch("/api/biometric/devices/:id", requireAuth, requireRole("super_admin", "company_admin"), async (req, res) => {
     try {
       const user = (req as any).user;
-      const device = await storage.getBiometricDevice(req.params.id);
+      const device = await biometricService.getBiometricDevice(req.params.id);
       if (!device) return res.status(404).json({ error: "Device not found" });
       if (user.role !== "super_admin" && device.companyId !== user.companyId) {
         return res.status(403).json({ error: "Access denied. You can only edit devices that belong to your company." });
@@ -130,7 +130,7 @@ export async function registerBiometricRoutes(app: Express): Promise<void> {
         return res.status(400).json({ error: authError });
       }
 
-      const updated = await storage.updateBiometricDevice(req.params.id, patch as any);
+      const updated = await biometricService.updateBiometricDevice(req.params.id, patch as any);
       if (!updated) return res.status(404).json({ error: "Device not found" });
       res.json(updated);
     } catch (error: any) {
@@ -142,13 +142,13 @@ export async function registerBiometricRoutes(app: Express): Promise<void> {
   app.delete("/api/biometric/devices/:id", requireAuth, requireRole("super_admin", "company_admin"), async (req, res) => {
     try {
       const user = (req as any).user;
-      const device = await storage.getBiometricDevice(req.params.id);
+      const device = await biometricService.getBiometricDevice(req.params.id);
       if (!device) return res.status(404).json({ message: "Device not found" });
       // Only super_admin can remove shared devices or devices in another company
       if (user.role !== "super_admin" && device.companyId !== user.companyId) {
         return res.status(403).json({ error: "Access denied. You can only delete devices that belong to your company." });
       }
-      const ok = await storage.deleteBiometricDevice(req.params.id);
+      const ok = await biometricService.deleteBiometricDevice(req.params.id);
       if (!ok) return res.status(404).json({ message: "Device not found" });
       res.json({ success: true });
     } catch (error: any) {
@@ -163,7 +163,7 @@ export async function registerBiometricRoutes(app: Express): Promise<void> {
   app.get("/api/biometric/devices/:id/users", requireAuth, requireRole("super_admin", "company_admin"), async (req, res) => {
     try {
       const user = (req as any).user;
-      const device = await storage.getBiometricDevice(req.params.id);
+      const device = await biometricService.getBiometricDevice(req.params.id);
       if (!device) return res.status(404).json({ error: "Device not found" });
       if (user.role !== "super_admin" && device.companyId && device.companyId !== user.companyId) {
         return res.status(403).json({ error: "Access denied. You can only view devices that belong to your company." });
@@ -174,64 +174,7 @@ export async function registerBiometricRoutes(app: Express): Promise<void> {
       //   2. biometric_punch_logs   — anyone who has punched here, in case
       //      a USERINFO push was missed or the firmware doesn't send one.
       // Then we LEFT JOIN employees to attach the matched HR employee.
-      const rows = await db.execute(sql`
-        WITH pin_union AS (
-          SELECT device_employee_id FROM biometric_device_users
-            WHERE device_id = ${req.params.id}
-          UNION
-          SELECT DISTINCT device_employee_id FROM biometric_punch_logs
-            WHERE device_id = ${req.params.id}
-        ),
-        punch_agg AS (
-          SELECT
-            device_employee_id,
-            COUNT(*)::int                              AS punch_count,
-            MAX(punch_date || ' ' || punch_time)       AS last_punch_at,
-            MAX(employee_id)                           AS employee_id
-          FROM biometric_punch_logs
-          WHERE device_id = ${req.params.id}
-          GROUP BY device_employee_id
-        )
-        SELECT
-          p.device_employee_id                         AS device_employee_id,
-          du.name                                      AS device_name,
-          du.privilege                                 AS device_privilege,
-          du.card                                      AS device_card,
-          du.last_seen_at                              AS enrolled_last_seen_at,
-          (du.device_employee_id IS NOT NULL)          AS enrolled,
-          pa.punch_count                               AS punch_count,
-          pa.last_punch_at                             AS last_punch_at,
-          COALESCE(emap.id, pa.employee_id)            AS employee_id,
-          COALESCE(emap.first_name, e.first_name)      AS first_name,
-          COALESCE(emap.last_name,  e.last_name)       AS last_name,
-          COALESCE(emap.employee_code, e.employee_code)   AS hr_employee_code,
-          COALESCE(emap.official_email, e.official_email) AS email,
-          COALESCE(emap.registered_face_image, e.registered_face_image) AS face_image,
-          COALESCE(emap.designation, e.designation) AS designation,
-          COALESCE(emap.department, e.department) AS department,
-          ecode.id                                                     AS code_matched_employee_id,
-          ecode.first_name                                             AS code_matched_first_name,
-          ecode.last_name                                              AS code_matched_last_name
-        FROM pin_union p
-        LEFT JOIN biometric_device_users du
-          ON du.device_id = ${req.params.id}
-         AND du.device_employee_id = p.device_employee_id
-        LEFT JOIN punch_agg pa
-          ON pa.device_employee_id = p.device_employee_id
-        LEFT JOIN employees emap
-          ON emap.biometric_device_id = p.device_employee_id
-        LEFT JOIN employees e
-          ON e.id = pa.employee_id
-        -- Fallback: match by employee_code = device PIN (common ZKTeco deployment
-        -- where the operator uses the employee code as the device PIN)
-        LEFT JOIN employees ecode
-          ON ecode.employee_code = p.device_employee_id
-         AND ecode.company_id   = ${device.companyId ?? null}
-        ORDER BY (du.device_employee_id IS NOT NULL) DESC,
-                 pa.last_punch_at DESC NULLS LAST,
-                 p.device_employee_id ASC
-        LIMIT 2000
-      `);
+      const rows = await biometricService.getDeviceUsersRoster(req.params.id as string, device.companyId ?? null);
       const users = (rows.rows as any[]).map((r) => ({
         deviceEmployeeId: r.device_employee_id,
         employeeId: r.employee_id || null,
@@ -274,16 +217,16 @@ export async function registerBiometricRoutes(app: Express): Promise<void> {
   // Delete ALL punch logs and reset ATTLOGStamp so every device re-uploads everything.
   app.post("/api/biometric/clear-and-resync", requireAuth, requireRole("super_admin"), async (req, res) => {
     try {
-      const result = await db.execute(sql.raw(`DELETE FROM biometric_punch_logs`));
+      const result = await biometricService.deleteAllPunchLogs();
       const deleted = (result as any)?.rowCount ?? 0;
 
       // Reset ATTLOGStamp to 0 on every device so the next GET /iclock/cdata
       // response includes ATTLOGStamp=0, telling the SpeedFace-V5L to re-push
       // its entire stored attendance log. No extra getrequest commands needed —
       // the stamp in the registration response IS the trigger.
-      const devices = await storage.getAllBiometricDevices();
+      const devices = await biometricService.getAllBiometricDevices();
       for (const dev of devices) {
-        await storage.updateBiometricDevice(dev.id, { lastAttlogStamp: 0 } as any);
+        await biometricService.updateBiometricDevice(dev.id, { lastAttlogStamp: 0 } as any);
       }
 
       res.json({
@@ -310,18 +253,7 @@ export async function registerBiometricRoutes(app: Express): Promise<void> {
       const absMin = Math.abs(offsetMinutes);
       const intervalSql = `${absMin} minutes`;
 
-      const result = await db.execute(sql.raw(`
-        UPDATE biometric_punch_logs
-        SET
-          punch_time = to_char(
-            (to_timestamp(punch_date || ' ' || punch_time, 'YYYY-MM-DD HH24:MI') ${sign} interval '${intervalSql}'),
-            'HH24:MI'
-          ),
-          punch_date = to_char(
-            (to_timestamp(punch_date || ' ' || punch_time, 'YYYY-MM-DD HH24:MI') ${sign} interval '${intervalSql}'),
-            'YYYY-MM-DD'
-          )
-      `));
+      const result = await biometricService.correctPunchTimezone(sign, intervalSql);
 
       const updated = (result as any)?.rowCount ?? 0;
       res.json({ success: true, updated, message: `Shifted ${updated} punch records by ${offsetMinutes} minutes.` });
@@ -339,7 +271,7 @@ export async function registerBiometricRoutes(app: Express): Promise<void> {
   app.post("/api/biometric/devices/:id/sync-users", requireAuth, requireRole("super_admin", "company_admin"), async (req, res) => {
     try {
       const user = (req as any).user;
-      const device = await storage.getBiometricDevice(req.params.id);
+      const device = await biometricService.getBiometricDevice(req.params.id);
       if (!device) return res.status(404).json({ error: "Device not found" });
       if (user.role !== "super_admin" && device.companyId && device.companyId !== user.companyId) {
         return res.status(403).json({ error: "Access denied" });
@@ -356,8 +288,8 @@ export async function registerBiometricRoutes(app: Express): Promise<void> {
       //    keyboard, the device stores empty names. We push the HRMS name so it gets stored.
       const companyId = device.companyId;
       const allEmps = companyId
-        ? await storage.getEmployeesByCompany(companyId)
-        : await storage.getAllEmployees();
+        ? await employeeService.getEmployeesByCompany(companyId)
+        : await employeeService.getAllEmployees();
       const mappedEmps = (allEmps as any[]).filter(
         (e: any) => e.biometricDeviceId && (e.firstName || e.lastName)
       );
@@ -378,13 +310,7 @@ export async function registerBiometricRoutes(app: Express): Promise<void> {
           const fullName = [(emp as any).firstName, (emp as any).lastName].filter(Boolean).join(" ").trim();
           if (!fullName) continue;
           try {
-            const r = await db.execute(sql`
-              UPDATE biometric_device_users
-              SET name = ${fullName}
-              WHERE device_id = ${device.id}
-                AND device_employee_id = ${pin}
-                AND (name IS NULL OR name = '')
-            `);
+            const r = await biometricService.updateDeviceUserName(device.id, pin, fullName);
             if ((r.rowCount ?? 0) > 0) dbUpdated++;
           } catch { /* best-effort */ }
         }
@@ -413,7 +339,7 @@ export async function registerBiometricRoutes(app: Express): Promise<void> {
   app.delete("/api/biometric/devices/:id/users/:pin", requireAuth, requireRole("super_admin", "company_admin"), async (req, res) => {
     try {
       const user = (req as any).user;
-      const device = await storage.getBiometricDevice(req.params.id);
+      const device = await biometricService.getBiometricDevice(req.params.id);
       if (!device) return res.status(404).json({ error: "Device not found" });
       if (user.role !== "super_admin" && device.companyId && device.companyId !== user.companyId) {
         return res.status(403).json({ error: "Access denied" });
@@ -426,10 +352,7 @@ export async function registerBiometricRoutes(app: Express): Promise<void> {
       await enqueueDeviceCommand(device.id, `DATA DELETE USERINFO PIN=${pin}`);
 
       // 2. Remove from local biometric_device_users (punch logs remain)
-      await db.execute(sql`
-        DELETE FROM biometric_device_users
-        WHERE device_id = ${device.id} AND device_employee_id = ${pin}
-      `);
+      await biometricService.deleteDeviceUser(device.id, pin);
 
       console.log(`[biometric/remove-user] PIN=${pin} deleted from device ${device.deviceSerial} and local DB`);
       res.json({
@@ -448,12 +371,12 @@ export async function registerBiometricRoutes(app: Express): Promise<void> {
   app.post("/api/biometric/devices/:id/reset-stamp", requireAuth, requireRole("super_admin", "company_admin"), async (req, res) => {
     try {
       const user = (req as any).user;
-      const device = await storage.getBiometricDevice(req.params.id);
+      const device = await biometricService.getBiometricDevice(req.params.id);
       if (!device) return res.status(404).json({ error: "Device not found" });
       if (user.role !== "super_admin" && device.companyId && device.companyId !== user.companyId) {
         return res.status(403).json({ error: "Access denied" });
       }
-      await storage.updateBiometricDevice(device.id, { lastAttlogStamp: 0 } as any);
+      await biometricService.updateBiometricDevice(device.id, { lastAttlogStamp: 0 } as any);
       // Bust the in-memory device cache so the NEXT getrequest poll reads
       // lastAttlogStamp=0 from the DB instead of the stale cached value.
       // Without this the device keeps receiving DATA UPDATE ATTLOG Stamp=<old>
@@ -521,14 +444,14 @@ export async function registerBiometricRoutes(app: Express): Promise<void> {
       // Resolve device — required for associating records
       let device: any = null;
       if (deviceId) {
-        device = await storage.getBiometricDevice(deviceId);
+        device = await biometricService.getBiometricDevice(deviceId);
         if (!device) return res.status(404).json({ error: "Device not found." });
         if (user.role !== "super_admin" && device.companyId && device.companyId !== user.companyId) {
           return res.status(403).json({ error: "Access denied." });
         }
       } else {
         // Pick first device for this user's company
-        const allDevices = await storage.getAllBiometricDevices();
+        const allDevices = await biometricService.getAllBiometricDevices();
         const myDevices = user.role === "super_admin"
           ? allDevices
           : allDevices.filter((d: any) => d.companyId === user.companyId);
@@ -564,13 +487,13 @@ export async function registerBiometricRoutes(app: Express): Promise<void> {
 
       let device: any = null;
       if (deviceId) {
-        device = await storage.getBiometricDevice(deviceId);
+        device = await biometricService.getBiometricDevice(deviceId);
         if (!device) return res.status(404).json({ error: "Device not found." });
         if (user.role !== "super_admin" && device.companyId && device.companyId !== user.companyId) {
           return res.status(403).json({ error: "Access denied." });
         }
       } else {
-        const allDevices = await storage.getAllBiometricDevices();
+        const allDevices = await biometricService.getAllBiometricDevices();
         const myDevices = user.role === "super_admin"
           ? allDevices
           : allDevices.filter((d: any) => d.companyId === user.companyId);
@@ -604,14 +527,14 @@ export async function registerBiometricRoutes(app: Express): Promise<void> {
       }
 
       // Verify employee belongs to the user's company
-      const employee = await storage.getEmployee(employeeId);
+      const employee = await employeeService.getEmployee(employeeId);
       if (!employee) return res.status(404).json({ error: "Employee not found." });
       if (user.role !== "super_admin" && employee.companyId !== user.companyId) {
         return res.status(403).json({ error: "Access denied." });
       }
 
       // Check if another employee already has this PIN in the same company
-      const allEmps = await storage.getEmployeesByCompany(employee.companyId);
+      const allEmps = await employeeService.getEmployeesByCompany(employee.companyId);
       const conflict = allEmps.find((e: any) => e.biometricDeviceId === String(devicePin) && e.id !== employeeId);
       if (conflict) {
         return res.status(409).json({
@@ -620,7 +543,7 @@ export async function registerBiometricRoutes(app: Express): Promise<void> {
       }
 
       // Update the employee's biometric device PIN
-      await storage.updateEmployee(employeeId, { biometricDeviceId: String(devicePin) });
+      await employeeService.updateEmployee(employeeId, { biometricDeviceId: String(devicePin) });
 
       // Retroactively link existing punch logs for this PIN.
       // Filter by device_id (not company_id) so that contractor employees who punch
@@ -631,14 +554,7 @@ export async function registerBiometricRoutes(app: Express): Promise<void> {
       const deviceClause = deviceId
         ? sql`AND device_id = ${deviceId}`
         : sql`AND company_id = ${employee.companyId}`;
-      const updated = await db.execute(sql`
-        UPDATE biometric_punch_logs
-        SET employee_id = ${employeeId},
-            company_id  = ${employee.companyId}
-        WHERE device_employee_id = ${String(devicePin)}
-          ${deviceClause}
-          AND (employee_id IS NULL OR employee_id != ${employeeId})
-      `);
+      const updated = await biometricService.linkPunchLogsToEmployee(employeeId, employee.companyId, String(devicePin), deviceClause);
 
       const linkedCount = (updated as any)?.rowCount ?? 0;
 
@@ -686,47 +602,7 @@ export async function registerBiometricRoutes(app: Express): Promise<void> {
         ? sql`AND bpl.punch_date = ${date as string}`
         : sql``;
 
-      const rows = await db.execute(sql`
-        SELECT
-          bpl.id,
-          bpl.company_id          AS "companyId",
-          bpl.employee_id         AS "employeeId",
-          bpl.device_employee_id  AS "deviceEmployeeId",
-          bpl.punch_date          AS "punchDate",
-          bpl.punch_time          AS "punchTime",
-          bpl.punch_type          AS "punchType",
-          bpl.punch_type_override AS "punchTypeOverride",
-          bpl.device_id           AS "deviceId",
-          bpl.is_processed        AS "isProcessed",
-          bpl.is_duplicate        AS "isDuplicate",
-          bpl.missing_punch       AS "missingPunch",
-          bpl.synced_at           AS "syncedAt",
-          bpl.created_at          AS "createdAt",
-          -- Resolved employee (mapped, or matched by biometricDeviceId/employeeCode)
-          COALESCE(e1.id,         e2.id,         e3.id)         AS "resolvedEmployeeId",
-          COALESCE(e1.first_name, e2.first_name, e3.first_name) AS "resolvedFirstName",
-          COALESCE(e1.last_name,  e2.last_name,  e3.last_name)  AS "resolvedLastName",
-          COALESCE(e1.employee_code, e2.employee_code, e3.employee_code) AS "resolvedEmployeeCode",
-          -- Device-provided name (from USERINFO) as final fallback
-          bdu.name AS "deviceName"
-        FROM biometric_punch_logs bpl
-        LEFT JOIN employees e1
-          ON e1.id = bpl.employee_id
-        LEFT JOIN employees e2
-          ON e2.biometric_device_id = bpl.device_employee_id
-         AND e2.company_id = bpl.company_id
-        LEFT JOIN employees e3
-          ON e3.employee_code = bpl.device_employee_id
-         AND e3.company_id = bpl.company_id
-        LEFT JOIN biometric_device_users bdu
-          ON bdu.device_id = bpl.device_id
-         AND bdu.device_employee_id = bpl.device_employee_id
-        WHERE TRUE
-          ${companyFilter}
-          ${dateFilter}
-        ORDER BY bpl.punch_date DESC, bpl.punch_time DESC
-        LIMIT 5000
-      `);
+      const rows = await biometricService.getEnrichedPunchLogs(companyFilter, dateFilter);
 
       const enriched = (rows.rows as any[]).map((r) => ({
         id:               r.id,
@@ -775,23 +651,13 @@ export async function registerBiometricRoutes(app: Express): Promise<void> {
         : sql``;
 
       // 1. Mark this specific log as manually overridden & set its type
-      const result = await db.execute(sql`
-        UPDATE biometric_punch_logs
-        SET punch_type          = ${punchType},
-            punch_type_override = true,
-            is_processed        = false,
-            synced_at           = NULL
-        WHERE id = ${id}
-          ${companyClause}
-      `);
+      const result = await biometricService.overridePunchType(id, punchType, companyClause);
       if ((result as any)?.rowCount === 0) {
         return res.status(404).json({ error: "Log not found" });
       }
 
       // 2. Fetch employee_id + punch_date + company_id for this log
-      const logRow = await db.execute<{
-        employee_id: string; punch_date: string; company_id: string;
-      }>(sql`SELECT employee_id, punch_date, company_id FROM biometric_punch_logs WHERE id = ${id}`);
+      const logRow = await biometricService.getPunchLogClassificationData(id);
       const logData = (logRow as any)?.rows?.[0];
 
       if (logData?.employee_id && logData?.punch_date) {

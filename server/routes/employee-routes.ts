@@ -1,5 +1,6 @@
 // HRMS Pro — API Routes (modularized)
 import type { Express, Request, Response, NextFunction } from "express";
+import { auditService, employeeService, recruitmentService, userService } from "../services";
 import { storage } from "../storage";
 import { db } from "../db";
 import {
@@ -37,7 +38,7 @@ import {
 
 export async function registerEmployeeRoutes(app: Express): Promise<void> {
   async function validateEmployeeDuplicates(data: any, companyId: string, excludeId?: string): Promise<string | null> {
-    const allEmployees = await storage.getEmployeesByCompany(companyId);
+    const allEmployees = await employeeService.getEmployeesByCompany(companyId);
     const others = excludeId ? allEmployees.filter(e => e.id !== excludeId) : allEmployees;
 
     if (data.employeeCode) {
@@ -90,7 +91,7 @@ export async function registerEmployeeRoutes(app: Express): Promise<void> {
         const dupError = await validateEmployeeDuplicates(data, companyId);
         if (dupError) return res.status(400).json({ error: dupError });
       }
-      const employee = await storage.createEmployee(data);
+      const employee = await employeeService.createEmployee(data);
       res.status(201).json(employee);
     } catch (error: any) {
       res.status(400).json({ error: error?.message || "Failed to create employee" });
@@ -103,7 +104,7 @@ export async function registerEmployeeRoutes(app: Express): Promise<void> {
       const companyId = (req.query.companyId as string) || user.companyId;
       if (!companyId) return res.json({ nextCode: "" });
 
-      const employees = await storage.getEmployeesByCompany(companyId);
+      const employees = await employeeService.getEmployeesByCompany(companyId);
       if (employees.length === 0) return res.json({ nextCode: "" });
 
       const prefixGroups: Record<string, { maxNum: number; padLen: number; code: string }> = {};
@@ -140,7 +141,7 @@ export async function registerEmployeeRoutes(app: Express): Promise<void> {
   app.get("/api/employees/:id", requireAuth, async (req, res) => {
     try {
       const user = (req as any).user;
-      const employee = await storage.getEmployee(req.params.id);
+      const employee = await employeeService.getEmployee(req.params.id);
       if (!employee) return res.status(404).json({ error: "Employee not found" });
       if (user.role !== "super_admin" && employee.companyId !== user.companyId) {
         return res.status(403).json({ error: "Access denied" });
@@ -154,14 +155,14 @@ export async function registerEmployeeRoutes(app: Express): Promise<void> {
   app.patch("/api/employees/:id", requireAuth, requireAction("employees", "edit"), async (req, res) => {
     try {
       const user = (req as any).user;
-      const existing = await storage.getEmployee(req.params.id);
+      const existing = await employeeService.getEmployee(req.params.id);
       if (!existing) return res.status(404).json({ error: "Employee not found" });
       if (user.role !== "super_admin" && existing.companyId !== user.companyId) {
         return res.status(403).json({ error: "Access denied" });
       }
       const dupError = await validateEmployeeDuplicates(req.body, existing.companyId, req.params.id);
       if (dupError) return res.status(400).json({ error: dupError });
-      const updated = await storage.updateEmployee(req.params.id, req.body);
+      const updated = await employeeService.updateEmployee(req.params.id, req.body);
 
       // If the biometric device ID changed, retroactively link all existing punch logs
       // for that PIN so historical attendance immediately appears under this employee.
@@ -169,13 +170,7 @@ export async function registerEmployeeRoutes(app: Express): Promise<void> {
       const oldPin = existing.biometricDeviceId ? String(existing.biometricDeviceId) : null;
       if (newPin && newPin !== oldPin) {
         try {
-          await db.execute(sql`
-            UPDATE biometric_punch_logs
-            SET employee_id = ${req.params.id}
-            WHERE device_employee_id = ${newPin}
-              AND company_id = ${existing.companyId}
-              AND employee_id IS NULL
-          `);
+          await employeeService.linkPunchLogsToEmployee(req.params.id, newPin, existing.companyId);
         } catch { /* best-effort — don't block the employee update */ }
       }
 
@@ -188,14 +183,14 @@ export async function registerEmployeeRoutes(app: Express): Promise<void> {
   app.delete("/api/employees/:id", requireAuth, requireAction("employees", "delete"), async (req, res) => {
     try {
       const user = (req as any).user;
-      const existing = await storage.getEmployee(req.params.id);
+      const existing = await employeeService.getEmployee(req.params.id);
       if (!existing) return res.status(404).json({ error: "Employee not found" });
       if (user.role !== "super_admin" && existing.companyId !== user.companyId) {
         return res.status(403).json({ error: "Access denied" });
       }
       console.log(`[AUDIT] EMPLOYEE_DELETE | user=${user.username || user.email} (id=${user.id}, role=${user.role}) | empId=${existing.id} | code=${existing.employeeCode} | name=${existing.firstName} ${existing.lastName} | companyId=${existing.companyId} | at=${new Date().toISOString()} | ip=${req.ip}`);
-      await storage.writeAuditLog({ action: "EMPLOYEE_DELETE", userId: user.id, userName: user.username || user.email || "", details: JSON.stringify({ empId: existing.id, employeeCode: existing.employeeCode, name: `${existing.firstName} ${existing.lastName}`, companyId: existing.companyId }) });
-      const success = await storage.deleteEmployee(req.params.id);
+      await auditService.writeAuditLog({ action: "EMPLOYEE_DELETE", userId: user.id, userName: user.username || user.email || "", details: JSON.stringify({ empId: existing.id, employeeCode: existing.employeeCode, name: `${existing.firstName} ${existing.lastName}`, companyId: existing.companyId }) });
+      const success = await employeeService.deleteEmployee(req.params.id);
       res.json({ success });
     } catch (error) {
       res.status(500).json({ error: "Failed to delete employee" });
@@ -206,13 +201,13 @@ export async function registerEmployeeRoutes(app: Express): Promise<void> {
   app.post("/api/employees/:id/exit", requireAuth, requireAction("employees", "edit"), async (req, res) => {
     try {
       const user = (req as any).user;
-      const existing = await storage.getEmployee(req.params.id);
+      const existing = await employeeService.getEmployee(req.params.id);
       if (!existing) return res.status(404).json({ error: "Employee not found" });
       if (user.role !== "super_admin" && existing.companyId !== user.companyId) {
         return res.status(403).json({ error: "Access denied" });
       }
       const { exitDate, exitType, exitReason } = req.body;
-      const updated = await storage.updateEmployee(req.params.id, {
+      const updated = await employeeService.updateEmployee(req.params.id, {
         status: "inactive",
         exitDate,
         exitType,
@@ -227,12 +222,12 @@ export async function registerEmployeeRoutes(app: Express): Promise<void> {
   app.post("/api/employees/:id/reinstate", requireAuth, requireAction("employees", "edit"), async (req, res) => {
     try {
       const user = (req as any).user;
-      const existing = await storage.getEmployee(req.params.id);
+      const existing = await employeeService.getEmployee(req.params.id);
       if (!existing) return res.status(404).json({ error: "Employee not found" });
       if (user.role !== "super_admin" && existing.companyId !== user.companyId) {
         return res.status(403).json({ error: "Access denied" });
       }
-      const updated = await storage.updateEmployee(req.params.id, {
+      const updated = await employeeService.updateEmployee(req.params.id, {
         status: "active",
         exitDate: null as any,
         exitType: null as any,
@@ -247,12 +242,7 @@ export async function registerEmployeeRoutes(app: Express): Promise<void> {
   // ── Employee Document Upload ──────────────────────────────────────────────
   app.get("/api/employees/:id/documents", requireAuth, async (req, res) => {
     try {
-      const rows = await db.execute(sql`
-        SELECT id, doc_type, file_name, file_path, file_size, mime_type, created_at
-        FROM employee_documents
-        WHERE employee_id = ${req.params.id}
-        ORDER BY doc_type, created_at DESC
-      `);
+      const rows = await employeeService.getEmployeeDocuments(req.params.id);
       return res.json(rows.rows);
     } catch (err: any) {
       return res.status(500).json({ error: err.message });
@@ -264,16 +254,24 @@ export async function registerEmployeeRoutes(app: Express): Promise<void> {
       const file = req.file;
       const { docType } = req.body;
       if (!file || !docType) return res.status(400).json({ error: "File and docType required" });
-      const empRow = await db.execute(sql`SELECT company_id FROM employees WHERE id = ${req.params.id} LIMIT 1`);
+      const empRow = await employeeService.getEmployeeCompanyIdRow(req.params.id);
       const emp = empRow.rows[0] as any;
       if (!emp) return res.status(404).json({ error: "Employee not found" });
       const now = new Date().toISOString();
       const id = randomUUID();
       const filePath = `/uploads/employee-docs/${file.filename}`;
-      await db.execute(sql`
-        INSERT INTO employee_documents (id, employee_id, company_id, doc_type, file_name, file_path, file_size, mime_type, created_by, created_at, updated_at)
-        VALUES (${id}, ${req.params.id}, ${emp.company_id}, ${docType}, ${file.originalname}, ${filePath}, ${file.size}, ${file.mimetype}, ${(req.session as any).userId}, ${now}, ${now})
-      `);
+      await employeeService.insertEmployeeDocument({
+        id,
+        employeeId: req.params.id,
+        companyId: emp.company_id,
+        docType,
+        fileName: file.originalname,
+        filePath,
+        fileSize: file.size,
+        mimeType: file.mimetype,
+        createdBy: (req.session as any).userId,
+        now,
+      });
       return res.json({ id, docType, fileName: file.originalname, filePath, fileSize: file.size, mimeType: file.mimetype, createdAt: now });
     } catch (err: any) {
       return res.status(500).json({ error: err.message });
@@ -282,12 +280,12 @@ export async function registerEmployeeRoutes(app: Express): Promise<void> {
 
   app.delete("/api/employees/:id/documents/:docId", requireAuth, requireAction("employees", "edit"), async (req, res) => {
     try {
-      const row = await db.execute(sql`SELECT file_path FROM employee_documents WHERE id = ${req.params.docId} AND employee_id = ${req.params.id} LIMIT 1`);
+      const row = await employeeService.getEmployeeDocumentForDelete(req.params.docId, req.params.id);
       const doc = row.rows[0] as any;
       if (!doc) return res.status(404).json({ error: "Document not found" });
       const fullPath = path.join(process.cwd(), doc.file_path);
       if (fs.existsSync(fullPath)) fs.unlinkSync(fullPath);
-      await db.execute(sql`DELETE FROM employee_documents WHERE id = ${req.params.docId}`);
+      await employeeService.deleteEmployeeDocument(req.params.docId);
       return res.json({ ok: true });
     } catch (err: any) {
       return res.status(500).json({ error: err.message });
@@ -297,13 +295,13 @@ export async function registerEmployeeRoutes(app: Express): Promise<void> {
   app.post("/api/employees/:id/unlink-login", requireAuth, requireAction("employees", "edit"), async (req, res) => {
     try {
       const user = (req as any).user;
-      const employee = await storage.getEmployee(req.params.id);
+      const employee = await employeeService.getEmployee(req.params.id);
       if (!employee) return res.status(404).json({ error: "Employee not found" });
       if (user.role !== "super_admin" && employee.companyId !== user.companyId) {
         return res.status(403).json({ error: "Access denied" });
       }
       if (!employee.userId) return res.status(400).json({ error: "This employee has no linked login account." });
-      await storage.updateEmployee(employee.id, { userId: null as any });
+      await employeeService.updateEmployee(employee.id, { userId: null as any });
       res.json({ success: true, message: "Login account unlinked from employee." });
     } catch (error) {
       res.status(500).json({ error: "Failed to unlink login" });
@@ -313,7 +311,7 @@ export async function registerEmployeeRoutes(app: Express): Promise<void> {
   app.post("/api/employees/:id/create-login", requireAuth, requireAction("employees", "edit"), async (req, res) => {
     try {
       const user = (req as any).user;
-      const employee = await storage.getEmployee(req.params.id);
+      const employee = await employeeService.getEmployee(req.params.id);
       if (!employee) return res.status(404).json({ error: "Employee not found" });
       if (user.role !== "super_admin" && employee.companyId !== user.companyId) {
         return res.status(403).json({ error: "Access denied" });
@@ -323,16 +321,16 @@ export async function registerEmployeeRoutes(app: Express): Promise<void> {
       }
       const { username, password } = req.body;
       if (!username || !password) return res.status(400).json({ error: "Username and password are required" });
-      const existingUser = await storage.getUserByUsername(username);
+      const existingUser = await userService.getUserByUsername(username);
       if (existingUser) return res.status(400).json({ error: "Username already taken" });
       // Check if the employee's official email is already taken (e.g. they self-signed up)
       // Fall back to a company-local address so we never violate the unique email constraint
       let loginEmail = `${username}@company.local`;
       if (employee.officialEmail) {
-        const emailTaken = await storage.getUserByEmail(employee.officialEmail);
+        const emailTaken = await userService.getUserByEmail(employee.officialEmail);
         if (!emailTaken) loginEmail = employee.officialEmail;
       }
-      const newUser = await storage.createUser({
+      const newUser = await userService.createUser({
         username,
         password,
         email: loginEmail,
@@ -342,7 +340,7 @@ export async function registerEmployeeRoutes(app: Express): Promise<void> {
         companyId: employee.companyId,
         status: "active",
       });
-      await storage.updateEmployee(employee.id, { userId: newUser.id });
+      await employeeService.updateEmployee(employee.id, { userId: newUser.id });
       res.json({ message: "Login created and linked successfully", userId: newUser.id, username: newUser.username });
     } catch (error) {
       console.error("create-login error:", error);
@@ -354,7 +352,7 @@ export async function registerEmployeeRoutes(app: Express): Promise<void> {
   app.post("/api/employees/verify-aadhaar", requireAuth, requireAction("employees", "create"), async (req, res) => {
     try {
       const { aadhaar, companyId } = req.body;
-      const allEmployees = await storage.getAllEmployees();
+      const allEmployees = await employeeService.getAllEmployees();
       const matched = allEmployees.filter(e => e.aadhaar === aadhaar);
 
       if (matched.length === 0) {
@@ -406,7 +404,7 @@ export async function registerEmployeeRoutes(app: Express): Promise<void> {
   app.get("/api/my-employee", requireAuth, async (req, res) => {
     try {
       const user = (req as any).user;
-      const employee = await storage.getEmployeeByUserId(user.id);
+      const employee = await employeeService.getEmployeeByUserId(user.id);
       if (!employee) return res.status(404).json({ error: "Employee record not found" });
       return res.json(employee);
     } catch (error) {
@@ -418,13 +416,13 @@ export async function registerEmployeeRoutes(app: Express): Promise<void> {
   app.get("/api/my-profile", requireAuth, async (req, res) => {
     try {
       const user = (req as any).user;
-      const profile = await storage.getCandidateProfileByUserId(user.id);
+      const profile = await recruitmentService.getCandidateProfileByUserId(user.id);
       if (profile) {
         return res.json(profile);
       }
 
       // No candidate profile yet — try to pre-populate from employee record
-      const allEmployees = await storage.getAllEmployees();
+      const allEmployees = await employeeService.getAllEmployees();
       const linked = allEmployees.find(
         (e) =>
           (e.officialEmail && user.email && e.officialEmail.toLowerCase() === user.email.toLowerCase()) ||
@@ -502,12 +500,12 @@ export async function registerEmployeeRoutes(app: Express): Promise<void> {
         return res.status(400).json({ error: validation.message });
       }
 
-      const existingProfile = await storage.getCandidateProfileByAadhaar(aadhaar);
+      const existingProfile = await recruitmentService.getCandidateProfileByAadhaar(aadhaar);
       if (existingProfile && existingProfile.userId !== user.id) {
         return res.json({ status: "active_exists", message: "This Aadhaar number is already registered with another account." });
       }
 
-      const allEmployees = await storage.getAllEmployees();
+      const allEmployees = await employeeService.getAllEmployees();
       const matched = allEmployees.find(e => e.aadhaar === aadhaar);
       if (matched) {
         return res.json({ status: "active_exists", message: `This Aadhaar is already registered to an employee (${matched.firstName} ${matched.lastName}).` });
@@ -531,7 +529,7 @@ export async function registerEmployeeRoutes(app: Express): Promise<void> {
 
       if (!finalFirstName) return res.status(400).json({ error: "Name is required" });
 
-      const allEmployees = await storage.getAllEmployees();
+      const allEmployees = await employeeService.getAllEmployees();
       const linkedEmployee = allEmployees.find(
         (e) => (e.officialEmail && user.email && e.officialEmail.toLowerCase() === user.email.toLowerCase()) ||
           (e.userId && e.userId === user.id)
@@ -549,12 +547,7 @@ export async function registerEmployeeRoutes(app: Express): Promise<void> {
       // Employees: create a pending approval request instead of saving directly
       if (!isAdminRole) {
         // Cancel any existing pending request for this user
-        await db.update(profileUpdateRequests)
-          .set({ status: "cancelled" })
-          .where(and(
-            eq(profileUpdateRequests.userId, user.id),
-            eq(profileUpdateRequests.status, "pending")
-          ));
+        await employeeService.cancelPendingProfileUpdateRequests(user.id);
 
         const requestPayload = {
           firstName: finalFirstName, lastName: finalLastName, aadhaar,
@@ -565,17 +558,17 @@ export async function registerEmployeeRoutes(app: Express): Promise<void> {
           pan, bankAccount, ifsc, bankName, currentSalary, expectedSalary, skills,
         };
 
-        const [newRequest] = await db.insert(profileUpdateRequests).values({
+        const [newRequest] = await employeeService.createProfileUpdateRequest({
           id: randomUUID(),
           userId: user.id,
           companyId: user.companyId || null,
           status: "pending",
           requestData: JSON.stringify(requestPayload),
           createdAt: new Date().toISOString(),
-        }).returning();
+        });
 
         // Notify all admins/HR of the company
-        const allUsers = await storage.getAllUsers();
+        const allUsers = await userService.getAllUsers();
         const adminIds = allUsers
           .filter((u: any) => ["hr_admin", "company_admin", "super_admin"].includes(u.role || "") &&
             (u.role === "super_admin" || u.companyId === user.companyId))
@@ -595,10 +588,10 @@ export async function registerEmployeeRoutes(app: Express): Promise<void> {
       }
 
       // Admin path: save directly
-      const existingProfile = await storage.getCandidateProfileByUserId(user.id);
+      const existingProfile = await recruitmentService.getCandidateProfileByUserId(user.id);
 
       if (existingProfile) {
-        const updated = await storage.updateCandidateProfile(existingProfile.id, {
+        const updated = await recruitmentService.updateCandidateProfile(existingProfile.id, {
           firstName: finalFirstName, lastName: finalLastName,
           dateOfBirth, gender, mobileNumber, personalEmail, fatherName,
           address, addressState, addressDistrict, addressPincode,
@@ -607,11 +600,11 @@ export async function registerEmployeeRoutes(app: Express): Promise<void> {
           pan, bankAccount, ifsc, bankName, currentSalary, expectedSalary, skills,
           updatedAt: new Date().toISOString(),
         });
-        await storage.updateUser(user.id, { firstName: finalFirstName, lastName: finalLastName });
+        await userService.updateUser(user.id, { firstName: finalFirstName, lastName: finalLastName });
         return res.json(updated);
       }
 
-      const aadhaarCheck = await storage.getCandidateProfileByAadhaar(aadhaar);
+      const aadhaarCheck = await recruitmentService.getCandidateProfileByAadhaar(aadhaar);
       if (aadhaarCheck) return res.status(400).json({ error: "This Aadhaar number is already registered" });
 
       const otherEmpMatch = allEmployees.find((e: any) => e.aadhaar === aadhaar && e !== linkedEmployee);
@@ -619,7 +612,7 @@ export async function registerEmployeeRoutes(app: Express): Promise<void> {
         return res.status(400).json({ error: `This Aadhaar is already registered to employee ${(otherEmpMatch as any).firstName} ${(otherEmpMatch as any).lastName}` });
       }
 
-      const profile = await storage.createCandidateProfile({
+      const profile = await recruitmentService.createCandidateProfile({
         userId: user.id,
         firstName: finalFirstName, lastName: finalLastName, aadhaar,
         dateOfBirth, gender, mobileNumber, personalEmail, fatherName,
@@ -630,7 +623,7 @@ export async function registerEmployeeRoutes(app: Express): Promise<void> {
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       });
-      await storage.updateUser(user.id, { firstName: finalFirstName, lastName: finalLastName });
+      await userService.updateUser(user.id, { firstName: finalFirstName, lastName: finalLastName });
       res.status(201).json(profile);
     } catch (error) {
       res.status(500).json({ error: "Failed to save profile" });
@@ -641,13 +634,7 @@ export async function registerEmployeeRoutes(app: Express): Promise<void> {
   app.get("/api/my-profile/pending-request", requireAuth, async (req, res) => {
     try {
       const user = (req as any).user;
-      const rows = await db.select().from(profileUpdateRequests)
-        .where(and(
-          eq(profileUpdateRequests.userId, user.id),
-          eq(profileUpdateRequests.status, "pending")
-        ))
-        .orderBy(desc(profileUpdateRequests.createdAt))
-        .limit(1);
+      const rows = await employeeService.getPendingProfileUpdateRequest(user.id);
       res.json(rows[0] || null);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch pending request" });
@@ -658,14 +645,13 @@ export async function registerEmployeeRoutes(app: Express): Promise<void> {
   app.get("/api/admin/profile-update-requests", requireAuth, requireRole("super_admin", "company_admin", "hr_admin"), async (req, res) => {
     try {
       const user = (req as any).user;
-      const allRequests = await db.select().from(profileUpdateRequests)
-        .orderBy(desc(profileUpdateRequests.createdAt));
+      const allRequests = await employeeService.getAllProfileUpdateRequests();
 
       const filtered = user.role === "super_admin"
         ? allRequests
         : allRequests.filter((r: any) => r.companyId === user.companyId);
 
-      const allUsers = await storage.getAllUsers();
+      const allUsers = await userService.getAllUsers();
       const userMap = new Map(allUsers.map((u: any) => [u.id, u]));
 
       const enriched = await Promise.all(filtered.map(async (r: any) => {
@@ -678,7 +664,7 @@ export async function registerEmployeeRoutes(app: Express): Promise<void> {
         const nameFromUser = u ? `${u.firstName || ""} ${u.lastName || ""}`.trim() : "";
 
         // Fetch current saved candidate profile for diff display
-        const currentProfile = await storage.getCandidateProfileByUserId(r.userId);
+        const currentProfile = await recruitmentService.getCandidateProfileByUserId(r.userId);
 
         return {
           ...r,
@@ -724,22 +710,21 @@ export async function registerEmployeeRoutes(app: Express): Promise<void> {
       const user = (req as any).user;
       const { id } = req.params;
 
-      const rows = await db.select().from(profileUpdateRequests)
-        .where(eq(profileUpdateRequests.id, id)).limit(1);
+      const rows = await employeeService.getProfileUpdateRequestById(id);
       const request = rows[0];
       if (!request) return res.status(404).json({ error: "Request not found" });
       if (request.status !== "pending") return res.status(400).json({ error: "Request is no longer pending" });
 
       const data = JSON.parse(request.requestData);
-      const existingProfile = await storage.getCandidateProfileByUserId(request.userId);
+      const existingProfile = await recruitmentService.getCandidateProfileByUserId(request.userId);
 
       if (existingProfile) {
-        await storage.updateCandidateProfile(existingProfile.id, {
+        await recruitmentService.updateCandidateProfile(existingProfile.id, {
           ...data,
           updatedAt: new Date().toISOString(),
         });
       } else {
-        await storage.createCandidateProfile({
+        await recruitmentService.createCandidateProfile({
           userId: request.userId,
           ...data,
           createdAt: new Date().toISOString(),
@@ -748,17 +733,17 @@ export async function registerEmployeeRoutes(app: Express): Promise<void> {
       }
 
       if (data.firstName || data.lastName) {
-        await storage.updateUser(request.userId, {
+        await userService.updateUser(request.userId, {
           firstName: data.firstName || "",
           lastName: data.lastName || "",
         });
       }
 
-      await db.update(profileUpdateRequests).set({
+      await employeeService.updateProfileUpdateRequest(id, {
         status: "approved",
         reviewedBy: user.id,
         reviewedAt: new Date().toISOString(),
-      }).where(eq(profileUpdateRequests.id, id));
+      });
 
       await createNotification({
         userId: request.userId,
@@ -782,18 +767,17 @@ export async function registerEmployeeRoutes(app: Express): Promise<void> {
       const { id } = req.params;
       const { adminNote } = req.body;
 
-      const rows = await db.select().from(profileUpdateRequests)
-        .where(eq(profileUpdateRequests.id, id)).limit(1);
+      const rows = await employeeService.getProfileUpdateRequestById(id);
       const request = rows[0];
       if (!request) return res.status(404).json({ error: "Request not found" });
       if (request.status !== "pending") return res.status(400).json({ error: "Request is no longer pending" });
 
-      await db.update(profileUpdateRequests).set({
+      await employeeService.updateProfileUpdateRequest(id, {
         status: "rejected",
         adminNote: adminNote || null,
         reviewedBy: user.id,
         reviewedAt: new Date().toISOString(),
-      }).where(eq(profileUpdateRequests.id, id));
+      });
 
       await createNotification({
         userId: request.userId,
@@ -816,9 +800,9 @@ export async function registerEmployeeRoutes(app: Express): Promise<void> {
   app.get("/api/my-experiences", requireAuth, async (req, res) => {
     try {
       const user = (req as any).user;
-      const profile = await storage.getCandidateProfileByUserId(user.id);
+      const profile = await recruitmentService.getCandidateProfileByUserId(user.id);
       if (!profile) return res.json([]);
-      const experiences = await storage.getPreviousExperiencesByCandidate(profile.id);
+      const experiences = await employeeService.getPreviousExperiencesByCandidate(profile.id);
       res.json(experiences);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch experiences" });
@@ -832,9 +816,9 @@ export async function registerEmployeeRoutes(app: Express): Promise<void> {
       if (!organizationName || !postHeld || !dateOfJoining || !dateOfLeaving) {
         return res.status(400).json({ error: "Organization, post, joining and leaving dates are required" });
       }
-      const profile = await storage.getCandidateProfileByUserId(user.id);
+      const profile = await recruitmentService.getCandidateProfileByUserId(user.id);
       if (!profile) return res.status(400).json({ error: "Profile not found — please save your profile first" });
-      const exp = await storage.createPreviousExperience({
+      const exp = await employeeService.createPreviousExperience({
         candidateProfileId: profile.id, employeeId: null,
         organizationName, postHeld, dateOfJoining, dateOfLeaving,
         reasonOfLeaving: reasonOfLeaving || "", ctc: ctc || "", jobResponsibilities: jobResponsibilities || "",
@@ -848,7 +832,7 @@ export async function registerEmployeeRoutes(app: Express): Promise<void> {
 
   app.delete("/api/my-experiences/:id", requireAuth, async (req, res) => {
     try {
-      await storage.deletePreviousExperience(req.params.id);
+      await employeeService.deletePreviousExperience(req.params.id);
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: "Failed to delete experience" });

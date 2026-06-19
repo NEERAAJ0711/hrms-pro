@@ -1,5 +1,6 @@
 // HRMS Pro — API Routes (modularized)
 import type { Express, Request, Response, NextFunction } from "express";
+import { attendanceService, auditService, companyService, complianceService, employeeService, payrollService, settingsService } from "../services";
 import { storage } from "../storage";
 import { db } from "../db";
 import {
@@ -45,9 +46,9 @@ export async function registerPayrollRoutes(app: Express): Promise<void> {
 
     if (companyId) {
       // Pre-fill with existing salary structures for the company
-      const employees = await storage.getEmployeesByCompany(companyId);
+      const employees = await employeeService.getEmployeesByCompany(companyId);
       const empCodeMap = new Map(employees.map(e => [e.id, e.employeeCode]));
-      const allStructures = await storage.getAllSalaryStructures();
+      const allStructures = await payrollService.getAllSalaryStructures();
       const companyStructures = allStructures
         .filter(s => s.companyId === companyId && s.status === "active")
         .sort((a, b) => {
@@ -121,7 +122,7 @@ export async function registerPayrollRoutes(app: Express): Promise<void> {
       const companyId = user.role === "super_admin" ? req.body.companyId : user.companyId;
       if (!companyId) return res.status(400).json({ error: "Company ID is required" });
 
-      const company = await storage.getCompany(companyId);
+      const company = await companyService.getCompany(companyId);
       if (!company) return res.status(400).json({ error: "Invalid company ID" });
 
       const workbook = XLSX.read(file.buffer, { type: "buffer" });
@@ -132,8 +133,8 @@ export async function registerPayrollRoutes(app: Express): Promise<void> {
       if (rows.length === 0) return res.status(400).json({ error: "Excel file is empty" });
 
       const results = { created: 0, updated: 0, skipped: 0, errors: [] as string[] };
-      const employees = await storage.getEmployeesByCompany(companyId);
-      const existingStructures = (await storage.getAllSalaryStructures()).filter(s => s.companyId === companyId);
+      const employees = await employeeService.getEmployeesByCompany(companyId);
+      const existingStructures = (await payrollService.getAllSalaryStructures()).filter(s => s.companyId === companyId);
 
       for (let i = 0; i < rows.length; i++) {
         const row = rows[i];
@@ -212,13 +213,13 @@ export async function registerPayrollRoutes(app: Express): Promise<void> {
 
           if (existingActive) {
             // Update existing active structure in place
-            await storage.updateSalaryStructure(existingActive.id, structureData as any);
+            await payrollService.updateSalaryStructure(existingActive.id, structureData as any);
             // Refresh the in-memory list
             const idx = existingStructures.findIndex(s => s.id === existingActive.id);
             if (idx >= 0) existingStructures[idx] = { ...existingActive, ...structureData } as any;
             results.updated++;
           } else {
-            const created = await storage.createSalaryStructure(structureData as any);
+            const created = await payrollService.createSalaryStructure(structureData as any);
             existingStructures.push(created);
             results.created++;
           }
@@ -240,9 +241,9 @@ export async function registerPayrollRoutes(app: Express): Promise<void> {
       const user = (req as any).user;
       let structures;
       if (user.role === "super_admin") {
-        structures = await storage.getAllSalaryStructures();
+        structures = await payrollService.getAllSalaryStructures();
       } else if (user.companyId) {
-        structures = (await storage.getAllSalaryStructures()).filter(s => s.companyId === user.companyId);
+        structures = (await payrollService.getAllSalaryStructures()).filter(s => s.companyId === user.companyId);
         // Enforce contractor + location access restriction
         const allowedEmployeeIds = await getAllowedEmployeeIdsForUser(user);
         if (allowedEmployeeIds !== null) {
@@ -263,14 +264,14 @@ export async function registerPayrollRoutes(app: Express): Promise<void> {
       const { employeeId } = req.body;
       if (!employeeId) return res.status(400).json({ error: "employeeId required" });
 
-      const emp = await storage.getEmployee(employeeId);
+      const emp = await employeeService.getEmployee(employeeId);
       if (!emp) return res.status(404).json({ error: "Employee not found" });
       if (!emp.wageGradeId) return res.status(400).json({ error: "Employee has no wage grade assigned" });
 
-      const grade = await storage.getWageGrade(emp.wageGradeId);
+      const grade = await settingsService.getWageGrade(emp.wageGradeId);
       if (!grade || grade.status !== "active") return res.status(404).json({ error: "Active wage grade not found" });
 
-      const settings = await storage.getStatutorySettingsByCompany(emp.companyId);
+      const settings = await complianceService.getStatutorySettingsByCompany(emp.companyId);
 
       // Full breakdown: Basic = max(minWage, 50% gross), HRA = min(50% basic, rem),
       //   Conveyance = min(50% HRA, rem), Special = rest, Medical/Other = 0
@@ -314,7 +315,7 @@ export async function registerPayrollRoutes(app: Express): Promise<void> {
 
       // Effective date: DOJ for new employees (no payroll yet), 1st of next payroll month for existing
       const GRADE_MONTH_NAMES = ["January","February","March","April","May","June","July","August","September","October","November","December"];
-      const allPayrollForEmp = (await storage.getAllPayroll()).filter(p => p.employeeId === emp.id);
+      const allPayrollForEmp = (await payrollService.getAllPayroll()).filter(p => p.employeeId === emp.id);
       let effectiveFrom: string;
       if (allPayrollForEmp.length === 0) {
         effectiveFrom = (emp.dateOfJoining && emp.dateOfJoining.trim()) ? emp.dateOfJoining.trim() : new Date().toISOString().slice(0, 10);
@@ -351,12 +352,12 @@ export async function registerPayrollRoutes(app: Express): Promise<void> {
       };
 
       // Upsert: update if active structure exists, otherwise create new
-      const existing = await storage.getSalaryStructureByEmployee(emp.id);
+      const existing = await payrollService.getSalaryStructureByEmployee(emp.id);
       let structure;
       if (existing) {
-        structure = await storage.updateSalaryStructure(existing.id, payload);
+        structure = await payrollService.updateSalaryStructure(existing.id, payload);
       } else {
-        structure = await storage.createSalaryStructure(payload as any);
+        structure = await payrollService.createSalaryStructure(payload as any);
       }
 
       res.json({ structure, action: existing ? "updated" : "created" });
@@ -370,14 +371,14 @@ export async function registerPayrollRoutes(app: Express): Promise<void> {
     try {
       const data = insertSalaryStructureSchema.parse(req.body);
       // Block duplicate: same employee + same effectiveFrom already exists
-      const existing = await storage.getSalaryStructuresByEmployee(data.employeeId);
+      const existing = await payrollService.getSalaryStructuresByEmployee(data.employeeId);
       const duplicate = existing.find(s => s.effectiveFrom === data.effectiveFrom);
       if (duplicate) {
         return res.status(400).json({
           error: `A salary structure with effective date ${data.effectiveFrom} already exists for this employee. Please edit the existing structure or choose a different effective date.`,
         });
       }
-      const structure = await storage.createSalaryStructure(data);
+      const structure = await payrollService.createSalaryStructure(data);
       res.status(201).json(structure);
     } catch (error: any) {
       const msg = error?.errors ? error.errors.map((e: any) => `${e.path.join(".")}: ${e.message}`).join("; ") : (error?.message || "Failed to create salary structure");
@@ -389,7 +390,7 @@ export async function registerPayrollRoutes(app: Express): Promise<void> {
   app.patch("/api/salary-structures/:id", requireAuth, async (req, res) => {
     try {
       const user = (req as any).user;
-      const existing = await storage.getSalaryStructure(req.params.id);
+      const existing = await payrollService.getSalaryStructure(req.params.id);
       if (!existing) return res.status(404).json({ error: "Salary structure not found" });
       if (user.role !== "super_admin" && existing.companyId !== user.companyId) {
         return res.status(403).json({ error: "Access denied" });
@@ -397,7 +398,7 @@ export async function registerPayrollRoutes(app: Express): Promise<void> {
 
       // ── Lock: block editing only when a Paid payroll exists for this employee ──
       // Draft/Processed payroll can be regenerated, so editing the structure is allowed.
-      const allPayrollCheck = await storage.getAllPayroll();
+      const allPayrollCheck = await payrollService.getAllPayroll();
       const hasPaidPayroll = allPayrollCheck.some(p => p.employeeId === existing.employeeId && p.status === "paid");
       if (hasPaidPayroll) {
         return res.status(400).json({
@@ -406,7 +407,7 @@ export async function registerPayrollRoutes(app: Express): Promise<void> {
       }
       // ─────────────────────────────────────────────────────────────────────────
 
-      const updated = await storage.updateSalaryStructure(req.params.id, req.body);
+      const updated = await payrollService.updateSalaryStructure(req.params.id, req.body);
       res.json(updated);
     } catch (error) {
       res.status(500).json({ error: "Failed to update salary structure" });
@@ -416,13 +417,13 @@ export async function registerPayrollRoutes(app: Express): Promise<void> {
   app.delete("/api/salary-structures/:id", requireAuth, async (req, res) => {
     try {
       const user = (req as any).user;
-      const existing = await storage.getSalaryStructure(req.params.id);
+      const existing = await payrollService.getSalaryStructure(req.params.id);
       if (!existing) return res.status(404).json({ error: "Salary structure not found" });
       if (user.role !== "super_admin" && existing.companyId !== user.companyId) {
         return res.status(403).json({ error: "Access denied" });
       }
       // Block deletion only when a Paid payroll exists for this employee
-      const allPayrollDel = await storage.getAllPayroll();
+      const allPayrollDel = await payrollService.getAllPayroll();
       const hasPaidPayrollDel = allPayrollDel.some(p => p.employeeId === existing.employeeId && p.status === "paid");
       if (hasPaidPayrollDel) {
         return res.status(400).json({
@@ -430,8 +431,8 @@ export async function registerPayrollRoutes(app: Express): Promise<void> {
         });
       }
       console.log(`[AUDIT] SALARY_STRUCTURE_DELETE | user=${user.username || user.email} (id=${user.id}, role=${user.role}) | structureId=${existing.id} | employeeId=${existing.employeeId} | companyId=${existing.companyId} | basic=${existing.basicSalary} | gross=${existing.grossSalary} | at=${new Date().toISOString()} | ip=${req.ip}`);
-      await storage.writeAuditLog({ action: "SALARY_STRUCTURE_DELETE", userId: user.id, userName: user.username || user.email || "", details: JSON.stringify({ structureId: existing.id, employeeId: existing.employeeId, companyId: existing.companyId, basicSalary: existing.basicSalary, grossSalary: existing.grossSalary }) });
-      const success = await storage.deleteSalaryStructure(req.params.id);
+      await auditService.writeAuditLog({ action: "SALARY_STRUCTURE_DELETE", userId: user.id, userName: user.username || user.email || "", details: JSON.stringify({ structureId: existing.id, employeeId: existing.employeeId, companyId: existing.companyId, basicSalary: existing.basicSalary, grossSalary: existing.grossSalary }) });
+      const success = await payrollService.deleteSalaryStructure(req.params.id);
       res.json({ success });
     } catch (error) {
       res.status(500).json({ error: "Failed to delete salary structure" });
@@ -447,16 +448,16 @@ export async function registerPayrollRoutes(app: Express): Promise<void> {
 
       if (user.role === "super_admin") {
         if (companyId && month && year) {
-          records = await storage.getPayrollByMonth(companyId as string, month as string, parseInt(year as string));
+          records = await payrollService.getPayrollByMonth(companyId as string, month as string, parseInt(year as string));
         } else {
-          records = await storage.getAllPayroll();
+          records = await payrollService.getAllPayroll();
           if (companyId) records = records.filter(p => p.companyId === companyId);
         }
       } else if (user.companyId) {
         if (month && year) {
-          records = await storage.getPayrollByMonth(user.companyId, month as string, parseInt(year as string));
+          records = await payrollService.getPayrollByMonth(user.companyId, month as string, parseInt(year as string));
         } else {
-          records = (await storage.getAllPayroll()).filter(p => p.companyId === user.companyId);
+          records = (await payrollService.getAllPayroll()).filter(p => p.companyId === user.companyId);
         }
         // Enforce contractor + location access restriction
         const allowedEmployeeIds = await getAllowedEmployeeIdsForUser(user);
@@ -494,7 +495,7 @@ export async function registerPayrollRoutes(app: Express): Promise<void> {
         }
       }
 
-      const employee = await storage.getEmployee(data.employeeId);
+      const employee = await employeeService.getEmployee(data.employeeId);
       if (!employee) return res.status(404).json({ error: "Employee not found" });
 
       // ── Server-side payDays recalculation (timezone-safe) ──────────────────
@@ -509,7 +510,7 @@ export async function registerPayrollRoutes(app: Express): Promise<void> {
       const calcYear = Number(data.year);
 
       if (calcMonthNum && calcYear) {
-        const allAtt = await storage.getAttendanceByEmployee(data.employeeId);
+        const allAtt = await attendanceService.getAttendanceByEmployee(data.employeeId);
         const monthPrefix = `${calcYear}-${String(calcMonthNum).padStart(2, "0")}`;
         const periodAtt = allAtt.filter((a) => a.date.startsWith(monthPrefix));
 
@@ -522,7 +523,7 @@ export async function registerPayrollRoutes(app: Express): Promise<void> {
         // Earned WOs for WO days that have no stored attendance record
         let earnedWOs = 0;
         try {
-          const policies = await storage.getTimeOfficePoliciesByCompany(data.companyId);
+          const policies = await settingsService.getTimeOfficePoliciesByCompany(data.companyId);
           const empPolicyId = (employee as any).timeOfficePolicyId;
           const policy =
             policies.find(p => (p as any).status === "active" && empPolicyId && p.id === empPolicyId) ||
@@ -589,18 +590,18 @@ export async function registerPayrollRoutes(app: Express): Promise<void> {
         return res.status(400).json({ error: `Employee exited on ${exitDate}. Cannot generate payroll after exit date.` });
       }
 
-      const existing = await storage.getPayrollByEmployeeMonth(data.employeeId, data.month, data.year);
+      const existing = await payrollService.getPayrollByEmployeeMonth(data.employeeId, data.month, data.year);
       if (existing) {
         if (existing.status === "paid") {
           return res.status(400).json({ error: "Payroll already finalized (Paid) for this employee and month. Cannot regenerate." });
         }
-        const updated = await storage.updatePayroll(existing.id, {
+        const updated = await payrollService.updatePayroll(existing.id, {
           ...data,
           generatedAt: data.generatedAt || new Date().toISOString(),
         });
         return res.json({ ...updated, generatedAt: data.generatedAt });
       }
-      const record = await storage.createPayroll(data);
+      const record = await payrollService.createPayroll(data);
       res.status(201).json(record);
     } catch (error: any) {
       if (error?.message?.includes("finalized") || error?.message?.includes("Paid")) {
@@ -613,12 +614,12 @@ export async function registerPayrollRoutes(app: Express): Promise<void> {
   app.patch("/api/payroll/:id", requireAuth, async (req, res) => {
     try {
       const user = (req as any).user;
-      const existing = await storage.getPayroll(req.params.id);
+      const existing = await payrollService.getPayroll(req.params.id);
       if (!existing) return res.status(404).json({ error: "Payroll record not found" });
       if (user.role !== "super_admin" && existing.companyId !== user.companyId) {
         return res.status(403).json({ error: "Access denied" });
       }
-      const updated = await storage.updatePayroll(req.params.id, req.body);
+      const updated = await payrollService.updatePayroll(req.params.id, req.body);
 
       // When payroll is first finalized (processed or paid), deduct loan installments from remaining balance
       // Only fires once: draft → processed, or draft → paid. NOT again for processed → paid.
@@ -629,7 +630,7 @@ export async function registerPayrollRoutes(app: Express): Promise<void> {
         const monthNum = MONTH_NAMES.indexOf(existing.month) + 1;
         if (monthNum > 0) {
           const payrollYM = `${String(existing.year)}-${String(monthNum).padStart(2, "0")}`;
-          const loans = await storage.getLoanAdvancesByEmployee(existing.employeeId);
+          const loans = await payrollService.getLoanAdvancesByEmployee(existing.employeeId);
           // Use the actual stored loanDeduction (which may be capped at net pay) — not the scheduled installment
           // Distribute it proportionally across active loans for this month
           const eligibleLoans = loans.filter(l =>
@@ -650,7 +651,7 @@ export async function registerPayrollRoutes(app: Express): Promise<void> {
             if (applied <= 0) continue;
             remainingToApply -= applied;
             const newBalance = Math.max(0, (Number(loan.remainingBalance) || 0) - applied);
-            await storage.updateLoanAdvance(loan.id, {
+            await payrollService.updateLoanAdvance(loan.id, {
               remainingBalance: newBalance,
               status: newBalance <= 0 ? "closed" : "active",
               updatedAt: new Date().toISOString(),
@@ -662,7 +663,7 @@ export async function registerPayrollRoutes(app: Express): Promise<void> {
       // Notify employee when payslip is processed or paid
       if (isNowFinalized) {
         try {
-          const emp = await storage.getEmployee(existing.employeeId);
+          const emp = await employeeService.getEmployee(existing.employeeId);
           const empUserId = await resolveEmployeeUserId(emp);
           if (empUserId) {
             const label = req.body.status === "paid" ? "Salary Credited" : "Payslip Ready";
@@ -686,14 +687,14 @@ export async function registerPayrollRoutes(app: Express): Promise<void> {
   app.delete("/api/payroll/:id", requireAuth, async (req, res) => {
     try {
       const user = (req as any).user;
-      const existing = await storage.getPayroll(req.params.id);
+      const existing = await payrollService.getPayroll(req.params.id);
       if (!existing) return res.status(404).json({ error: "Payroll record not found" });
       if (user.role !== "super_admin" && existing.companyId !== user.companyId) {
         return res.status(403).json({ error: "Access denied" });
       }
       console.log(`[AUDIT] PAYROLL_DELETE | user=${user.username || user.email} (id=${user.id}, role=${user.role}) | payrollId=${existing.id} | empId=${existing.employeeId} | month=${existing.month} ${existing.year} | net=${existing.netSalary} | at=${new Date().toISOString()} | ip=${req.ip}`);
-      await storage.writeAuditLog({ action: "PAYROLL_DELETE", userId: user.id, userName: user.username || user.email || "", details: JSON.stringify({ payrollId: existing.id, employeeId: existing.employeeId, month: existing.month, year: existing.year, netSalary: existing.netSalary }) });
-      const success = await storage.deletePayroll(req.params.id);
+      await auditService.writeAuditLog({ action: "PAYROLL_DELETE", userId: user.id, userName: user.username || user.email || "", details: JSON.stringify({ payrollId: existing.id, employeeId: existing.employeeId, month: existing.month, year: existing.year, netSalary: existing.netSalary }) });
+      const success = await payrollService.deletePayroll(req.params.id);
       res.json({ success });
     } catch (error) {
       res.status(500).json({ error: "Failed to delete payroll" });

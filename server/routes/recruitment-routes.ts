@@ -1,5 +1,6 @@
 // HRMS Pro — API Routes (modularized)
 import type { Express, Request, Response, NextFunction } from "express";
+import { employeeService, recruitmentService } from "../services";
 import { storage } from "../storage";
 import { db } from "../db";
 import {
@@ -41,15 +42,15 @@ export async function registerRecruitmentRoutes(app: Express): Promise<void> {
       const user = (req as any).user;
       let postings;
       if (user.role === "super_admin") {
-        postings = await storage.getAllJobPostings();
+        postings = await recruitmentService.getAllJobPostings();
       } else if (user.role === "employee") {
         if (user.companyId) {
-          postings = (await storage.getJobPostingsByCompany(user.companyId)).filter(p => p.status === "open");
+          postings = (await recruitmentService.getJobPostingsByCompany(user.companyId)).filter(p => p.status === "open");
         } else {
-          postings = (await storage.getAllJobPostings()).filter(p => p.status === "open");
+          postings = (await recruitmentService.getAllJobPostings()).filter(p => p.status === "open");
         }
       } else if (user.companyId) {
-        postings = await storage.getJobPostingsByCompany(user.companyId);
+        postings = await recruitmentService.getJobPostingsByCompany(user.companyId);
       } else {
         postings = [];
       }
@@ -62,7 +63,7 @@ export async function registerRecruitmentRoutes(app: Express): Promise<void> {
   app.get("/api/job-postings/:id", requireAuth, async (req, res) => {
     try {
       const user = (req as any).user;
-      const posting = await storage.getJobPosting(req.params.id);
+      const posting = await recruitmentService.getJobPosting(req.params.id);
       if (!posting) return res.status(404).json({ error: "Job posting not found" });
       if (user.role !== "super_admin" && posting.companyId !== user.companyId) {
         return res.status(403).json({ error: "Access denied" });
@@ -80,7 +81,7 @@ export async function registerRecruitmentRoutes(app: Express): Promise<void> {
       if (!companyId) return res.status(400).json({ error: "No company assigned. Please assign a company to your account first." });
       const { title, department, location, employmentType, description, requirements, salaryRange, vacancies, status, closingDate } = req.body;
       if (!title || !description) return res.status(400).json({ error: "Title and Description are required." });
-      const posting = await storage.createJobPosting({
+      const posting = await recruitmentService.createJobPosting({
         companyId,
         title: String(title),
         department: department ? String(department) : null,
@@ -107,12 +108,12 @@ export async function registerRecruitmentRoutes(app: Express): Promise<void> {
   app.put("/api/job-postings/:id", requireAuth, requireRole("super_admin", "company_admin", "hr_admin", "recruiter"), async (req, res) => {
     try {
       const user = (req as any).user;
-      const existing = await storage.getJobPosting(req.params.id);
+      const existing = await recruitmentService.getJobPosting(req.params.id);
       if (!existing) return res.status(404).json({ error: "Job posting not found" });
       if (user.role !== "super_admin" && existing.companyId !== user.companyId) {
         return res.status(403).json({ error: "Access denied" });
       }
-      const posting = await storage.updateJobPosting(req.params.id, req.body);
+      const posting = await recruitmentService.updateJobPosting(req.params.id, req.body);
       res.json(posting);
     } catch (error) {
       res.status(500).json({ error: "Failed to update job posting" });
@@ -122,12 +123,12 @@ export async function registerRecruitmentRoutes(app: Express): Promise<void> {
   app.delete("/api/job-postings/:id", requireAuth, requireRole("super_admin", "company_admin", "hr_admin"), async (req, res) => {
     try {
       const user = (req as any).user;
-      const existing = await storage.getJobPosting(req.params.id);
+      const existing = await recruitmentService.getJobPosting(req.params.id);
       if (!existing) return res.status(404).json({ error: "Job posting not found" });
       if (user.role !== "super_admin" && existing.companyId !== user.companyId) {
         return res.status(403).json({ error: "Access denied" });
       }
-      const success = await storage.deleteJobPosting(req.params.id);
+      const success = await recruitmentService.deleteJobPosting(req.params.id);
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: "Failed to delete job posting" });
@@ -142,12 +143,12 @@ export async function registerRecruitmentRoutes(app: Express): Promise<void> {
       let applications;
 
       if (user.role === "employee") {
-        const byUser = await storage.getJobApplicationsByUserId(user.id);
+        const byUser = await recruitmentService.getJobApplicationsByUserId(user.id);
         if (user.companyId) {
-          const employees = await storage.getEmployeesByCompany(user.companyId);
+          const employees = await employeeService.getEmployeesByCompany(user.companyId);
           const myEmployee = employees.find(e => e.userId === user.id);
           if (myEmployee) {
-            const byEmployee = await storage.getJobApplicationsByEmployee(myEmployee.id);
+            const byEmployee = await recruitmentService.getJobApplicationsByEmployee(myEmployee.id);
             const ids = new Set(byUser.map(a => a.id));
             applications = [...byUser, ...byEmployee.filter(a => !ids.has(a.id))];
           } else {
@@ -158,20 +159,20 @@ export async function registerRecruitmentRoutes(app: Express): Promise<void> {
         }
       } else if (user.role === "super_admin") {
         if (jobPostingId) {
-          applications = await storage.getJobApplicationsByPosting(jobPostingId as string);
+          applications = await recruitmentService.getJobApplicationsByPosting(jobPostingId as string);
         } else {
-          applications = await storage.getAllJobApplications();
+          applications = await recruitmentService.getAllJobApplications();
         }
       } else if (user.companyId) {
         if (jobPostingId) {
-          const posting = await storage.getJobPosting(jobPostingId as string);
+          const posting = await recruitmentService.getJobPosting(jobPostingId as string);
           if (posting && posting.companyId === user.companyId) {
-            applications = await storage.getJobApplicationsByPosting(jobPostingId as string);
+            applications = await recruitmentService.getJobApplicationsByPosting(jobPostingId as string);
           } else {
             applications = [];
           }
         } else {
-          applications = await storage.getJobApplicationsByCompany(user.companyId);
+          applications = await recruitmentService.getJobApplicationsByCompany(user.companyId);
         }
       } else {
         applications = [];
@@ -185,19 +186,19 @@ export async function registerRecruitmentRoutes(app: Express): Promise<void> {
   app.post("/api/job-applications", requireAuth, async (req, res) => {
     try {
       const user = (req as any).user;
-      const posting = await storage.getJobPosting(req.body.jobPostingId);
+      const posting = await recruitmentService.getJobPosting(req.body.jobPostingId);
       if (!posting || posting.status !== "open") {
         return res.status(400).json({ error: "Job posting is not accepting applications" });
       }
 
       let employeeId = null;
       if (user.companyId) {
-        const employees = await storage.getEmployeesByCompany(user.companyId);
+        const employees = await employeeService.getEmployeesByCompany(user.companyId);
         const myEmployee = employees.find(e => e.userId === user.id);
         if (myEmployee) employeeId = myEmployee.id;
       }
 
-      const existingApps = await storage.getJobApplicationsByPosting(posting.id);
+      const existingApps = await recruitmentService.getJobApplicationsByPosting(posting.id);
       const alreadyApplied = existingApps.find(a =>
         a.applicantUserId === user.id || (employeeId && a.employeeId === employeeId)
       );
@@ -216,7 +217,7 @@ export async function registerRecruitmentRoutes(app: Express): Promise<void> {
         appliedAt: new Date().toISOString(),
         createdAt: new Date().toISOString(),
       });
-      const application = await storage.createJobApplication(data);
+      const application = await recruitmentService.createJobApplication(data);
       res.status(201).json(application);
     } catch (error) {
       res.status(500).json({ error: "Failed to submit application" });
@@ -226,7 +227,7 @@ export async function registerRecruitmentRoutes(app: Express): Promise<void> {
   app.put("/api/job-applications/:id", requireAuth, requireRole("super_admin", "company_admin", "hr_admin", "recruiter"), async (req, res) => {
     try {
       const user = (req as any).user;
-      const existing = await storage.getJobApplication(req.params.id);
+      const existing = await recruitmentService.getJobApplication(req.params.id);
       if (!existing) return res.status(404).json({ error: "Application not found" });
       if (user.role !== "super_admin" && existing.companyId !== user.companyId) {
         return res.status(403).json({ error: "Access denied" });
@@ -236,7 +237,7 @@ export async function registerRecruitmentRoutes(app: Express): Promise<void> {
         reviewedBy: user.id,
         reviewedAt: new Date().toISOString(),
       };
-      const application = await storage.updateJobApplication(req.params.id, updates);
+      const application = await recruitmentService.updateJobApplication(req.params.id, updates);
       res.json(application);
     } catch (error) {
       res.status(500).json({ error: "Failed to update application" });
@@ -246,7 +247,7 @@ export async function registerRecruitmentRoutes(app: Express): Promise<void> {
   app.put("/api/job-applications/:id/respond", requireAuth, async (req, res) => {
     try {
       const user = (req as any).user;
-      const existing = await storage.getJobApplication(req.params.id);
+      const existing = await recruitmentService.getJobApplication(req.params.id);
       if (!existing) return res.status(404).json({ error: "Application not found" });
       if (existing.applicantUserId !== user.id) {
         return res.status(403).json({ error: "You can only respond to your own applications" });
@@ -272,7 +273,7 @@ export async function registerRecruitmentRoutes(app: Express): Promise<void> {
       } else if (action === "withdraw") {
         updates = { status: "withdrawn", employeeResponse: "withdrawn" };
       }
-      const application = await storage.updateJobApplication(req.params.id, updates);
+      const application = await recruitmentService.updateJobApplication(req.params.id, updates);
       res.json(application);
     } catch (error) {
       res.status(500).json({ error: "Failed to respond to application" });
@@ -282,12 +283,12 @@ export async function registerRecruitmentRoutes(app: Express): Promise<void> {
   app.delete("/api/job-applications/:id", requireAuth, requireRole("super_admin", "company_admin", "hr_admin"), async (req, res) => {
     try {
       const user = (req as any).user;
-      const existing = await storage.getJobApplication(req.params.id);
+      const existing = await recruitmentService.getJobApplication(req.params.id);
       if (!existing) return res.status(404).json({ error: "Application not found" });
       if (user.role !== "super_admin" && existing.companyId !== user.companyId) {
         return res.status(403).json({ error: "Access denied" });
       }
-      const success = await storage.deleteJobApplication(req.params.id);
+      const success = await recruitmentService.deleteJobApplication(req.params.id);
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: "Failed to delete application" });

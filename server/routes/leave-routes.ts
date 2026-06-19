@@ -1,5 +1,6 @@
 // HRMS Pro — API Routes (modularized)
 import type { Express, Request, Response, NextFunction } from "express";
+import { employeeService, leaveService } from "../services";
 import { storage } from "../storage";
 import { db } from "../db";
 import {
@@ -41,9 +42,9 @@ export async function registerLeaveRoutes(app: Express): Promise<void> {
       const user = (req as any).user;
       let leaveTypes;
       if (user.role === "super_admin") {
-        leaveTypes = await storage.getAllLeaveTypes();
+        leaveTypes = await leaveService.getAllLeaveTypes();
       } else {
-        leaveTypes = await storage.getLeaveTypesByCompany(user.companyId);
+        leaveTypes = await leaveService.getLeaveTypesByCompany(user.companyId);
       }
       res.json(leaveTypes);
     } catch (error) {
@@ -54,7 +55,7 @@ export async function registerLeaveRoutes(app: Express): Promise<void> {
   app.post("/api/leave-types", requireAuth, requireRole("super_admin", "company_admin", "hr_admin"), requireAction("leave", "configure"), async (req, res) => {
     try {
       const data = insertLeaveTypeSchema.parse(req.body);
-      const leaveType = await storage.createLeaveType(data);
+      const leaveType = await leaveService.createLeaveType(data);
       res.status(201).json(leaveType);
     } catch (error) {
       res.status(500).json({ error: "Failed to create leave type" });
@@ -63,7 +64,7 @@ export async function registerLeaveRoutes(app: Express): Promise<void> {
 
   app.patch("/api/leave-types/:id", requireAuth, requireRole("super_admin", "company_admin", "hr_admin"), requireAction("leave", "configure"), async (req, res) => {
     try {
-      const updated = await storage.updateLeaveType(req.params.id, req.body);
+      const updated = await leaveService.updateLeaveType(req.params.id, req.body);
       if (!updated) return res.status(404).json({ error: "Leave type not found" });
       res.json(updated);
     } catch (error) {
@@ -73,7 +74,7 @@ export async function registerLeaveRoutes(app: Express): Promise<void> {
 
   app.delete("/api/leave-types/:id", requireAuth, requireRole("super_admin", "company_admin", "hr_admin"), requireAction("leave", "configure"), async (req, res) => {
     try {
-      const success = await storage.deleteLeaveType(req.params.id);
+      const success = await leaveService.deleteLeaveType(req.params.id);
       if (!success) return res.status(404).json({ error: "Leave type not found" });
       res.json({ success });
     } catch (error) {
@@ -87,17 +88,17 @@ export async function registerLeaveRoutes(app: Express): Promise<void> {
       const user = (req as any).user;
       let requests;
       if (user.role === "employee") {
-        const employees = user.companyId ? await storage.getEmployeesByCompany(user.companyId) : [];
+        const employees = user.companyId ? await employeeService.getEmployeesByCompany(user.companyId) : [];
         const myEmployee = employees.find(e => e.userId === user.id);
         if (myEmployee) {
-          requests = await storage.getLeaveRequestsByEmployee(myEmployee.id);
+          requests = await leaveService.getLeaveRequestsByEmployee(myEmployee.id);
         } else {
           requests = [];
         }
       } else if (user.role === "super_admin") {
-        requests = await storage.getAllLeaveRequests();
+        requests = await leaveService.getAllLeaveRequests();
       } else if (user.companyId) {
-        requests = await storage.getLeaveRequestsByCompany(user.companyId);
+        requests = await leaveService.getLeaveRequestsByCompany(user.companyId);
         // Enforce contractor + location access restriction
         const allowedEmployeeIds = await getAllowedEmployeeIdsForUser(user);
         if (allowedEmployeeIds !== null) {
@@ -121,11 +122,11 @@ export async function registerLeaveRoutes(app: Express): Promise<void> {
       if (!parsed.success) {
         return res.status(400).json({ error: "Validation failed", issues: parsed.error.issues });
       }
-      const request = await storage.createLeaveRequest(parsed.data);
+      const request = await leaveService.createLeaveRequest(parsed.data);
       // Notify HR/admins about new leave request
       try {
         const hrIds = await getHrAdminIds(user.companyId, user.id);
-        const emp = await storage.getEmployeeByUserId(user.id);
+        const emp = await employeeService.getEmployeeByUserId(user.id);
         const empName = emp ? `${emp.firstName} ${emp.lastName}` : (user.username || user.email);
         if (hrIds.length > 0) {
           await createNotificationForMany(hrIds, { companyId: user.companyId, type: "leave_request", title: "New Leave Request", message: `${empName} has submitted a leave request.`, link: "/leave" });
@@ -146,7 +147,7 @@ export async function registerLeaveRoutes(app: Express): Promise<void> {
   app.patch("/api/leave-requests/:id", requireAuth, async (req, res) => {
     try {
       const user = (req as any).user;
-      const existing = await storage.getLeaveRequest(req.params.id);
+      const existing = await leaveService.getLeaveRequest(req.params.id);
       if (!existing) return res.status(404).json({ error: "Leave request not found" });
       if (user.role !== "super_admin" && existing.companyId !== user.companyId) {
         return res.status(403).json({ error: "Access denied" });
@@ -156,11 +157,11 @@ export async function registerLeaveRoutes(app: Express): Promise<void> {
         updates.approvedBy = user.id;
         updates.approvedAt = updates.approvedAt || new Date().toISOString();
       }
-      const updated = await storage.updateLeaveRequest(req.params.id, updates);
+      const updated = await leaveService.updateLeaveRequest(req.params.id, updates);
       // Notify employee when leave is approved or rejected
       if (req.body.status === "approved" || req.body.status === "rejected") {
         try {
-          const leaveEmp = existing.employeeId ? await storage.getEmployee(existing.employeeId) : null;
+          const leaveEmp = existing.employeeId ? await employeeService.getEmployee(existing.employeeId) : null;
           const empUserId = leaveEmp ? await resolveEmployeeUserId(leaveEmp) : null;
           if (empUserId) {
             const statusLabel = req.body.status === "approved" ? "Approved ✓" : "Rejected ✗";

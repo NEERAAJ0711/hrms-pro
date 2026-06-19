@@ -1,5 +1,6 @@
 // HRMS Pro — API Routes (modularized)
 import type { Express, Request, Response, NextFunction } from "express";
+import { companyService, employeeService, userService } from "../services";
 import { storage } from "../storage";
 import { db } from "../db";
 import {
@@ -40,7 +41,7 @@ export async function registerAuthRoutes(app: Express): Promise<void> {
   app.post("/api/auth/login", async (req, res) => {
     try {
       const { username, password } = req.body;
-      const user = await storage.getUserByUsername(username);
+      const user = await userService.getUserByUsername(username);
       if (!user || user.password !== password) {
         return res.status(401).json({ message: "Invalid username or password" });
       }
@@ -52,70 +53,16 @@ export async function registerAuthRoutes(app: Express): Promise<void> {
       // "Create Login" stored a @company.local placeholder email.
       if (user.companyId && user.role !== "super_admin") {
         try {
-          const alreadyLinked = await db
-            .select({ id: employees.id })
-            .from(employees)
-            .where(and(eq(employees.userId, user.id), eq(employees.companyId, user.companyId)))
-            .limit(1);
-
-          if (!alreadyLinked[0]) {
-            // Strategy 1: match by user email → employee officialEmail
-            let empToLink = (
-              await db
-                .select()
-                .from(employees)
-                .where(
-                  and(
-                    eq(employees.officialEmail, user.email),
-                    eq(employees.companyId, user.companyId),
-                    isNull(employees.userId),
-                  ),
-                )
-                .limit(1)
-            )[0];
-
-            // Strategy 2: match by username → employeeCode (common in HR setups)
-            if (!empToLink && username) {
-              empToLink = (
-                await db
-                  .select()
-                  .from(employees)
-                  .where(
-                    and(
-                      eq(employees.employeeCode, username),
-                      eq(employees.companyId, user.companyId),
-                      isNull(employees.userId),
-                    ),
-                  )
-                  .limit(1)
-              )[0];
-            }
-
-            // Strategy 3: match by first+last name within company (last resort)
-            if (!empToLink && user.firstName && user.lastName) {
-              empToLink = (
-                await db
-                  .select()
-                  .from(employees)
-                  .where(
-                    and(
-                      eq(employees.firstName, user.firstName),
-                      eq(employees.lastName, user.lastName),
-                      eq(employees.companyId, user.companyId),
-                      isNull(employees.userId),
-                    ),
-                  )
-                  .limit(1)
-              )[0];
-            }
-
-            if (empToLink) {
-              await db
-                .update(employees)
-                .set({ userId: user.id })
-                .where(eq(employees.id, empToLink.id));
-              console.log(`[AutoLink] Linked user ${user.id} (${username}) → employee ${empToLink.id} (${empToLink.employeeCode})`);
-            }
+          const empToLink = await employeeService.autoLinkUserToEmployee({
+            userId: user.id,
+            companyId: user.companyId,
+            email: user.email,
+            firstName: user.firstName,
+            lastName: user.lastName,
+            username,
+          });
+          if (empToLink) {
+            console.log(`[AutoLink] Linked user ${user.id} (${username}) → employee ${empToLink.id} (${empToLink.employeeCode})`);
           }
         } catch (linkErr) {
           // Non-fatal — log and continue; user can still log in
@@ -138,9 +85,9 @@ export async function registerAuthRoutes(app: Express): Promise<void> {
       const { signupType = "employee" } = req.body;
 
       // Check for duplicate username and email before anything
-      const existingUsername = await storage.getUserByUsername(req.body.username);
+      const existingUsername = await userService.getUserByUsername(req.body.username);
       if (existingUsername) return res.status(400).json({ message: "Username already taken. Please choose another." });
-      const existingEmail = await storage.getUserByEmail(req.body.email).catch(() => null);
+      const existingEmail = await userService.getUserByEmail(req.body.email).catch(() => null);
       if (existingEmail) return res.status(400).json({ message: "An account with this email already exists." });
 
       if (signupType === "company_admin") {
@@ -151,24 +98,18 @@ export async function registerAuthRoutes(app: Express): Promise<void> {
         // Create company with 3-day trial
         const today = new Date().toISOString().split("T")[0];
         const companyId = crypto.randomUUID();
-        await db.execute(sql`
-          INSERT INTO companies (id, company_name, legal_name, status, trial_start_date, trial_days, trial_extended_days)
-          VALUES (${companyId}, ${companyName}, ${companyName}, 'active', ${today}, 3, 0)
-        `);
+        await userService.insertSignupCompany(companyId, companyName, today);
         // Create company_admin user
         const userId = crypto.randomUUID();
-        await db.execute(sql`
-          INSERT INTO users (id, username, email, password, first_name, last_name, role, company_id, status)
-          VALUES (${userId}, ${username}, ${email}, ${password}, ${firstName || ""}, ${lastName || ""}, 'company_admin', ${companyId}, 'active')
-        `);
-        const user = await storage.getUser(userId);
+        await userService.insertSignupUser(userId, username, email, password, firstName, lastName, companyId);
+        const user = await userService.getUser(userId);
         req.session.userId = userId;
         return res.status(201).json({ ...user, companyName, trialDaysLeft: 3, trialExpired: false });
       }
 
       // Default: employee / job seeker signup
       const data = insertUserSchema.parse(req.body);
-      const user = await storage.createUser({ ...data, role: "employee" });
+      const user = await userService.createUser({ ...data, role: "employee" });
       req.session.userId = user.id;
       res.status(201).json(user);
     } catch (error: any) {
@@ -192,9 +133,7 @@ export async function registerAuthRoutes(app: Express): Promise<void> {
       }
       const limit = Math.min(Number(req.query.limit) || 200, 500);
       const action = req.query.action as string | undefined;
-      const rows = await db.execute(
-        sql`SELECT id, action, user_id, user_name, details, created_at FROM audit_logs ${action ? sql`WHERE action = ${action}` : sql``} ORDER BY created_at DESC LIMIT ${limit}`
-      );
+      const rows = await userService.getAuditLogs(action, limit);
       res.json(rows.rows);
     } catch {
       res.status(500).json({ error: "Failed to fetch audit logs" });
@@ -213,12 +152,12 @@ export async function registerAuthRoutes(app: Express): Promise<void> {
   app.get("/api/auth/me", async (req, res) => {
     try {
       if (!req.session.userId) return res.status(401).json({ message: "Not logged in" });
-      const user = await storage.getUser(req.session.userId);
+      const user = await userService.getUser(req.session.userId);
       if (!user) return res.status(401).json({ message: "User not found" });
       let companyName: string | null = null;
       let trialInfo: { trialActive: boolean; trialExpired: boolean; trialDaysLeft: number; trialDaysTotal: number; trialStartDate: string | null } | null = null;
       if (user.companyId) {
-        const company = await storage.getCompany(user.companyId);
+        const company = await companyService.getCompany(user.companyId);
         companyName = company?.companyName || null;
         if (company && company.trialStartDate) {
           const start = new Date(company.trialStartDate);

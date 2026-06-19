@@ -1,5 +1,6 @@
 // HRMS Pro — API Routes (modularized)
 import type { Express, Request, Response, NextFunction } from "express";
+import { attendanceService, employeeService, leaveService, settingsService } from "../services";
 import { storage } from "../storage";
 import { db } from "../db";
 import {
@@ -44,23 +45,23 @@ export async function registerAttendanceRoutes(app: Express): Promise<void> {
 
       // Employees can only ever see their own attendance
       if (user.role === "employee") {
-        const myEmployee = await storage.getEmployeeByUserId(user.id);
+        const myEmployee = await employeeService.getEmployeeByUserId(user.id);
         if (!myEmployee) return res.json([]);
-        records = await storage.getAttendanceByEmployee(myEmployee.id, date as string | undefined);
+        records = await attendanceService.getAttendanceByEmployee(myEmployee.id, date as string | undefined);
       } else if (employeeId) {
-        records = await storage.getAttendanceByEmployee(employeeId as string, date as string | undefined);
+        records = await attendanceService.getAttendanceByEmployee(employeeId as string, date as string | undefined);
       } else if (user.role === "super_admin") {
         if (companyId && date) {
-          records = await storage.getAttendanceByDate(companyId as string, date as string);
+          records = await attendanceService.getAttendanceByDate(companyId as string, date as string);
         } else {
-          records = await storage.getAllAttendance();
+          records = await attendanceService.getAllAttendance();
           if (companyId) records = records.filter((a: any) => a.companyId === companyId);
         }
       } else if (user.companyId) {
         if (date) {
-          records = await storage.getAttendanceByDate(user.companyId, date as string);
+          records = await attendanceService.getAttendanceByDate(user.companyId, date as string);
         } else {
-          records = (await storage.getAllAttendance()).filter((a: any) => a.companyId === user.companyId);
+          records = (await attendanceService.getAllAttendance()).filter((a: any) => a.companyId === user.companyId);
         }
         // Enforce contractor + location access restriction
         const allowedEmployeeIds = await getAllowedEmployeeIdsForUser(user);
@@ -79,7 +80,7 @@ export async function registerAttendanceRoutes(app: Express): Promise<void> {
   app.post("/api/attendance", requireAuth, async (req, res) => {
     try {
       const data = insertAttendanceSchema.parse(req.body);
-      const record = await storage.createAttendance(data);
+      const record = await attendanceService.createAttendance(data);
       res.status(201).json(record);
     } catch (error) {
       res.status(500).json({ error: "Failed to create attendance record" });
@@ -89,7 +90,7 @@ export async function registerAttendanceRoutes(app: Express): Promise<void> {
   app.post("/api/attendance/quick-entry", requireAuth, async (req, res) => {
     try {
       const { employeeId, companyId, month, year, payDays, halfDays, otHours } = req.body;
-      const employee = await storage.getEmployee(employeeId);
+      const employee = await employeeService.getEmployee(employeeId);
       if (!employee) return res.status(404).json({ error: "Employee not found" });
 
       const yearNum = parseInt(year);
@@ -150,7 +151,7 @@ export async function registerAttendanceRoutes(app: Express): Promise<void> {
 
       const dayNameMap: Record<number, string> = { 0: "sunday", 1: "monday", 2: "tuesday", 3: "wednesday", 4: "thursday", 5: "friday", 6: "saturday" };
 
-      const policies = await storage.getTimeOfficePoliciesByCompany(companyId);
+      const policies = await settingsService.getTimeOfficePoliciesByCompany(companyId);
       const activePolicies = policies.filter((p: any) => p.status === "active");
       let policy: any = null;
       if ((employee as any).timeOfficePolicyId) {
@@ -160,12 +161,12 @@ export async function registerAttendanceRoutes(app: Express): Promise<void> {
         policy = activePolicies.find((p: any) => p.isDefault) || activePolicies[0];
       }
 
-      const holidays = await storage.getHolidaysByCompany(companyId);
+      const holidays = await settingsService.getHolidaysByCompany(companyId);
       const holidayDates = new Set(holidays.map((h: any) => h.date));
 
-      const leaveRequests = await storage.getLeaveRequestsByEmployee(employeeId);
+      const leaveRequests = await leaveService.getLeaveRequestsByEmployee(employeeId);
       const approvedLeaves = leaveRequests.filter((lr: any) => lr.status === "approved");
-      const allLeaveTypes = await storage.getLeaveTypesByCompany(companyId);
+      const allLeaveTypes = await leaveService.getLeaveTypesByCompany(companyId);
       const leaveTypeMap = new Map<string, string>();
       for (const lt of allLeaveTypes) {
         leaveTypeMap.set(lt.id, (lt as any).code || lt.name);
@@ -258,7 +259,7 @@ export async function registerAttendanceRoutes(app: Express): Promise<void> {
 
       for (const dayInfo of eligibleDays) {
         const { dateStr, isWeeklyOff, isHoliday, isLeave, leaveTypeCode } = dayInfo;
-        const existing = await storage.getAttendanceByEmployee(employeeId, dateStr);
+        const existing = await attendanceService.getAttendanceByEmployee(employeeId, dateStr);
         if (existing.length > 0) {
           skipped++;
           continue;
@@ -342,7 +343,7 @@ export async function registerAttendanceRoutes(app: Express): Promise<void> {
           workHrs  = "00:00";
         }
 
-        await storage.createAttendance({
+        await attendanceService.createAttendance({
           employeeId,
           companyId,
           date: dateStr,
@@ -368,7 +369,7 @@ export async function registerAttendanceRoutes(app: Express): Promise<void> {
   app.patch("/api/attendance/:id", requireAuth, requireRole("super_admin", "company_admin", "hr_admin"), requireAction("attendance", "edit"), async (req, res) => {
     try {
       const user = (req as any).user;
-      const existing = await storage.getAttendance(req.params.id);
+      const existing = await attendanceService.getAttendance(req.params.id);
       if (!existing) return res.status(404).json({ error: "Attendance record not found" });
       if (user.role !== "super_admin" && existing.companyId !== user.companyId) {
         return res.status(403).json({ error: "Access denied" });
@@ -393,9 +394,9 @@ export async function registerAttendanceRoutes(app: Express): Promise<void> {
         const mins = diffMin % 60;
         updateData.workHours = `${String(hrs).padStart(2, "0")}:${String(mins).padStart(2, "0")}`;
 
-        const employee = await storage.getEmployee(existing.employeeId);
+        const employee = await employeeService.getEmployee(existing.employeeId);
         if (employee) {
-          const policies = await storage.getTimeOfficePoliciesByCompany(existing.companyId);
+          const policies = await settingsService.getTimeOfficePoliciesByCompany(existing.companyId);
           const activePolicies = policies.filter((p: any) => p.status === "active");
           let policy: any = (employee as any).timeOfficePolicyId
             ? activePolicies.find((p: any) => p.id === (employee as any).timeOfficePolicyId)
@@ -419,7 +420,7 @@ export async function registerAttendanceRoutes(app: Express): Promise<void> {
         }
       }
 
-      const updated = await storage.updateAttendance(req.params.id, updateData);
+      const updated = await attendanceService.updateAttendance(req.params.id, updateData);
       res.json(updated);
     } catch (error) {
       res.status(500).json({ error: "Failed to update attendance" });
@@ -430,7 +431,7 @@ export async function registerAttendanceRoutes(app: Express): Promise<void> {
   app.post("/api/attendance/:id/missed-log", requireAuth, requireRole("super_admin", "company_admin", "hr_admin"), requireAction("attendance", "edit"), async (req, res) => {
     try {
       const user = (req as any).user;
-      const existing = await storage.getAttendance(req.params.id);
+      const existing = await attendanceService.getAttendance(req.params.id);
       if (!existing) return res.status(404).json({ error: "Attendance record not found" });
       if (user.role !== "super_admin" && existing.companyId !== user.companyId) {
         return res.status(403).json({ error: "Access denied" });
@@ -479,10 +480,10 @@ export async function registerAttendanceRoutes(app: Express): Promise<void> {
       if (diffMin < 0) diffMin += 24 * 60;
       const workHours = fromMin(Math.min(diffMin, 24 * 60));
 
-      const employee = await storage.getEmployee(existing.employeeId);
+      const employee = await employeeService.getEmployee(existing.employeeId);
       let otHours = "0";
       if (employee) {
-        const policies = await storage.getTimeOfficePoliciesByCompany(existing.companyId);
+        const policies = await settingsService.getTimeOfficePoliciesByCompany(existing.companyId);
         const active = (policies as any[]).filter(p => p.status === "active");
         let policy: any = (employee as any).timeOfficePolicyId
           ? active.find(p => p.id === (employee as any).timeOfficePolicyId)
@@ -499,7 +500,7 @@ export async function registerAttendanceRoutes(app: Express): Promise<void> {
         }
       }
 
-      const updated = await storage.updateAttendance(req.params.id, {
+      const updated = await attendanceService.updateAttendance(req.params.id, {
         clockIn:  finalClockIn,
         clockOut: finalClockOut,
         workHours,
@@ -516,7 +517,7 @@ export async function registerAttendanceRoutes(app: Express): Promise<void> {
   app.delete("/api/attendance/:id", requireAuth, requireRole("super_admin", "company_admin", "hr_admin"), requireAction("attendance", "edit"), async (req, res) => {
     try {
       const user = (req as any).user;
-      const existing = await storage.getAttendance(req.params.id);
+      const existing = await attendanceService.getAttendance(req.params.id);
       if (!existing) return res.status(404).json({ error: "Attendance record not found" });
       if (user.role !== "super_admin" && existing.companyId !== user.companyId) {
         return res.status(403).json({ error: "Access denied" });
@@ -525,7 +526,7 @@ export async function registerAttendanceRoutes(app: Express): Promise<void> {
       if (user.role !== "super_admin" && existing.clockInMethod === "biometric") {
         return res.status(403).json({ error: "Biometric records can only be deleted by Super Admin" });
       }
-      await storage.deleteAttendance(req.params.id);
+      await attendanceService.deleteAttendance(req.params.id);
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: "Failed to delete attendance record" });

@@ -1,5 +1,6 @@
 // HRMS Pro — API Routes (modularized)
 import type { Express, Request, Response, NextFunction } from "express";
+import { companyService, leaveService } from "../services";
 import { storage } from "../storage";
 import { db } from "../db";
 import {
@@ -42,7 +43,7 @@ export async function registerMastersExtraRoutes(app: Express): Promise<void> {
       const { companyId } = req.query;
       const cid = (companyId as string) || user.companyId;
       if (!cid) return res.json([]);
-      return res.json(await storage.getContractorMastersByCompany(cid));
+      return res.json(await companyService.getContractorMastersByCompany(cid));
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch contractor masters" });
     }
@@ -51,7 +52,7 @@ export async function registerMastersExtraRoutes(app: Express): Promise<void> {
   app.post("/api/contractor-masters", requireAuth, requireAction("masters", "edit"), async (req, res) => {
     try {
       const data = insertContractorMasterSchema.parse(req.body);
-      const record = await storage.createContractorMaster(data);
+      const record = await companyService.createContractorMaster(data);
       res.status(201).json(record);
     } catch (error) {
       res.status(500).json({ error: "Failed to create contractor master" });
@@ -60,7 +61,7 @@ export async function registerMastersExtraRoutes(app: Express): Promise<void> {
 
   app.patch("/api/contractor-masters/:id", requireAuth, requireAction("masters", "edit"), async (req, res) => {
     try {
-      const updated = await storage.updateContractorMaster(req.params.id, req.body);
+      const updated = await companyService.updateContractorMaster(req.params.id, req.body);
       if (!updated) return res.status(404).json({ error: "Contractor master not found" });
       res.json(updated);
     } catch (error) {
@@ -70,7 +71,7 @@ export async function registerMastersExtraRoutes(app: Express): Promise<void> {
 
   app.delete("/api/contractor-masters/:id", requireAuth, requireAction("masters", "edit"), async (req, res) => {
     try {
-      const success = await storage.deleteContractorMaster(req.params.id);
+      const success = await companyService.deleteContractorMaster(req.params.id);
       if (!success) return res.status(404).json({ error: "Contractor master not found" });
       res.json({ success });
     } catch (error) {
@@ -85,7 +86,7 @@ export async function registerMastersExtraRoutes(app: Express): Promise<void> {
       const { companyId } = req.query;
       const cid = (companyId as string) || user.companyId;
       if (!cid) return res.json([]);
-      return res.json(await storage.getLeavePoliciesByCompany(cid));
+      return res.json(await leaveService.getLeavePoliciesByCompany(cid));
     } catch { res.status(500).json({ error: "Failed to fetch leave policies" }); }
   });
 
@@ -93,14 +94,14 @@ export async function registerMastersExtraRoutes(app: Express): Promise<void> {
     try {
       const { insertLeavePolicySchema } = await import("@shared/schema");
       const data = insertLeavePolicySchema.parse(req.body);
-      const policy = await storage.createLeavePolicy(data);
+      const policy = await leaveService.createLeavePolicy(data);
       res.status(201).json(policy);
     } catch (error: any) { res.status(400).json({ error: error.message || "Failed to create leave policy" }); }
   });
 
   app.patch("/api/leave-policies/:id", requireAuth, requireAction("masters", "edit"), async (req, res) => {
     try {
-      const updated = await storage.updateLeavePolicy(req.params.id, req.body);
+      const updated = await leaveService.updateLeavePolicy(req.params.id, req.body);
       if (!updated) return res.status(404).json({ error: "Leave policy not found" });
       res.json(updated);
     } catch { res.status(500).json({ error: "Failed to update leave policy" }); }
@@ -108,7 +109,7 @@ export async function registerMastersExtraRoutes(app: Express): Promise<void> {
 
   app.delete("/api/leave-policies/:id", requireAuth, requireAction("masters", "edit"), async (req, res) => {
     try {
-      const success = await storage.deleteLeavePolicy(req.params.id);
+      const success = await leaveService.deleteLeavePolicy(req.params.id);
       if (!success) return res.status(404).json({ error: "Leave policy not found" });
       res.json({ success });
     } catch { res.status(500).json({ error: "Failed to delete leave policy" }); }

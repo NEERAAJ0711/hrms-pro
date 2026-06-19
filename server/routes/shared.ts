@@ -1,5 +1,6 @@
 // HRMS Pro — shared route infrastructure (middleware, helpers, multer configs)
 import type { Request, Response, NextFunction } from "express";
+import { companyService, employeeService, settingsService, userService } from "../services";
 import { storage } from "../storage";
 import { db } from "../db";
 import { users as usersTable, contractorEmployees as contractorEmployeesTable } from "@shared/schema";
@@ -143,7 +144,7 @@ export const requireAuth = async (req: Request, res: Response, next: NextFunctio
   if (!req.session.userId) {
     return res.status(401).json({ error: "Authentication required" });
   }
-  const user = await storage.getUser(req.session.userId);
+  const user = await userService.getUser(req.session.userId);
   if (!user) {
     return res.status(401).json({ error: "User not found" });
   }
@@ -204,7 +205,7 @@ export async function userHasAccess(
   }
   let userPerms: { module: string; canAccess: boolean }[] = [];
   try {
-    userPerms = await storage.getUserPermissions(user.id);
+    userPerms = await userService.getUserPermissions(user.id);
   } catch (_) { /* fall through to role check */ }
   const moduleOverride = userPerms.find(p => p.module === module);
   const actionOverride = action
@@ -269,10 +270,7 @@ export async function resolveEmployeeUserId(emp: any): Promise<string | null> {
   if (emp?.userId) return emp.userId;
   if (!emp?.officialEmail) return null;
   try {
-    const rows = await db.select({ id: usersTable.id })
-      .from(usersTable)
-      .where(eq(usersTable.email, emp.officialEmail))
-      .limit(1);
+    const rows = await userService.getUserIdByEmail(emp.officialEmail);
     return rows[0]?.id ?? null;
   } catch {
     return null;
@@ -285,9 +283,7 @@ export async function resolveEmployeeUserId(emp: any): Promise<string | null> {
  */
 export async function getHrAdminIds(companyId: string | null, excludeUserId?: string): Promise<string[]> {
   try {
-    const rows = await db.select({ id: usersTable.id, role: usersTable.role, companyId: usersTable.companyId })
-      .from(usersTable)
-      .where(inArray(usersTable.role, ["hr_admin", "company_admin", "super_admin"]));
+    const rows = await userService.getUsersByRoles(["hr_admin", "company_admin", "super_admin"]);
     return rows
       .filter(u => u.role === "super_admin" || u.companyId === companyId)
       .map(u => u.id)
@@ -308,7 +304,7 @@ export async function resolveAllowedLocationNames(user: any): Promise<Set<string
   if (!allowedIds || allowedIds.length === 0) return null; // no restriction
   if (!user.companyId) return new Set(); // safety: no company → no access
   try {
-    const companyLocs = await storage.getMasterLocationsByCompany(user.companyId);
+    const companyLocs = await settingsService.getMasterLocationsByCompany(user.companyId);
     const names = new Set(
       companyLocs.filter((l: any) => allowedIds.includes(l.id)).map((l: any) => l.name)
     );
@@ -342,30 +338,27 @@ export async function getAllowedEmployeeIdsForUser(user: any): Promise<Set<strin
   if (!hasContractorRestriction && !hasLocationRestriction) return null;
   if (!user.companyId) return new Set();
 
-  const companyEmployees = await storage.getEmployeesByCompany(user.companyId);
+  const companyEmployees = await employeeService.getEmployeesByCompany(user.companyId);
 
   // Build the set of employee IDs tagged to any contractor matching the
   // user's accessContractors via Settings → Tag Employees.
   const taggedEmployeeIds = new Set<string>();
   if (hasContractorRestriction) {
     try {
-      const cms = await storage.getContractorMastersByCompany(user.companyId);
+      const cms = await companyService.getContractorMastersByCompany(user.companyId);
       const allowedNames = new Set(
         cms
           .filter((c: any) => allowedContractors!.includes(c.id))
           .map((c: any) => (c.contractorName || "").trim().toLowerCase())
       );
       if (allowedNames.size > 0) {
-        const ccRows = await storage.getCompanyContractors(user.companyId);
+        const ccRows = await companyService.getCompanyContractors(user.companyId);
         const matchedCcIds = ccRows
           .filter((cc: any) => allowedNames.has(((cc as any).contractorName || "").trim().toLowerCase()))
           .map((cc: any) => cc.id);
         if (matchedCcIds.length > 0) {
           // Single batched query instead of N per-contractor fetches
-          const taggedRows = await db
-            .select({ employeeId: contractorEmployeesTable.employeeId })
-            .from(contractorEmployeesTable)
-            .where(inArray(contractorEmployeesTable.companyContractorId, matchedCcIds));
+          const taggedRows = await companyService.getTaggedEmployeeIdsByContractors(matchedCcIds);
           for (const t of taggedRows) taggedEmployeeIds.add(t.employeeId);
         }
       }

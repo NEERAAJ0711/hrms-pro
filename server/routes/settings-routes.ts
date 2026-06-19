@@ -1,5 +1,6 @@
 // HRMS Pro — API Routes (modularized)
 import type { Express, Request, Response, NextFunction } from "express";
+import { companyService, complianceService, payrollService, settingsService } from "../services";
 import { storage } from "../storage";
 import { db } from "../db";
 import {
@@ -41,9 +42,9 @@ export async function registerSettingsRoutes(app: Express): Promise<void> {
       const user = (req as any).user;
       let settings;
       if (user.role === "super_admin") {
-        settings = await storage.getAllSettings();
+        settings = await settingsService.getAllSettings();
       } else if (user.companyId) {
-        settings = (await storage.getAllSettings()).filter(s => s.companyId === null || s.companyId === user.companyId);
+        settings = (await settingsService.getAllSettings()).filter(s => s.companyId === null || s.companyId === user.companyId);
       } else {
         settings = [];
       }
@@ -56,12 +57,12 @@ export async function registerSettingsRoutes(app: Express): Promise<void> {
   app.post("/api/settings", requireAuth, requireAction("settings", "edit"), async (req, res) => {
     try {
       const data = insertSettingSchema.parse(req.body);
-      const existing = await storage.getSettingByKey(data.companyId || null, data.key);
+      const existing = await settingsService.getSettingByKey(data.companyId || null, data.key);
       if (existing) {
-        const updated = await storage.updateSetting(existing.id, data);
+        const updated = await settingsService.updateSetting(existing.id, data);
         return res.json(updated);
       }
-      const setting = await storage.createSetting(data);
+      const setting = await settingsService.createSetting(data);
       res.status(201).json(setting);
     } catch (error) {
       res.status(500).json({ error: "Failed to save setting" });
@@ -77,8 +78,8 @@ export async function registerSettingsRoutes(app: Express): Promise<void> {
       const user = (req as any).user;
       if (user.role !== "super_admin") return res.status(403).json({ error: "Forbidden" });
       const [openaiRow, geminiRow] = await Promise.all([
-        storage.getSettingByKey(null, "openai_api_key"),
-        storage.getSettingByKey(null, "gemini_api_key"),
+        settingsService.getSettingByKey(null, "openai_api_key"),
+        settingsService.getSettingByKey(null, "gemini_api_key"),
       ]);
       const openaiVal = openaiRow?.value || "";
       const geminiVal = geminiRow?.value || "";
@@ -99,11 +100,11 @@ export async function registerSettingsRoutes(app: Express): Promise<void> {
 
       const upsert = async (dbKey: string, rawValue: string) => {
         const key = rawValue.trim();
-        const existing = await storage.getSettingByKey(null, dbKey);
+        const existing = await settingsService.getSettingByKey(null, dbKey);
         if (existing) {
-          await storage.updateSetting(existing.id, { value: key });
+          await settingsService.updateSetting(existing.id, { value: key });
         } else {
-          await storage.createSetting({ key: dbKey, value: key, category: "api_keys", companyId: null });
+          await settingsService.createSetting({ key: dbKey, value: key, category: "api_keys", companyId: null });
         }
         return key;
       };
@@ -128,20 +129,20 @@ export async function registerSettingsRoutes(app: Express): Promise<void> {
       const user = (req as any).user;
       const { companyId } = req.query;
       if (companyId) {
-        const settings = await storage.getStatutorySettingsByCompany(companyId as string);
+        const settings = await complianceService.getStatutorySettingsByCompany(companyId as string);
         return res.json(settings ? [settings] : []);
       }
       if (user.role === "super_admin") {
-        const allCompanies = await storage.getAllCompanies();
+        const allCompanies = await companyService.getAllCompanies();
         const results = [];
         for (const company of allCompanies) {
-          const s = await storage.getStatutorySettingsByCompany(company.id);
+          const s = await complianceService.getStatutorySettingsByCompany(company.id);
           if (s) results.push(s);
         }
         return res.json(results);
       }
       if (user.companyId) {
-        const settings = await storage.getStatutorySettingsByCompany(user.companyId);
+        const settings = await complianceService.getStatutorySettingsByCompany(user.companyId);
         return res.json(settings ? [settings] : []);
       }
       res.json([]);
@@ -153,7 +154,7 @@ export async function registerSettingsRoutes(app: Express): Promise<void> {
   app.post("/api/statutory-settings", requireAuth, async (req, res) => {
     try {
       const data = insertStatutorySettingsSchema.parse(req.body);
-      const settings = await storage.createStatutorySettings(data);
+      const settings = await complianceService.createStatutorySettings(data);
       res.status(201).json(settings);
     } catch (error) {
       res.status(500).json({ error: "Failed to create statutory settings" });
@@ -162,7 +163,7 @@ export async function registerSettingsRoutes(app: Express): Promise<void> {
 
   app.patch("/api/statutory-settings/:id", requireAuth, async (req, res) => {
     try {
-      const updated = await storage.updateStatutorySettings(req.params.id, req.body);
+      const updated = await complianceService.updateStatutorySettings(req.params.id, req.body);
       if (!updated) return res.status(404).json({ error: "Statutory settings not found" });
       res.json(updated);
     } catch (error) {
@@ -176,14 +177,14 @@ export async function registerSettingsRoutes(app: Express): Promise<void> {
       const user = (req as any).user;
       const { companyId } = req.query;
       if (companyId) {
-        const depts = await storage.getMasterDepartmentsByCompany(companyId as string);
+        const depts = await settingsService.getMasterDepartmentsByCompany(companyId as string);
         return res.json(depts);
       }
       if (user.role === "super_admin") {
-        return res.json(await storage.getAllMasterDepartments());
+        return res.json(await settingsService.getAllMasterDepartments());
       }
       if (user.companyId) {
-        return res.json(await storage.getMasterDepartmentsByCompany(user.companyId));
+        return res.json(await settingsService.getMasterDepartmentsByCompany(user.companyId));
       }
       res.json([]);
     } catch (error) {
@@ -194,7 +195,7 @@ export async function registerSettingsRoutes(app: Express): Promise<void> {
   app.post("/api/master-departments", requireAuth, requireAction("masters", "edit"), async (req, res) => {
     try {
       const data = insertMasterDepartmentSchema.parse(req.body);
-      const dept = await storage.createMasterDepartment(data);
+      const dept = await settingsService.createMasterDepartment(data);
       res.status(201).json(dept);
     } catch (error) {
       res.status(500).json({ error: "Failed to create department" });
@@ -203,7 +204,7 @@ export async function registerSettingsRoutes(app: Express): Promise<void> {
 
   app.patch("/api/master-departments/:id", requireAuth, requireAction("masters", "edit"), async (req, res) => {
     try {
-      const updated = await storage.updateMasterDepartment(req.params.id, req.body);
+      const updated = await settingsService.updateMasterDepartment(req.params.id, req.body);
       if (!updated) return res.status(404).json({ error: "Department not found" });
       res.json(updated);
     } catch (error) {
@@ -213,7 +214,7 @@ export async function registerSettingsRoutes(app: Express): Promise<void> {
 
   app.delete("/api/master-departments/:id", requireAuth, requireAction("masters", "edit"), async (req, res) => {
     try {
-      const success = await storage.deleteMasterDepartment(req.params.id);
+      const success = await settingsService.deleteMasterDepartment(req.params.id);
       if (!success) return res.status(404).json({ error: "Department not found" });
       res.json({ success });
     } catch (error) {
@@ -227,13 +228,13 @@ export async function registerSettingsRoutes(app: Express): Promise<void> {
       const user = (req as any).user;
       const { companyId } = req.query;
       if (companyId) {
-        return res.json(await storage.getMasterDesignationsByCompany(companyId as string));
+        return res.json(await settingsService.getMasterDesignationsByCompany(companyId as string));
       }
       if (user.role === "super_admin") {
-        return res.json(await storage.getAllMasterDesignations());
+        return res.json(await settingsService.getAllMasterDesignations());
       }
       if (user.companyId) {
-        return res.json(await storage.getMasterDesignationsByCompany(user.companyId));
+        return res.json(await settingsService.getMasterDesignationsByCompany(user.companyId));
       }
       res.json([]);
     } catch (error) {
@@ -244,7 +245,7 @@ export async function registerSettingsRoutes(app: Express): Promise<void> {
   app.post("/api/master-designations", requireAuth, requireAction("masters", "edit"), async (req, res) => {
     try {
       const data = insertMasterDesignationSchema.parse(req.body);
-      const desg = await storage.createMasterDesignation(data);
+      const desg = await settingsService.createMasterDesignation(data);
       res.status(201).json(desg);
     } catch (error) {
       res.status(500).json({ error: "Failed to create designation" });
@@ -253,7 +254,7 @@ export async function registerSettingsRoutes(app: Express): Promise<void> {
 
   app.patch("/api/master-designations/:id", requireAuth, requireAction("masters", "edit"), async (req, res) => {
     try {
-      const updated = await storage.updateMasterDesignation(req.params.id, req.body);
+      const updated = await settingsService.updateMasterDesignation(req.params.id, req.body);
       if (!updated) return res.status(404).json({ error: "Designation not found" });
       res.json(updated);
     } catch (error) {
@@ -263,7 +264,7 @@ export async function registerSettingsRoutes(app: Express): Promise<void> {
 
   app.delete("/api/master-designations/:id", requireAuth, requireAction("masters", "edit"), async (req, res) => {
     try {
-      const success = await storage.deleteMasterDesignation(req.params.id);
+      const success = await settingsService.deleteMasterDesignation(req.params.id);
       if (!success) return res.status(404).json({ error: "Designation not found" });
       res.json({ success });
     } catch (error) {
@@ -285,13 +286,13 @@ export async function registerSettingsRoutes(app: Express): Promise<void> {
         if (!canTouchWageGrade(user, companyId as string)) {
           return res.status(403).json({ error: "Forbidden" });
         }
-        return res.json(await storage.getWageGradesByCompany(companyId as string));
+        return res.json(await settingsService.getWageGradesByCompany(companyId as string));
       }
       if (user.role === "super_admin") {
-        return res.json(await storage.getAllWageGrades());
+        return res.json(await settingsService.getAllWageGrades());
       }
       if (user.companyId) {
-        return res.json(await storage.getWageGradesByCompany(user.companyId));
+        return res.json(await settingsService.getWageGradesByCompany(user.companyId));
       }
       res.json([]);
     } catch (error) {
@@ -308,7 +309,7 @@ export async function registerSettingsRoutes(app: Express): Promise<void> {
       }
 
       if (data.effectiveFrom && data.name && data.state) {
-        const existing = await storage.getWageGradesByCompany(data.companyId);
+        const existing = await settingsService.getWageGradesByCompany(data.companyId);
         const sameGrades = existing
           .filter(g => g.name === data.name && g.state === data.state && g.effectiveFrom)
           .sort((a, b) => (b.effectiveFrom ?? "").localeCompare(a.effectiveFrom ?? ""));
@@ -338,14 +339,14 @@ export async function registerSettingsRoutes(app: Express): Promise<void> {
           // Auto-close previous active grade: effectiveTo = new date - 1 day
           const closingDate = new Date(newDate);
           closingDate.setDate(closingDate.getDate() - 1);
-          await storage.updateWageGrade(latest.id, {
+          await settingsService.updateWageGrade(latest.id, {
             effectiveTo: closingDate.toISOString().slice(0, 10),
             status: "closed",
           });
         }
       }
 
-      const grade = await storage.createWageGrade(data);
+      const grade = await settingsService.createWageGrade(data);
       res.status(201).json(grade);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -358,7 +359,7 @@ export async function registerSettingsRoutes(app: Express): Promise<void> {
   app.patch("/api/wage-grades/:id", requireAuth, requireAction("masters", "edit"), async (req, res) => {
     try {
       const user = (req as any).user;
-      const existing = await storage.getWageGrade(req.params.id);
+      const existing = await settingsService.getWageGrade(req.params.id);
       if (!existing) return res.status(404).json({ error: "Wage grade not found" });
       if (!canTouchWageGrade(user, existing.companyId)) {
         return res.status(403).json({ error: "Forbidden" });
@@ -368,7 +369,7 @@ export async function registerSettingsRoutes(app: Express): Promise<void> {
       if (data.companyId && !canTouchWageGrade(user, data.companyId)) {
         return res.status(403).json({ error: "Forbidden" });
       }
-      const updated = await storage.updateWageGrade(req.params.id, data);
+      const updated = await settingsService.updateWageGrade(req.params.id, data);
       if (!updated) return res.status(404).json({ error: "Wage grade not found" });
       res.json(updated);
     } catch (error) {
@@ -382,12 +383,12 @@ export async function registerSettingsRoutes(app: Express): Promise<void> {
   app.delete("/api/wage-grades/:id", requireAuth, requireAction("masters", "edit"), async (req, res) => {
     try {
       const user = (req as any).user;
-      const existing = await storage.getWageGrade(req.params.id);
+      const existing = await settingsService.getWageGrade(req.params.id);
       if (!existing) return res.status(404).json({ error: "Wage grade not found" });
       if (!canTouchWageGrade(user, existing.companyId)) {
         return res.status(403).json({ error: "Forbidden" });
       }
-      const success = await storage.deleteWageGrade(req.params.id);
+      const success = await settingsService.deleteWageGrade(req.params.id);
       if (!success) return res.status(404).json({ error: "Wage grade not found" });
       res.json({ success });
     } catch (error) {
@@ -401,13 +402,13 @@ export async function registerSettingsRoutes(app: Express): Promise<void> {
       const user = (req as any).user;
       const { companyId } = req.query;
       if (companyId) {
-        return res.json(await storage.getMasterLocationsByCompany(companyId as string));
+        return res.json(await settingsService.getMasterLocationsByCompany(companyId as string));
       }
       if (user.role === "super_admin") {
-        return res.json(await storage.getAllMasterLocations());
+        return res.json(await settingsService.getAllMasterLocations());
       }
       if (user.companyId) {
-        return res.json(await storage.getMasterLocationsByCompany(user.companyId));
+        return res.json(await settingsService.getMasterLocationsByCompany(user.companyId));
       }
       res.json([]);
     } catch (error) {
@@ -418,7 +419,7 @@ export async function registerSettingsRoutes(app: Express): Promise<void> {
   app.post("/api/master-locations", requireAuth, requireAction("masters", "edit"), async (req, res) => {
     try {
       const data = insertMasterLocationSchema.parse(req.body);
-      const loc = await storage.createMasterLocation(data);
+      const loc = await settingsService.createMasterLocation(data);
       res.status(201).json(loc);
     } catch (error) {
       res.status(500).json({ error: "Failed to create location" });
@@ -427,7 +428,7 @@ export async function registerSettingsRoutes(app: Express): Promise<void> {
 
   app.patch("/api/master-locations/:id", requireAuth, requireAction("masters", "edit"), async (req, res) => {
     try {
-      const updated = await storage.updateMasterLocation(req.params.id, req.body);
+      const updated = await settingsService.updateMasterLocation(req.params.id, req.body);
       if (!updated) return res.status(404).json({ error: "Location not found" });
       res.json(updated);
     } catch (error) {
@@ -437,7 +438,7 @@ export async function registerSettingsRoutes(app: Express): Promise<void> {
 
   app.delete("/api/master-locations/:id", requireAuth, requireAction("masters", "edit"), async (req, res) => {
     try {
-      const success = await storage.deleteMasterLocation(req.params.id);
+      const success = await settingsService.deleteMasterLocation(req.params.id);
       if (!success) return res.status(404).json({ error: "Location not found" });
       res.json({ success });
     } catch (error) {
@@ -451,19 +452,19 @@ export async function registerSettingsRoutes(app: Express): Promise<void> {
       const user = (req as any).user;
       const { companyId } = req.query;
       if (companyId) {
-        return res.json(await storage.getEarningHeadsByCompany(companyId as string));
+        return res.json(await settingsService.getEarningHeadsByCompany(companyId as string));
       }
       if (user.role === "super_admin") {
-        const allCompanies = await storage.getAllCompanies();
+        const allCompanies = await companyService.getAllCompanies();
         const results = [];
         for (const c of allCompanies) {
-          const heads = await storage.getEarningHeadsByCompany(c.id);
+          const heads = await settingsService.getEarningHeadsByCompany(c.id);
           results.push(...heads);
         }
         return res.json(results);
       }
       if (user.companyId) {
-        return res.json(await storage.getEarningHeadsByCompany(user.companyId));
+        return res.json(await settingsService.getEarningHeadsByCompany(user.companyId));
       }
       res.json([]);
     } catch (error) {
@@ -477,7 +478,7 @@ export async function registerSettingsRoutes(app: Express): Promise<void> {
       const body = { ...req.body };
       if (!body.companyId && user.companyId) body.companyId = user.companyId;
       const data = insertEarningHeadSchema.parse(body);
-      const head = await storage.createEarningHead(data);
+      const head = await settingsService.createEarningHead(data);
       res.status(201).json(head);
     } catch (error: any) {
       const msg = error?.errors ? JSON.stringify(error.errors) : (error?.message || String(error));
@@ -488,7 +489,7 @@ export async function registerSettingsRoutes(app: Express): Promise<void> {
 
   app.patch("/api/earning-heads/:id", requireAuth, async (req, res) => {
     try {
-      const updated = await storage.updateEarningHead(req.params.id, req.body);
+      const updated = await settingsService.updateEarningHead(req.params.id, req.body);
       if (!updated) return res.status(404).json({ error: "Earning head not found" });
       res.json(updated);
     } catch (error) {
@@ -498,7 +499,7 @@ export async function registerSettingsRoutes(app: Express): Promise<void> {
 
   app.delete("/api/earning-heads/:id", requireAuth, async (req, res) => {
     try {
-      const success = await storage.deleteEarningHead(req.params.id);
+      const success = await settingsService.deleteEarningHead(req.params.id);
       if (!success) return res.status(404).json({ error: "Earning head not found" });
       res.json({ success });
     } catch (error) {
@@ -512,19 +513,19 @@ export async function registerSettingsRoutes(app: Express): Promise<void> {
       const user = (req as any).user;
       const { companyId } = req.query;
       if (companyId) {
-        return res.json(await storage.getDeductionHeadsByCompany(companyId as string));
+        return res.json(await settingsService.getDeductionHeadsByCompany(companyId as string));
       }
       if (user.role === "super_admin") {
-        const allCompanies = await storage.getAllCompanies();
+        const allCompanies = await companyService.getAllCompanies();
         const results = [];
         for (const c of allCompanies) {
-          const heads = await storage.getDeductionHeadsByCompany(c.id);
+          const heads = await settingsService.getDeductionHeadsByCompany(c.id);
           results.push(...heads);
         }
         return res.json(results);
       }
       if (user.companyId) {
-        return res.json(await storage.getDeductionHeadsByCompany(user.companyId));
+        return res.json(await settingsService.getDeductionHeadsByCompany(user.companyId));
       }
       res.json([]);
     } catch (error) {
@@ -535,7 +536,7 @@ export async function registerSettingsRoutes(app: Express): Promise<void> {
   app.post("/api/deduction-heads", requireAuth, async (req, res) => {
     try {
       const data = insertDeductionHeadSchema.parse(req.body);
-      const head = await storage.createDeductionHead(data);
+      const head = await settingsService.createDeductionHead(data);
       res.status(201).json(head);
     } catch (error) {
       res.status(500).json({ error: "Failed to create deduction head" });
@@ -544,7 +545,7 @@ export async function registerSettingsRoutes(app: Express): Promise<void> {
 
   app.patch("/api/deduction-heads/:id", requireAuth, async (req, res) => {
     try {
-      const updated = await storage.updateDeductionHead(req.params.id, req.body);
+      const updated = await settingsService.updateDeductionHead(req.params.id, req.body);
       if (!updated) return res.status(404).json({ error: "Deduction head not found" });
       res.json(updated);
     } catch (error) {
@@ -554,7 +555,7 @@ export async function registerSettingsRoutes(app: Express): Promise<void> {
 
   app.delete("/api/deduction-heads/:id", requireAuth, async (req, res) => {
     try {
-      const success = await storage.deleteDeductionHead(req.params.id);
+      const success = await settingsService.deleteDeductionHead(req.params.id);
       if (!success) return res.status(404).json({ error: "Deduction head not found" });
       res.json({ success });
     } catch (error) {
@@ -568,19 +569,19 @@ export async function registerSettingsRoutes(app: Express): Promise<void> {
       const user = (req as any).user;
       const { companyId } = req.query;
       if (companyId) {
-        return res.json(await storage.getTimeOfficePoliciesByCompany(companyId as string));
+        return res.json(await settingsService.getTimeOfficePoliciesByCompany(companyId as string));
       }
       if (user.role === "super_admin") {
-        const allCompanies = await storage.getAllCompanies();
+        const allCompanies = await companyService.getAllCompanies();
         const results = [];
         for (const c of allCompanies) {
-          const policies = await storage.getTimeOfficePoliciesByCompany(c.id);
+          const policies = await settingsService.getTimeOfficePoliciesByCompany(c.id);
           results.push(...policies);
         }
         return res.json(results);
       }
       if (user.companyId) {
-        return res.json(await storage.getTimeOfficePoliciesByCompany(user.companyId));
+        return res.json(await settingsService.getTimeOfficePoliciesByCompany(user.companyId));
       }
       res.json([]);
     } catch (error) {
@@ -593,7 +594,7 @@ export async function registerSettingsRoutes(app: Express): Promise<void> {
       const body = { ...req.body };
       if (body.weeklyOff2 === "" || body.weeklyOff2 === "__none__") body.weeklyOff2 = null;
       const data = insertTimeOfficePolicySchema.parse(body);
-      const policy = await storage.createTimeOfficePolicy(data);
+      const policy = await settingsService.createTimeOfficePolicy(data);
       res.status(201).json(policy);
     } catch (error: any) {
       console.error("Time office policy create error:", error?.message || error);
@@ -605,7 +606,7 @@ export async function registerSettingsRoutes(app: Express): Promise<void> {
     try {
       const body = { ...req.body };
       if (body.weeklyOff2 === "" || body.weeklyOff2 === "__none__") body.weeklyOff2 = null;
-      const updated = await storage.updateTimeOfficePolicy(req.params.id, body);
+      const updated = await settingsService.updateTimeOfficePolicy(req.params.id, body);
       if (!updated) return res.status(404).json({ error: "Time office policy not found" });
       res.json(updated);
     } catch (error: any) {
@@ -616,7 +617,7 @@ export async function registerSettingsRoutes(app: Express): Promise<void> {
 
   app.delete("/api/time-office-policies/:id", requireAuth, async (req, res) => {
     try {
-      const success = await storage.deleteTimeOfficePolicy(req.params.id);
+      const success = await settingsService.deleteTimeOfficePolicy(req.params.id);
       if (!success) return res.status(404).json({ error: "Time office policy not found" });
       res.json({ success });
     } catch (error) {
@@ -630,13 +631,13 @@ export async function registerSettingsRoutes(app: Express): Promise<void> {
       const user = (req as any).user;
       const { companyId } = req.query;
       if (companyId) {
-        return res.json(await storage.getFnfSettlementsByCompany(companyId as string));
+        return res.json(await payrollService.getFnfSettlementsByCompany(companyId as string));
       }
       if (user.role === "super_admin") {
-        return res.json(await storage.getAllFnfSettlements());
+        return res.json(await payrollService.getAllFnfSettlements());
       }
       if (user.companyId) {
-        return res.json(await storage.getFnfSettlementsByCompany(user.companyId));
+        return res.json(await payrollService.getFnfSettlementsByCompany(user.companyId));
       }
       res.json([]);
     } catch (error) {
@@ -647,7 +648,7 @@ export async function registerSettingsRoutes(app: Express): Promise<void> {
   app.post("/api/fnf-settlements", requireAuth, async (req, res) => {
     try {
       const data = insertFnfSettlementSchema.parse(req.body);
-      const settlement = await storage.createFnfSettlement(data);
+      const settlement = await payrollService.createFnfSettlement(data);
       res.status(201).json(settlement);
     } catch (error) {
       res.status(500).json({ error: "Failed to create F&F settlement" });
@@ -656,7 +657,7 @@ export async function registerSettingsRoutes(app: Express): Promise<void> {
 
   app.patch("/api/fnf-settlements/:id", requireAuth, async (req, res) => {
     try {
-      const updated = await storage.updateFnfSettlement(req.params.id, req.body);
+      const updated = await payrollService.updateFnfSettlement(req.params.id, req.body);
       if (!updated) return res.status(404).json({ error: "F&F settlement not found" });
       res.json(updated);
     } catch (error) {
@@ -666,7 +667,7 @@ export async function registerSettingsRoutes(app: Express): Promise<void> {
 
   app.delete("/api/fnf-settlements/:id", requireAuth, async (req, res) => {
     try {
-      const success = await storage.deleteFnfSettlement(req.params.id);
+      const success = await payrollService.deleteFnfSettlement(req.params.id);
       if (!success) return res.status(404).json({ error: "F&F settlement not found" });
       res.json({ success });
     } catch (error) {
@@ -680,13 +681,13 @@ export async function registerSettingsRoutes(app: Express): Promise<void> {
       const user = (req as any).user;
       const { companyId } = req.query;
       if (companyId) {
-        return res.json(await storage.getHolidaysByCompany(companyId as string));
+        return res.json(await settingsService.getHolidaysByCompany(companyId as string));
       }
       if (user.role === "super_admin") {
-        return res.json(await storage.getAllHolidays());
+        return res.json(await settingsService.getAllHolidays());
       }
       if (user.companyId) {
-        return res.json(await storage.getHolidaysByCompany(user.companyId));
+        return res.json(await settingsService.getHolidaysByCompany(user.companyId));
       }
       res.json([]);
     } catch (error) {
@@ -697,7 +698,7 @@ export async function registerSettingsRoutes(app: Express): Promise<void> {
   app.post("/api/holidays", requireAuth, async (req, res) => {
     try {
       const data = insertHolidaySchema.parse(req.body);
-      const holiday = await storage.createHoliday(data);
+      const holiday = await settingsService.createHoliday(data);
       res.status(201).json(holiday);
     } catch (error) {
       res.status(500).json({ error: "Failed to create holiday" });
@@ -706,7 +707,7 @@ export async function registerSettingsRoutes(app: Express): Promise<void> {
 
   app.patch("/api/holidays/:id", requireAuth, async (req, res) => {
     try {
-      const updated = await storage.updateHoliday(req.params.id, req.body);
+      const updated = await settingsService.updateHoliday(req.params.id, req.body);
       if (!updated) return res.status(404).json({ error: "Holiday not found" });
       res.json(updated);
     } catch (error) {
@@ -716,7 +717,7 @@ export async function registerSettingsRoutes(app: Express): Promise<void> {
 
   app.delete("/api/holidays/:id", requireAuth, async (req, res) => {
     try {
-      const success = await storage.deleteHoliday(req.params.id);
+      const success = await settingsService.deleteHoliday(req.params.id);
       if (!success) return res.status(404).json({ error: "Holiday not found" });
       res.json({ success });
     } catch (error) {

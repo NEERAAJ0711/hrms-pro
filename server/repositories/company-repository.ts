@@ -109,7 +109,7 @@ import {
   compOffApplications,
   outdoorEntries,
 } from "@shared/schema";
-import { eq, and, isNull, desc, sql, count, or } from "drizzle-orm";
+import { eq, and, isNull, desc, sql, count, or, inArray } from "drizzle-orm";
 import { db } from "../db";
 import { randomUUID } from "crypto";
 
@@ -240,5 +240,42 @@ export class CompanyRepository {
   async deleteContractorMaster(id: string): Promise<boolean> {
     const result = await db.delete(contractorMasters).where(eq(contractorMasters.id, id)).returning();
     return result.length > 0;
+  }
+
+  async updateCompanyTrial(id: string, trialDays: number, trialExtendedDays: number): Promise<void> {
+    await db.execute(sql`UPDATE companies SET trial_days = ${trialDays}, trial_extended_days = ${trialExtendedDays} WHERE id = ${id}`);
+  }
+
+  async updateCompanyTrialDays(id: string, trialDays: number): Promise<void> {
+    await db.execute(sql`UPDATE companies SET trial_days = ${trialDays} WHERE id = ${id}`);
+  }
+
+  async updateCompanyTrialExtendedDays(id: string, trialExtendedDays: number): Promise<void> {
+    await db.execute(sql`UPDATE companies SET trial_extended_days = ${trialExtendedDays} WHERE id = ${id}`);
+  }
+
+  async setCompanyLogo(id: string, urlPath: string): Promise<void> {
+    await db.execute(sql`UPDATE companies SET logo = ${urlPath} WHERE id = ${id}`);
+  }
+
+  async setCompanySignature(id: string, urlPath: string): Promise<void> {
+    await db.execute(sql`UPDATE companies SET signature = ${urlPath} WHERE id = ${id}`);
+  }
+
+  async clearCompanyLogo(id: string): Promise<void> {
+    await db.execute(sql`UPDATE companies SET logo = NULL WHERE id = ${id}`);
+  }
+
+  async clearCompanySignature(id: string): Promise<void> {
+    await db.execute(sql`UPDATE companies SET signature = NULL WHERE id = ${id}`);
+  }
+
+  // Batched lookup of employee IDs tagged to any of the given company-contractor
+  // junctions. Verbatim move of the per-user access-restriction tag query.
+  async getTaggedEmployeeIdsByContractors(companyContractorIds: string[]) {
+    return await db
+      .select({ employeeId: contractorEmployees.employeeId })
+      .from(contractorEmployees)
+      .where(inArray(contractorEmployees.companyContractorId, companyContractorIds));
   }
 }

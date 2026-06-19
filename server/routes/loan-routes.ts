@@ -1,5 +1,6 @@
 // HRMS Pro — API Routes (modularized)
 import type { Express, Request, Response, NextFunction } from "express";
+import { companyService, employeeService, payrollService } from "../services";
 import { storage } from "../storage";
 import { db } from "../db";
 import {
@@ -43,28 +44,28 @@ export async function registerLoanRoutes(app: Express): Promise<void> {
       if (user.role === "super_admin") {
         const { companyId } = req.query;
         if (companyId) {
-          records = await storage.getLoanAdvancesByCompany(companyId as string);
+          records = await payrollService.getLoanAdvancesByCompany(companyId as string);
         } else {
-          const companies = await storage.getAllCompanies();
-          const all = await Promise.all(companies.map(c => storage.getLoanAdvancesByCompany(c.id)));
+          const companies = await companyService.getAllCompanies();
+          const all = await Promise.all(companies.map(c => payrollService.getLoanAdvancesByCompany(c.id)));
           records = all.flat();
         }
       } else if (["company_admin", "hr_admin", "manager"].includes(user.role)) {
         if (!user.companyId) return res.json([]);
-        records = await storage.getLoanAdvancesByCompany(user.companyId);
+        records = await payrollService.getLoanAdvancesByCompany(user.companyId);
         // Enforce contractor + location access restriction
         const allowedEmployeeIds = await getAllowedEmployeeIdsForUser(user);
         if (allowedEmployeeIds !== null) {
           records = records.filter((r: any) => allowedEmployeeIds.has(r.employeeId));
         }
       } else {
-        const employee = await storage.getEmployeeByUserId(user.id);
+        const employee = await employeeService.getEmployeeByUserId(user.id);
         if (!employee) return res.json([]);
-        records = await storage.getLoanAdvancesByEmployee(employee.id);
+        records = await payrollService.getLoanAdvancesByEmployee(employee.id);
       }
       // Enrich with employee info
       const enriched = await Promise.all((records || []).map(async (r) => {
-        const emp = await storage.getEmployee(r.employeeId);
+        const emp = await employeeService.getEmployee(r.employeeId);
         return {
           ...r,
           employeeName: emp ? `${emp.firstName} ${emp.lastName}`.trim() : "Unknown",
@@ -84,14 +85,14 @@ export async function registerLoanRoutes(app: Express): Promise<void> {
       let companyId = req.body.companyId;
       // If employee role, force to their own record
       if (user.role === "employee") {
-        const employee = await storage.getEmployeeByUserId(user.id);
+        const employee = await employeeService.getEmployeeByUserId(user.id);
         if (!employee) return res.status(400).json({ error: "No employee record linked to your account" });
         employeeId = employee.id;
         companyId = employee.companyId;
       }
       if (!employeeId || !companyId) return res.status(400).json({ error: "employeeId and companyId are required" });
       const now = new Date().toISOString();
-      const record = await storage.createLoanAdvance({
+      const record = await payrollService.createLoanAdvance({
         ...req.body,
         employeeId,
         companyId,
@@ -104,7 +105,7 @@ export async function registerLoanRoutes(app: Express): Promise<void> {
       try {
         const requestUser = (req as any).user;
         const hrIds = await getHrAdminIds(record.companyId, requestUser.id);
-        const emp2 = await storage.getEmployee(record.employeeId);
+        const emp2 = await employeeService.getEmployee(record.employeeId);
         const empName2 = emp2 ? `${emp2.firstName} ${emp2.lastName}` : (requestUser.username || requestUser.email);
         const typeLabel = record.type === "loan" ? "Loan" : "Salary Advance";
         if (hrIds.length > 0) {
@@ -122,7 +123,7 @@ export async function registerLoanRoutes(app: Express): Promise<void> {
 
   app.get("/api/loan-advances/:id", requireAuth, async (req, res) => {
     try {
-      const record = await storage.getLoanAdvance(req.params.id);
+      const record = await payrollService.getLoanAdvance(req.params.id);
       if (!record) return res.status(404).json({ error: "Not found" });
       res.json(record);
     } catch (error) {
@@ -133,15 +134,15 @@ export async function registerLoanRoutes(app: Express): Promise<void> {
   app.patch("/api/loan-advances/:id", requireAuth, async (req, res) => {
     try {
       const user = (req as any).user;
-      const record = await storage.getLoanAdvance(req.params.id);
+      const record = await payrollService.getLoanAdvance(req.params.id);
       if (!record) return res.status(404).json({ error: "Not found" });
       // Employee can only edit their own pending applications
       if (user.role === "employee") {
-        const employee = await storage.getEmployeeByUserId(user.id);
+        const employee = await employeeService.getEmployeeByUserId(user.id);
         if (!employee || employee.id !== record.employeeId) return res.status(403).json({ error: "Forbidden" });
         if (record.status !== "pending") return res.status(400).json({ error: "Cannot edit a non-pending application" });
       }
-      const updated = await storage.updateLoanAdvance(req.params.id, { ...req.body, updatedAt: new Date().toISOString() });
+      const updated = await payrollService.updateLoanAdvance(req.params.id, { ...req.body, updatedAt: new Date().toISOString() });
       res.json(updated);
     } catch (error) {
       res.status(500).json({ error: "Failed to update loan/advance" });
@@ -151,7 +152,7 @@ export async function registerLoanRoutes(app: Express): Promise<void> {
   app.post("/api/loan-advances/:id/approve", requireAuth, requireRole("super_admin", "company_admin", "hr_admin", "manager"), async (req, res) => {
     try {
       const user = (req as any).user;
-      const record = await storage.getLoanAdvance(req.params.id);
+      const record = await payrollService.getLoanAdvance(req.params.id);
       if (!record) return res.status(404).json({ error: "Not found" });
       if (record.status !== "pending") return res.status(400).json({ error: "Only pending applications can be approved" });
       const { totalInstallments, installmentAmount, deductionStartMonth, remarks } = req.body;
@@ -159,7 +160,7 @@ export async function registerLoanRoutes(app: Express): Promise<void> {
         return res.status(400).json({ error: "totalInstallments, installmentAmount, and deductionStartMonth are required" });
       }
       const now = new Date().toISOString();
-      const updated = await storage.updateLoanAdvance(req.params.id, {
+      const updated = await payrollService.updateLoanAdvance(req.params.id, {
         status: "active",
         approvedBy: user.id,
         approvedAt: now,
@@ -172,7 +173,7 @@ export async function registerLoanRoutes(app: Express): Promise<void> {
       });
       // Notify employee of approval
       try {
-        const loanEmp = await storage.getEmployee(record.employeeId);
+        const loanEmp = await employeeService.getEmployee(record.employeeId);
         const loanEmpUserId = await resolveEmployeeUserId(loanEmp);
         if (loanEmpUserId) {
           const typeLabel = record.type === "loan" ? "Loan" : "Salary Advance";
@@ -190,7 +191,7 @@ export async function registerLoanRoutes(app: Express): Promise<void> {
   app.post("/api/loan-advances/:id/reschedule", requireAuth, requireRole("super_admin", "company_admin", "hr_admin", "manager"), async (req, res) => {
     try {
       const user = (req as any).user;
-      const record = await storage.getLoanAdvance(req.params.id);
+      const record = await payrollService.getLoanAdvance(req.params.id);
       if (!record) return res.status(404).json({ error: "Not found" });
       if (record.status !== "active") return res.status(400).json({ error: "Only active loan/advance records can be rescheduled" });
       const { totalInstallments, installmentAmount, deductionStartMonth, remarks } = req.body;
@@ -202,7 +203,7 @@ export async function registerLoanRoutes(app: Express): Promise<void> {
       const now = new Date().toISOString();
       const scheduleNote = remarks ? `[Rescheduled on ${now.slice(0,10)}: ${remarks}]` : `[Rescheduled on ${now.slice(0,10)}]`;
       const existingRemarks = record.remarks ? `${record.remarks} | ${scheduleNote}` : scheduleNote;
-      const updated = await storage.updateLoanAdvance(req.params.id, {
+      const updated = await payrollService.updateLoanAdvance(req.params.id, {
         totalInstallments: Number(totalInstallments),
         installmentAmount: Number(installmentAmount),
         deductionStartMonth,
@@ -219,7 +220,7 @@ export async function registerLoanRoutes(app: Express): Promise<void> {
   app.post("/api/loan-advances/:id/recalculate-balance", requireAuth, requireRole("super_admin", "company_admin", "hr_admin", "manager"), async (req, res) => {
     try {
       const user = (req as any).user;
-      const record = await storage.getLoanAdvance(req.params.id);
+      const record = await payrollService.getLoanAdvance(req.params.id);
       if (!record) return res.status(404).json({ error: "Not found" });
       if (user.role !== "super_admin" && record.companyId !== user.companyId) {
         return res.status(403).json({ error: "Access denied" });
@@ -230,7 +231,7 @@ export async function registerLoanRoutes(app: Express): Promise<void> {
 
       // Get all processed/paid payrolls for this employee from deductionStartMonth onwards
       const MONTH_NAMES = ["January","February","March","April","May","June","July","August","September","October","November","December"];
-      const allPayrolls = await storage.getPayrollByEmployee(record.employeeId);
+      const allPayrolls = await payrollService.getPayrollByEmployee(record.employeeId);
       const paidPayrolls = allPayrolls.filter(p => {
         if (!["processed", "paid"].includes(p.status)) return false;
         const mIdx = MONTH_NAMES.indexOf(p.month);
@@ -245,7 +246,7 @@ export async function registerLoanRoutes(app: Express): Promise<void> {
       const newBalance = Math.max(0, originalAmount - totalDeducted);
       const newStatus = newBalance <= 0 ? "closed" : "active";
 
-      const updated = await storage.updateLoanAdvance(req.params.id, {
+      const updated = await payrollService.updateLoanAdvance(req.params.id, {
         remainingBalance: newBalance,
         status: newStatus,
         updatedAt: new Date().toISOString(),
@@ -258,17 +259,17 @@ export async function registerLoanRoutes(app: Express): Promise<void> {
 
   app.post("/api/loan-advances/:id/reject", requireAuth, requireRole("super_admin", "company_admin", "hr_admin", "manager"), async (req, res) => {
     try {
-      const record = await storage.getLoanAdvance(req.params.id);
+      const record = await payrollService.getLoanAdvance(req.params.id);
       if (!record) return res.status(404).json({ error: "Not found" });
       if (record.status !== "pending") return res.status(400).json({ error: "Only pending applications can be rejected" });
-      const updated = await storage.updateLoanAdvance(req.params.id, {
+      const updated = await payrollService.updateLoanAdvance(req.params.id, {
         status: "rejected",
         rejectionReason: req.body.rejectionReason || "No reason provided",
         updatedAt: new Date().toISOString(),
       });
       // Notify employee of rejection
       try {
-        const loanEmpR = await storage.getEmployee(record.employeeId);
+        const loanEmpR = await employeeService.getEmployee(record.employeeId);
         const loanEmpRUserId = await resolveEmployeeUserId(loanEmpR);
         if (loanEmpRUserId) {
           const typeLabel = record.type === "loan" ? "Loan" : "Salary Advance";
@@ -286,14 +287,14 @@ export async function registerLoanRoutes(app: Express): Promise<void> {
   app.post("/api/loan-advances/:id/cancel", requireAuth, async (req, res) => {
     try {
       const user = (req as any).user;
-      const record = await storage.getLoanAdvance(req.params.id);
+      const record = await payrollService.getLoanAdvance(req.params.id);
       if (!record) return res.status(404).json({ error: "Not found" });
       if (user.role === "employee") {
-        const employee = await storage.getEmployeeByUserId(user.id);
+        const employee = await employeeService.getEmployeeByUserId(user.id);
         if (!employee || employee.id !== record.employeeId) return res.status(403).json({ error: "Forbidden" });
       }
       if (!["pending"].includes(record.status)) return res.status(400).json({ error: "Only pending applications can be cancelled" });
-      const updated = await storage.updateLoanAdvance(req.params.id, { status: "cancelled", updatedAt: new Date().toISOString() });
+      const updated = await payrollService.updateLoanAdvance(req.params.id, { status: "cancelled", updatedAt: new Date().toISOString() });
       res.json(updated);
     } catch (error) {
       res.status(500).json({ error: "Failed to cancel application" });
@@ -302,9 +303,9 @@ export async function registerLoanRoutes(app: Express): Promise<void> {
 
   app.post("/api/loan-advances/:id/close", requireAuth, requireRole("super_admin", "company_admin", "hr_admin"), async (req, res) => {
     try {
-      const record = await storage.getLoanAdvance(req.params.id);
+      const record = await payrollService.getLoanAdvance(req.params.id);
       if (!record) return res.status(404).json({ error: "Not found" });
-      const updated = await storage.updateLoanAdvance(req.params.id, { status: "closed", remainingBalance: 0, updatedAt: new Date().toISOString() });
+      const updated = await payrollService.updateLoanAdvance(req.params.id, { status: "closed", remainingBalance: 0, updatedAt: new Date().toISOString() });
       res.json(updated);
     } catch (error) {
       res.status(500).json({ error: "Failed to close loan/advance" });
@@ -313,9 +314,9 @@ export async function registerLoanRoutes(app: Express): Promise<void> {
 
   app.delete("/api/loan-advances/:id", requireAuth, requireRole("super_admin", "company_admin", "hr_admin"), async (req, res) => {
     try {
-      const record = await storage.getLoanAdvance(req.params.id);
+      const record = await payrollService.getLoanAdvance(req.params.id);
       if (!record) return res.status(404).json({ error: "Not found" });
-      await storage.deleteLoanAdvance(req.params.id);
+      await payrollService.deleteLoanAdvance(req.params.id);
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: "Failed to delete record" });
@@ -328,14 +329,14 @@ export async function registerLoanRoutes(app: Express): Promise<void> {
       const user = (req as any).user;
       const isAdmin = ["super_admin", "company_admin", "hr_admin", "manager"].includes(user.role);
       if (isAdmin) {
-        const rows = await storage.getExpensesByCompany(user.companyId || "");
+        const rows = await payrollService.getExpensesByCompany(user.companyId || "");
         return res.json(rows);
       }
       // employee — get own employee record first
-      const empRows = await storage.getEmployeesByCompany(user.companyId || "");
+      const empRows = await employeeService.getEmployeesByCompany(user.companyId || "");
       const myEmp = empRows.find((e: any) => String(e.userId) === String(user.id));
       if (!myEmp) return res.json([]);
-      const rows = await storage.getExpensesByEmployee(myEmp.id);
+      const rows = await payrollService.getExpensesByEmployee(myEmp.id);
       res.json(rows);
     } catch (err) {
       res.status(500).json({ error: "Failed to fetch expenses" });
@@ -348,13 +349,13 @@ export async function registerLoanRoutes(app: Express): Promise<void> {
       const isAdmin = ["super_admin", "company_admin", "hr_admin", "manager"].includes(user.role);
       let employeeId = req.body.employeeId;
       if (!isAdmin) {
-        const empRows = await storage.getEmployeesByCompany(user.companyId || "");
+        const empRows = await employeeService.getEmployeesByCompany(user.companyId || "");
         const myEmp = empRows.find((e: any) => String(e.userId) === String(user.id));
         if (!myEmp) return res.status(400).json({ error: "No employee record linked" });
         employeeId = myEmp.id;
       }
       const companyId = req.body.companyId || user.companyId;
-      const row = await storage.createExpense({ ...req.body, employeeId, companyId, status: "submitted" });
+      const row = await payrollService.createExpense({ ...req.body, employeeId, companyId, status: "submitted" });
       res.json(row);
     } catch (err) {
       res.status(500).json({ error: "Failed to create expense" });
@@ -363,7 +364,7 @@ export async function registerLoanRoutes(app: Express): Promise<void> {
 
   app.patch("/api/expenses/:id", requireAuth, async (req, res) => {
     try {
-      const row = await storage.updateExpense(req.params.id, req.body);
+      const row = await payrollService.updateExpense(req.params.id, req.body);
       if (!row) return res.status(404).json({ error: "Not found" });
       res.json(row);
     } catch (err) {
@@ -373,7 +374,7 @@ export async function registerLoanRoutes(app: Express): Promise<void> {
 
   app.delete("/api/expenses/:id", requireAuth, async (req, res) => {
     try {
-      await storage.deleteExpense(req.params.id);
+      await payrollService.deleteExpense(req.params.id);
       res.json({ success: true });
     } catch (err) {
       res.status(500).json({ error: "Failed to delete expense" });
