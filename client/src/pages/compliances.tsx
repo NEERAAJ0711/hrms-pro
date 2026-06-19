@@ -3192,6 +3192,7 @@ function WageSlipView({ data, state }: { data: WagesRegisterData; state?: string
 function DeductionsRegisterView({ data, state }: { data: WorkmenRegisterData; state?: string }) {
   const { company, client: c } = data;
   const f = clraForm(state, "deductions");
+  const isNil = clraVariant(state) === "central";
   return CL_WRAP("deductions-register-print", <>
     {CL_TITLE(f.no, f.rule, f.title)}
     {CL_HDR(c as ClientInfo, company)}
@@ -3212,7 +3213,9 @@ function DeductionsRegisterView({ data, state }: { data: WorkmenRegisterData; st
         </tr>
       </thead>
       <tbody>
-        {data.employees.map(e => (
+        {isNil
+          ? <tr><td colSpan={11} style={{ ...CL_TD, textAlign: "center", padding: "20px", fontWeight: 700, letterSpacing: "1px" }}>NIL</td></tr>
+          : data.employees.map(e => (
           <tr key={e.serialNo}>
             <td style={{ ...CL_TD, textAlign: "center" }}>{e.serialNo}</td>
             <td style={{ ...CL_TD, fontWeight: 700 }}>{e.name}</td>
@@ -3231,6 +3234,7 @@ function DeductionsRegisterView({ data, state }: { data: WorkmenRegisterData; st
 function FinesRegisterView({ data, state }: { data: WorkmenRegisterData; state?: string }) {
   const { company, client: c } = data;
   const f = clraForm(state, "fines");
+  const isNil = clraVariant(state) === "central";
   return CL_WRAP("fines-register-print", <>
     {CL_TITLE(f.no, f.rule, f.title)}
     {CL_HDR(c as ClientInfo, company)}
@@ -3251,7 +3255,9 @@ function FinesRegisterView({ data, state }: { data: WorkmenRegisterData; state?:
         </tr>
       </thead>
       <tbody>
-        {data.employees.map(e => (
+        {isNil
+          ? <tr><td colSpan={11} style={{ ...CL_TD, textAlign: "center", padding: "20px", fontWeight: 700, letterSpacing: "1px" }}>NIL</td></tr>
+          : data.employees.map(e => (
           <tr key={e.serialNo}>
             <td style={{ ...CL_TD, textAlign: "center" }}>{e.serialNo}</td>
             <td style={{ ...CL_TD, fontWeight: 700 }}>{e.name}</td>
@@ -3270,6 +3276,7 @@ function FinesRegisterView({ data, state }: { data: WorkmenRegisterData; state?:
 function AdvancesRegisterView({ data, state }: { data: WagesRegisterData; state?: string }) {
   const { company, client: c, month, year, employees } = data;
   const f = clraForm(state, "advances");
+  const isNil = clraVariant(state) === "central";
   const monthFull = month && ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"].includes(month)
     ? ["January","February","March","April","May","June","July","August","September","October","November","December"][["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"].indexOf(month)]
     : month;
@@ -3294,6 +3301,9 @@ function AdvancesRegisterView({ data, state }: { data: WagesRegisterData; state?
         </tr>
       </thead>
       <tbody>
+        {isNil
+          ? null
+          : <>
         {employees.length === 0 && <tr><td colSpan={12} style={{ ...CL_TD, textAlign: "center", padding: "16px" }}>No data</td></tr>}
         {employees.map(e => (
           <tr key={e.serialNo}>
@@ -3311,6 +3321,7 @@ function AdvancesRegisterView({ data, state }: { data: WagesRegisterData; state?
             <td style={CL_TD}></td>
           </tr>
         ))}
+          </>}
       </tbody>
     </table>
     {CL_FOOTER(c)}
@@ -3666,6 +3677,10 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
 
   const loadReport = async () => {
     if (!companyId) return;
+    if (!selectedState) {
+      toast({ title: "Select a state", description: "Please choose a state before generating the CLRA report. Form numbering depends on the state.", variant: "destructive" });
+      return;
+    }
     const allContractForms = REPORT_TYPES; // all 10 forms require a project
     const needsProject = allContractForms.includes(selectedReport);
     let effectiveProject = selectedProject;
@@ -3777,6 +3792,7 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
 
   const downloadCLRAPackagePDF = async () => {
     if (!clraData) { toast({ title: "No data", description: "Generate the CLRA Package first.", variant: "destructive" }); return; }
+    if (!selectedState) { toast({ title: "Select a state", description: "Please choose a state before downloading. Form numbering depends on the state.", variant: "destructive" }); return; }
     try {
       const { initJsPDF } = await import("@/lib/jspdf-shim");
       const doc = await initJsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
@@ -3803,6 +3819,7 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
       const monthIdx = MONTHS_SHORT.indexOf(toMonth);
       const monthFull = monthIdx >= 0 ? MONTHS[monthIdx] : toMonth;
       const pf = (k: string) => clraForm(selectedState, k);
+      const isCentral = clraVariant(selectedState) === "central";
       const v = (...ps: (string | null | undefined)[]) => ps.filter(Boolean).join(", ") || "—";
 
       // Load company authorized signature as base64 for PDF embedding
@@ -4403,7 +4420,9 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
       autoTbl(doc, {
         startY: y,
         head: [["S.\nNo.", "Name & Surname\nof Workman", "Designation", "Nature of Damage\nor Loss", "Date of Damage\nor Loss", "Amount of\nDeduction (Rs.)", "Date of\nDeduction", "No. of\nInstalments", "Remarks", "Signature of\nContractor", "Signature /\nThumb Impression\nof Workman"]],
-        body: clraData.ix.employees.map(e => [e.serialNo, e.name, e.designation||"—", "", "", "", "", "", "", "", ""]),
+        body: isCentral
+          ? [[{ content: "NIL", colSpan: 11, styles: { halign: "center", fontStyle: "bold" } }]]
+          : clraData.ix.employees.map(e => [e.serialNo, e.name, e.designation||"—", "", "", "", "", "", "", "", ""]),
         styles: { ...TS, minCellHeight: 10 }, headStyles: TH,
         columnStyles: { 0:{ cellWidth:10, halign:"center" }, 1:{ cellWidth:30 }, 10:{ cellWidth:22 } },
         margin:{ left:M, right:M },
@@ -4416,7 +4435,9 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
       autoTbl(doc, {
         startY: y,
         head: [["S.\nNo.", "Name & Surname\nof Workman", "Designation", "Act or Omission\nfor which Fined", "Date of Act\nor Omission", "Date of Imposition\nof Fine", "Amount of\nFine (Rs.)", "Date of\nRecovery", "Amount of\nRecovery (Rs.)", "Remarks", "Signature /\nThumb Impression\nof Workman"]],
-        body: clraData.ix.employees.map(e => [e.serialNo, e.name, e.designation||"—", "", "", "", "", "", "", "", ""]),
+        body: isCentral
+          ? [[{ content: "NIL", colSpan: 11, styles: { halign: "center", fontStyle: "bold" } }]]
+          : clraData.ix.employees.map(e => [e.serialNo, e.name, e.designation||"—", "", "", "", "", "", "", "", ""]),
         styles: { ...TS, minCellHeight: 10 }, headStyles: TH,
         tableWidth: pw - 2 * M,
         columnStyles: { 0:{ cellWidth:12, halign:"center" }, 1:{ cellWidth:36 }, 2:{ cellWidth:24 }, 3:{ cellWidth:36 }, 4:{ cellWidth:22, halign:"center" }, 5:{ cellWidth:22, halign:"center" }, 6:{ cellWidth:20, halign:"right" }, 7:{ cellWidth:22, halign:"center" }, 8:{ cellWidth:20, halign:"right" }, 9:{ cellWidth:13 }, 10:{ cellWidth:22 } },
@@ -4430,7 +4451,9 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
       autoTbl(doc, {
         startY: y,
         head: [["S.\nNo.", "Name & Surname\nof Workman", "Designation", "Purpose of\nAdvance", "Date of\nAdvance", "Amount of\nAdvance (Rs.)", "Recovery Per\nInstalment (Rs.)", "No. of\nInstalments", "Amount\nRecovered (Rs.)", "Balance\nOutstanding (Rs.)", "Remarks", "Signature /\nThumb Impression\nof Workman"]],
-        body: clraData.xiii.employees.map(e => [e.serialNo, e.name, e.designation||"—", "—", "", e.loanDeduction > 0 ? e.loanDeduction.toLocaleString("en-IN") : "—", e.loanDeduction > 0 ? e.loanDeduction.toLocaleString("en-IN") : "—", e.loanDeduction > 0 ? "1" : "—", e.loanDeduction > 0 ? e.loanDeduction.toLocaleString("en-IN") : "—", "", "", ""]),
+        body: isCentral
+          ? []
+          : clraData.xiii.employees.map(e => [e.serialNo, e.name, e.designation||"—", "—", "", e.loanDeduction > 0 ? e.loanDeduction.toLocaleString("en-IN") : "—", e.loanDeduction > 0 ? e.loanDeduction.toLocaleString("en-IN") : "—", e.loanDeduction > 0 ? "1" : "—", e.loanDeduction > 0 ? e.loanDeduction.toLocaleString("en-IN") : "—", "", "", ""]),
         styles: { ...TS, minCellHeight: 10 }, headStyles: TH,
         tableWidth: pw - 2 * M,
         columnStyles: { 0:{ cellWidth:10, halign:"center" }, 1:{ cellWidth:34 }, 2:{ cellWidth:22 }, 3:{ cellWidth:25 }, 4:{ cellWidth:18, halign:"center" }, 5:{ cellWidth:22, halign:"right" }, 6:{ cellWidth:24, halign:"right" }, 7:{ cellWidth:15, halign:"center" }, 8:{ cellWidth:22, halign:"right" }, 9:{ cellWidth:18, halign:"right" }, 10:{ cellWidth:15 }, 11:{ cellWidth:22 } },
@@ -4474,6 +4497,7 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
 
   const downloadExcel = () => {
     if (!workmenData) { toast({ title: "No data", description: "Generate a report first.", variant: "destructive" }); return; }
+    if (!selectedState) { toast({ title: "Select a state", description: "Please choose a state before downloading. Form numbering depends on the state.", variant: "destructive" }); return; }
     const c = workmenData.client;
     const val = (...parts: (string | null | undefined)[]) => parts.filter(Boolean).join(", ") || "";
     const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office"
@@ -4537,6 +4561,7 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
 
   const downloadPDF = () => {
     if (!workmenData) { toast({ title: "No report", description: "Generate a report first.", variant: "destructive" }); return; }
+    if (!selectedState) { toast({ title: "Select a state", description: "Please choose a state before downloading. Form numbering depends on the state.", variant: "destructive" }); return; }
     const c = workmenData.client;
     const val = (...parts: (string | null | undefined)[]) => parts.filter(Boolean).join(", ") || "";
 
