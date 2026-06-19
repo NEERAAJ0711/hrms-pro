@@ -2677,8 +2677,9 @@ function fmtDate(d: string) {
 const WR_TD: React.CSSProperties = { border: "1px solid #222", padding: "5px 6px", verticalAlign: "top", fontSize: "10px" };
 const WR_TH: React.CSSProperties = { border: "1px solid #222", padding: "5px 4px", textAlign: "center", verticalAlign: "middle", fontSize: "10px", fontWeight: 700, background: "#f0f0f0", whiteSpace: "pre-wrap", lineHeight: "1.35" };
 
-function WorkmenRegisterView({ data }: { data: WorkmenRegisterData }) {
+function WorkmenRegisterView({ data, state }: { data: WorkmenRegisterData; state?: string }) {
   const c = data.client;
+  const f = clraForm(state, "workmen");
   const val = (...parts: (string | null | undefined)[]) => parts.filter(Boolean).join(", ") || "—";
 
   return (
@@ -2689,10 +2690,10 @@ function WorkmenRegisterView({ data }: { data: WorkmenRegisterData }) {
     >
       {/* Titles */}
       <div style={{ textAlign: "center", marginBottom: "14px" }}>
-        <div style={{ fontSize: "15px", fontWeight: 700, letterSpacing: "0.5px" }}>Form IX</div>
-        <div style={{ fontSize: "12px", fontWeight: 700 }}>[See rule 74]</div>
+        <div style={{ fontSize: "15px", fontWeight: 700, letterSpacing: "0.5px" }}>{f.no}</div>
+        <div style={{ fontSize: "12px", fontWeight: 700 }}>[{f.rule}]</div>
         <div style={{ fontSize: "13px", fontWeight: 700, marginTop: "4px", textTransform: "uppercase", letterSpacing: "0.5px" }}>
-          Register of Workmen Employed by Contractor
+          {f.title}
         </div>
         <div style={{ height: "1px", background: "#333", marginTop: "8px" }} />
       </div>
@@ -2821,14 +2822,71 @@ const CL_TITLE = (form: string, rule: string, title: string) => (
 );
 const ni = (n: number) => n ? n.toLocaleString("en-IN") : "—";
 
+// ─── State-aware CLRA form numbering ──────────────────────────────────────────
+// Form titles are the same across states; only the FORM NUMBER and the RULE
+// citation differ. Delhi & Uttar Pradesh follow the Central CLRA Rules; every
+// other state (currently Haryana) keeps the existing state numbering.
+type ClraVariant = "haryana" | "central";
+const CLRA_TITLES: Record<string, string> = {
+  contractor:     "Register of Particulars of Contractors",
+  workmen:        "Register of Workmen Employed by Contractor",
+  employmentCard: "Employment Card",
+  serviceCert:    "Service Certificate",
+  musterRoll:     "Muster Roll",
+  wages:          "Register of Wages",
+  wageSlip:       "Wage Slip",
+  deductions:     "Register of Deductions for Damage or Loss",
+  fines:          "Register of Fines",
+  advances:       "Register of Advances",
+  overtime:       "Register of Overtime",
+  annualReturn:   "Annual Return",
+};
+const CLRA_NUM: Record<ClraVariant, Record<string, { no: string; rule: string }>> = {
+  haryana: {
+    contractor:     { no: "FORM VIII",    rule: "See rule 73" },
+    workmen:        { no: "Form IX",      rule: "See rule 74" },
+    employmentCard: { no: "Form X",       rule: "See Rule 75" },
+    serviceCert:    { no: "Form XI",      rule: "See Rule 76" },
+    musterRoll:     { no: "Form No. XII", rule: "See Rule 77 (1) (a) (i)" },
+    wages:          { no: "Form XIII",    rule: "See Rule 77 (1) (a) (ii)" },
+    wageSlip:       { no: "Form XV",      rule: "See rule 77(1)(b)" },
+    deductions:     { no: "Form XV",      rule: "See Rule 77 (2) (a)" },
+    fines:          { no: "Form XVI",     rule: "See Rule 77 (2) (b)" },
+    advances:       { no: "Form XVII",    rule: "See Rule 77 (2) (c)" },
+    overtime:       { no: "Form XVIII",   rule: "See Rule 77 (2) (d)" },
+    annualReturn:   { no: "Form XIX",     rule: "See Rule 83" },
+  },
+  central: {
+    contractor:     { no: "FORM XII",     rule: "See rule 74" },
+    workmen:        { no: "Form XIII",    rule: "See rule 75" },
+    employmentCard: { no: "Form XIV",     rule: "See rule 76" },
+    serviceCert:    { no: "Form XV",      rule: "See rule 77" },
+    musterRoll:     { no: "Form XVI",     rule: "See rule 78 (1) (a) (i)" },
+    wages:          { no: "Form XVII",    rule: "See rule 78 (1) (a) (i)" },
+    wageSlip:       { no: "Form XIX",     rule: "See rule 78 (1) (b)" },
+    deductions:     { no: "Form XX",      rule: "See rule 78 (1) (a) (ii)" },
+    fines:          { no: "Form XXI",     rule: "See rule 78 (1) (a) (ii)" },
+    advances:       { no: "Form XXII",    rule: "See rule 78 (1) (a) (ii)" },
+    overtime:       { no: "Form XXIII",   rule: "See rule 78 (1) (a) (iii)" },
+    annualReturn:   { no: "Form XXIV",    rule: "See rule 82 (1)" },
+  },
+};
+const clraVariant = (state?: string): ClraVariant =>
+  (state === "Delhi" || state === "Uttar Pradesh") ? "central" : "haryana";
+const clraForm = (state: string | undefined, key: string): { no: string; rule: string; title: string } => {
+  const n = CLRA_NUM[clraVariant(state)][key];
+  return { no: n.no, rule: n.rule, title: CLRA_TITLES[key] };
+};
+
 // ─── Form VIII — Register of Particulars of Contractors ───────────────────────
-function FormVIIIView({ data }: { data: FormVIIIData }) {
+function FormVIIIView({ data, state }: { data: FormVIIIData; state?: string }) {
   const { company, client: c, month, year, totalWages, disbursedWages, maxWorkmen } = data;
+  const f = clraForm(state, "contractor");
   const monthFull = month && ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"].includes(month)
     ? ["January","February","March","April","May","June","July","August","September","October","November","December"][["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"].indexOf(month)]
     : month;
   return CL_WRAP("form-viii-print", <>
-    {CL_TITLE("FORM VIII","See rule 73","Register of Particulars of Contractors")}
+    {CL_TITLE(f.no, f.rule, f.title)}
     <div style={{ fontWeight: 700, fontSize: "11px", marginBottom: "6px" }}>PART – I</div>
     {CL_HDR(c, company, [
       ["Nature and location of work", [c?.nature_of_work, c?.location_of_work].filter(Boolean).join(", ") || "—"],
@@ -2876,14 +2934,15 @@ function FormVIIIView({ data }: { data: FormVIIIData }) {
 }
 
 // ─── Form XII — Muster Roll ────────────────────────────────────────────────────
-function MusterRollView({ data }: { data: MusterRollData }) {
+function MusterRollView({ data, state }: { data: MusterRollData; state?: string }) {
   const { company, client: c, month, year, daysInMonth, employees } = data;
+  const f = clraForm(state, "musterRoll");
   const monthFull = month && ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"].includes(month)
     ? ["January","February","March","April","May","June","July","August","September","October","November","December"][["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"].indexOf(month)]
     : month;
   const days = Array.from({ length: daysInMonth }, (_, i) => i + 1);
   return CL_WRAP("muster-roll-print", <>
-    {CL_TITLE("Form No. XII","See Rule 77 (1) (a) (i)","Muster Roll")}
+    {CL_TITLE(f.no, f.rule, f.title)}
     {CL_HDR(c, company, [["For the month of", `${monthFull} ${year}`]])}
     <div style={{ overflowX: "auto" }}>
       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "8px" }}>
@@ -2929,8 +2988,9 @@ function MusterRollView({ data }: { data: MusterRollData }) {
 }
 
 // ─── Form XIII — Register of Wages ────────────────────────────────────────────
-function WagesRegisterView({ data }: { data: WagesRegisterData }) {
+function WagesRegisterView({ data, state }: { data: WagesRegisterData; state?: string }) {
   const { company, client: c, month, year, employees } = data;
+  const f = clraForm(state, "wages");
   const monthFull = month && ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"].includes(month)
     ? ["January","February","March","April","May","June","July","August","September","October","November","December"][["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"].indexOf(month)]
     : month;
@@ -2953,7 +3013,7 @@ function WagesRegisterView({ data }: { data: WagesRegisterData }) {
   const thD = { ...CL_TH, background: "#fce4ec" };
 
   return CL_WRAP("wages-register-print", <>
-    {CL_TITLE("Form XIII","See Rule 77 (1) (a) (ii)","Register of Wages")}
+    {CL_TITLE(f.no, f.rule, f.title)}
     {CL_HDR(c, company, [["For the month of", `${monthFull} ${year}`]])}
     <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "8px", tableLayout: "fixed" }}>
       <colgroup>
@@ -3054,8 +3114,9 @@ function WagesRegisterView({ data }: { data: WagesRegisterData }) {
 }
 
 // ─── Form XV — Wage Slip (one per employee, full width) ──────────────────────
-function WageSlipView({ data }: { data: WagesRegisterData }) {
+function WageSlipView({ data, state }: { data: WagesRegisterData; state?: string }) {
   const { company, client: c, month, year, employees } = data;
+  const f = clraForm(state, "wageSlip");
   const monthIdx = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"].indexOf(month);
   const monthFull = monthIdx >= 0 ? ["January","February","March","April","May","June","July","August","September","October","November","December"][monthIdx] : month;
   const today = new Date().toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" });
@@ -3066,14 +3127,14 @@ function WageSlipView({ data }: { data: WagesRegisterData }) {
     </div>
   );
   return CL_WRAP("wage-slip-print", <>
-    {CL_TITLE("Form XV","[See rule 77(1)(b)]","Wage Slip")}
+    {CL_TITLE(f.no, f.rule, f.title)}
     {employees.length === 0 && <div style={{ color: "#666", padding: "20px" }}>No payroll data for this month</div>}
     {employees.map((e, idx) => (
       <div key={e.serialNo} style={{ border: "1px solid #333", padding: "16px 20px", fontSize: "9px", pageBreakInside: "avoid", breakInside: "avoid", marginTop: idx > 0 ? "28px" : "8px" }}>
         <div style={{ textAlign: "center", fontWeight: 700, marginBottom: "12px" }}>
-          <div style={{ fontSize: "13px" }}>FORM XV</div>
-          <div style={{ fontSize: "10px", fontWeight: 400 }}>[See rule 77(1)(b)]</div>
-          <div style={{ fontSize: "12px" }}>WAGE SLIP</div>
+          <div style={{ fontSize: "13px" }}>{f.no.toUpperCase()}</div>
+          <div style={{ fontSize: "10px", fontWeight: 400 }}>[{f.rule}]</div>
+          <div style={{ fontSize: "12px" }}>{f.title.toUpperCase()}</div>
         </div>
         {ROW("Name and address of Contractor", v(company.name, company.address))}
         {ROW("Name and address of establishment in/under which contract is carried on", v(c?.client_name, c?.client_address))}
@@ -3128,10 +3189,11 @@ function WageSlipView({ data }: { data: WagesRegisterData }) {
 }
 
 // ─── Form XV — Register of Deductions ─────────────────────────────────────────
-function DeductionsRegisterView({ data }: { data: WorkmenRegisterData }) {
+function DeductionsRegisterView({ data, state }: { data: WorkmenRegisterData; state?: string }) {
   const { company, client: c } = data;
+  const f = clraForm(state, "deductions");
   return CL_WRAP("deductions-register-print", <>
-    {CL_TITLE("Form XV","See Rule 77 (2) (a)","Register of Deductions for Damage or Loss")}
+    {CL_TITLE(f.no, f.rule, f.title)}
     {CL_HDR(c as ClientInfo, company)}
     <table style={{ width: "100%", borderCollapse: "collapse" }}>
       <thead>
@@ -3166,10 +3228,11 @@ function DeductionsRegisterView({ data }: { data: WorkmenRegisterData }) {
 }
 
 // ─── Form XVI — Register of Fines ─────────────────────────────────────────────
-function FinesRegisterView({ data }: { data: WorkmenRegisterData }) {
+function FinesRegisterView({ data, state }: { data: WorkmenRegisterData; state?: string }) {
   const { company, client: c } = data;
+  const f = clraForm(state, "fines");
   return CL_WRAP("fines-register-print", <>
-    {CL_TITLE("Form XVI","See Rule 77 (2) (b)","Register of Fines")}
+    {CL_TITLE(f.no, f.rule, f.title)}
     {CL_HDR(c as ClientInfo, company)}
     <table style={{ width: "100%", borderCollapse: "collapse" }}>
       <thead>
@@ -3204,13 +3267,14 @@ function FinesRegisterView({ data }: { data: WorkmenRegisterData }) {
 }
 
 // ─── Form XVII — Register of Advances ─────────────────────────────────────────
-function AdvancesRegisterView({ data }: { data: WagesRegisterData }) {
+function AdvancesRegisterView({ data, state }: { data: WagesRegisterData; state?: string }) {
   const { company, client: c, month, year, employees } = data;
+  const f = clraForm(state, "advances");
   const monthFull = month && ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"].includes(month)
     ? ["January","February","March","April","May","June","July","August","September","October","November","December"][["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"].indexOf(month)]
     : month;
   return CL_WRAP("advances-register-print", <>
-    {CL_TITLE("Form XVII","See Rule 77 (2) (c)","Register of Advances")}
+    {CL_TITLE(f.no, f.rule, f.title)}
     {CL_HDR(c, company, [["For the month of", `${monthFull} ${year}`]])}
     <table style={{ width: "100%", borderCollapse: "collapse" }}>
       <thead>
@@ -3254,8 +3318,9 @@ function AdvancesRegisterView({ data }: { data: WagesRegisterData }) {
 }
 
 // ─── Form XVIII — Register of Overtime ────────────────────────────────────────
-function OTRegisterView({ data }: { data: OTRegisterData }) {
+function OTRegisterView({ data, state }: { data: OTRegisterData; state?: string }) {
   const { company, client: c, month, year, employees } = data;
+  const f = clraForm(state, "overtime");
   const monthFull = month && ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"].includes(month)
     ? ["January","February","March","April","May","June","July","August","September","October","November","December"][["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"].indexOf(month)]
     : month;
@@ -3265,7 +3330,7 @@ function OTRegisterView({ data }: { data: OTRegisterData }) {
     otWages: a.otWages + e.otWages,
   }), { normalDays:0, otDays:0, otHours:0, normalWages:0, otWages:0 });
   return CL_WRAP("ot-register-print", <>
-    {CL_TITLE("Form XVIII","See Rule 77 (2) (d)","Register of Overtime")}
+    {CL_TITLE(f.no, f.rule, f.title)}
     {CL_HDR(c, company, [["For the month of", `${monthFull} ${year}`]])}
     <table style={{ width: "100%", borderCollapse: "collapse" }}>
       <thead>
@@ -3317,10 +3382,11 @@ function OTRegisterView({ data }: { data: OTRegisterData }) {
 }
 
 // ─── Form XIX — Annual Return ──────────────────────────────────────────────────
-function AnnualReturnView({ data, fromYear, toYear }: { data: WorkmenRegisterData; fromYear: string; toYear: string }) {
+function AnnualReturnView({ data, fromYear, toYear, state }: { data: WorkmenRegisterData; fromYear: string; toYear: string; state?: string }) {
   const { company, client: c } = data;
+  const f = clraForm(state, "annualReturn");
   return CL_WRAP("annual-return-print", <>
-    {CL_TITLE("Form XIX","See Rule 83","Annual Return")}
+    {CL_TITLE(f.no, f.rule, f.title)}
     {CL_HDR(c as ClientInfo, company, [["Year", fromYear === toYear ? fromYear : `${fromYear} – ${toYear}`]])}
     <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: "14px" }}>
       <thead>
@@ -3380,8 +3446,9 @@ function MonthYearPicker({ label, month, year, onMonth, onYear }: {
 }
 
 // ─── Form X — Employment Card (2-up, one card per employee) ──────────────────
-function EmploymentCardView({ data, month, year }: { data: WorkmenRegisterData; month: string; year: string }) {
+function EmploymentCardView({ data, month, year, state }: { data: WorkmenRegisterData; month: string; year: string; state?: string }) {
   const { company, client: c } = data;
+  const f = clraForm(state, "employmentCard");
   const monthIdx = MONTHS_SHORT.indexOf(month);
   const isJoiningMonth = (e: any) => {
     const d = new Date((e as any).assignedDate || e.dateOfJoining);
@@ -3396,15 +3463,15 @@ function EmploymentCardView({ data, month, year }: { data: WorkmenRegisterData; 
     </div>
   );
   return CL_WRAP("employment-card-print", <>
-    {CL_TITLE("Form X", "See Rule 75", "Employment Card")}
+    {CL_TITLE(f.no, f.rule, f.title)}
     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px", marginTop: "8px" }}>
       {employees.length === 0 && <div style={{ color: "#666", padding: "20px" }}>No employees joined this project in {month} {year}.</div>}
       {employees.map(e => (
         <div key={e.serialNo} style={{ border: "1px solid #333", padding: "14px 16px", pageBreakInside: "avoid", breakInside: "avoid" }}>
           <div style={{ textAlign: "center", fontWeight: 700, marginBottom: "10px" }}>
-            <div style={{ fontSize: "12px" }}>Form X</div>
-            <div style={{ fontSize: "10px" }}>[See rule 75]</div>
-            <div style={{ fontSize: "12px" }}>Employment Card</div>
+            <div style={{ fontSize: "12px" }}>{f.no}</div>
+            <div style={{ fontSize: "10px" }}>[{f.rule}]</div>
+            <div style={{ fontSize: "12px" }}>{f.title}</div>
           </div>
           {HDR_ROW("Name and address of Contractor",   v(company.name, company.address))}
           {HDR_ROW("Name and address of establishment in/under which contract is carried on", v(c?.client_name, c?.client_address))}
@@ -3441,8 +3508,9 @@ function EmploymentCardView({ data, month, year }: { data: WorkmenRegisterData; 
 }
 
 // ─── Form XI — Service Certificate (one per employee) ─────────────────────────
-function ServiceCertificateView({ workmen, wages }: { workmen: WorkmenRegisterData; wages: WagesRegisterData }) {
+function ServiceCertificateView({ workmen, wages, state }: { workmen: WorkmenRegisterData; wages: WagesRegisterData; state?: string }) {
   const { company, client: c } = workmen;
+  const f = clraForm(state, "serviceCert");
   const { month, year } = wages;
   const monthIdx = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"].indexOf(month);
   const monthFull = monthIdx >= 0 ? ["January","February","March","April","May","June","July","August","September","October","November","December"][monthIdx] : month;
@@ -3462,7 +3530,7 @@ function ServiceCertificateView({ workmen, wages }: { workmen: WorkmenRegisterDa
     </div>
   );
   return CL_WRAP("service-cert-print", <>
-    {CL_TITLE("Form XI", "See Rule 76", "Service Certificate")}
+    {CL_TITLE(f.no, f.rule, f.title)}
     <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
       {employees.length === 0 && <div style={{ color: "#666", padding: "16px" }}>No employees left this project in {month} {year}.</div>}
       {employees.map(e => {
@@ -3533,31 +3601,31 @@ function ServiceCertificateView({ workmen, wages }: { workmen: WorkmenRegisterDa
 }
 
 // ─── CLRA Full Package — all 11 forms in one scrollable view ─────────────────
-function CLRAPackageView({ data }: { data: ClraPackageData }) {
+function CLRAPackageView({ data, state }: { data: ClraPackageData; state?: string }) {
   const SEP = <div style={{ borderTop: "2px dashed #aaa", margin: "28px 0 24px" }} />;
   return (
     <div style={{ background: "#fff" }}>
-      <FormVIIIView data={data.viii} />
+      <FormVIIIView data={data.viii} state={state} />
       {SEP}
-      <WorkmenRegisterView data={data.ix} />
+      <WorkmenRegisterView data={data.ix} state={state} />
       {SEP}
-      <EmploymentCardView data={data.ix} month={data.xiii.month} year={data.xiii.year} />
+      <EmploymentCardView data={data.ix} month={data.xiii.month} year={data.xiii.year} state={state} />
       {SEP}
-      <ServiceCertificateView workmen={data.ix} wages={data.xiii} />
+      <ServiceCertificateView workmen={data.ix} wages={data.xiii} state={state} />
       {SEP}
-      <MusterRollView data={data.xii} />
+      <MusterRollView data={data.xii} state={state} />
       {SEP}
-      <WagesRegisterView data={data.xiii} />
+      <WagesRegisterView data={data.xiii} state={state} />
       {SEP}
-      <WageSlipView data={data.xiii} />
+      <WageSlipView data={data.xiii} state={state} />
       {SEP}
-      <DeductionsRegisterView data={data.ix} />
+      <DeductionsRegisterView data={data.ix} state={state} />
       {SEP}
-      <FinesRegisterView data={data.ix} />
+      <FinesRegisterView data={data.ix} state={state} />
       {SEP}
-      <AdvancesRegisterView data={data.xiii} />
+      <AdvancesRegisterView data={data.xiii} state={state} />
       {SEP}
-      <OTRegisterView data={data.xviii} />
+      <OTRegisterView data={data.xviii} state={state} />
     </div>
   );
 }
@@ -3734,6 +3802,7 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
       const cl       = clraData.viii.client;
       const monthIdx = MONTHS_SHORT.indexOf(toMonth);
       const monthFull = monthIdx >= 0 ? MONTHS[monthIdx] : toMonth;
+      const pf = (k: string) => clraForm(selectedState, k);
       const v = (...ps: (string | null | undefined)[]) => ps.filter(Boolean).join(", ") || "—";
 
       // Load company authorized signature as base64 for PDF embedding
@@ -3819,7 +3888,7 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
       const TH = { fillColor: [220,230,241] as [number,number,number], textColor: [0,0,0] as [number,number,number], fontStyle: "bold" as const, halign: "center" as const, fontSize: 8, lineWidth: 0.3, lineColor: [50,50,50] as [number,number,number], cellPadding: 2 };
 
       // ── Form VIII ──────────────────────────────────────────────────────────
-      addTitle("FORM VIII", "[See rule 73]", "Register of Particulars of Contractors");
+      addTitle(pf("contractor").no, `[${pf("contractor").rule}]`, pf("contractor").title);
       // addHdr already outputs "Nature and location of work" — no extra row needed here
       let y = addHdr();
       doc.setFont("times", "bold"); doc.setFontSize(9.5); doc.text("PART – I", M, y); y += 5;
@@ -3848,7 +3917,7 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
       // ── Form IX — Workmen Register ─────────────────────────────────────────
       // Landscape A4 usable width = 297 - 28 = 269mm
       // Column widths: 10+28+14+24+14+22+44+40+19+19+35 = 269mm
-      doc.addPage(); addTitle("FORM IX", "[See rule 74]", "Register of Workmen Employed by Contractor");
+      doc.addPage(); addTitle(pf("workmen").no, `[${pf("workmen").rule}]`, pf("workmen").title);
       y = addHdr();
       autoTbl(doc, {
         startY: y,
@@ -3906,11 +3975,11 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
           const cx = sx + slotW / 2;     // centre of this slot
           let cy = sy;
           doc.setFont("times", "bold"); doc.setFontSize(11);
-          doc.text("FORM X", cx, cy + 6, { align: "center" });
+          doc.text(pf("employmentCard").no.toUpperCase(), cx, cy + 6, { align: "center" });
           doc.setFont("times", "normal"); doc.setFontSize(8);
-          doc.text("[See rule 75]", cx, cy + 11, { align: "center" });
+          doc.text(`[${pf("employmentCard").rule}]`, cx, cy + 11, { align: "center" });
           doc.setFont("times", "bold"); doc.setFontSize(10);
-          doc.text("EMPLOYMENT CARD", cx, cy + 16, { align: "center" });
+          doc.text(pf("employmentCard").title.toUpperCase(), cx, cy + 16, { align: "center" });
           doc.setDrawColor(80, 80, 80); doc.line(sx, cy + 18, sx + slotW, cy + 18); cy += 22;
           ([ ["Name and address of Contractor",                                          v(company.name, company.address)],
              ["Name and address of establishment in/under which contract is carried on", v(cl?.client_name, cl?.client_address)],
@@ -3961,7 +4030,7 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
         });
 
         if (joinersThisMonth.length === 0) {
-          addTitle("FORM X", "[See rule 75]", "Employment Card");
+          addTitle(pf("employmentCard").no, `[${pf("employmentCard").rule}]`, pf("employmentCard").title);
           y = addHdr();
           doc.setFont("times", "italic"); doc.setFontSize(10);
           doc.text(`No employees joined this project in ${monthFull} ${toYear}.`, pw / 2, y + 12, { align: "center" });
@@ -3997,11 +4066,11 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
           const cx = sx + slotW / 2;
           let cy = sy;
           doc.setFont("times","bold"); doc.setFontSize(11);
-          doc.text("FORM XI", cx, cy+6, {align:"center"});
+          doc.text(pf("serviceCert").no.toUpperCase(), cx, cy+6, {align:"center"});
           doc.setFont("times","normal"); doc.setFontSize(8);
-          doc.text("[See rule 76]", cx, cy+11, {align:"center"});
+          doc.text(`[${pf("serviceCert").rule}]`, cx, cy+11, {align:"center"});
           doc.setFont("times","bold"); doc.setFontSize(10);
-          doc.text("SERVICE CERTIFICATE", cx, cy+16, {align:"center"});
+          doc.text(pf("serviceCert").title.toUpperCase(), cx, cy+16, {align:"center"});
           doc.setDrawColor(80,80,80); doc.line(sx, cy+18, sx+slotW, cy+18); cy += 22;
           ([ ["Name and address of Contractor",                                          v(company.name, company.address)],
              ["Name and address of establishment in/under which contract is carried on", v(cl?.client_name, cl?.client_address)],
@@ -4065,7 +4134,7 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
         });
 
         if (leaversThisMonth.length === 0) {
-          addTitle("FORM XI", "[See rule 76]", "Service Certificate");
+          addTitle(pf("serviceCert").no, `[${pf("serviceCert").rule}]`, pf("serviceCert").title);
           y = addHdr();
           doc.setFont("times", "italic"); doc.setFontSize(10);
           doc.text(`No employees left this project in ${monthFull} ${toYear}.`, pw / 2, y + 12, { align: "center" });
@@ -4080,7 +4149,7 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
       }
 
       // ── Form XII — Muster Roll (LANDSCAPE) ─────────────────────────────────
-      goLandscape(); addTitle("FORM XII", "[See Rule 77 (1) (a) (i)]", "Muster Roll");
+      goLandscape(); addTitle(pf("musterRoll").no, `[${pf("musterRoll").rule}]`, pf("musterRoll").title);
       y = addHdr([["For the month of", `${monthFull} ${toYear}`]]);
       const days = Array.from({ length: clraData.xii.daysInMonth }, (_, i) => i + 1);
       const usableW  = pw - M * 2;               // 297-28 = 269mm
@@ -4112,7 +4181,7 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
       // Days = from adjustment tab (original_attendance → adjusted_attendance)
       // Deductions: PF, ESIC, LWF, Adv only
       // Col widths: 8+38+9+20+9 | 13+13+12 | 14+14+12+13 | 12+12+10+10+11 | 16+23 = 269mm
-      doc.addPage(); addTitle("FORM XIII", "[See Rule 77 (1) (a) (i)]", "Register of Wages");
+      doc.addPage(); addTitle(pf("wages").no, `[${pf("wages").rule}]`, pf("wages").title);
       y = addHdr([["For the month of", `${monthFull} ${toYear}`]]);
       {
         const n0  = (n: number | null | undefined) => (n != null && n !== 0) ? n.toLocaleString("en-IN") : "0";
@@ -4221,11 +4290,11 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
 
           // Title block
           doc.setFont("times","bold"); doc.setFontSize(13);
-          doc.text("FORM XV", cx, cy + 6, { align: "center" });
+          doc.text(pf("wageSlip").no.toUpperCase(), cx, cy + 6, { align: "center" });
           doc.setFont("times","normal"); doc.setFontSize(9);
-          doc.text("[See rule 77(1)(b)]", cx, cy + 12, { align: "center" });
+          doc.text(`[${pf("wageSlip").rule}]`, cx, cy + 12, { align: "center" });
           doc.setFont("times","bold"); doc.setFontSize(11);
-          doc.text("WAGE SLIP", cx, cy + 18, { align: "center" });
+          doc.text(pf("wageSlip").title.toUpperCase(), cx, cy + 18, { align: "center" });
           doc.setDrawColor(80,80,80); doc.line(sx, cy + 21, sx + slotW, cy + 21);
           cy += 26;
 
@@ -4316,7 +4385,7 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
         };
 
         if (wageEmps.length === 0) {
-          addTitle("FORM XV", "[See rule 77(1)(b)]", "Wage Slip");
+          addTitle(pf("wageSlip").no, `[${pf("wageSlip").rule}]`, pf("wageSlip").title);
           y = addHdr([["For the month of", `${monthFull} ${toYear}`]]);
           doc.setFont("times","italic"); doc.setFontSize(10);
           doc.text("No wage data available.", pw / 2, y + 12, { align: "center" });
@@ -4329,7 +4398,7 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
       }
 
       // ── Form XVI — Damage Register (LANDSCAPE) ─────────────────────────────
-      goLandscape(); addTitle("FORM XVI", "[See Rule 77 (2) (a)]", "Register of Deductions for Damage or Loss");
+      goLandscape(); addTitle(pf("deductions").no, `[${pf("deductions").rule}]`, pf("deductions").title);
       y = addHdr();
       autoTbl(doc, {
         startY: y,
@@ -4342,7 +4411,7 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
       addFooter(lastY() + 8);
 
       // ── Form XVII — Fines Register ────────────────────────────────────────
-      goLandscape(); addTitle("FORM XVII", "[See Rule 77 (2) (b)]", "Register of Fines");
+      goLandscape(); addTitle(pf("fines").no, `[${pf("fines").rule}]`, pf("fines").title);
       y = addHdr();
       autoTbl(doc, {
         startY: y,
@@ -4356,7 +4425,7 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
       addFooter(lastY() + 8);
 
       // ── Form XVIII — Advances Register ───────────────────────────────────
-      goLandscape(); addTitle("FORM XVIII", "[See Rule 77 (2) (c)]", "Register of Advances");
+      goLandscape(); addTitle(pf("advances").no, `[${pf("advances").rule}]`, pf("advances").title);
       y = addHdr([["For the month of", `${monthFull} ${toYear}`]]);
       autoTbl(doc, {
         startY: y,
@@ -4372,7 +4441,7 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
       // ── Form XIX — OT Register ────────────────────────────────────────────
       // Uses goLandscape() to guarantee A4 landscape (pw=297) after portrait wage-slip pages.
       // Column widths sum to pw-2*M = 269mm so every column has enough room.
-      goLandscape(); addTitle("FORM XIX", "[See Rule 77 (2) (d)]", "Register of Overtime");
+      goLandscape(); addTitle(pf("overtime").no, `[${pf("overtime").rule}]`, pf("overtime").title);
       y = addHdr([["For the month of", `${monthFull} ${toYear}`]]);
       autoTbl(doc, {
         startY: y,
@@ -4425,9 +4494,9 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
       .sno { text-align: center; }
       .footer { margin-top: 24pt; display: flex; justify-content: space-between; }
     </style></head><body>
-    <p class="title">Form IX</p>
-    <p class="subtitle">[See rule 74]</p>
-    <p class="subtitle">REGISTER OF WORKMEN EMPLOYED BY CONTRACTOR</p>
+    <p class="title">${clraForm(selectedState, "workmen").no}</p>
+    <p class="subtitle">[${clraForm(selectedState, "workmen").rule}]</p>
+    <p class="subtitle">${clraForm(selectedState, "workmen").title.toUpperCase()}</p>
     <br/>
     <table class="hdr"><tbody>
       <tr><td>Name and address of Contractor :</td><td>${val(workmenData.company.name, workmenData.company.address)}</td></tr>
@@ -4462,7 +4531,7 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
     </body></html>`;
     const a = document.createElement("a");
     a.href = URL.createObjectURL(new Blob([html], { type: "application/vnd.ms-excel" }));
-    a.download = `Form-IX-Workmen-Register-${toMonth}-${toYear}.xls`;
+    a.download = `${clraForm(selectedState, "workmen").no.replace(/\s+/g, "-")}-Workmen-Register-${toMonth}-${toYear}.xls`;
     a.click();
   };
 
@@ -4477,10 +4546,10 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
     // Titles
     doc.setFont("times", "bold");
     doc.setFontSize(14);
-    doc.text("Form IX", pw / 2, 14, { align: "center" });
+    doc.text(clraForm(selectedState, "workmen").no, pw / 2, 14, { align: "center" });
     doc.setFontSize(11);
-    doc.text("[See rule 74]", pw / 2, 20, { align: "center" });
-    doc.text("REGISTER OF WORKMEN EMPLOYED BY CONTRACTOR", pw / 2, 26, { align: "center" });
+    doc.text(`[${clraForm(selectedState, "workmen").rule}]`, pw / 2, 20, { align: "center" });
+    doc.text(clraForm(selectedState, "workmen").title.toUpperCase(), pw / 2, 26, { align: "center" });
     doc.setDrawColor(80, 80, 80);
     doc.line(10, 29, pw - 10, 29);
 
@@ -4625,17 +4694,17 @@ function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
       {loaded && hasReport && (
         <Card className="overflow-hidden">
           <div id="report-print-area">
-            {isCLRAPackage                                            && clraData     && <CLRAPackageView data={clraData} />}
-            {isWorkmenRegister && workmenData && <WorkmenRegisterView data={workmenData} />}
-            {selectedReport === "Form VIII – Contractor Particulars"  && formVIIIData && <FormVIIIView data={formVIIIData} />}
-            {selectedReport === "Form XII – Muster Roll"              && musterData   && <MusterRollView data={musterData} />}
-            {selectedReport === "Form XIII – Wages Register"          && wagesData    && <WagesRegisterView data={wagesData} />}
-            {selectedReport === "Form XIV – Wage Slip"                && wagesData    && <WageSlipView data={wagesData} />}
-            {selectedReport === "Form XV – Deductions Register"       && workmenData  && <DeductionsRegisterView data={workmenData} />}
-            {selectedReport === "Form XVI – Fines Register"           && workmenData  && <FinesRegisterView data={workmenData} />}
-            {selectedReport === "Form XVII – Advances Register"       && wagesData    && <AdvancesRegisterView data={wagesData} />}
-            {selectedReport === "Form XVIII – OT Register"            && otData       && <OTRegisterView data={otData} />}
-            {selectedReport === "Form XIX – Annual Return"            && workmenData  && <AnnualReturnView data={workmenData} fromYear={toYear} toYear={toYear} />}
+            {isCLRAPackage                                            && clraData     && <CLRAPackageView data={clraData} state={selectedState} />}
+            {isWorkmenRegister && workmenData && <WorkmenRegisterView data={workmenData} state={selectedState} />}
+            {selectedReport === "Form VIII – Contractor Particulars"  && formVIIIData && <FormVIIIView data={formVIIIData} state={selectedState} />}
+            {selectedReport === "Form XII – Muster Roll"              && musterData   && <MusterRollView data={musterData} state={selectedState} />}
+            {selectedReport === "Form XIII – Wages Register"          && wagesData    && <WagesRegisterView data={wagesData} state={selectedState} />}
+            {selectedReport === "Form XIV – Wage Slip"                && wagesData    && <WageSlipView data={wagesData} state={selectedState} />}
+            {selectedReport === "Form XV – Deductions Register"       && workmenData  && <DeductionsRegisterView data={workmenData} state={selectedState} />}
+            {selectedReport === "Form XVI – Fines Register"           && workmenData  && <FinesRegisterView data={workmenData} state={selectedState} />}
+            {selectedReport === "Form XVII – Advances Register"       && wagesData    && <AdvancesRegisterView data={wagesData} state={selectedState} />}
+            {selectedReport === "Form XVIII – OT Register"            && otData       && <OTRegisterView data={otData} state={selectedState} />}
+            {selectedReport === "Form XIX – Annual Return"            && workmenData  && <AnnualReturnView data={workmenData} fromYear={toYear} toYear={toYear} state={selectedState} />}
           </div>
         </Card>
       )}
