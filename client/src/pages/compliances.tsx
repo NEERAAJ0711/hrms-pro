@@ -2080,6 +2080,15 @@ function ClientSetupTab({ companyId, isSuperAdmin, toast }: {
   const [endDate, setEndDate] = useState("");
   const [endSaving, setEndSaving] = useState(false);
 
+  // Edit client dialog
+  const [editClientId, setEditClientId] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState({ ...DEFAULT_CLIENT_FORM });
+  const [editClientSaving, setEditClientSaving] = useState(false);
+
+  // Delete client dialog
+  const [deleteClient, setDeleteClient] = useState<ComplianceClient | null>(null);
+  const [deleteSaving, setDeleteSaving] = useState(false);
+
   // View Assignments dialog
   const [assignClientId, setAssignClientId] = useState<string | null>(null);
   const [assignClientName, setAssignClientName] = useState("");
@@ -2179,6 +2188,59 @@ function ClientSetupTab({ companyId, isSuperAdmin, toast }: {
       toast({ title: "Error", description: e.message, variant: "destructive" });
     }
     setEndSaving(false);
+  };
+
+  const openEditClient = (client: ComplianceClient) => {
+    setEditClientId(client.id);
+    setEditForm({
+      projectName: client.project_name || "",
+      clientName: client.client_name || "",
+      clientAddress: client.client_address || "",
+      principalEmployerName: client.principal_employer_name || "",
+      principalEmployerAddress: client.principal_employer_address || "",
+      natureOfWork: client.nature_of_work || "",
+      locationOfWork: client.location_of_work || "",
+      projectStartDate: client.project_start_date ? String(client.project_start_date).slice(0, 10) : "",
+    });
+  };
+
+  const submitEditClient = async () => {
+    if (!editForm.projectName.trim()) {
+      toast({ title: "Required", description: "Project name is required", variant: "destructive" });
+      return;
+    }
+    setEditClientSaving(true);
+    try {
+      const res = await fetch(`/api/compliance/clients/${editClientId}`, {
+        method: "PATCH", credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(editForm),
+      });
+      if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.error || "Failed to update"); }
+      toast({ title: "Project updated", description: `${editForm.projectName} saved successfully` });
+      setEditClientId(null);
+      loadClients();
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    }
+    setEditClientSaving(false);
+  };
+
+  const submitDeleteClient = async () => {
+    if (!deleteClient) return;
+    setDeleteSaving(true);
+    try {
+      const res = await fetch(`/api/compliance/clients/${deleteClient.id}`, {
+        method: "DELETE", credentials: "include",
+      });
+      if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.error || "Failed to delete"); }
+      toast({ title: "Project deleted", description: `${deleteClient.project_name} removed` });
+      setDeleteClient(null);
+      loadClients();
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    }
+    setDeleteSaving(false);
   };
 
   const openAssignments = async (client: ComplianceClient) => {
@@ -2326,18 +2388,28 @@ function ClientSetupTab({ companyId, isSuperAdmin, toast }: {
                     </Badge>
                   </TableCell>
                   <TableCell>
-                    <div className="flex items-center gap-1 justify-center">
+                    <div className="flex items-center gap-1 justify-center flex-wrap">
                       <Button size="sm" variant="outline" className="h-7 px-2 text-xs"
-                        onClick={() => openAssignments(client)}>
+                        onClick={() => openAssignments(client)} data-testid={`button-employees-client-${client.id}`}>
                         <Users className="h-3 w-3 mr-1" /> Employees
+                      </Button>
+                      <Button size="sm" variant="outline" className="h-7 px-2 text-xs"
+                        onClick={() => openEditClient(client)} data-testid={`button-edit-client-${client.id}`}>
+                        <Pencil className="h-3 w-3 mr-1" /> Edit
                       </Button>
                       {client.status === "active" && (
                         <Button size="sm" variant="outline"
-                          className="h-7 px-2 text-xs border-red-200 text-red-600 hover:bg-red-50"
-                          onClick={() => { setEndClientId(client.id); setEndDate(""); }}>
+                          className="h-7 px-2 text-xs border-amber-200 text-amber-600 hover:bg-amber-50"
+                          onClick={() => { setEndClientId(client.id); setEndDate(""); }}
+                          data-testid={`button-end-client-${client.id}`}>
                           <XCircle className="h-3 w-3 mr-1" /> End
                         </Button>
                       )}
+                      <Button size="sm" variant="outline"
+                        className="h-7 px-2 text-xs border-red-200 text-red-600 hover:bg-red-50"
+                        onClick={() => setDeleteClient(client)} data-testid={`button-delete-client-${client.id}`}>
+                        <Trash2 className="h-3 w-3 mr-1" /> Delete
+                      </Button>
                     </div>
                   </TableCell>
                 </TableRow>
@@ -2434,6 +2506,103 @@ function ClientSetupTab({ companyId, isSuperAdmin, toast }: {
             <Button onClick={submitEndProject} disabled={endSaving}
               className="bg-red-600 hover:bg-red-700 text-white">
               {endSaving ? "Saving..." : "Confirm End"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Edit Client Dialog */}
+      <Dialog open={!!editClientId} onOpenChange={(o) => { if (!o) setEditClientId(null); }}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Pencil className="h-5 w-5 text-blue-600" /> Edit Client Project
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <Label className="text-sm font-medium">Project Name <span className="text-red-500">*</span></Label>
+              <Input value={editForm.projectName} onChange={e => setEditForm(f => ({ ...f, projectName: e.target.value }))}
+                placeholder="e.g. Highway Construction Phase 1" className="h-10" data-testid="input-edit-project-name" />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-sm font-medium">Project Start Date</Label>
+              <Input type="date" value={editForm.projectStartDate}
+                onChange={e => setEditForm(f => ({ ...f, projectStartDate: e.target.value }))} className="h-10" />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label className="text-sm font-medium">Name of Client</Label>
+                <Input value={editForm.clientName} onChange={e => setEditForm(f => ({ ...f, clientName: e.target.value }))}
+                  placeholder="Client company name" className="h-10" />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-sm font-medium">Address of Client</Label>
+                <Input value={editForm.clientAddress} onChange={e => setEditForm(f => ({ ...f, clientAddress: e.target.value }))}
+                  placeholder="Client address" className="h-10" />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label className="text-sm font-medium">Name of Principal Employer</Label>
+                <Input value={editForm.principalEmployerName}
+                  onChange={e => setEditForm(f => ({ ...f, principalEmployerName: e.target.value }))}
+                  placeholder="Principal employer name" className="h-10" />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-sm font-medium">Address of Principal Employer</Label>
+                <Input value={editForm.principalEmployerAddress}
+                  onChange={e => setEditForm(f => ({ ...f, principalEmployerAddress: e.target.value }))}
+                  placeholder="Principal employer address" className="h-10" />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label className="text-sm font-medium">Nature of Work</Label>
+                <Input value={editForm.natureOfWork} onChange={e => setEditForm(f => ({ ...f, natureOfWork: e.target.value }))}
+                  placeholder="e.g. Civil Construction" className="h-10" />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-sm font-medium">Location of Work</Label>
+                <Input value={editForm.locationOfWork} onChange={e => setEditForm(f => ({ ...f, locationOfWork: e.target.value }))}
+                  placeholder="e.g. NH-48, Gurugram" className="h-10" />
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditClientId(null)}>Cancel</Button>
+            <Button onClick={submitEditClient} disabled={editClientSaving}
+              className="bg-blue-600 hover:bg-blue-700 text-white" data-testid="button-save-edit-client">
+              {editClientSaving ? "Saving..." : "Save Changes"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Delete Client Dialog */}
+      <Dialog open={!!deleteClient} onOpenChange={(o) => { if (!o) setDeleteClient(null); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Trash2 className="h-5 w-5 text-red-500" /> Delete Client Project
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-2 space-y-3">
+            <p className="text-sm text-gray-600">
+              Are you sure you want to delete <span className="font-semibold">{deleteClient?.project_name}</span>?
+              This permanently removes the project and all its employee assignments. This cannot be undone.
+            </p>
+            {!!deleteClient && deleteClient.active_employees > 0 && (
+              <p className="text-xs text-amber-600">
+                This project has {deleteClient.active_employees} assigned employee(s); their assignment records will also be removed.
+              </p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteClient(null)}>Cancel</Button>
+            <Button onClick={submitDeleteClient} disabled={deleteSaving}
+              className="bg-red-600 hover:bg-red-700 text-white" data-testid="button-confirm-delete-client">
+              {deleteSaving ? "Deleting..." : "Delete Project"}
             </Button>
           </DialogFooter>
         </DialogContent>

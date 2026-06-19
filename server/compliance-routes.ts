@@ -947,6 +947,55 @@ export function registerComplianceRoutes(app: Express) {
     }
   });
 
+  // ── PATCH /api/compliance/clients/:id — edit client project details
+  app.patch("/api/compliance/clients/:id", requireAuth, attachUser, requireAdminRole, async (req: Request, res: Response) => {
+    try {
+      const user = (req as any).user;
+      const { id } = req.params;
+      const { projectName, clientName, clientAddress, principalEmployerName,
+              principalEmployerAddress, natureOfWork, locationOfWork, projectStartDate } = req.body;
+      if (!projectName) return res.status(400).json({ error: "Project name is required" });
+      const now = new Date().toISOString();
+      const companyClause = user.role === "super_admin" ? sql`` : sql` AND company_id = ${user.company_id}`;
+      const result = await db.execute(sql`
+        UPDATE compliance_clients SET
+          project_name = ${projectName},
+          client_name = ${clientName || null},
+          client_address = ${clientAddress || null},
+          principal_employer_name = ${principalEmployerName || null},
+          principal_employer_address = ${principalEmployerAddress || null},
+          nature_of_work = ${natureOfWork || null},
+          location_of_work = ${locationOfWork || null},
+          project_start_date = ${projectStartDate || null},
+          updated_at = ${now}
+        WHERE id = ${id}${companyClause}
+        RETURNING *
+      `);
+      if (result.rows.length === 0) return res.status(404).json({ error: "Project not found" });
+      return res.json(result.rows[0]);
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── DELETE /api/compliance/clients/:id — delete client project + its assignments
+  app.delete("/api/compliance/clients/:id", requireAuth, attachUser, requireAdminRole, async (req: Request, res: Response) => {
+    try {
+      const user = (req as any).user;
+      const { id } = req.params;
+      const companyClause = user.role === "super_admin" ? sql`` : sql` AND company_id = ${user.company_id}`;
+      const found = await db.execute(sql`SELECT id FROM compliance_clients WHERE id = ${id}${companyClause}`);
+      if (found.rows.length === 0) return res.status(404).json({ error: "Project not found" });
+      await db.transaction(async (tx) => {
+        await tx.execute(sql`DELETE FROM compliance_client_employees WHERE client_id = ${id}`);
+        await tx.execute(sql`DELETE FROM compliance_clients WHERE id = ${id}`);
+      });
+      return res.json({ success: true });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
   // ── GET /api/compliance/clients/:id/employees — list assigned employees
   app.get("/api/compliance/clients/:id/employees", requireAuth, attachUser, requireAdminRole, async (req: Request, res: Response) => {
     try {
