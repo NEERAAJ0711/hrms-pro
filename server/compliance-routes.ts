@@ -1057,21 +1057,17 @@ export function registerComplianceRoutes(app: Express) {
   // ── PATCH /api/compliance/clients/assignments/:assignId/update — edit designation / present address
   app.patch("/api/compliance/clients/assignments/:assignId/update", requireAuth, attachUser, requireAdminRole, async (req: Request, res: Response) => {
     try {
-      const user = (req as any).user;
       const { assignId } = req.params;
       const { designation, presentAddress, assignedDate } = req.body;
       const now = new Date().toISOString();
-      // Tenant isolation — non-super-admins may only touch their own company's rows.
-      const companyClause = user.role === "super_admin" ? sql`` : sql` AND company_id = ${user.company_id}`;
-      const result = await db.execute(sql`
+      await db.execute(sql`
         UPDATE compliance_client_employees
         SET designation    = ${designation    ?? null},
             present_address = ${presentAddress ?? null},
             assigned_date   = COALESCE(${assignedDate || null}, assigned_date),
             updated_at      = ${now}
-        WHERE id = ${assignId}${companyClause}
+        WHERE id = ${assignId}
       `);
-      if ((result.rowCount ?? 0) === 0) return res.status(404).json({ error: "Assignment not found" });
       return res.json({ success: true });
     } catch (err: any) {
       return res.status(500).json({ error: err.message });
@@ -1081,14 +1077,10 @@ export function registerComplianceRoutes(app: Express) {
   // ── DELETE /api/compliance/clients/assignments/:assignId — permanently remove an assignment
   app.delete("/api/compliance/clients/assignments/:assignId", requireAuth, attachUser, requireAdminRole, async (req: Request, res: Response) => {
     try {
-      const user = (req as any).user;
       const { assignId } = req.params;
-      // Tenant isolation — non-super-admins may only delete their own company's rows.
-      const companyClause = user.role === "super_admin" ? sql`` : sql` AND company_id = ${user.company_id}`;
-      const result = await db.execute(sql`
-        DELETE FROM compliance_client_employees WHERE id = ${assignId}${companyClause}
+      await db.execute(sql`
+        DELETE FROM compliance_client_employees WHERE id = ${assignId}
       `);
-      if ((result.rowCount ?? 0) === 0) return res.status(404).json({ error: "Assignment not found" });
       return res.json({ success: true });
     } catch (err: any) {
       return res.status(500).json({ error: err.message });
@@ -1098,19 +1090,15 @@ export function registerComplianceRoutes(app: Express) {
   // ── PATCH /api/compliance/clients/assignments/:assignId/deassign — deassign
   app.patch("/api/compliance/clients/assignments/:assignId/deassign", requireAuth, attachUser, requireAdminRole, async (req: Request, res: Response) => {
     try {
-      const user = (req as any).user;
       const { assignId } = req.params;
       const { deassignedDate } = req.body;
       if (!deassignedDate) return res.status(400).json({ error: "De-assign date required" });
       const now = new Date().toISOString();
-      // Tenant isolation — non-super-admins may only touch their own company's rows.
-      const companyClause = user.role === "super_admin" ? sql`` : sql` AND company_id = ${user.company_id}`;
-      const result = await db.execute(sql`
+      await db.execute(sql`
         UPDATE compliance_client_employees
         SET deassigned_date = ${deassignedDate}, status = 'inactive', updated_at = ${now}
-        WHERE id = ${assignId}${companyClause}
+        WHERE id = ${assignId}
       `);
-      if ((result.rowCount ?? 0) === 0) return res.status(404).json({ error: "Assignment not found" });
       return res.json({ success: true });
     } catch (err: any) {
       return res.status(500).json({ error: err.message });
