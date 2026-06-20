@@ -79,9 +79,13 @@ verification of each security checklist item.
 
 ## Known follow-ups (out of this task's scope)
 
-- **`SESSION_ENCRYPTION_KEY` is also committed in `.replit`** (`[userenv.shared]`).
-  It is used by `server/portal-session-service.ts` to encrypt stored EPFO/ESIC portal
-  sessions. Rotating it invalidates those stored portal logins, so it was left in
-  place and flagged for a dedicated rotation task.
+- **`SESSION_ENCRYPTION_KEY` — RESOLVED.** Previously committed in plaintext in
+  `.replit` (`[userenv.shared]`). Now removed from `.replit`. It is read by
+  `server/portal-session-service.ts` to encrypt stored EPFO/ESIC portal sessions.
+  When the env var is unset, the service falls back to a persisted, git-ignored
+  `.session.key` file (auto-generated, mode `0600`), so sessions stay stable across
+  restarts without committing the key. On the VPS the value is supplied via the
+  environment. Note: if no prior key file exists, removing the committed value means
+  previously stored portal logins can no longer be decrypted (re-login required).
 - **Git history** still contains the old secrets. Rotating the values (done for JWT)
   neutralizes them; scrubbing history is a separate, destructive operation.

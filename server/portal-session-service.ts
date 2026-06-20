@@ -34,8 +34,8 @@ function getKey(): Buffer {
         mkdirSync(process.cwd(), { recursive: true });
         writeFileSync(KEY_FILE, hexKey, { mode: 0o600 });
         console.warn(
-          "[PortalSession] SESSION_ENCRYPTION_KEY not set — generated and saved a random key to .session.key. " +
-          "For production, set SESSION_ENCRYPTION_KEY to this value: " + hexKey
+          "[PortalSession] SESSION_ENCRYPTION_KEY not set — generated and saved a random key to .session.key (mode 0600). " +
+          "For production, set SESSION_ENCRYPTION_KEY in the environment instead of relying on this local file."
         );
       } catch (err) {
         console.error("[PortalSession] Could not write .session.key:", err);
