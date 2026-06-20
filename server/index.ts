@@ -9,6 +9,16 @@ import { startAdmsServer, registerAdmsRoutes } from "./adms";
 import { startBiometricAttendanceSync } from "./biometric-attendance-sync";
 import { serveStatic } from "./static";
 import { createServer } from "http";
+import { randomUUID } from "crypto";
+
+declare global {
+  // eslint-disable-next-line @typescript-eslint/no-namespace
+  namespace Express {
+    interface Request {
+      id?: string;
+    }
+  }
+}
 
 const app = express();
 const httpServer = createServer(app);
@@ -52,6 +62,27 @@ app.use(express.urlencoded({ extended: false }));
 
 app.set("trust proxy", 1);
 
+// Per-request correlation ID: reuse an inbound X-Request-Id when present,
+// otherwise generate one. Echoed back on the response so clients/proxies can
+// correlate logs across the stack.
+app.use((req, res, next) => {
+  const incoming = req.get("x-request-id");
+  const id = incoming && incoming.length <= 200 ? incoming : randomUUID();
+  req.id = id;
+  res.setHeader("X-Request-Id", id);
+  next();
+});
+
+// Baseline security response headers. Intentionally conservative — no frame
+// blocking (the app is shown inside the Replit preview iframe and embeds the
+// mobile preview), so we only set headers that cannot break legitimate use.
+app.use((_req, res, next) => {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+  res.setHeader("X-DNS-Prefetch-Control", "off");
+  next();
+});
+
 const SESSION_SECRET = process.env.SESSION_SECRET;
 if (!SESSION_SECRET) {
   throw new Error(
@@ -91,6 +122,53 @@ export function log(message: string, source = "express") {
   console.log(`${formattedTime} [${source}] ${message}`);
 }
 
+// CSRF mitigation via Origin/Referer check (OWASP-recommended) for state-changing
+// requests that rely on the session cookie. Bearer-token (mobile/API) requests are
+// not cookie-based and therefore not forgeable cross-site, so they are exempt.
+// Requests with no Origin/Referer (non-browser clients) are allowed so server-to-server
+// and device traffic keeps working.
+const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+const CSRF_EXEMPT_PREFIXES = ["/iclock", "/cdata", "/getrequest", "/devicecmd"];
+
+function allowedRequestHosts(req: Request): Set<string> {
+  const hosts = new Set<string>();
+  const add = (h?: string | null) => {
+    if (h) hosts.add(h.toLowerCase());
+  };
+  add(req.get("host"));
+  add(req.get("x-forwarded-host"));
+  add(process.env.REPLIT_DEV_DOMAIN);
+  for (const d of (process.env.REPLIT_DOMAINS || "").split(",")) add(d.trim());
+  return hosts;
+}
+
+app.use((req, res, next) => {
+  if (SAFE_METHODS.has(req.method)) return next();
+  if (CSRF_EXEMPT_PREFIXES.some((p) => req.path.startsWith(p))) return next();
+
+  const authz = req.headers.authorization;
+  if (authz && authz.startsWith("Bearer ")) return next();
+
+  const originHeader = req.get("origin") || req.get("referer");
+  if (!originHeader) return next();
+
+  let originHost: string | null = null;
+  try {
+    originHost = new URL(originHeader).host.toLowerCase();
+  } catch {
+    originHost = null;
+  }
+  if (!originHost) return next();
+
+  if (allowedRequestHosts(req).has(originHost)) return next();
+
+  log(
+    `[${req.id}] CSRF blocked ${req.method} ${req.path} origin=${originHost}`,
+    "security",
+  );
+  return res.status(403).json({ error: "Cross-origin request blocked", requestId: req.id });
+});
+
 app.use((req, res, next) => {
   const start = Date.now();
   const path = req.path;
@@ -105,7 +183,7 @@ app.use((req, res, next) => {
   res.on("finish", () => {
     const duration = Date.now() - start;
     if (path.startsWith("/api")) {
-      let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
+      let logLine = `[${req.id}] ${req.method} ${path} ${res.statusCode} in ${duration}ms`;
       if (capturedJsonResponse) {
         logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
       }
@@ -601,17 +679,32 @@ app.use((req, res, next) => {
   startBiometricAttendanceSync();
   startAdmsServer();
 
-  app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
+  app.use((err: any, req: Request, res: Response, next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
-    const message = err.message || "Internal Server Error";
+    const requestId = req.id;
 
-    console.error("Internal Server Error:", err);
+    // Structured server-side log with full context (stack included for diagnosis).
+    log(
+      `[${requestId}] ERROR ${req.method} ${req.path} -> ${status}: ${err?.message || err}`,
+      "error",
+    );
+    if (status >= 500) {
+      console.error(`[${requestId}] Stack:`, err?.stack || err);
+    }
 
     if (res.headersSent) {
       return next(err);
     }
 
-    return res.status(status).json({ message });
+    // Never leak internal error details/stack to clients on 5xx. Client errors
+    // (4xx) carry their explicit message since those are meant to be actionable.
+    const isServerError = status >= 500;
+    const message =
+      isServerError && process.env.NODE_ENV === "production"
+        ? "Internal Server Error"
+        : err.message || "Internal Server Error";
+
+    return res.status(status).json({ message, requestId });
   });
 
   // importantly only setup vite in development and after

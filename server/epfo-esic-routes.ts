@@ -1978,10 +1978,15 @@ export function registerEpfoEsicRoutes(
   // ── GET /api/esic/contribution-history/file — serve a generated PDF ────────
   app.get("/api/esic/contribution-history/file", requireAuth, adminRoles, (req: Request, res: Response) => {
     const file = (req.query.file as string) ?? "";
-    if (!file || file.includes("..") || file.includes("/")) {
+    if (!file || file.includes("..") || file.includes("/") || file.includes("\\")) {
       return res.status(400).json({ error: "Invalid file name" });
     }
-    const abs = path.resolve("uploads", "esic-reports", file);
+    const baseDir = path.resolve("uploads", "esic-reports");
+    const abs = path.resolve(baseDir, file);
+    // Defense-in-depth: ensure the resolved path stays inside the reports dir.
+    if (abs !== baseDir && !abs.startsWith(baseDir + path.sep)) {
+      return res.status(400).json({ error: "Invalid file name" });
+    }
     if (!fs.existsSync(abs)) {
       return res.status(404).json({ error: "File not found. Run the Download PDF job first." });
     }

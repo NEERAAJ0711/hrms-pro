@@ -9,6 +9,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { AuthProvider, useAuth } from "@/lib/auth";
+import { ErrorBoundary } from "@/components/error-boundary";
 import { ModuleGate } from "@/components/module-gate";
 import WebsiteLayout from "@/pages/website/website-layout";
 import NotFound from "@/pages/not-found";
@@ -272,9 +273,11 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <ThemeProvider defaultTheme="light" storageKey="hrms-ui-theme">
         <TooltipProvider>
-          <AuthProvider>
-            <AppContent />
-          </AuthProvider>
+          <ErrorBoundary>
+            <AuthProvider>
+              <AppContent />
+            </AuthProvider>
+          </ErrorBoundary>
           <Toaster />
         </TooltipProvider>
       </ThemeProvider>
