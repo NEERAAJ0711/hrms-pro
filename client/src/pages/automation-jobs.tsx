@@ -48,7 +48,62 @@ interface AutomationLog {
   companyId: string;
   level: string;
   message: string;
+  meta?: Record<string, unknown> | null;
   createdAt: string;
+}
+
+// Field-fill summary logs (e.g. "UAN field fill summary", "IP registration
+// field fill summary") store a { fieldLabel: outcome } map in `meta`, where each
+// outcome is one of: filled | skipped-no-data | not-found | fill-failed.
+const FILL_OUTCOMES = ["filled", "skipped-no-data", "not-found", "fill-failed"];
+
+function isFieldFillSummary(log: AutomationLog): log is AutomationLog & { meta: Record<string, string> } {
+  // Must be one of the known summary messages AND carry a non-empty plain object
+  // whose every value is a recognised fill outcome. Requiring both avoids
+  // false-positives from unrelated logs that happen to carry object meta.
+  if (!/field fill summary/i.test(log.message)) return false;
+  if (!log.meta || typeof log.meta !== "object" || Array.isArray(log.meta)) return false;
+  const entries = Object.entries(log.meta);
+  return entries.length > 0 && entries.every(([k, v]) => typeof k === "string" && typeof v === "string" && FILL_OUTCOMES.includes(v));
+}
+
+function fieldOutcomeBadge(outcome: string) {
+  const map: Record<string, { className: string; label: string }> = {
+    "filled":          { className: "bg-green-50 text-green-700 border border-green-200",   label: "Filled" },
+    "skipped-no-data": { className: "bg-gray-50 text-gray-600 border border-gray-200",      label: "No data" },
+    "not-found":       { className: "bg-red-50 text-red-700 border border-red-200",         label: "Not found" },
+    "fill-failed":     { className: "bg-amber-50 text-amber-700 border border-amber-200",   label: "Fill failed" },
+  };
+  const m = map[outcome] ?? { className: "bg-gray-50 text-gray-600 border border-gray-200", label: outcome };
+  return <span className={`px-1.5 py-0.5 rounded text-[11px] font-medium ${m.className}`}>{m.label}</span>;
+}
+
+function FieldFillSummary({ meta }: { meta: Record<string, string> }) {
+  const entries = Object.entries(meta);
+  const problems = entries.filter(([, v]) => v === "not-found" || v === "fill-failed");
+  return (
+    <div className="mt-1.5 rounded-md border bg-muted/30 p-2" data-testid="field-fill-summary">
+      <div className="flex items-center gap-1.5 mb-1.5">
+        {problems.length === 0 ? (
+          <span className="flex items-center gap-1 text-xs font-medium text-green-700" data-testid="text-fill-all-ok">
+            <CheckCircle2 className="h-3.5 w-3.5" /> All fields filled
+          </span>
+        ) : (
+          <span className="flex items-center gap-1 text-xs font-medium text-red-700" data-testid="text-fill-problems">
+            <AlertTriangle className="h-3.5 w-3.5" /> {problems.length} field{problems.length > 1 ? "s" : ""} need attention
+          </span>
+        )}
+      </div>
+      <div className="flex flex-col gap-1">
+        {entries.map(([field, outcome]) => (
+          <div key={field} className="flex items-center justify-between gap-3" data-testid={`field-fill-row-${field}`}>
+            <span className="text-xs text-foreground">{field}</span>
+            {fieldOutcomeBadge(outcome)}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -702,7 +757,10 @@ function LogsTab() {
                 <TableCell className="text-xs text-muted-foreground whitespace-nowrap">{formatDate(log.createdAt)}</TableCell>
                 <TableCell>{levelBadge(log.level)}</TableCell>
                 <TableCell className="font-mono text-xs text-muted-foreground">{log.jobId.slice(0, 8)}…</TableCell>
-                <TableCell className="text-xs">{log.message}</TableCell>
+                <TableCell className="text-xs">
+                  <div>{log.message}</div>
+                  {isFieldFillSummary(log) && <FieldFillSummary meta={log.meta} />}
+                </TableCell>
               </TableRow>
             ))}
           </TableBody>
