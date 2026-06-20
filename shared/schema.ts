@@ -15,6 +15,20 @@ export const roles = [
 
 export type Role = typeof roles[number];
 
+// Web session store (managed at runtime by connect-pg-simple / express-session).
+// Declared here only so `drizzle-kit push` recognises it as an existing,
+// up-to-date table and does NOT propose dropping it (which would trigger an
+// interactive data-loss prompt and hang the non-interactive post-merge push).
+// The column shapes below mirror connect-pg-simple's table exactly so push is a
+// no-op: sid varchar PK, sess json, expire timestamp(6), index on expire.
+export const sessions = pgTable("session", {
+  sid: varchar("sid").primaryKey(),
+  sess: json("sess").notNull(),
+  expire: timestamp("expire", { precision: 6, mode: "date" }).notNull(),
+}, (table) => [
+  index("IDX_session_expire").on(table.expire),
+]);
+
 // Company Master
 export const companies = pgTable("companies", {
   id: varchar("id", { length: 36 }).primaryKey(),

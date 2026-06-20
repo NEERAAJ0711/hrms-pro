@@ -46,7 +46,7 @@ build = ["npm", "run", "build"]
 
 [postMerge]
 path = "scripts/post-merge.sh"
-timeoutMs = 20000
+timeoutMs = 120000
 
 [userenv]
 
