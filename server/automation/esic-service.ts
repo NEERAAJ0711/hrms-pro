@@ -108,6 +108,13 @@ const SEL = {
   ipFatherName:       '#txtFatherName, input[name*="fatherName" i]',
   ipJoinDate:         '#txtJoinDate, input[name*="joinDate" i]',
   ipSalary:           '#txtSalary, input[name*="salary" i]',
+  ipMaritalStatus:    '#ddlMaritalStatus, select[name*="marital" i], input[name*="marital" i]',
+  ipMotherName:       '#txtMotherName, input[name*="motherName" i]',
+  ipBloodGroup:       '#ddlBloodGroup, select[name*="blood" i], input[name*="blood" i]',
+  ipNomineeName:      '#txtNomineeName, input[name*="nominee" i][name*="name" i]',
+  ipNomineeRelation:  '#ddlNomineeRelation, select[name*="nominee" i][name*="relation" i], input[name*="nominee" i][name*="relation" i]',
+  ipEmergencyName:    '#txtEmergencyName, input[name*="emergency" i][name*="name" i]',
+  ipEmergencyNumber:  '#txtEmergencyNo, input[name*="emergency" i][name*="mobile" i], input[name*="emergency" i][name*="phone" i]',
   ipRegisterBtn:      '#btnSave, button[id*="save" i], input[value*="Save" i]',
   ipNumber:           '#lblIPNo, span[id*="ipNo" i], .ipNumber',
 
@@ -451,6 +458,13 @@ export async function ipNumberGenerate(
     ifsc?: string;
     dateOfJoining: string;
     grossSalary: number;
+    maritalStatus?: string;
+    motherName?: string;
+    bloodGroup?: string;
+    nomineeName?: string;
+    nomineeRelation?: string;
+    emergencyContactName?: string;
+    emergencyContactNumber?: string;
   },
   ctx: AutomationContext
 ): Promise<Record<string, unknown>> {
@@ -473,7 +487,28 @@ export async function ipNumberGenerate(
   if (payload.bankAccount) await page.fill(SEL.ipBankAccount, payload.bankAccount).catch(() => {});
   if (payload.ifsc) await page.fill(SEL.ipIfsc, payload.ifsc).catch(() => {});
   await page.fill(SEL.ipJoinDate, payload.dateOfJoining).catch(() => {});
-  await page.fill(SEL.ipSalary, String(payload.grossSalary)).catch(() => {});
+  if (Number.isFinite(payload.grossSalary) && payload.grossSalary > 0) {
+    await page.fill(SEL.ipSalary, String(payload.grossSalary)).catch(() => {});
+  }
+
+  // New statutory fields — filled best-effort; skipped silently when the data
+  // is missing or the portal does not expose the field.
+  if (payload.maritalStatus) {
+    await page.selectOption(SEL.ipMaritalStatus, { label: payload.maritalStatus })
+      .catch(() => page.fill(SEL.ipMaritalStatus, payload.maritalStatus!).catch(() => {}));
+  }
+  if (payload.motherName) await page.fill(SEL.ipMotherName, payload.motherName).catch(() => {});
+  if (payload.bloodGroup) {
+    await page.selectOption(SEL.ipBloodGroup, { label: payload.bloodGroup })
+      .catch(() => page.fill(SEL.ipBloodGroup, payload.bloodGroup!).catch(() => {}));
+  }
+  if (payload.nomineeName) await page.fill(SEL.ipNomineeName, payload.nomineeName).catch(() => {});
+  if (payload.nomineeRelation) {
+    await page.selectOption(SEL.ipNomineeRelation, { label: payload.nomineeRelation })
+      .catch(() => page.fill(SEL.ipNomineeRelation, payload.nomineeRelation!).catch(() => {}));
+  }
+  if (payload.emergencyContactName) await page.fill(SEL.ipEmergencyName, payload.emergencyContactName).catch(() => {});
+  if (payload.emergencyContactNumber) await page.fill(SEL.ipEmergencyNumber, payload.emergencyContactNumber).catch(() => {});
 
   if (await hasCaptcha(page)) {
     const ans = await solveCaptcha(page, ctx, "ip-generate-captcha");

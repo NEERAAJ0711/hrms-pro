@@ -465,6 +465,10 @@ export async function uanGenerate(
     gender: string;
     fatherName?: string;
     mobileNumber?: string;
+    maritalStatus?: string;
+    motherName?: string;
+    nomineeName?: string;
+    nomineeRelation?: string;
   },
   ctx: AutomationContext
 ): Promise<Record<string, unknown>> {
@@ -487,6 +491,12 @@ export async function uanGenerate(
     ['input[name*="aadhaar" i], #aadhaarNo', payload.aadhaar ?? ""],
     ['input[name*="mobile" i], #mobile', payload.mobileNumber ?? ""],
     ['input[name*="doj" i], #doj', payload.dateOfJoining],
+    // New statutory fields — filled best-effort; skipped when missing or the
+    // portal does not expose the field.
+    ['input[name*="marital" i], #maritalStatus', payload.maritalStatus ?? ""],
+    ['input[name*="motherName" i], #motherName', payload.motherName ?? ""],
+    ['input[name*="nominee" i][name*="name" i], #nomineeName', payload.nomineeName ?? ""],
+    ['input[name*="nominee" i][name*="relation" i], #nomineeRelation', payload.nomineeRelation ?? ""],
   ];
 
   for (const [selector, value] of fieldMap) {

@@ -338,6 +338,38 @@ function streamPdfReport(
   doc.end();
 }
 
+// ─── Statutory filing payload ───────────────────────────────────────────────────
+// Maps an employee record into the payload consumed by the EPFO UAN / ESIC IP
+// registration automation. Includes the statutory fields (nominee, marital
+// status, mother's name, blood group, emergency contact) the portal forms need.
+// Missing values are left undefined so the automation skips them gracefully.
+function buildRegistrationPayload(emp: typeof employees.$inferSelect) {
+  const opt = (v: string | null | undefined) => (v && v.trim() ? v.trim() : undefined);
+  return {
+    employeeId: emp.id,
+    employeeCode: emp.employeeCode ?? "",
+    name: `${emp.firstName ?? ""} ${emp.lastName ?? ""}`.trim(),
+    dob: emp.dateOfBirth ?? "",
+    gender: emp.gender ?? "",
+    dateOfJoining: emp.dateOfJoining,
+    fatherName: opt(emp.fatherHusbandName),
+    mobileNumber: opt(emp.mobileNumber),
+    mobile: opt(emp.mobileNumber),
+    aadhaar: opt(emp.aadhaar),
+    pan: opt(emp.pan),
+    bankAccount: opt(emp.bankAccount),
+    ifsc: opt(emp.ifsc),
+    // New statutory fields
+    maritalStatus: opt(emp.maritalStatus),
+    motherName: opt(emp.motherName),
+    bloodGroup: opt(emp.bloodGroup),
+    nomineeName: opt(emp.nomineeName),
+    nomineeRelation: opt(emp.nomineeRelation),
+    emergencyContactName: opt(emp.emergencyContactName),
+    emergencyContactNumber: opt(emp.emergencyContactNumber),
+  };
+}
+
 // ─── Route Registration ────────────────────────────────────────────────────────
 
 export function registerEpfoEsicRoutes(
@@ -729,7 +761,7 @@ export function registerEpfoEsicRoutes(
       const job = await queueService.enqueueJob({
         jobType: "epfo_uan_generate",
         companyId: cid,
-        payload: { employeeId: data.employeeId },
+        payload: buildRegistrationPayload(emp),
         createdBy: user.id,
       });
 
@@ -762,13 +794,18 @@ export function registerEpfoEsicRoutes(
       const cidResult = getCompanyId(user, data.companyId);
       if ("error" in cidResult) return res.status(cidResult.status).json({ error: cidResult.error });
 
+      const emps = await db.select().from(employees).where(
+        and(eq(employees.companyId, cidResult.companyId), inArray(employees.id, data.employeeIds))
+      );
+      if (emps.length === 0) return res.status(404).json({ error: "No matching employees found for this company" });
+
       const job = await queueService.enqueueJob({
         jobType: "epfo_bulk_register",
         companyId: cidResult.companyId,
-        payload: { employeeIds: data.employeeIds },
+        payload: { employees: emps.map(buildRegistrationPayload) },
         createdBy: user.id,
       });
-      res.json({ ok: true, jobId: job.id, count: data.employeeIds.length });
+      res.json({ ok: true, jobId: job.id, count: emps.length });
     } catch (err: any) {
       res.status(500).json({ error: err?.message || "Failed to enqueue bulk EPFO registration" });
     }
@@ -1126,7 +1163,7 @@ export function registerEpfoEsicRoutes(
       const job = await queueService.enqueueJob({
         jobType: "esic_ip_generate",
         companyId: cid,
-        payload: { employeeId: data.employeeId },
+        payload: buildRegistrationPayload(emp),
         createdBy: user.id,
       });
 
@@ -1159,13 +1196,18 @@ export function registerEpfoEsicRoutes(
       const cidResult = getCompanyId(user, data.companyId);
       if ("error" in cidResult) return res.status(cidResult.status).json({ error: cidResult.error });
 
+      const emps = await db.select().from(employees).where(
+        and(eq(employees.companyId, cidResult.companyId), inArray(employees.id, data.employeeIds))
+      );
+      if (emps.length === 0) return res.status(404).json({ error: "No matching employees found for this company" });
+
       const job = await queueService.enqueueJob({
         jobType: "esic_bulk_register",
         companyId: cidResult.companyId,
-        payload: { employeeIds: data.employeeIds },
+        payload: { employees: emps.map(buildRegistrationPayload) },
         createdBy: user.id,
       });
-      res.json({ ok: true, jobId: job.id, count: data.employeeIds.length });
+      res.json({ ok: true, jobId: job.id, count: emps.length });
     } catch (err: any) {
       res.status(500).json({ error: err?.message || "Failed to enqueue ESIC bulk registration" });
     }
