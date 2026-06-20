@@ -625,7 +625,10 @@ export async function aadhaarKyc(
   await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {});
   await safeScreenshot(page, ctx, "aadhaar-kyc-start");
 
-  await page.fill(SEL.kycUan, payload.uan);
+  // Route every field fill through fillStatutoryField so a wrong selector is
+  // logged (filled / not-found / fill-failed) instead of silently swallowed.
+  const fieldOutcomes: Record<string, string> = {};
+  fieldOutcomes["UAN"] = await fillStatutoryField(page, ctx, "UAN", SEL.kycUan, payload.uan);
   await page.click('button[id*="search" i], input[value*="Search" i]');
   await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {});
 
@@ -633,9 +636,9 @@ export async function aadhaarKyc(
   const aadhaarRadio = await page.$('input[value*="AADHAR" i], input[value*="Aadhaar" i]');
   if (aadhaarRadio) await aadhaarRadio.click();
 
-  await page.fill(SEL.kycAadhaar, payload.aadhaar);
-  const nameField = await page.$('input[name*="docName" i], #docName');
-  if (nameField) await nameField.fill(payload.name);
+  fieldOutcomes["Aadhaar Number"] = await fillStatutoryField(page, ctx, "Aadhaar Number", SEL.kycAadhaar, payload.aadhaar);
+  fieldOutcomes["Name (as per Aadhaar)"] = await fillStatutoryField(page, ctx, "Name (as per Aadhaar)", 'input[name*="docName" i], #docName', payload.name);
+  await ctx.log("info", "Aadhaar KYC field fill summary", fieldOutcomes);
 
   if (await hasCaptcha(page)) {
     const ans = await solveCaptcha(page, ctx, "aadhaar-kyc-captcha");

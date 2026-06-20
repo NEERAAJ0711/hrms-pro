@@ -627,14 +627,19 @@ export async function familyDeclaration(
   await ctx.takeScreenshot("family-decl-start");
 
   const results: Array<Record<string, unknown>> = [];
+  // Route every field fill through fillStatutoryField so a wrong selector is
+  // logged (filled / not-found / fill-failed) instead of silently swallowed.
+  const fieldOutcomes: Record<string, string> = {};
 
+  let memberIndex = 0;
   for (const member of payload.familyMembers) {
+    memberIndex += 1;
     await page.click(SEL.addFamilyBtn).catch(() => {});
     await page.waitForLoadState("domcontentloaded", { timeout: 5000 }).catch(() => {});
 
-    await page.fill(SEL.familyMemberName, member.name).catch(() => {});
-    await page.selectOption(SEL.familyRelation, { label: member.relation }).catch(() => {});
-    await page.fill(SEL.familyDob, member.dob).catch(() => {});
+    fieldOutcomes[`Member ${memberIndex} — Name`] = await fillStatutoryField(page, ctx, `Member ${memberIndex} — Name`, SEL.familyMemberName, member.name);
+    fieldOutcomes[`Member ${memberIndex} — Relation`] = await fillStatutoryField(page, ctx, `Member ${memberIndex} — Relation`, SEL.familyRelation, member.relation);
+    fieldOutcomes[`Member ${memberIndex} — Date of Birth`] = await fillStatutoryField(page, ctx, `Member ${memberIndex} — Date of Birth`, SEL.familyDob, member.dob);
 
     await page.click(SEL.familySaveBtn);
     await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {});
@@ -644,6 +649,7 @@ export async function familyDeclaration(
     await ctx.log("info", `Family member added: ${member.name}`, { result: resultMsg });
   }
 
+  await ctx.log("info", "Family declaration field fill summary", fieldOutcomes);
   await ctx.takeScreenshot("family-decl-done");
   return { ipNumber: payload.ipNumber, membersAdded: results };
 }
