@@ -1,11 +1,15 @@
 # HRMS Pro — Architecture Audit & Analysis Report
 
 **Generated:** June 13, 2026  
-**Last updated:** June 19, 2026 — Phase-1 Critical Fixes applied (see status banners below)  
+**Last updated:** June 20, 2026 — Phase-3 performance + error-handling/security hardening applied (see status banners below)  
 **Scope:** Full-stack codebase — Backend (Express/Node), Frontend (React/Vite), Database (PostgreSQL/Drizzle), Mobile (Flutter)  
 **Analyst:** AI Architecture Reviewer  
 
-> **Phase-1 update (June 19, 2026):** The four critical security issues and the "zero database indexes" gap identified in this report have been **resolved**. Sections affected are annotated with `✅ RESOLVED` banners that preserve the original findings for traceability. Remaining roadmap items (routes.ts split, service layer, FK constraints, unused-package removal, email service) are unchanged. See `CHANGELOG.md` for the exact diff.
+> **Phase-1 update (June 19, 2026):** The four critical security issues and the "zero database indexes" gap identified in this report have been **resolved**. Sections affected are annotated with `✅ RESOLVED` banners that preserve the original findings for traceability. See `CHANGELOG.md` for the exact diff.
+
+> **Phase-3 update (June 20, 2026):** Two further workstreams landed:
+> - **Performance (Task #9, merged):** route-level code splitting (`App.tsx` `React.lazy`/`Suspense`), on-demand TensorFlow/face-api loading (no longer loaded at boot), a 30s TTL cache on dashboard stats, tuned TanStack Query `gcTime`, and virtualization of the employees table (`@tanstack/react-virtual`). Initial JS bundle dropped from **2,807 kB → 393 kB**. Metrics in `docs/performance-optimization.md`.
+> - **Error handling, logging & security (Task #10):** a React **error boundary** wraps the app; the backend gained **per-request correlation IDs** (`X-Request-Id`), **structured request/error logging**, a **hardened centralized error handler** (no stack/detail leak to clients on 5xx in production), **baseline security headers**, an **Origin/Referer CSRF check** for cookie-authenticated mutations, and **download path-traversal containment**. The live JWT secret committed in `.replit` is being **rotated** to a managed Secret. Details in `docs/security-review.md`.
 
 ---
 
@@ -34,12 +38,12 @@
 
 | Dimension | Score | Notes |
 |-----------|-------|-------|
-| **Overall Application Health** | **6.5 / 10** | Phase-1 security & indexing fixes applied; architectural debt (god-file, no service layer) remains |
-| **Maintainability** | 4 / 10 | God-object routes file, 6k-line page components, no separation of concerns |
-| **Scalability** | 5.5 / 10 | ✅ DB indexes now added on high-traffic columns; single PM2 instance & no query pagination remain |
-| **Security** | 6.5 / 10 | ✅ Secret fallbacks removed (fail-fast), auth-bypass route removed, upload allow-list added; ⚠️ live JWT secret committed in `.replit`, CSRF & ADMS auth still open |
-| **Performance** | 6.5 / 10 | ✅ Indexes added on FK/filter columns; no caching layer & large render files remain |
-| **Code Quality** | 5 / 10 | Inconsistent validation, scattered PDF logic, repeated patterns |
+| **Overall Application Health** | **7 / 10** | Phase-1 security/indexing + Phase-3 perf & error-handling fixes applied; architectural debt (god-file, no service layer) remains |
+| **Maintainability** | 4.5 / 10 | God-object routes file & 6k-line page components remain; error boundary + structured logging improve operability |
+| **Scalability** | 6 / 10 | ✅ DB indexes added; ✅ dashboard cache + table virtualization; single PM2 instance & no query pagination remain |
+| **Security** | 7.5 / 10 | ✅ Secret fallbacks removed, auth-bypass route removed, upload allow-list, CSRF Origin-check, download path-traversal containment, security headers, no-stack-leak error responses; ⚠️ JWT secret rotation in progress, ADMS auth & committed `SESSION_ENCRYPTION_KEY` still open |
+| **Performance** | 7.5 / 10 | ✅ Indexes + route code-splitting (bundle 2,807→393 kB), lazy TensorFlow, 30s dashboard cache, table virtualization; synchronous PDF gen remains |
+| **Code Quality** | 5.5 / 10 | Inconsistent validation & scattered PDF logic remain; centralized error handling + correlation IDs added |
 
 ### Key Numbers at a Glance
 
@@ -53,7 +57,7 @@
 | Total Frontend Page Lines (top 6) | **~20,700** |
 | SQL Migration Files | 21 (incl. Phase-1 index migration) |
 | Unused npm Packages (direct) | 3 confirmed |
-| Critical Security Issues | 1 ⚠️ (4 code-level issues resolved Jun 19 2026; live JWT secret committed in `.replit` still outstanding — rotate & untrack) |
+| Critical Security Issues | 0–1 ⚠️ (4 code-level issues resolved Jun 19 2026; CSRF + path-traversal + headers added Jun 20 2026; live JWT secret rotation in progress; committed `SESSION_ENCRYPTION_KEY` newly flagged) |
 
 ### Technical Debt Assessment
 
@@ -420,8 +424,8 @@ The `companyId` for super_admin is often passed as a prop through 3–4 levels r
 
 | Feature | Status |
 |---------|--------|
-| Error Boundaries | Not found |
-| Suspense/Loading skeletons | Inconsistent — some pages have them, most don't |
+| Error Boundaries | ✅ Added (Jun 20 2026) — `error-boundary.tsx` wraps the app with a friendly fallback |
+| Suspense/Loading skeletons | ✅ Route-level `Suspense` added (Jun 19 2026, code-splitting); per-section skeletons still inconsistent |
 | Accessibility (ARIA) | Minimal — only data-testid attributes |
 | SEO meta tags | Present on website pages only |
 | Dark Mode | Theme provider exists but not all pages honour it |
@@ -606,11 +610,11 @@ Financial columns should consistently use `numeric(12,2)` or store amounts in pa
 | Issue | Severity | Impact |
 |-------|---------|--------|
 | ~~No DB indexes on FK columns~~ ✅ Resolved (Jun 19 2026) | — | 19 indexes added on high-traffic FK/filter columns |
-| No query result caching | 🟡 Medium | Repeated dashboard queries hit DB every request |
+| ~~No query result caching~~ ✅ Resolved for dashboard (Jun 19 2026) | — | 30s TTL cache on dashboard stats; other endpoints still uncached |
 | Synchronous PDF generation in request handlers | 🟡 Medium | Blocks Node.js event loop for large reports |
-| TensorFlow loaded at server startup | 🟡 Medium | Increases cold start time and baseline memory |
+| ~~TensorFlow loaded at server startup~~ ✅ Resolved (Jun 19 2026) | — | Face-api/TensorFlow now loaded on-demand at first face match |
 | No pagination on some list endpoints | 🟡 Medium | Returning all records on large tables |
-| Playwright + TensorFlow concurrent memory | 🔴 High | Can exceed PM2 500MB restart threshold |
+| Playwright + TensorFlow concurrent memory | 🟡 Medium | Lower baseline now that TF loads lazily; can still spike under concurrent face-match + Playwright |
 
 ### Frontend Performance Issues
 
@@ -619,9 +623,9 @@ Financial columns should consistently use `numeric(12,2)` or store amounts in pa
 | 6,379-line reports.tsx | 🟡 Medium | Large initial parse time; re-renders whole page on any state change |
 | `refetchInterval: 5000` on automation jobs | 🟢 Low | Constant polling even when no jobs running |
 | Inline `queryFn` in each component | 🟢 Low | Prevents React Query from deduplicating identical requests |
-| No virtualization on large tables | 🟡 Medium | Rendering 500+ employee rows at once causes jank |
+| ~~No virtualization on large tables~~ ✅ Resolved for employees (Jun 19 2026) | — | Employees table virtualized via `@tanstack/react-virtual`; other large tables still un-virtualized |
 | PDF generation on main thread | 🟡 Medium | Blocks UI during large report generation |
-| No code splitting by route | 🟡 Medium | All 40 pages loaded in one bundle |
+| ~~No code splitting by route~~ ✅ Resolved (Jun 19 2026) | — | Route-level `React.lazy`/`Suspense`; initial bundle 2,807 → 393 kB |
 
 ### Slow Query Patterns (Estimated)
 
@@ -663,12 +667,13 @@ WHERE is_processed = false
 | ~~Hardcoded session secret fallback~~ ✅ Resolved (Jun 19 2026) | — | `server/index.ts` |
 | ~~Duplicate resume route bypasses admin check~~ ✅ Resolved (Jun 19 2026) | — | `server/routes.ts` |
 | ~~No mimetype filter on employee doc uploads~~ ✅ Resolved (Jun 19 2026) | — | `server/upload-security.ts` |
-| ⚠️ Live JWT secret committed to version control | 🔴 Critical | `.replit` (git-tracked) |
+| ⚠️ Live JWT secret committed to version control | 🔴 Critical → 🟠 In progress (Jun 20 2026) | `.replit` (git-tracked) — rotation to managed Secret underway |
+| ⚠️ `SESSION_ENCRYPTION_KEY` committed to version control | 🟠 High (newly flagged Jun 20 2026) | `.replit` `[userenv.shared]` — used by `portal-session-service.ts`; needs dedicated rotation |
 | ADMS protocol unauthenticated | 🟡 Medium | `server/adms.ts` |
 | MemStorage hardcoded admin/admin123 | 🟡 Medium | `server/storage.ts` |
 | JWT 7-day expiry with no revocation | 🟡 Medium | `server/jwt-auth.ts` |
-| No CSRF protection | 🟡 Medium | `server/index.ts` |
-| File path traversal risk in downloads | 🟡 Medium | Challan/report download endpoints |
+| ~~No CSRF protection~~ ✅ Resolved (Jun 20 2026) | — | `server/index.ts` — Origin/Referer check on cookie-auth mutations |
+| ~~File path traversal risk in downloads~~ ✅ Hardened (Jun 20 2026) | — | ESIC report download now does resolved-path containment |
 | `req as any` bypasses TypeScript checks | 🟢 Low | Throughout `routes.ts` |
 
 ### Issue Deep-Dives
@@ -726,9 +731,18 @@ const docUpload = multer({
 
 The ZKTeco ADMS protocol on `/iclock/...` is inherently unauthenticated. While a `pushToken` and CIDR check exist as optional, **they appear to be opt-in**, meaning by default any host on the network can push punch data to the HRMS.
 
-#### 5. No CSRF Protection
+#### 5. No CSRF Protection — ✅ RESOLVED (June 20, 2026)
+
+> **Fixed:** An OWASP-recommended Origin/Referer check was added in `server/index.ts` for state-changing methods (POST/PUT/PATCH/DELETE). Requests are blocked (`403`) when a browser-supplied `Origin`/`Referer` host does not match the request host (or `REPLIT_DEV_DOMAIN`/`REPLIT_DOMAINS`). Exemptions: safe methods, `Bearer`-token (mobile/JWT) requests, ADMS device paths, and requests with no Origin/Referer (non-browser clients). *(Original finding preserved below.)*
 
 The web interface uses session cookies (`sameSite: "lax"` in dev, `"none"` in production with `secure: true`). With `sameSite: "none"`, CSRF is possible from cross-origin requests unless explicitly blocked.
+
+#### 6. Error Handling, Logging & Response Hygiene — ✅ ADDED (June 20, 2026)
+
+- **Per-request correlation IDs:** an `X-Request-Id` is assigned (reusing an inbound header when present) and echoed on the response; it appears in every `/api` access log, CSRF-block log, and error log/response, so a single user report is traceable end-to-end.
+- **Hardened centralized error handler:** logs structured context (id, method, path, status, stack on 5xx) but returns a generic `"Internal Server Error"` to clients on 5xx in production — internal details/stack no longer leak.
+- **Baseline security headers:** `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, `X-DNS-Prefetch-Control: off`. Frame-blocking headers are intentionally omitted (app runs in the Replit preview iframe and embeds the mobile preview).
+- **Frontend error boundary:** render-time crashes now show a friendly fallback instead of a blank screen.
 
 ### Authentication Architecture
 
@@ -824,13 +838,14 @@ The RBAC system is well-designed but the `user_permissions` table in the DB is s
 | 11 | Storage interface too large | 🟡 Medium | `storage.ts` | 3–4 days |
 | 12 | No database migration tracking | 🟡 Medium | `migrations/` | 1 day |
 | 13 | Repeated PDF/Excel generation code | 🟡 Medium | 6 page files | 2–3 days |
-| 14 | Missing React Error Boundaries | 🟡 Medium | App.tsx | 1 day |
-| 15 | TensorFlow loaded at startup | 🟡 Medium | `server/index.ts` | 0.5 day |
+| 14 | ~~Missing React Error Boundaries~~ ✅ Resolved (Jun 20 2026) | Done | `App.tsx`, `error-boundary.tsx` | — |
+| 15 | ~~TensorFlow loaded at startup~~ ✅ Resolved (Jun 19 2026) | Done | `server/index.ts` | — |
 | 16 | No email service integration | 🟡 Medium | — | 2–3 days |
 | 17 | JWT 7-day access token lifetime | 🟢 Low | `jwt-auth.ts` | 1 hour |
 | 18 | `req as any` type escapes | 🟢 Low | `routes.ts` | Ongoing |
 | 19 | Unused npm packages (3) | 🟢 Low | `package.json` | 30 min |
-| 20 | No code splitting by route | 🟢 Low | `vite.config.ts` | 1 day |
+| 20 | ~~No code splitting by route~~ ✅ Resolved (Jun 19 2026) | Done | `client/src/App.tsx` | — |
+| 21 | ⚠️ `SESSION_ENCRYPTION_KEY` committed in `.replit` | 🟠 High | `.replit`, `portal-session-service.ts` | 1–2 hr (rotation invalidates stored portal sessions) |
 
 ### Large Files Summary
 
@@ -879,20 +894,21 @@ The RBAC system is well-designed but the `user_permissions` table in the DB is s
 
 ---
 
-### Phase 3 — Performance Optimization (Month 2–3)
+### Phase 3 — Performance Optimization (Month 2–3) — ✅ MOSTLY COMPLETE (June 19, 2026)
 **Estimated effort:** 2–3 weeks | **Risk:** Low–Medium**
 
-| Task | Action | Impact |
-|------|--------|--------|
-| Add all DB indexes | Complete index coverage for all FK and filter columns | 🔴 High |
-| Add FK constraints | Add `.references()` in Drizzle schema | 🟡 Medium |
-| Add Redis/in-memory cache | Cache dashboard stats, employee lists for 30–60s | 🟡 Medium |
-| Lazy-load TensorFlow | Load face-api only on demand, not at startup | 🟡 Medium |
-| Route-level code splitting | Vite `React.lazy()` for heavy pages | 🟢 Low |
-| Virtualize large tables | Use `@tanstack/react-virtual` for 100+ row tables | 🟡 Medium |
-| Async PDF generation | Move report generation to background queue | 🟡 Medium |
+| Task | Action | Impact | Status |
+|------|--------|--------|--------|
+| Add all DB indexes | Complete index coverage for all FK and filter columns | 🔴 High | ✅ Done (19 indexes, Jun 19 2026) |
+| Add FK constraints | Add `.references()` in Drizzle schema | 🟡 Medium | ⬜ Pending |
+| Add in-memory cache | Cache dashboard stats for 30s | 🟡 Medium | ✅ Done (dashboard; other endpoints pending) |
+| Lazy-load TensorFlow | Load face-api only on demand, not at startup | 🟡 Medium | ✅ Done |
+| Route-level code splitting | `React.lazy()`/`Suspense` for pages | 🟢 Low | ✅ Done (bundle 2,807→393 kB) |
+| Virtualize large tables | Use `@tanstack/react-virtual` for 100+ row tables | 🟡 Medium | ✅ Done (employees; other tables pending) |
+| Async PDF generation | Move report generation to background queue | 🟡 Medium | ⬜ Pending |
 
 **Expected benefit:** API response time improvement of 60–80% at scale; frontend TTI improved by ~30%.
+**Actual:** Initial JS bundle cut ~86% (2,807 → 393 kB); TensorFlow no longer in the boot path; dashboard stats cached (30s). FK constraints, broader caching, more table virtualization, and async PDF remain. Metrics in `docs/performance-optimization.md`.
 
 ---
 
@@ -942,16 +958,18 @@ The RBAC system is well-designed but the `user_permissions` table in the DB is s
 | 8 | **Add FK constraints via Drizzle schema** | 🟠 High | 2 days |
 | 9 | **Remove react-icons, @replit/connectors-sdk, tw-animate-css** | 🟡 Medium | 30 min |
 | 10 | **Standardize Zod validation on all POST/PATCH routes** | 🟡 Medium | 3 days |
-| 11 | **Add React Error Boundaries on all page routes** | 🟡 Medium | 1 day |
+| 11 | ~~**Add React Error Boundaries**~~ ✅ Done (Jun 20 2026) | — | — |
 | 12 | **Integrate email delivery service (Resend/Nodemailer)** | 🟡 Medium | 2 days |
 | 13 | **Centralize PDF/Excel utility functions** | 🟡 Medium | 2 days |
-| 14 | **Lazy-load TensorFlow/face-api at startup** | 🟡 Medium | 0.5 day |
+| 14 | ~~**Lazy-load TensorFlow/face-api**~~ ✅ Done (Jun 19 2026) | — | — |
 | 15 | **Add migration version tracking** | 🟡 Medium | 1 day |
-| 16 | **Implement Redis cache for dashboard endpoints** | 🟡 Medium | 2 days |
-| 17 | **Add table virtualization for large lists** | 🟡 Medium | 2 days |
+| 16 | ~~**Cache dashboard endpoints**~~ ✅ Done (Jun 19 2026, 30s in-memory; broaden later) | — | — |
+| 17 | **Add table virtualization for remaining large lists** (employees ✅ done) | 🟡 Medium | 1 day |
 | 18 | **Split storage.ts into domain interfaces** | 🟡 Medium | 3 days |
 | 19 | **Reduce JWT access token lifetime to 1 hour** | 🟢 Low | 1 hr |
-| 20 | **Add Vite route-level code splitting** | 🟢 Low | 1 day |
+| 20 | ~~**Route-level code splitting**~~ ✅ Done (Jun 19 2026) | — | — |
+| 21 | **Rotate & untrack `SESSION_ENCRYPTION_KEY` from `.replit`** | 🟠 High | 1–2 hr |
+| 22 | **Add per-device pushToken/CIDR enforcement on ADMS endpoints** | 🟡 Medium | 1 day |
 
 ### Estimated Outcomes After Full Roadmap
 
@@ -960,7 +978,8 @@ The RBAC system is well-designed but the `user_permissions` table in the DB is s
 | Largest backend file | 7,398 lines | ~900 lines (avg) | **~88% reduction** |
 | Largest frontend file | 6,379 lines | ~800 lines (avg) | **~87% reduction** |
 | API response time (at scale) | 2,000–5,000ms | 100–300ms | **~85% faster** |
-| Security vulnerabilities | ⚠️ 1 critical (4 code-level resolved Jun 19 2026; committed `.replit` JWT secret outstanding) | 0 critical | **In progress** |
+| Security vulnerabilities | ⚠️ 0–1 critical (4 code-level resolved Jun 19 2026; CSRF + path-traversal + headers + error-hygiene added Jun 20 2026; JWT secret rotation in progress; `SESSION_ENCRYPTION_KEY` newly flagged) | 0 critical | **In progress** |
+| Initial JS bundle | ✅ 393 kB (was 2,807 kB before code-splitting, Jun 19 2026) | <400 kB | **~86% smaller** |
 | Codebase maintainability | 4/10 | 8/10 | **+100%** |
 | Bundle size | ~Current | ~25% smaller | **react-icons + dead code removed** |
 | Test coverage (potential) | 0% | Testable architecture | **Unblocked** |
