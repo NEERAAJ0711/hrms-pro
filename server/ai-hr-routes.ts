@@ -26,6 +26,7 @@ import * as fs from "fs";
 import { generateAiReply, computeKycOverallStatus, createFollowUpTask, startAiFollowUpScheduler, generateComplianceReply, analyzeJobError, extractKycDocument, isKycExtractable, extractProfileFromText, type EmployeeContext } from "./ai-service";
 import { createNotification } from "./notifications";
 import { sendKycReminderEmail, sendAiFollowUpEmail } from "./services/email-service";
+import { mapExtractionToUpdates, checkConversationAccess } from "./ai-extraction";
 
 // ─── Multer for KYC document uploads ─────────────────────────────────────────
 
@@ -812,60 +813,13 @@ export async function registerAiHrRoutes(
         const conv = (
           await db.select().from(aiConversations).where(eq(aiConversations.id, req.params.id)).limit(1)
         )[0];
-        if (!conv) return res.status(404).json({ message: "Conversation not found" });
-        if (conv.userId !== user.id) return res.status(403).json({ message: "Access denied" });
+        const access = checkConversationAccess(conv, user.id);
+        if (access === "not_found") return res.status(404).json({ message: "Conversation not found" });
+        if (access === "forbidden") return res.status(403).json({ message: "Access denied" });
 
-        const clean = (v: unknown) => (typeof v === "string" ? v.trim() : "");
-        const normalizeDob = (s: string): string => {
-          const m = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})$/);
-          if (m) return `${m[3]}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}`;
-          return s;
-        };
-        const normalizeGender = (s: string): string => {
-          const t = s.trim().toLowerCase();
-          if (t.startsWith("m")) return "Male";
-          if (t.startsWith("f")) return "Female";
-          if (t) return "Other";
-          return "";
-        };
-
-        // Map the verified document fields onto employee master columns.
-        const updates: Record<string, any> = {};
-        const setIf = (col: string, val: string) => {
-          if (val) updates[col] = val;
-        };
-
-        if (docType === "aadhaar") {
-          setIf("aadhaar", clean(fields.aadhaarNumber).replace(/\s+/g, ""));
-          if (clean(fields.dateOfBirth)) updates.dateOfBirth = normalizeDob(clean(fields.dateOfBirth));
-          if (clean(fields.gender)) updates.gender = normalizeGender(clean(fields.gender));
-          setIf("presentAddress", clean(fields.address));
-        } else if (docType === "pan") {
-          setIf("pan", clean(fields.panNumber).toUpperCase());
-          setIf("fatherHusbandName", clean(fields.fatherName));
-          if (clean(fields.dateOfBirth)) updates.dateOfBirth = normalizeDob(clean(fields.dateOfBirth));
-        } else if (docType === "bank_details" || docType === "cancelled_cheque") {
-          setIf("bankAccount", clean(fields.accountNumber).replace(/\s+/g, ""));
-          setIf("ifsc", clean(fields.ifsc).replace(/\s+/g, "").toUpperCase());
-        } else if (docType === "address_proof") {
-          setIf("presentAddress", clean(fields.address));
-        } else if (docType === "profile") {
-          // Statutory / HRMS profile details the employee typed (ESIC, EPFO, HRMS).
-          // Whitelist: only these employee-master columns may be written here.
-          setIf("gender", normalizeGender(clean(fields.gender)));
-          if (clean(fields.dateOfBirth)) updates.dateOfBirth = normalizeDob(clean(fields.dateOfBirth));
-          setIf("mobileNumber", clean(fields.mobileNumber).replace(/\s+/g, ""));
-          setIf("officialEmail", clean(fields.officialEmail));
-          setIf("fatherHusbandName", clean(fields.fatherHusbandName));
-          setIf("uan", clean(fields.uan).replace(/\s+/g, ""));
-          setIf("esiNumber", clean(fields.esiNumber).replace(/\s+/g, ""));
-          setIf("pan", clean(fields.pan).replace(/\s+/g, "").toUpperCase());
-          setIf("aadhaar", clean(fields.aadhaar).replace(/\s+/g, ""));
-          setIf("bankAccount", clean(fields.bankAccount).replace(/\s+/g, ""));
-          setIf("ifsc", clean(fields.ifsc).replace(/\s+/g, "").toUpperCase());
-          setIf("presentAddress", clean(fields.presentAddress));
-          setIf("permanentAddress", clean(fields.permanentAddress));
-        } else {
+        // Map the verified fields onto a fixed whitelist of employee-master columns.
+        const updates = mapExtractionToUpdates(docType, fields ?? {});
+        if (updates === null) {
           return res.status(400).json({ message: "Unsupported docType" });
         }
 
