@@ -59,7 +59,23 @@ interface Attachment {
   filePath: string;
   docType: string;
   uploadedAt: string;
+  extracted?: Record<string, string>;
 }
+
+const EXTRACTION_FIELD_LABELS: Record<string, string> = {
+  name: "Name",
+  dateOfBirth: "Date of Birth",
+  gender: "Gender",
+  aadhaarNumber: "Aadhaar Number",
+  address: "Address",
+  panNumber: "PAN Number",
+  fatherName: "Father's / Husband's Name",
+  accountHolderName: "Account Holder",
+  accountNumber: "Account Number",
+  ifsc: "IFSC Code",
+  bankName: "Bank Name",
+  branch: "Branch",
+};
 
 interface AiMessage {
   id: string;
@@ -93,7 +109,86 @@ function parseMarkdown(text: string): string {
     .replace(/\n/g, "<br/>");
 }
 
-function MessageBubble({ msg }: { msg: AiMessage }) {
+function ExtractionVerifyCard({
+  convId,
+  docType,
+  extracted,
+}: {
+  convId: string;
+  docType: string;
+  extracted: Record<string, string>;
+}) {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const [fields, setFields] = useState<Record<string, string>>(extracted);
+  const [saved, setSaved] = useState(false);
+
+  const applyMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/ai-hr/conversations/${convId}/apply-extraction`, {
+        docType,
+        fields,
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      setSaved(true);
+      qc.invalidateQueries({ queryKey: ["/api/ai-hr/conversations", convId, "messages"] });
+      qc.invalidateQueries({ queryKey: ["/api/ai-hr/my-conversation"] });
+      toast({ title: "Saved to your profile" });
+    },
+    onError: () => {
+      toast({ title: "Could not save details", variant: "destructive" });
+    },
+  });
+
+  const keys = Object.keys(fields);
+  if (keys.length === 0) return null;
+
+  return (
+    <div
+      className="mt-2 rounded-xl border border-border bg-background p-3 text-foreground"
+      data-testid={`card-extracted-${docType}`}
+    >
+      <div className="mb-2 text-xs font-semibold text-muted-foreground">
+        Please verify the details I read:
+      </div>
+      <div className="space-y-2">
+        {keys.map((k) => (
+          <div key={k} className="space-y-1">
+            <label className="text-[11px] font-medium text-muted-foreground">
+              {EXTRACTION_FIELD_LABELS[k] ?? k}
+            </label>
+            <Input
+              value={fields[k]}
+              disabled={saved}
+              onChange={(e) => setFields((prev) => ({ ...prev, [k]: e.target.value }))}
+              className="h-8 text-sm"
+              data-testid={`input-extracted-${docType}-${k}`}
+            />
+          </div>
+        ))}
+      </div>
+      <Button
+        size="sm"
+        className="mt-3 w-full"
+        disabled={saved || applyMutation.isPending}
+        onClick={() => applyMutation.mutate()}
+        data-testid={`button-save-extracted-${docType}`}
+      >
+        {applyMutation.isPending ? (
+          <Loader2 className="h-4 w-4 animate-spin" />
+        ) : saved ? (
+          "Saved ✓"
+        ) : (
+          "Save to my profile"
+        )}
+      </Button>
+    </div>
+  );
+}
+
+function MessageBubble({ msg, convId }: { msg: AiMessage; convId: string }) {
   const isBot = msg.role === "assistant";
   return (
     <div className={cn("flex gap-2 mb-3", isBot ? "flex-row" : "flex-row-reverse")}>
@@ -124,6 +219,16 @@ function MessageBubble({ msg }: { msg: AiMessage }) {
           className="leading-relaxed"
           dangerouslySetInnerHTML={{ __html: parseMarkdown(msg.content) }}
         />
+        {msg.attachments?.map((att, i) =>
+          att.extracted && Object.keys(att.extracted).length > 0 ? (
+            <ExtractionVerifyCard
+              key={`extract-${i}`}
+              convId={convId}
+              docType={att.docType}
+              extracted={att.extracted}
+            />
+          ) : null,
+        )}
         <div className={cn("text-xs mt-1 opacity-50", isBot ? "text-left" : "text-right")}>
           {new Date(msg.createdAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}
         </div>
@@ -679,7 +784,7 @@ export default function AiAssistantPage() {
           ) : (
             <>
               {messages.map((msg) => (
-                <MessageBubble key={msg.id} msg={msg} />
+                <MessageBubble key={msg.id} msg={msg} convId={convId ?? ""} />
               ))}
               {sendMutation.isPending && (
                 <div className="flex gap-2 mb-3">

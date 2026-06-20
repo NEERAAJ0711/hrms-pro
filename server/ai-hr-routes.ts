@@ -23,7 +23,7 @@ import { randomUUID } from "crypto";
 import multer from "multer";
 import * as path from "path";
 import * as fs from "fs";
-import { generateAiReply, computeKycOverallStatus, createFollowUpTask, startAiFollowUpScheduler, generateComplianceReply, analyzeJobError, type EmployeeContext } from "./ai-service";
+import { generateAiReply, computeKycOverallStatus, createFollowUpTask, startAiFollowUpScheduler, generateComplianceReply, analyzeJobError, extractKycDocument, isKycExtractable, type EmployeeContext } from "./ai-service";
 import { createNotification } from "./notifications";
 import { sendKycReminderEmail, sendAiFollowUpEmail } from "./services/email-service";
 
@@ -618,11 +618,28 @@ export async function registerAiHrRoutes(
         if (conv.userId !== user.id) return res.status(403).json({ message: "Access denied" });
 
         const now = new Date().toISOString();
+
+        // Immediately read the document with a vision model (live server has the
+        // AI key). Extracted fields are attached so the employee can verify them.
+        let extracted: Record<string, string> | undefined;
+        if (isKycExtractable(docType)) {
+          try {
+            const absPath = path.join(process.cwd(), "uploads", "kyc-docs", file.filename);
+            const result = await extractKycDocument(absPath, file.mimetype, docType);
+            if (result.available && result.fields && Object.keys(result.fields).length > 0) {
+              extracted = result.fields;
+            }
+          } catch (e: any) {
+            console.warn("[AI HR] KYC extraction error:", e?.message);
+          }
+        }
+
         const attachment = {
           fileName: file.originalname,
           filePath: `/uploads/kyc-docs/${file.filename}`,
           docType,
           uploadedAt: now,
+          ...(extracted ? { extracted } : {}),
         };
 
         const docTypeLabels: Record<string, string> = {
@@ -695,7 +712,14 @@ export async function registerAiHrRoutes(
         if (!refreshedKyc.photographSubmitted) pendingDocs.push("Photograph");
 
         let ackContent = "";
-        if (conv.language === "hindi") {
+        if (extracted) {
+          // We read details off the document — ask the employee to verify them.
+          if (conv.language === "hindi") {
+            ackContent = `✅ **${label}** मिल गया और मैंने उसकी जानकारी पढ़ ली है! 📄 कृपया नीचे दी गई जानकारी जाँचें — सही होने पर **"प्रोफ़ाइल में सेव करें"** दबाएँ।`;
+          } else {
+            ackContent = `✅ **${label}** received — and I've read the details from it! 📄 Please check the information below, correct anything that's wrong, and tap **"Save to my profile"** to confirm.`;
+          }
+        } else if (conv.language === "hindi") {
           ackContent =
             pendingDocs.length === 0
               ? `✅ ${label} मिल गया! शानदार — आपका KYC अब पूरा हो गया है! 🎉 HR टीम जल्द ही verify करेगी।`
@@ -725,6 +749,113 @@ export async function registerAiHrRoutes(
         return res.json({ uploadMessage: uploadMsg, botMessage: botMsg, kyc: refreshedKyc });
       } catch (err: any) {
         console.error("[AI HR] upload error:", err);
+        return res.status(500).json({ message: "Server error" });
+      }
+    },
+  );
+
+  // ── POST /api/ai-hr/conversations/:id/apply-extraction ──────────────────────
+  // The employee verified the fields the AI read from a KYC document; save the
+  // confirmed values into their own employee master record.
+  app.post(
+    "/api/ai-hr/conversations/:id/apply-extraction",
+    requireAuth,
+    async (req: Request, res: Response) => {
+      try {
+        const user = req.user as any;
+        const { docType, fields } = req.body as {
+          docType?: string;
+          fields?: Record<string, string>;
+        };
+        if (!docType) return res.status(400).json({ message: "docType required" });
+        if (!fields || typeof fields !== "object")
+          return res.status(400).json({ message: "fields required" });
+
+        const conv = (
+          await db.select().from(aiConversations).where(eq(aiConversations.id, req.params.id)).limit(1)
+        )[0];
+        if (!conv) return res.status(404).json({ message: "Conversation not found" });
+        if (conv.userId !== user.id) return res.status(403).json({ message: "Access denied" });
+
+        const clean = (v: unknown) => (typeof v === "string" ? v.trim() : "");
+        const normalizeDob = (s: string): string => {
+          const m = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})$/);
+          if (m) return `${m[3]}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}`;
+          return s;
+        };
+        const normalizeGender = (s: string): string => {
+          const t = s.trim().toLowerCase();
+          if (t.startsWith("m")) return "Male";
+          if (t.startsWith("f")) return "Female";
+          if (t) return "Other";
+          return "";
+        };
+
+        // Map the verified document fields onto employee master columns.
+        const updates: Record<string, any> = {};
+        const setIf = (col: string, val: string) => {
+          if (val) updates[col] = val;
+        };
+
+        if (docType === "aadhaar") {
+          setIf("aadhaar", clean(fields.aadhaarNumber).replace(/\s+/g, ""));
+          if (clean(fields.dateOfBirth)) updates.dateOfBirth = normalizeDob(clean(fields.dateOfBirth));
+          if (clean(fields.gender)) updates.gender = normalizeGender(clean(fields.gender));
+          setIf("presentAddress", clean(fields.address));
+        } else if (docType === "pan") {
+          setIf("pan", clean(fields.panNumber).toUpperCase());
+          setIf("fatherHusbandName", clean(fields.fatherName));
+          if (clean(fields.dateOfBirth)) updates.dateOfBirth = normalizeDob(clean(fields.dateOfBirth));
+        } else if (docType === "bank_details" || docType === "cancelled_cheque") {
+          setIf("bankAccount", clean(fields.accountNumber).replace(/\s+/g, ""));
+          setIf("ifsc", clean(fields.ifsc).replace(/\s+/g, "").toUpperCase());
+        } else if (docType === "address_proof") {
+          setIf("presentAddress", clean(fields.address));
+        } else {
+          return res.status(400).json({ message: "Unsupported docType" });
+        }
+
+        const updatedKeys = Object.keys(updates);
+        if (updatedKeys.length === 0) {
+          return res.status(400).json({ message: "No valid fields to save" });
+        }
+
+        await db.update(employees).set(updates).where(eq(employees.id, conv.employeeId));
+
+        const now = new Date().toISOString();
+        const fieldNames: Record<string, string> = {
+          aadhaar: "Aadhaar number",
+          dateOfBirth: "Date of birth",
+          gender: "Gender",
+          presentAddress: "Address",
+          pan: "PAN",
+          fatherHusbandName: "Father's / Husband's name",
+          bankAccount: "Bank account",
+          ifsc: "IFSC",
+        };
+        const savedLabels = updatedKeys.map((k) => fieldNames[k] ?? k).join(", ");
+        const botContent =
+          conv.language === "hindi"
+            ? `✅ हो गया! मैंने आपकी प्रोफ़ाइल में यह जानकारी सेव कर दी है: **${savedLabels}**। HR टीम इसे verify करेगी।`
+            : `✅ Done! I've saved this to your profile: **${savedLabels}**. The HR team will verify it.`;
+
+        const botMsg = {
+          id: randomUUID(),
+          conversationId: conv.id,
+          role: "assistant",
+          content: botContent,
+          attachments: null,
+          createdAt: now,
+        };
+        await db.insert(aiMessages).values(botMsg);
+        await db
+          .update(aiConversations)
+          .set({ updatedAt: now })
+          .where(eq(aiConversations.id, conv.id));
+
+        return res.json({ saved: updatedKeys, botMessage: botMsg });
+      } catch (err: any) {
+        console.error("[AI HR] apply-extraction error:", err);
         return res.status(500).json({ message: "Server error" });
       }
     },

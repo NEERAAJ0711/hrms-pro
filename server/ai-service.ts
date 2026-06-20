@@ -11,6 +11,7 @@ import {
 } from "../shared/schema";
 import { eq, and, lte, or } from "drizzle-orm";
 import { randomUUID } from "crypto";
+import * as fs from "fs";
 import { createNotification } from "./notifications";
 import { sendAiFollowUpEmail } from "./services/email-service";
 
@@ -34,6 +35,7 @@ export interface Attachment {
   filePath: string;
   docType: string;
   uploadedAt: string;
+  extracted?: Record<string, string>;
 }
 
 // ── OpenAI ─────────────────────────────────────────────────────────────────────
@@ -123,6 +125,92 @@ export async function loadAllApiKeysFromDB(): Promise<void> {
 /** @deprecated use loadAllApiKeysFromDB */
 export async function loadOpenAIKeyFromDB(): Promise<void> {
   return loadAllApiKeysFromDB();
+}
+
+// ─── KYC Document Vision Extraction ───────────────────────────────────────────
+// Reads an uploaded KYC image (JPEG/PNG/WebP) with a vision model and returns the
+// structured fields found on the document so the employee can verify them before
+// they are saved to the master record. Requires an OpenAI key (live server).
+
+const KYC_EXTRACTION_SPEC: Record<string, { label: string; fields: string[] }> = {
+  aadhaar: { label: "Aadhaar Card", fields: ["name", "dateOfBirth", "gender", "aadhaarNumber", "address"] },
+  pan: { label: "PAN Card", fields: ["panNumber", "name", "fatherName", "dateOfBirth"] },
+  bank_details: { label: "Bank Details", fields: ["accountHolderName", "accountNumber", "ifsc", "bankName", "branch"] },
+  cancelled_cheque: { label: "Cancelled Cheque", fields: ["accountHolderName", "accountNumber", "ifsc", "bankName", "branch"] },
+  address_proof: { label: "Address Proof", fields: ["name", "address"] },
+};
+
+export function isKycExtractable(docType: string): boolean {
+  return docType in KYC_EXTRACTION_SPEC;
+}
+
+export interface KycExtractionResult {
+  available: boolean;
+  reason?: string;
+  fields?: Record<string, string>;
+}
+
+export async function extractKycDocument(
+  absFilePath: string,
+  mimeType: string,
+  docType: string,
+): Promise<KycExtractionResult> {
+  const spec = KYC_EXTRACTION_SPEC[docType];
+  if (!spec) return { available: false, reason: "unsupported_doc_type" };
+  if (!/^image\//i.test(mimeType)) return { available: false, reason: "not_an_image" };
+
+  const openai = getOpenAI();
+  if (!openai) return { available: false, reason: "no_ai_key" };
+
+  try {
+    const buf = fs.readFileSync(absFilePath);
+    const dataUri = `data:${mimeType};base64,${buf.toString("base64")}`;
+    const fieldList = spec.fields.join(", ");
+
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      temperature: 0,
+      response_format: { type: "json_object" },
+      messages: [
+        {
+          role: "system",
+          content:
+            `You are an OCR assistant for Indian KYC documents. Read the ${spec.label} in the image and extract the requested fields exactly as printed. ` +
+            `Return ONLY a JSON object with these keys: ${fieldList}. ` +
+            `Use an empty string for any field you cannot read clearly. Format dates as DD/MM/YYYY. Do not guess or invent values.`,
+        },
+        {
+          role: "user",
+          content: [
+            { type: "text", text: `Extract these fields from this ${spec.label}: ${fieldList}` },
+            { type: "image_url", image_url: { url: dataUri } },
+          ] as any,
+        },
+      ],
+    });
+
+    const txt = response.choices?.[0]?.message?.content ?? "{}";
+    let parsed: Record<string, any> = {};
+    try {
+      parsed = JSON.parse(txt);
+    } catch {
+      parsed = {};
+    }
+
+    const fields: Record<string, string> = {};
+    for (const f of spec.fields) {
+      const v = parsed[f];
+      if (v != null && String(v).trim()) fields[f] = String(v).trim();
+    }
+
+    if (Object.keys(fields).length === 0) {
+      return { available: true, reason: "no_fields_found", fields: {} };
+    }
+    return { available: true, fields };
+  } catch (err: any) {
+    console.warn("[AI] KYC extraction failed:", err?.message);
+    return { available: false, reason: "extraction_error" };
+  }
 }
 
 // ─── Employee Live Data Context ───────────────────────────────────────────────
