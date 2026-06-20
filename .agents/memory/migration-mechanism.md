@@ -34,3 +34,13 @@ To test a single new migration on dev, apply just that file's SQL directly.
 compliance_client_employees, placeholder_backfill_heals, employee_documents)
 are not in `shared/schema.ts`, so their constraints live only in the numbered
 SQL migration, not as `.references()`.
+
+**connect-pg-simple `session` table must be in schema.ts:** the web session
+store table is created at runtime by connect-pg-simple, not the app. If it is
+NOT declared in `shared/schema.ts`, `db:push` sees an unknown table and proposes
+dropping it → an interactive "data-loss" prompt. In post-merge (stdin closed)
+that prompt either aborts the whole push or hangs until the timeout (this caused
+post-merge timeouts). Fix: declare `sessions = pgTable("session", {...})`
+mirroring connect-pg-simple exactly (sid varchar PK, sess json, expire
+timestamp(6), index "IDX_session_expire" on expire) so push is a clean no-op.
+Post-merge timeout was also raised to 120000ms for headroom.
