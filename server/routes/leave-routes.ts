@@ -170,6 +170,13 @@ export async function registerLeaveRoutes(app: Express): Promise<void> {
               : `Your leave request has been rejected.${req.body.rejectionReason ? " Reason: " + req.body.rejectionReason : ""}`;
             await createNotification({ userId: empUserId, companyId: existing.companyId, type: `leave_${req.body.status}`, title: `Leave Request ${statusLabel}`, message: msg, link: "/leave" });
           }
+        } catch (err) {
+          console.error("[Notification] leave approval notify failed:", err);
+        }
+        // Email delivery is independent of the in-app notification above so one
+        // channel failing does not suppress the other
+        try {
+          const leaveEmp = existing.employeeId ? await employeeService.getEmployee(existing.employeeId) : null;
           if (leaveEmp?.officialEmail) {
             await sendLeaveDecisionEmail({
               to: leaveEmp.officialEmail,
@@ -182,7 +189,7 @@ export async function registerLeaveRoutes(app: Express): Promise<void> {
             });
           }
         } catch (err) {
-          console.error("[Notification] leave approval notify failed:", err);
+          console.error("[Email] leave decision notify failed:", err);
         }
       }
       res.json(updated);

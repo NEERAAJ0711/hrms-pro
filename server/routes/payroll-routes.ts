@@ -674,6 +674,13 @@ export async function registerPayrollRoutes(app: Express): Promise<void> {
             // self-service), not the admin-only /payroll module.
             await createNotification({ userId: empUserId, companyId: existing.companyId, type: "payroll_" + req.body.status, title: label, message: msg, link: "/loan-advances?tab=payslips" });
           }
+        } catch (err) {
+          console.error("[Notification] payroll notify failed:", err);
+        }
+        // Email delivery is independent of the in-app notification above so one
+        // channel failing does not suppress the other
+        try {
+          const emp = await employeeService.getEmployee(existing.employeeId);
           if (emp?.officialEmail) {
             await sendPayslipEmail({
               to: emp.officialEmail,
@@ -686,7 +693,7 @@ export async function registerPayrollRoutes(app: Express): Promise<void> {
             });
           }
         } catch (err) {
-          console.error("[Notification] payroll notify failed:", err);
+          console.error("[Email] payslip notify failed:", err);
         }
       }
       res.json(updated);

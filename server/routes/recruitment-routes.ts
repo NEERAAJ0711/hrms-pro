@@ -239,14 +239,16 @@ export async function registerRecruitmentRoutes(app: Express): Promise<void> {
       };
       const application = await recruitmentService.updateJobApplication(req.params.id, updates);
 
-      // Email the candidate when an offer is extended
-      if (updates.status === "offered" && existing.applicantEmail) {
+      // Email the candidate only on a true transition to "offered" (avoid
+      // duplicate sends when an already-offered application is edited again)
+      if (updates.status === "offered" && existing.status !== "offered" && existing.applicantEmail) {
         try {
           const posting = await recruitmentService.getJobPosting(existing.jobPostingId);
           await sendOfferLetterEmail({
             to: existing.applicantEmail,
             candidateName: existing.applicantName ?? "Candidate",
             jobTitle: posting?.title ?? null,
+            offerDetails: updates.offerDetails ?? null,
             companyId: existing.companyId,
           });
         } catch (err) {
