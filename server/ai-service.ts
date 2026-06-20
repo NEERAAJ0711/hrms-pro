@@ -213,6 +213,84 @@ export async function extractKycDocument(
   }
 }
 
+// ─── Typed profile-info extraction (ESIC / EPFO / HRMS master fields) ──────────
+// Fields here map 1:1 to the whitelist in the apply-extraction endpoint (docType "profile").
+const PROFILE_EXTRACTION_FIELDS = [
+  "gender",
+  "dateOfBirth",
+  "mobileNumber",
+  "officialEmail",
+  "fatherHusbandName",
+  "uan",
+  "esiNumber",
+  "pan",
+  "aadhaar",
+  "bankAccount",
+  "ifsc",
+  "presentAddress",
+  "permanentAddress",
+] as const;
+
+// Cheap gate so we only spend an AI call when the message plausibly contains profile data.
+const PROFILE_HINT_RE =
+  /\d|@|\buan\b|\besic?\b|\bifsc\b|\baccount\b|\bpan\b|\baadh?aar\b|\bmobile\b|\bphone\b|\bemail\b|\baddress\b|\bdob\b|\bborn\b|\bfather\b|\bhusband\b|\bgender\b|\bmale\b|\bfemale\b|\bpin ?code\b/i;
+
+export function messageMayContainProfileInfo(text: string): boolean {
+  return !!text && PROFILE_HINT_RE.test(text);
+}
+
+export async function extractProfileFromText(
+  text: string,
+): Promise<KycExtractionResult> {
+  if (!messageMayContainProfileInfo(text)) return { available: false, reason: "no_hint" };
+
+  const openai = getOpenAI();
+  if (!openai) return { available: false, reason: "no_ai_key" };
+
+  try {
+    const fieldList = PROFILE_EXTRACTION_FIELDS.join(", ");
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      temperature: 0,
+      response_format: { type: "json_object" },
+      messages: [
+        {
+          role: "system",
+          content:
+            `You extract Indian HR/statutory profile details that an employee has explicitly stated in their message, for their ESIC, EPFO and HRMS records. ` +
+            `Return ONLY a JSON object with these keys: ${fieldList}. ` +
+            `Rules: include a value ONLY if the employee clearly stated it in this message; otherwise use an empty string. Never guess or infer. ` +
+            `gender: "Male"/"Female"/"Other". dateOfBirth: format as DD/MM/YYYY. uan: 12 digits. aadhaar: 12 digits. pan: 10 chars uppercase. ` +
+            `mobileNumber: 10 digits. ifsc: 11 chars uppercase. Strip spaces from numbers, UAN, Aadhaar, account number, IFSC and PAN.`,
+        },
+        { role: "user", content: text },
+      ],
+    });
+
+    const txt = response.choices?.[0]?.message?.content ?? "{}";
+    let parsed: Record<string, any> = {};
+    try {
+      parsed = JSON.parse(txt);
+    } catch {
+      parsed = {};
+    }
+
+    const fields: Record<string, string> = {};
+    for (const f of PROFILE_EXTRACTION_FIELDS) {
+      const v = parsed[f];
+      if (v != null && String(v).trim()) fields[f] = String(v).trim();
+    }
+
+    if (Object.keys(fields).length === 0) {
+      return { available: true, reason: "no_fields_found", fields: {} };
+    }
+    return { available: true, fields };
+  } catch (err: any) {
+    console.warn("[AI] Profile extraction failed:", err?.message);
+    return { available: false, reason: "extraction_error" };
+  }
+}
+
 // ─── Employee Live Data Context ───────────────────────────────────────────────
 
 export interface EmployeeContext {
@@ -228,6 +306,22 @@ export interface EmployeeContext {
     designation: string | null;
     department: string | null;
     dateOfJoining: string | null;
+  };
+  // Statutory / HRMS master profile (ESIC, EPFO & HRMS database fields)
+  profile?: {
+    gender: string | null;
+    dateOfBirth: string | null;
+    mobileNumber: string | null;
+    officialEmail: string | null;
+    fatherHusbandName: string | null;
+    uan: string | null;
+    esiNumber: string | null;
+    pan: string | null;
+    aadhaar: string | null;
+    bankAccount: string | null;
+    ifsc: string | null;
+    presentAddress: string | null;
+    permanentAddress: string | null;
   };
   // Last few payslips
   recentPayslips: Array<{
@@ -358,6 +452,39 @@ function buildLiveDataSection(ctx: EmployeeContext | null): string {
     if (ei.otApplicable) lines.push(`  OT Applicable: Yes (Rate: ${ei.otRate ?? "2x"})`);
   }
 
+  // ── Statutory / HRMS Profile Completeness (ESIC, EPFO & HRMS) ──────────────
+  if (ctx.profile) {
+    const p = ctx.profile;
+    const fieldDefs: Array<[keyof typeof p, string]> = [
+      ["gender", "Gender"],
+      ["dateOfBirth", "Date of Birth"],
+      ["mobileNumber", "Mobile Number"],
+      ["officialEmail", "Email"],
+      ["fatherHusbandName", "Father's / Husband's Name"],
+      ["uan", "UAN (EPFO)"],
+      ["esiNumber", "ESIC IP Number"],
+      ["pan", "PAN"],
+      ["aadhaar", "Aadhaar"],
+      ["bankAccount", "Bank Account Number"],
+      ["ifsc", "IFSC Code"],
+      ["presentAddress", "Present Address"],
+      ["permanentAddress", "Permanent Address"],
+    ];
+    const onFile = fieldDefs.filter(([k]) => p[k] && String(p[k]).trim());
+    const missing = fieldDefs.filter(([k]) => !p[k] || !String(p[k]).trim());
+    lines.push("\nSTATUTORY / HRMS PROFILE (for ESIC, EPFO & HRMS records):");
+    if (onFile.length > 0) {
+      lines.push("  ON FILE:");
+      onFile.forEach(([, label]) => lines.push(`    ✅ ${label}`));
+    }
+    if (missing.length > 0) {
+      lines.push(`  STILL NEEDED (${missing.length}) — proactively collect these:`);
+      missing.forEach(([, label]) => lines.push(`    ❌ ${label}`));
+    } else {
+      lines.push("  🎉 All statutory & HRMS profile fields are complete.");
+    }
+  }
+
   // ── Salary Structure ──────────────────────────────────────────────────────
   if (ctx.salaryStructure) {
     const ss = ctx.salaryStructure;
@@ -476,7 +603,7 @@ function buildSystemPrompt(employeeName: string, kyc: KycStatus, language: strin
       ? "Always respond in Hindi (Devanagari script). If the employee writes in English, still respond in Hindi unless they explicitly ask you to switch."
       : "Respond in English by default. If the employee writes in Hindi, you may respond in Hindi to be helpful.";
 
-  return `You are Priya, an AI HR Assistant for an Indian company. You are warm, professional, and empathetic. Your primary role is to help employees complete their KYC documentation and handle onboarding tasks.
+  return `You are Priya, an AI HR Assistant for an Indian company. You are warm, professional, and empathetic. Your role is to be a complete self-service HR helpdesk: collect every detail needed for the employee's ESIC, EPFO (PF) and HRMS records, and answer their HR questions in full.
 
 Employee Name: ${employeeName}
 ${langInstruction}
@@ -492,19 +619,24 @@ Current KYC Status for ${employeeName}:
 
 ${pendingDocs.length > 0 ? `PENDING DOCUMENTS (${pendingDocs.length}): ${pendingDocs.join(", ")}` : "🎉 All KYC documents have been submitted!"}
 
-YOUR RESPONSIBILITIES:
-1. Guide ${employeeName} to submit their pending KYC documents by uploading them in this chat
-2. Explain WHY each document is required (Aadhaar for ESIC/PF, PAN for TDS, Bank details for salary credit)
-3. If an employee provides bank details in text (account no, IFSC), acknowledge and note it
-4. When a document is uploaded, confirm receipt and update them on what's still pending
-5. Answer HR-related questions: leave policy, payroll dates, salary components, PF/ESIC benefits
-6. Be encouraging — remind them that KYC completion is needed for salary disbursement and statutory benefits
-7. For Aadhaar: ask for front and back side clear photo/scan
-8. For Bank Details: collect Account Number, IFSC Code, Bank Name, Branch Name
-9. For Address Proof: accept Passport, Voter ID, Driving License, or utility bill
-10. Keep responses concise (2-4 sentences) unless explaining something complex
+HOW YOU ANSWER (very important):
+- ALWAYS give the complete answer yourself using the LIVE EMPLOYEE DATA provided below. Provide the actual figures, dates, balances, and details — do not summarise vaguely.
+- NEVER tell the employee to "go to", "visit", "check", or "use" another page, module, tab, or the sidebar to find information that you already have in the LIVE EMPLOYEE DATA. Answer it here, in full.
+- Only point them elsewhere for an ACTION the chat genuinely cannot perform (e.g. physically submitting a formal leave application or raising a ticket) — and even then, first give them all the relevant information you have.
+- If a specific figure is truly not in your data, say so plainly and offer to help collect or update it — do not deflect to a module.
+- Be thorough. Give as much useful, accurate detail as the question needs; use clear formatting (bullets, bold labels). Do not artificially shorten answers.
 
-IMPORTANT: When an employee uploads a document (they'll mention uploading), confirm you've received it and tell them which document was updated. Always end with what the next pending document is (if any).${buildLiveDataSection(ctx ?? null)}`;
+YOUR RESPONSIBILITIES:
+1. Help ${employeeName} complete BOTH (a) their KYC documents AND (b) every statutory/HRMS profile field needed for ESIC, EPFO (PF) and the HRMS database.
+2. Proactively collect the fields listed under "STILL NEEDED" in the profile section below — ask for them a few at a time, conversationally. Examples: UAN (EPFO), ESIC IP number, mobile number, email, father's/husband's name, date of birth, gender, present & permanent address, bank account number and IFSC.
+3. Explain WHY each item is required (Aadhaar & UAN for EPFO/PF, ESIC IP no. for ESIC benefits, PAN for TDS, bank details for salary credit, address for statutory records).
+4. When an employee types a detail (e.g. "my UAN is 100123456789", "IFSC is HDFC0001234"), acknowledge it, repeat it back so they can confirm it is correct, and tell them it will be saved to their HRMS profile.
+5. Documents can be uploaded with the 📎 button — when one is uploaded, confirm receipt, tell them which fields were read, and update them on what is still pending.
+6. Answer all HR questions fully using live data: leave balance, payslips, salary structure, attendance, OT, loans/advances, PF/ESIC deductions and benefits.
+7. For Aadhaar: ask for clear photos/scans of both front and back. For Bank: collect Account Number, IFSC, Bank Name, Branch. For Address proof: accept Passport, Voter ID, Driving License, or a utility bill.
+8. Be encouraging — completing KYC and the statutory profile is needed for salary disbursement, EPFO/ESIC registration and statutory benefits.
+
+IMPORTANT: When an employee uploads a document, confirm receipt and tell them which document/fields were updated, then state what is still pending (documents AND profile fields).${buildLiveDataSection(ctx ?? null)}`;
 }
 
 // ─── Rule-based fallback responses ────────────────────────────────────────────

@@ -23,7 +23,7 @@ import { randomUUID } from "crypto";
 import multer from "multer";
 import * as path from "path";
 import * as fs from "fs";
-import { generateAiReply, computeKycOverallStatus, createFollowUpTask, startAiFollowUpScheduler, generateComplianceReply, analyzeJobError, extractKycDocument, isKycExtractable, type EmployeeContext } from "./ai-service";
+import { generateAiReply, computeKycOverallStatus, createFollowUpTask, startAiFollowUpScheduler, generateComplianceReply, analyzeJobError, extractKycDocument, isKycExtractable, extractProfileFromText, type EmployeeContext } from "./ai-service";
 import { createNotification } from "./notifications";
 import { sendKycReminderEmail, sendAiFollowUpEmail } from "./services/email-service";
 
@@ -174,6 +174,23 @@ async function fetchEmployeeContext(employeeId: string, companyId: string): Prom
     dateOfJoining: emp.dateOfJoining ?? null,
   } : undefined;
 
+  // ── Statutory / HRMS master profile (for ESIC, EPFO & HRMS completion) ──────
+  const profile = emp ? {
+    gender: emp.gender ?? null,
+    dateOfBirth: emp.dateOfBirth ?? null,
+    mobileNumber: emp.mobileNumber ?? null,
+    officialEmail: emp.officialEmail ?? null,
+    fatherHusbandName: emp.fatherHusbandName ?? null,
+    uan: emp.uan ?? null,
+    esiNumber: emp.esiNumber ?? null,
+    pan: emp.pan ?? null,
+    aadhaar: emp.aadhaar ?? null,
+    bankAccount: emp.bankAccount ?? null,
+    ifsc: emp.ifsc ?? null,
+    presentAddress: emp.presentAddress ?? null,
+    permanentAddress: emp.permanentAddress ?? null,
+  } : undefined;
+
   // ── Recent payslips ───────────────────────────────────────────────────────
   const recentPayslips = rawPayslips.map((p) => ({
     month: p.month,
@@ -294,6 +311,7 @@ async function fetchEmployeeContext(employeeId: string, companyId: string): Prom
 
   return {
     employeeInfo,
+    profile,
     recentPayslips,
     leaveSummary,
     currentMonthAttendance: {
@@ -575,12 +593,32 @@ export async function registerAiHrRoutes(
         empCtx,
       );
 
+      // Detect statutory/HRMS profile details the employee typed (live server with
+      // AI key). If found, attach them so the employee can verify & save to master.
+      let profileAttachments: any = null;
+      try {
+        const pres = await extractProfileFromText(content.trim());
+        if (pres.available && pres.fields && Object.keys(pres.fields).length > 0) {
+          profileAttachments = [
+            {
+              fileName: "Details you typed",
+              filePath: "",
+              docType: "profile",
+              uploadedAt: new Date().toISOString(),
+              extracted: pres.fields,
+            },
+          ];
+        }
+      } catch (pErr: any) {
+        console.warn("[AI HR] profile extraction failed (non-fatal):", pErr?.message);
+      }
+
       const botMsg = {
         id: randomUUID(),
         conversationId: conv.id,
         role: "assistant",
         content: replyContent,
-        attachments: null,
+        attachments: profileAttachments,
         createdAt: new Date().toISOString(),
       };
       await db.insert(aiMessages).values(botMsg);
@@ -811,6 +849,22 @@ export async function registerAiHrRoutes(
           setIf("ifsc", clean(fields.ifsc).replace(/\s+/g, "").toUpperCase());
         } else if (docType === "address_proof") {
           setIf("presentAddress", clean(fields.address));
+        } else if (docType === "profile") {
+          // Statutory / HRMS profile details the employee typed (ESIC, EPFO, HRMS).
+          // Whitelist: only these employee-master columns may be written here.
+          setIf("gender", normalizeGender(clean(fields.gender)));
+          if (clean(fields.dateOfBirth)) updates.dateOfBirth = normalizeDob(clean(fields.dateOfBirth));
+          setIf("mobileNumber", clean(fields.mobileNumber).replace(/\s+/g, ""));
+          setIf("officialEmail", clean(fields.officialEmail));
+          setIf("fatherHusbandName", clean(fields.fatherHusbandName));
+          setIf("uan", clean(fields.uan).replace(/\s+/g, ""));
+          setIf("esiNumber", clean(fields.esiNumber).replace(/\s+/g, ""));
+          setIf("pan", clean(fields.pan).replace(/\s+/g, "").toUpperCase());
+          setIf("aadhaar", clean(fields.aadhaar).replace(/\s+/g, ""));
+          setIf("bankAccount", clean(fields.bankAccount).replace(/\s+/g, ""));
+          setIf("ifsc", clean(fields.ifsc).replace(/\s+/g, "").toUpperCase());
+          setIf("presentAddress", clean(fields.presentAddress));
+          setIf("permanentAddress", clean(fields.permanentAddress));
         } else {
           return res.status(400).json({ message: "Unsupported docType" });
         }
@@ -827,11 +881,16 @@ export async function registerAiHrRoutes(
           aadhaar: "Aadhaar number",
           dateOfBirth: "Date of birth",
           gender: "Gender",
-          presentAddress: "Address",
+          presentAddress: "Present address",
+          permanentAddress: "Permanent address",
           pan: "PAN",
           fatherHusbandName: "Father's / Husband's name",
           bankAccount: "Bank account",
           ifsc: "IFSC",
+          mobileNumber: "Mobile number",
+          officialEmail: "Email",
+          uan: "UAN (EPFO)",
+          esiNumber: "ESIC IP number",
         };
         const savedLabels = updatedKeys.map((k) => fieldNames[k] ?? k).join(", ");
         const botContent =

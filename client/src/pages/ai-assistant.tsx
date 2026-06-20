@@ -75,6 +75,16 @@ const EXTRACTION_FIELD_LABELS: Record<string, string> = {
   ifsc: "IFSC Code",
   bankName: "Bank Name",
   branch: "Branch",
+  mobileNumber: "Mobile Number",
+  officialEmail: "Email",
+  fatherHusbandName: "Father's / Husband's Name",
+  uan: "UAN (EPFO)",
+  esiNumber: "ESIC IP Number",
+  pan: "PAN Number",
+  aadhaar: "Aadhaar Number",
+  bankAccount: "Bank Account Number",
+  presentAddress: "Present Address",
+  permanentAddress: "Permanent Address",
 };
 
 interface AiMessage {
