@@ -27,9 +27,13 @@ verification of each security checklist item.
   fallback. Access token 7d, refresh token 30d. `requireJwtAuth` verifies the token
   and re-loads the user from storage on every request.
 - **Action taken:** the JWT secret was previously committed in the git-tracked
-  `.replit` file (`[userenv.development]`). It has been **rotated** to a fresh value
-  stored as a managed Secret and **removed from `.replit`**. Rotation invalidates
-  existing mobile tokens — mobile users must log in again (expected).
+  `.replit` file (`[userenv.development]`). It has been **removed from `.replit`**.
+  In production the real `JWT_SECRET` is supplied via the environment (set on the
+  VPS); the server still refuses to start without it when `NODE_ENV=production`.
+  In development, if `JWT_SECRET` is unset the server boots with an **ephemeral**
+  per-process secret (logged as a warning) so dev is not blocked — these dev tokens
+  are intentionally invalidated on every restart. Removing the committed value
+  invalidates the old mobile tokens — mobile users must log in again (expected).
 
 ### Session (web auth) — OK
 - `express-session` + `connect-pg-simple` (Postgres store). `SESSION_SECRET` is
