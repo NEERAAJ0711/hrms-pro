@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useSort, sortData } from "@/lib/use-sort";
 import { SortableHead } from "@/components/sortable-head";
@@ -446,6 +446,16 @@ export default function Employees() {
     return "";
   });
 
+  const EMP_PAGE_SIZE = 50;
+  const [empPage, setEmpPage] = useState(1);
+  useEffect(() => {
+    setEmpPage(1);
+  }, [searchQuery, statusFilter, selectedCompany, contractorFilter]);
+  const empTotalPages = Math.max(1, Math.ceil(sortedEmployees.length / EMP_PAGE_SIZE));
+  const empPageClamped = Math.min(empPage, empTotalPages);
+  const empPageStart = (empPageClamped - 1) * EMP_PAGE_SIZE;
+  const pagedEmployees = sortedEmployees.slice(empPageStart, empPageStart + EMP_PAGE_SIZE);
+
   const getCompanyName = (companyId: string) => {
     const company = companies.find((c) => c.id === companyId);
     return company?.companyName || "Unknown";
@@ -830,9 +840,9 @@ export default function Employees() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {sortedEmployees.map((employee, idx) => (
+                  {pagedEmployees.map((employee, idx) => (
                     <TableRow key={employee.id} data-testid={`employee-row-${employee.id}`} className={employee.status === "inactive" ? "opacity-75" : ""}>
-                      <TableCell className="text-center text-muted-foreground font-medium text-sm">{idx + 1}</TableCell>
+                      <TableCell className="text-center text-muted-foreground font-medium text-sm">{empPageStart + idx + 1}</TableCell>
                       <TableCell>
                         <span className="font-mono text-xs font-semibold text-primary">{employee.employeeCode}</span>
                       </TableCell>
@@ -955,6 +965,36 @@ export default function Employees() {
                   ))}
                 </TableBody>
               </Table>
+              {empTotalPages > 1 && (
+                <div className="flex items-center justify-between border-t px-4 py-3 text-sm">
+                  <span className="text-muted-foreground" data-testid="text-employee-page-range">
+                    Showing {empPageStart + 1}–{Math.min(empPageStart + EMP_PAGE_SIZE, sortedEmployees.length)} of {sortedEmployees.length}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setEmpPage((p) => Math.max(1, p - 1))}
+                      disabled={empPageClamped <= 1}
+                      data-testid="button-employees-prev-page"
+                    >
+                      Previous
+                    </Button>
+                    <span className="text-muted-foreground" data-testid="text-employee-page-number">
+                      Page {empPageClamped} of {empTotalPages}
+                    </span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setEmpPage((p) => Math.min(empTotalPages, p + 1))}
+                      disabled={empPageClamped >= empTotalPages}
+                      data-testid="button-employees-next-page"
+                    >
+                      Next
+                    </Button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </CardContent>

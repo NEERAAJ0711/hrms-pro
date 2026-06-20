@@ -55,6 +55,9 @@ export const queryClient = new QueryClient({
       refetchInterval: false,
       refetchOnWindowFocus: false,
       staleTime: Infinity,
+      // Drop cached data for queries that have had no observers for 30 min so
+      // memory doesn't grow unbounded as the user navigates many pages.
+      gcTime: 1000 * 60 * 30,
       retry: false,
     },
     mutations: {

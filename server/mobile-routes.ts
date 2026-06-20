@@ -11,7 +11,8 @@ import multer from "multer";
 import path from "path";
 import { randomUUID } from "crypto";
 import fs from "fs";
-import { matchFaces, loadFaceModels } from "./face-match";
+// face-match (TensorFlow/face-api) is imported lazily inside the handler that
+// needs it so the heavy TF runtime + model weights only load on first face match.
 import { makeFileFilter, IMAGE_EXTENSIONS } from "./upload-security";
 
 const faceUpload = multer({
@@ -1403,6 +1404,7 @@ export function registerMobileRoutes(app: Express) {
           ? path.join(process.cwd(), "server", employee.registeredFaceImage)
           : path.join(process.cwd(), "server/uploads/faces", path.basename(employee.registeredFaceImage));
 
+        const { matchFaces } = await import("./face-match");
         const matchResult = await matchFaces(registeredPath, capturedPath);
         if (!matchResult.match) {
           return res.status(400).json({ error: `Face verification failed: ${matchResult.reason}` });

@@ -593,10 +593,8 @@ app.use((req, res, next) => {
   const { seedDefaultData } = await import("./seed");
   await seedDefaultData();
 
-  // Preload face recognition models in background so first punch is fast
-  import("./face-match").then(({ loadFaceModels }) => {
-    loadFaceModels().catch((err) => console.warn("[face-match] Background model load failed:", err));
-  });
+  // Face recognition models (TensorFlow) are loaded lazily on first face match
+  // rather than at boot, so startup stays fast and TF only loads when needed.
 
   const httpServer = await registerRoutes(app);
   setupBiometricSync();

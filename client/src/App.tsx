@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, lazy, Suspense } from "react";
 import { Switch, Route, useLocation } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
@@ -9,53 +9,64 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { AuthProvider, useAuth } from "@/lib/auth";
-import Dashboard from "@/pages/dashboard";
-import Companies from "@/pages/companies";
-import CompanyContractorsPage from "@/pages/company-contractors";
-import Employees from "@/pages/employees";
-import AddEmployee from "@/pages/add-employee";
-import Users from "@/pages/users";
-import LoginPage from "@/pages/login";
-import SignupPage from "@/pages/signup";
-import AttendancePage from "@/pages/attendance";
-import LeavePage from "@/pages/leave";
-import LoanAdvancesPage from "@/pages/loan-advances";
-import PayrollPage from "@/pages/payroll";
 import { ModuleGate } from "@/components/module-gate";
-import SettingsPage from "@/pages/settings";
-import ReportsPage from "@/pages/reports";
-import BiometricPage from "@/pages/biometric";
-import BiometricDeviceUsersPage from "@/pages/biometric-device-users";
-import JobPostingsPage from "@/pages/job-postings";
-import JobApplicationsPage from "@/pages/job-applications";
-import MyProfilePage from "@/pages/my-profile";
-import MyAttendancePage from "@/pages/my-attendance";
-import ProfileRequestsPage from "@/pages/profile-requests";
-import MyAccessRequestsPage from "@/pages/my-access-requests";
-import AccessRequestsPage from "@/pages/access-requests";
-import CompliancesPage from "@/pages/compliances";
-import BillingPage from "@/pages/billing";
-import KraKpiPage from "@/pages/kra-kpi";
-import EpfoPage from "@/pages/epfo";
-import EsicPage from "@/pages/esic";
-import LiveViewPage from "@/pages/live-view";
-import ComplianceCalendarPage from "@/pages/compliance-calendar";
-import AutomationJobsPage from "@/pages/automation-jobs";
-import ComplianceAutomationPage from "@/pages/compliance-automation";
-import NotFound from "@/pages/not-found";
-import MobilePreview from "@/pages/mobile-preview";
-import AiAssistantPage from "@/pages/ai-assistant";
-import AiHrDashboard from "@/pages/ai-hr-dashboard";
 import WebsiteLayout from "@/pages/website/website-layout";
-import HomePage from "@/pages/website/home-page";
-import ServicesPage from "@/pages/website/services-page";
-import CompliancePage from "@/pages/website/compliance-page";
-import DirectorsPage from "@/pages/website/directors-page";
-import ContactPage from "@/pages/website/contact-page";
+import NotFound from "@/pages/not-found";
+
+// Route pages are lazy-loaded so the initial bundle only contains the shell.
+// Each page becomes its own chunk fetched on demand when the route is visited.
+const Dashboard = lazy(() => import("@/pages/dashboard"));
+const Companies = lazy(() => import("@/pages/companies"));
+const CompanyContractorsPage = lazy(() => import("@/pages/company-contractors"));
+const Employees = lazy(() => import("@/pages/employees"));
+const AddEmployee = lazy(() => import("@/pages/add-employee"));
+const Users = lazy(() => import("@/pages/users"));
+const LoginPage = lazy(() => import("@/pages/login"));
+const SignupPage = lazy(() => import("@/pages/signup"));
+const AttendancePage = lazy(() => import("@/pages/attendance"));
+const LeavePage = lazy(() => import("@/pages/leave"));
+const LoanAdvancesPage = lazy(() => import("@/pages/loan-advances"));
+const PayrollPage = lazy(() => import("@/pages/payroll"));
+const SettingsPage = lazy(() => import("@/pages/settings"));
+const ReportsPage = lazy(() => import("@/pages/reports"));
+const BiometricPage = lazy(() => import("@/pages/biometric"));
+const BiometricDeviceUsersPage = lazy(() => import("@/pages/biometric-device-users"));
+const JobPostingsPage = lazy(() => import("@/pages/job-postings"));
+const JobApplicationsPage = lazy(() => import("@/pages/job-applications"));
+const MyProfilePage = lazy(() => import("@/pages/my-profile"));
+const MyAttendancePage = lazy(() => import("@/pages/my-attendance"));
+const ProfileRequestsPage = lazy(() => import("@/pages/profile-requests"));
+const MyAccessRequestsPage = lazy(() => import("@/pages/my-access-requests"));
+const AccessRequestsPage = lazy(() => import("@/pages/access-requests"));
+const CompliancesPage = lazy(() => import("@/pages/compliances"));
+const BillingPage = lazy(() => import("@/pages/billing"));
+const KraKpiPage = lazy(() => import("@/pages/kra-kpi"));
+const EpfoPage = lazy(() => import("@/pages/epfo"));
+const EsicPage = lazy(() => import("@/pages/esic"));
+const LiveViewPage = lazy(() => import("@/pages/live-view"));
+const ComplianceCalendarPage = lazy(() => import("@/pages/compliance-calendar"));
+const AutomationJobsPage = lazy(() => import("@/pages/automation-jobs"));
+const ComplianceAutomationPage = lazy(() => import("@/pages/compliance-automation"));
+const MobilePreview = lazy(() => import("@/pages/mobile-preview"));
+const AiAssistantPage = lazy(() => import("@/pages/ai-assistant"));
+const AiHrDashboard = lazy(() => import("@/pages/ai-hr-dashboard"));
+const HomePage = lazy(() => import("@/pages/website/home-page"));
+const ServicesPage = lazy(() => import("@/pages/website/services-page"));
+const CompliancePage = lazy(() => import("@/pages/website/compliance-page"));
+const DirectorsPage = lazy(() => import("@/pages/website/directors-page"));
+const ContactPage = lazy(() => import("@/pages/website/contact-page"));
 import { Loader2 } from "lucide-react";
 import { NotificationBell } from "@/components/notification-bell";
 import { TrialExpiredWall } from "@/components/trial-expired-wall";
 import { TrialBanner } from "@/components/trial-banner";
+
+function PageLoader() {
+  return (
+    <div className="h-full w-full flex items-center justify-center py-24">
+      <Loader2 className="h-8 w-8 animate-spin text-primary" />
+    </div>
+  );
+}
 
 function RedirectToDashboard() {
   const [, setLocation] = useLocation();
@@ -110,6 +121,7 @@ function EmployeeHomePage() {
 
 function ProtectedRouter() {
   return (
+    <Suspense fallback={<PageLoader />}>
     <Switch>
       <Route path="/dashboard" component={EmployeeHomePage} />
       <Route path="/companies" component={Companies} />
@@ -152,11 +164,13 @@ function ProtectedRouter() {
       <Route path="/signup" component={RedirectToDashboard} />
       <Route component={NotFound} />
     </Switch>
+    </Suspense>
   );
 }
 
 function PublicRouter() {
   return (
+    <Suspense fallback={<PageLoader />}>
     <Switch>
       <Route path="/login" component={LoginPage} />
       <Route path="/signup" component={SignupPage} />
@@ -179,6 +193,7 @@ function PublicRouter() {
         <WebsiteLayout><HomePage /></WebsiteLayout>
       </Route>
     </Switch>
+    </Suspense>
   );
 }
 
@@ -193,7 +208,11 @@ function AppContent() {
 
   // Mobile preview is always public — has its own JWT auth
   if (location === "/mobile" || location.startsWith("/mobile/")) {
-    return <MobilePreview />;
+    return (
+      <Suspense fallback={<PageLoader />}>
+        <MobilePreview />
+      </Suspense>
+    );
   }
 
   if (isLoading) {

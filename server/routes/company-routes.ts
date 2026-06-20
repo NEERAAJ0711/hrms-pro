@@ -126,17 +126,37 @@ export async function registerCompanyRoutes(app: Express): Promise<void> {
   );
 
   // ===== Dashboard Routes =====
+  // Dashboard stats are relatively expensive (several aggregate queries) and the
+  // page is opened often, so results are cached in-memory for a short TTL per
+  // scope (super-admin vs. a specific company). Stale-by-at-most-TTL is acceptable
+  // for a stats overview; mutations elsewhere will simply be reflected after TTL.
+  const DASHBOARD_CACHE_TTL_MS = 30_000;
+  const dashboardCache = new Map<string, { at: number; data: unknown }>();
+
   app.get("/api/dashboard/stats", requireAuth, async (req, res) => {
     try {
       const user = (req as any).user;
-      let stats;
-      if (user.role === "super_admin") {
-        stats = await dashboardService.getDashboardStats();
-      } else if (user.companyId) {
-        stats = await dashboardService.getDashboardStatsByCompany(user.companyId);
-      } else {
+      const scope =
+        user.role === "super_admin"
+          ? "super_admin"
+          : user.companyId
+            ? `company:${user.companyId}`
+            : null;
+      if (!scope) {
         return res.status(403).json({ error: "Access denied" });
       }
+
+      const cached = dashboardCache.get(scope);
+      if (cached && Date.now() - cached.at < DASHBOARD_CACHE_TTL_MS) {
+        return res.json(cached.data);
+      }
+
+      const stats =
+        scope === "super_admin"
+          ? await dashboardService.getDashboardStats()
+          : await dashboardService.getDashboardStatsByCompany(user.companyId);
+
+      dashboardCache.set(scope, { at: Date.now(), data: stats });
       res.json(stats);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch dashboard stats" });
