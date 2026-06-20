@@ -38,6 +38,15 @@ const employeeFormSchema = z.object({
   companyId: z.string().min(1, "Company is required"),
   fullName: z.string().min(1, "Full name is required"),
   fatherHusbandName: z.string().optional(),
+  motherName: z.string().optional(),
+  maritalStatus: z.string().optional(),
+  bloodGroup: z.string().optional(),
+  nomineeName: z.string().optional(),
+  nomineeRelation: z.string().optional(),
+  emergencyContactName: z.string().optional(),
+  emergencyContactNumber: z.string()
+    .optional()
+    .refine((v) => !v || /^\d{10}$/.test(v), { message: "Emergency contact number must be exactly 10 digits" }),
   gender: z.string().optional(),
   dateOfBirth: z.string().optional(),
   mobileNumber: z.string()
@@ -340,6 +349,13 @@ export default function AddEmployee() {
       companyId: isSuperAdmin ? prefillCompanyId : (user?.companyId || ""),
       fullName: [searchParams.get("firstName"), searchParams.get("lastName")].filter(Boolean).join(" ") || "",
       fatherHusbandName: "",
+      motherName: "",
+      maritalStatus: "",
+      bloodGroup: "",
+      nomineeName: "",
+      nomineeRelation: "",
+      emergencyContactName: "",
+      emergencyContactNumber: "",
       gender: searchParams.get("gender") || "",
       dateOfBirth: searchParams.get("dateOfBirth") || "",
       mobileNumber: searchParams.get("mobileNumber") || "",
@@ -411,6 +427,13 @@ export default function AddEmployee() {
       companyId: existingEmployee.companyId,
       fullName: [existingEmployee.firstName, existingEmployee.lastName].filter(Boolean).join(" "),
       fatherHusbandName: existingEmployee.fatherHusbandName || "",
+      motherName: (existingEmployee as any).motherName || "",
+      maritalStatus: (existingEmployee as any).maritalStatus || "",
+      bloodGroup: (existingEmployee as any).bloodGroup || "",
+      nomineeName: (existingEmployee as any).nomineeName || "",
+      nomineeRelation: (existingEmployee as any).nomineeRelation || "",
+      emergencyContactName: (existingEmployee as any).emergencyContactName || "",
+      emergencyContactNumber: (existingEmployee as any).emergencyContactNumber || "",
       gender: existingEmployee.gender || "",
       dateOfBirth: existingEmployee.dateOfBirth || "",
       mobileNumber: existingEmployee.mobileNumber || "",
@@ -829,6 +852,132 @@ export default function AddEmployee() {
                         </FormItem>
                       )}
                     />
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <FormField
+                      control={form.control}
+                      name="motherName"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Mother's Name</FormLabel>
+                          <FormControl>
+                            <Input placeholder="Mother's Name" {...field} data-testid="input-mother-name" />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="maritalStatus"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Marital Status</FormLabel>
+                          <Select onValueChange={field.onChange} value={field.value || ""}>
+                            <FormControl>
+                              <SelectTrigger data-testid="select-marital-status">
+                                <SelectValue placeholder="Select marital status" />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              <SelectItem value="single">Single</SelectItem>
+                              <SelectItem value="married">Married</SelectItem>
+                              <SelectItem value="divorced">Divorced</SelectItem>
+                              <SelectItem value="widowed">Widowed</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="bloodGroup"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Blood Group</FormLabel>
+                          <Select onValueChange={field.onChange} value={field.value || ""}>
+                            <FormControl>
+                              <SelectTrigger data-testid="select-blood-group">
+                                <SelectValue placeholder="Select blood group" />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              {["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"].map((bg) => (
+                                <SelectItem key={bg} value={bg}>{bg}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+
+                  <div className="border-t pt-6">
+                    <h3 className="text-sm font-semibold mb-4">Nominee & Emergency Details</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <FormField
+                        control={form.control}
+                        name="nomineeName"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Nominee Name</FormLabel>
+                            <FormControl>
+                              <Input placeholder="Nominee Name" {...field} data-testid="input-nominee-name" />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={form.control}
+                        name="nomineeRelation"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Nominee Relationship</FormLabel>
+                            <FormControl>
+                              <Input placeholder="e.g. Spouse, Father, Mother" {...field} data-testid="input-nominee-relation" />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={form.control}
+                        name="emergencyContactName"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Emergency Contact Name</FormLabel>
+                            <FormControl>
+                              <Input placeholder="Emergency Contact Name" {...field} data-testid="input-emergency-contact-name" />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={form.control}
+                        name="emergencyContactNumber"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Emergency Contact Number</FormLabel>
+                            <FormControl>
+                              <Input
+                                placeholder="9876543210"
+                                {...field}
+                                data-testid="input-emergency-contact-number"
+                                maxLength={10}
+                                inputMode="numeric"
+                                onChange={(e) => field.onChange(e.target.value.replace(/[^0-9]/g, "").slice(0, 10))}
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    </div>
                   </div>
                 </CardContent>
               </Card>
