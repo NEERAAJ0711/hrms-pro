@@ -20,8 +20,12 @@ to confirm/correct these selectors is to run against the real portal and read
 which fields the job log reports as `not-found`, then fix that selector. Without
 the logging there is no signal at all.
 
-**How to apply:** any new best-effort field on a government portal page goes
-through `fillStatutoryField`. Verification of whether a selector is correct can
+**How to apply:** ALL portal fields — core (name, DOB, gender, father's name,
+Aadhaar, mobile, DOJ, bank/IFSC, salary, employee code) AND newer statutory
+ones — go through `fillStatutoryField`, collected into one `fieldOutcomes`
+object and logged as a single summary line per registration run. Do not fill any
+portal field with a bare `page.fill(...).catch(() => {})`. Verification of
+whether a selector is correct can
 ONLY be done by a real-portal run (needs employer creds + CAPTCHA/OTP) — it is
 not testable from the dev environment. Selectors are intentionally broad
 (id + name + ASP.NET `#ddl*/#txt*` + `[id*=]` variants) to maximize match odds.

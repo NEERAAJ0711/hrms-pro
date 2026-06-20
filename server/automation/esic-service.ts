@@ -533,20 +533,28 @@ export async function ipNumberGenerate(
   });
   await ctx.takeScreenshot("ip-generate-start");
 
-  // Fill employee details
-  if (payload.employeeCode) await page.fill(SEL.employeeCode, payload.employeeCode).catch(() => {});
-  await page.fill(SEL.ipNameInput, payload.name).catch(() => {});
-  await page.fill(SEL.ipDobInput, payload.dob).catch(() => {});
-  await page.selectOption(SEL.ipGenderSel, { label: payload.gender }).catch(() => {});
-  if (payload.fatherName) await page.fill(SEL.ipFatherName, payload.fatherName).catch(() => {});
-  if (payload.mobile) await page.fill(SEL.ipMobileInput, payload.mobile).catch(() => {});
-  if (payload.aadhaar) await page.fill(SEL.ipAadhaarInput, payload.aadhaar).catch(() => {});
-  if (payload.bankAccount) await page.fill(SEL.ipBankAccount, payload.bankAccount).catch(() => {});
-  if (payload.ifsc) await page.fill(SEL.ipIfsc, payload.ifsc).catch(() => {});
-  await page.fill(SEL.ipJoinDate, payload.dateOfJoining).catch(() => {});
-  if (Number.isFinite(payload.grossSalary) && payload.grossSalary > 0) {
-    await page.fill(SEL.ipSalary, String(payload.grossSalary)).catch(() => {});
-  }
+  // Fill core employee details — routed through fillStatutoryField (same as the
+  // statutory fields below) so each field's outcome (filled / not-found /
+  // fill-failed) is logged. This gives a real-portal run verifiable evidence of
+  // which selectors matched for ALL fields, not only the newer statutory ones —
+  // previously a wrong core selector was swallowed silently with no signal.
+  const grossSalaryValue =
+    Number.isFinite(payload.grossSalary) && payload.grossSalary > 0
+      ? String(payload.grossSalary)
+      : undefined;
+  const coreFields: Array<[string, string, string | undefined]> = [
+    ["Employee Code", SEL.employeeCode, payload.employeeCode],
+    ["Name", SEL.ipNameInput, payload.name],
+    ["Date of Birth", SEL.ipDobInput, payload.dob],
+    ["Gender", SEL.ipGenderSel, payload.gender],
+    ["Father's Name", SEL.ipFatherName, payload.fatherName],
+    ["Mobile", SEL.ipMobileInput, payload.mobile],
+    ["Aadhaar", SEL.ipAadhaarInput, payload.aadhaar],
+    ["Bank Account", SEL.ipBankAccount, payload.bankAccount],
+    ["IFSC", SEL.ipIfsc, payload.ifsc],
+    ["Date of Joining", SEL.ipJoinDate, payload.dateOfJoining],
+    ["Gross Salary", SEL.ipSalary, grossSalaryValue],
+  ];
 
   // New statutory fields — filled best-effort and the outcome of each is logged
   // (filled / not-found / fill-failed) so a real-portal run produces verifiable
@@ -562,11 +570,11 @@ export async function ipNumberGenerate(
     ["Emergency Contact Number", SEL.ipEmergencyNumber, payload.emergencyContactNumber],
   ];
 
-  const statutoryOutcomes: Record<string, string> = {};
-  for (const [label, selector, value] of statutoryFields) {
-    statutoryOutcomes[label] = await fillStatutoryField(page, ctx, label, selector, value);
+  const fieldOutcomes: Record<string, string> = {};
+  for (const [label, selector, value] of [...coreFields, ...statutoryFields]) {
+    fieldOutcomes[label] = await fillStatutoryField(page, ctx, label, selector, value);
   }
-  await ctx.log("info", "IP registration statutory field fill summary", statutoryOutcomes);
+  await ctx.log("info", "IP registration field fill summary", fieldOutcomes);
 
   if (await hasCaptcha(page)) {
     const ans = await solveCaptcha(page, ctx, "ip-generate-captcha");

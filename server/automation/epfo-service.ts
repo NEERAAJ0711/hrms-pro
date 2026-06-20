@@ -144,16 +144,6 @@ async function safeScreenshot(page: Page, ctx: AutomationContext, label: string)
   return ctx.takeScreenshot(label);
 }
 
-/** Wait for selector with a reasonable timeout */
-async function waitFor(page: Page, selector: string, timeout = 15000): Promise<boolean> {
-  try {
-    await page.waitForSelector(selector, { timeout, state: "visible" });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 /**
  * Fill a statutory field (nominee, marital status, mother's name, etc.) and
  * report the outcome to the job log so a real-portal run produces verifiable
@@ -540,24 +530,20 @@ export async function uanGenerate(
   await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {});
   await safeScreenshot(page, ctx, "uan-generate-start");
 
-  // Fill core employee details
-  const fieldMap: Array<[string, string]> = [
-    ['input[name*="memberName" i], #memberName', payload.name],
-    ['input[name*="dob" i], #dob', payload.dob],
-    ['input[name*="gender" i], select[name*="gender" i]', payload.gender],
-    ['input[name*="fatherName" i], #fatherName', payload.fatherName ?? ""],
-    ['input[name*="aadhaar" i], #aadhaarNo', payload.aadhaar ?? ""],
-    ['input[name*="mobile" i], #mobile', payload.mobileNumber ?? ""],
-    ['input[name*="doj" i], #doj', payload.dateOfJoining],
+  // Fill core employee details — routed through fillStatutoryField (same as the
+  // statutory fields below) so each field's outcome (filled / not-found /
+  // fill-failed) is logged. This gives a real-portal run verifiable evidence of
+  // which selectors matched for ALL fields, not only the newer statutory ones —
+  // previously a wrong core selector was swallowed silently with no signal.
+  const coreFields: Array<[string, string, string | undefined]> = [
+    ["Name", 'input[name*="memberName" i], #memberName', payload.name],
+    ["Date of Birth", 'input[name*="dob" i], #dob', payload.dob],
+    ["Gender", 'input[name*="gender" i], select[name*="gender" i]', payload.gender],
+    ["Father's Name", 'input[name*="fatherName" i], #fatherName', payload.fatherName],
+    ["Aadhaar", 'input[name*="aadhaar" i], #aadhaarNo', payload.aadhaar],
+    ["Mobile", 'input[name*="mobile" i], #mobile', payload.mobileNumber],
+    ["Date of Joining", 'input[name*="doj" i], #doj', payload.dateOfJoining],
   ];
-
-  for (const [selector, value] of fieldMap) {
-    if (!value) continue;
-    const exists = await waitFor(page, selector, 3000);
-    if (exists) {
-      await page.fill(selector, value).catch(() => {});
-    }
-  }
 
   // New statutory fields — filled best-effort and the outcome of each is logged
   // (filled / not-found / fill-failed) so a real-portal run produces verifiable
@@ -586,11 +572,11 @@ export async function uanGenerate(
     ],
   ];
 
-  const statutoryOutcomes: Record<string, string> = {};
-  for (const [label, selector, value] of statutoryFields) {
-    statutoryOutcomes[label] = await fillStatutoryField(page, ctx, label, selector, value);
+  const fieldOutcomes: Record<string, string> = {};
+  for (const [label, selector, value] of [...coreFields, ...statutoryFields]) {
+    fieldOutcomes[label] = await fillStatutoryField(page, ctx, label, selector, value);
   }
-  await ctx.log("info", "UAN statutory field fill summary", statutoryOutcomes);
+  await ctx.log("info", "UAN field fill summary", fieldOutcomes);
 
   // Handle CAPTCHA/OTP if it appears before submit
   if (await hasCaptcha(page)) {
