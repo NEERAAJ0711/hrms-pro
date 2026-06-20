@@ -1,4 +1,5 @@
 import { pgTable, text, varchar, boolean, timestamp, integer, real, numeric, bigserial, json, jsonb, index } from "drizzle-orm/pg-core";
+import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -49,8 +50,8 @@ export type Company = typeof companies.$inferSelect;
 // Company → Contractor relationship
 export const companyContractors = pgTable("company_contractors", {
   id: varchar("id", { length: 36 }).primaryKey(),
-  companyId: varchar("company_id", { length: 36 }).notNull(),
-  contractorId: varchar("contractor_id", { length: 36 }).notNull(),
+  companyId: varchar("company_id", { length: 36 }).notNull().references((): AnyPgColumn => companies.id, { onDelete: "cascade" }),
+  contractorId: varchar("contractor_id", { length: 36 }).notNull().references((): AnyPgColumn => companies.id, { onDelete: "cascade" }),
   startDate: text("start_date").notNull(),
 });
 
@@ -61,8 +62,8 @@ export type CompanyContractor = typeof companyContractors.$inferSelect;
 // Contractor → Employee tagging
 export const contractorEmployees = pgTable("contractor_employees", {
   id: varchar("id", { length: 36 }).primaryKey(),
-  companyContractorId: varchar("company_contractor_id", { length: 36 }).notNull(),
-  employeeId: varchar("employee_id", { length: 36 }).notNull(),
+  companyContractorId: varchar("company_contractor_id", { length: 36 }).notNull().references((): AnyPgColumn => companyContractors.id, { onDelete: "cascade" }),
+  employeeId: varchar("employee_id", { length: 36 }).notNull().references((): AnyPgColumn => employees.id, { onDelete: "cascade" }),
   taggedDate: text("tagged_date"),
   taggedBy: text("tagged_by"),
 });
@@ -80,7 +81,7 @@ export const users = pgTable("users", {
   firstName: text("first_name").default(""),
   lastName: text("last_name").default(""),
   role: text("role").notNull().default("employee"),
-  companyId: varchar("company_id", { length: 36 }),
+  companyId: varchar("company_id", { length: 36 }).references((): AnyPgColumn => companies.id, { onDelete: "set null" }),
   status: text("status").notNull().default("active"),
   lastLogin: text("last_login"),
   accessDepartments: text("access_departments").array(),
@@ -96,8 +97,8 @@ export type User = typeof users.$inferSelect;
 export const employees = pgTable("employees", {
   id: varchar("id", { length: 36 }).primaryKey(),
   employeeCode: text("employee_code").notNull(),
-  companyId: varchar("company_id", { length: 36 }).notNull(),
-  userId: varchar("user_id", { length: 36 }),
+  companyId: varchar("company_id", { length: 36 }).notNull().references((): AnyPgColumn => companies.id, { onDelete: "cascade" }),
+  userId: varchar("user_id", { length: 36 }).references((): AnyPgColumn => users.id, { onDelete: "set null" }),
   firstName: text("first_name").notNull(),
   lastName: text("last_name").notNull(),
   gender: text("gender"),
@@ -107,7 +108,7 @@ export const employees = pgTable("employees", {
   dateOfJoining: text("date_of_joining").notNull(),
   department: text("department"),
   designation: text("designation"),
-  reportingManager: varchar("reporting_manager", { length: 36 }),
+  reportingManager: varchar("reporting_manager", { length: 36 }).references((): AnyPgColumn => employees.id, { onDelete: "set null" }),
   location: text("location"),
   employmentType: text("employment_type").default("permanent"),
   status: text("status").notNull().default("active"),
@@ -127,14 +128,14 @@ export const employees = pgTable("employees", {
   ifsc: text("ifsc"),
   pan: text("pan"),
   aadhaar: text("aadhaar"),
-  timeOfficePolicyId: varchar("time_office_policy_id", { length: 36 }),
+  timeOfficePolicyId: varchar("time_office_policy_id", { length: 36 }).references((): AnyPgColumn => timeOfficePolicies.id, { onDelete: "set null" }),
   exitDate: text("exit_date"),
   exitReason: text("exit_reason"),
   exitType: text("exit_type"),
   biometricDeviceId: text("biometric_device_id"),
-  wageGradeId: varchar("wage_grade_id", { length: 36 }),
-  contractorMasterId: varchar("contractor_master_id", { length: 36 }),
-  leavePolicyId: varchar("leave_policy_id", { length: 36 }),
+  wageGradeId: varchar("wage_grade_id", { length: 36 }).references((): AnyPgColumn => wageGrades.id, { onDelete: "set null" }),
+  contractorMasterId: varchar("contractor_master_id", { length: 36 }).references((): AnyPgColumn => contractorMasters.id, { onDelete: "set null" }),
+  leavePolicyId: varchar("leave_policy_id", { length: 36 }).references((): AnyPgColumn => leavePolicies.id, { onDelete: "set null" }),
   registeredFaceImage: text("registered_face_image"),
   fatherHusbandName: text("father_husband_name"),
   presentAddress: text("present_address"),
@@ -172,7 +173,7 @@ export type ExitType = typeof exitTypes[number];
 // Master Departments table (company-specific)
 export const masterDepartments = pgTable("master_departments", {
   id: varchar("id", { length: 36 }).primaryKey(),
-  companyId: varchar("company_id", { length: 36 }).notNull(),
+  companyId: varchar("company_id", { length: 36 }).notNull().references((): AnyPgColumn => companies.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
   code: text("code"),
   description: text("description"),
@@ -186,7 +187,7 @@ export type MasterDepartment = typeof masterDepartments.$inferSelect;
 // Master Designations table (company-specific)
 export const masterDesignations = pgTable("master_designations", {
   id: varchar("id", { length: 36 }).primaryKey(),
-  companyId: varchar("company_id", { length: 36 }).notNull(),
+  companyId: varchar("company_id", { length: 36 }).notNull().references((): AnyPgColumn => companies.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
   code: text("code"),
   level: integer("level").default(1),
@@ -204,7 +205,7 @@ export type MasterDesignation = typeof masterDesignations.$inferSelect;
 // an integer to match grossSalary semantics.
 export const wageGrades = pgTable("wage_grades", {
   id: varchar("id", { length: 36 }).primaryKey(),
-  companyId: varchar("company_id", { length: 36 }).notNull(),
+  companyId: varchar("company_id", { length: 36 }).notNull().references((): AnyPgColumn => companies.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
   code: text("code"),
   minimumWage: integer("minimum_wage").notNull(),
@@ -224,7 +225,7 @@ export type WageGrade = typeof wageGrades.$inferSelect;
 // Master Locations table (company-specific)
 export const masterLocations = pgTable("master_locations", {
   id: varchar("id", { length: 36 }).primaryKey(),
-  companyId: varchar("company_id", { length: 36 }).notNull(),
+  companyId: varchar("company_id", { length: 36 }).notNull().references((): AnyPgColumn => companies.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
   code: text("code"),
   address: text("address"),
@@ -244,7 +245,7 @@ export type MasterLocation = typeof masterLocations.$inferSelect;
 // Earning Heads table (company-specific)
 export const earningHeads = pgTable("earning_heads", {
   id: varchar("id", { length: 36 }).primaryKey(),
-  companyId: varchar("company_id", { length: 36 }).notNull(),
+  companyId: varchar("company_id", { length: 36 }).notNull().references((): AnyPgColumn => companies.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
   code: text("code").notNull(),
   type: text("type").notNull().default("fixed"), // fixed, percentage
@@ -262,7 +263,7 @@ export type EarningHead = typeof earningHeads.$inferSelect;
 // Deduction Heads table (company-specific)
 export const deductionHeads = pgTable("deduction_heads", {
   id: varchar("id", { length: 36 }).primaryKey(),
-  companyId: varchar("company_id", { length: 36 }).notNull(),
+  companyId: varchar("company_id", { length: 36 }).notNull().references((): AnyPgColumn => companies.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
   code: text("code").notNull(),
   type: text("type").notNull().default("fixed"), // fixed, percentage
@@ -279,7 +280,7 @@ export type DeductionHead = typeof deductionHeads.$inferSelect;
 // Statutory Settings table (company-specific)
 export const statutorySettings = pgTable("statutory_settings", {
   id: varchar("id", { length: 36 }).primaryKey(),
-  companyId: varchar("company_id", { length: 36 }).notNull(),
+  companyId: varchar("company_id", { length: 36 }).notNull().references((): AnyPgColumn => companies.id, { onDelete: "cascade" }),
   // PF Settings
   pfEmployeePercent: integer("pf_employee_percent").default(12),
   pfEmployerPercent: integer("pf_employer_percent").default(12),
@@ -359,8 +360,8 @@ export interface DashboardStats {
 // Attendance table
 export const attendance = pgTable("attendance", {
   id: varchar("id", { length: 36 }).primaryKey(),
-  employeeId: varchar("employee_id", { length: 36 }).notNull(),
-  companyId: varchar("company_id", { length: 36 }).notNull(),
+  employeeId: varchar("employee_id", { length: 36 }).notNull().references((): AnyPgColumn => employees.id, { onDelete: "cascade" }),
+  companyId: varchar("company_id", { length: 36 }).notNull().references((): AnyPgColumn => companies.id, { onDelete: "cascade" }),
   date: text("date").notNull(),
   clockIn: text("clock_in"),
   clockOut: text("clock_out"),
@@ -397,7 +398,7 @@ export type AttendanceStatus = typeof attendanceStatuses[number];
 // Leave Types table
 export const leaveTypes = pgTable("leave_types", {
   id: varchar("id", { length: 36 }).primaryKey(),
-  companyId: varchar("company_id", { length: 36 }),
+  companyId: varchar("company_id", { length: 36 }).references((): AnyPgColumn => companies.id, { onDelete: "set null" }),
   name: text("name").notNull(),
   code: text("code").notNull(),
   daysPerYear: integer("days_per_year").notNull().default(12),
@@ -414,16 +415,16 @@ export type LeaveType = typeof leaveTypes.$inferSelect;
 // Leave Requests table
 export const leaveRequests = pgTable("leave_requests", {
   id: varchar("id", { length: 36 }).primaryKey(),
-  employeeId: varchar("employee_id", { length: 36 }).notNull(),
-  companyId: varchar("company_id", { length: 36 }).notNull(),
-  leaveTypeId: varchar("leave_type_id", { length: 36 }).notNull(),
+  employeeId: varchar("employee_id", { length: 36 }).notNull().references((): AnyPgColumn => employees.id, { onDelete: "cascade" }),
+  companyId: varchar("company_id", { length: 36 }).notNull().references((): AnyPgColumn => companies.id, { onDelete: "cascade" }),
+  leaveTypeId: varchar("leave_type_id", { length: 36 }).notNull().references((): AnyPgColumn => leaveTypes.id, { onDelete: "restrict" }),
   startDate: text("start_date").notNull(),
   endDate: text("end_date").notNull(),
   days: numeric("days", { precision: 4, scale: 1 }).notNull(),
   dayType: text("day_type").notNull().default("full_day"),
   reason: text("reason"),
   status: text("status").notNull().default("pending"),
-  approvedBy: varchar("approved_by", { length: 36 }),
+  approvedBy: varchar("approved_by", { length: 36 }).references((): AnyPgColumn => users.id, { onDelete: "set null" }),
   approvedAt: text("approved_at"),
   createdAt: text("created_at").notNull(),
 }, (table) => [
@@ -442,7 +443,7 @@ export type LeaveRequestStatus = typeof leaveRequestStatuses[number];
 // Leave Policies table
 export const leavePolicies = pgTable("leave_policies", {
   id: varchar("id", { length: 36 }).primaryKey(),
-  companyId: varchar("company_id", { length: 36 }).notNull(),
+  companyId: varchar("company_id", { length: 36 }).notNull().references((): AnyPgColumn => companies.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
   description: text("description"),
   annualLeaveDays: integer("annual_leave_days").notNull().default(0),
@@ -460,8 +461,8 @@ export type LeavePolicy = typeof leavePolicies.$inferSelect;
 // Salary Structure table
 export const salaryStructures = pgTable("salary_structures", {
   id: varchar("id", { length: 36 }).primaryKey(),
-  employeeId: varchar("employee_id", { length: 36 }).notNull(),
-  companyId: varchar("company_id", { length: 36 }).notNull(),
+  employeeId: varchar("employee_id", { length: 36 }).notNull().references((): AnyPgColumn => employees.id, { onDelete: "cascade" }),
+  companyId: varchar("company_id", { length: 36 }).notNull().references((): AnyPgColumn => companies.id, { onDelete: "cascade" }),
   basicSalary: integer("basic_salary").notNull(),
   hra: integer("hra").default(0),
   conveyance: integer("conveyance").default(0),
@@ -494,8 +495,8 @@ export type SalaryStructure = typeof salaryStructures.$inferSelect;
 // Payroll table
 export const payroll = pgTable("payroll", {
   id: varchar("id", { length: 36 }).primaryKey(),
-  employeeId: varchar("employee_id", { length: 36 }).notNull(),
-  companyId: varchar("company_id", { length: 36 }).notNull(),
+  employeeId: varchar("employee_id", { length: 36 }).notNull().references((): AnyPgColumn => employees.id, { onDelete: "cascade" }),
+  companyId: varchar("company_id", { length: 36 }).notNull().references((): AnyPgColumn => companies.id, { onDelete: "cascade" }),
   month: text("month").notNull(),
   year: integer("year").notNull(),
   basicSalary: integer("basic_salary").notNull(),
@@ -545,7 +546,7 @@ export type PayrollStatus = typeof payrollStatuses[number];
 // Settings table
 export const settings = pgTable("settings", {
   id: varchar("id", { length: 36 }).primaryKey(),
-  companyId: varchar("company_id", { length: 36 }),
+  companyId: varchar("company_id", { length: 36 }).references((): AnyPgColumn => companies.id, { onDelete: "set null" }),
   key: text("key").notNull(),
   value: text("value"),
   category: text("category").notNull(),
@@ -557,7 +558,7 @@ export type Setting = typeof settings.$inferSelect;
 
 export const timeOfficePolicies = pgTable("time_office_policies", {
   id: varchar("id", { length: 36 }).primaryKey(),
-  companyId: varchar("company_id", { length: 36 }).notNull(),
+  companyId: varchar("company_id", { length: 36 }).notNull().references((): AnyPgColumn => companies.id, { onDelete: "cascade" }),
   policyName: text("policy_name").notNull(),
   weeklyOff1: text("weekly_off_1").notNull().default("sunday"),
   weeklyOff2: text("weekly_off_2").default("saturday"),
@@ -581,8 +582,8 @@ export type TimeOfficePolicy = typeof timeOfficePolicies.$inferSelect;
 // Full & Final Settlement table
 export const fnfSettlements = pgTable("fnf_settlements", {
   id: varchar("id", { length: 36 }).primaryKey(),
-  employeeId: varchar("employee_id", { length: 36 }).notNull(),
-  companyId: varchar("company_id", { length: 36 }).notNull(),
+  employeeId: varchar("employee_id", { length: 36 }).notNull().references((): AnyPgColumn => employees.id, { onDelete: "cascade" }),
+  companyId: varchar("company_id", { length: 36 }).notNull().references((): AnyPgColumn => companies.id, { onDelete: "cascade" }),
   settlementDate: text("settlement_date").notNull(),
   lastWorkingDay: text("last_working_day").notNull(),
   salaryDue: integer("salary_due").default(0),
@@ -606,7 +607,7 @@ export const fnfSettlements = pgTable("fnf_settlements", {
   remarks: text("remarks"),
   status: text("status").notNull().default("draft"),
   createdAt: text("created_at").notNull(),
-  approvedBy: varchar("approved_by", { length: 36 }),
+  approvedBy: varchar("approved_by", { length: 36 }).references((): AnyPgColumn => users.id, { onDelete: "set null" }),
   approvedAt: text("approved_at"),
 });
 
@@ -620,7 +621,7 @@ export type FnfStatus = typeof fnfStatuses[number];
 // Holidays table
 export const holidays = pgTable("holidays", {
   id: varchar("id", { length: 36 }).primaryKey(),
-  companyId: varchar("company_id", { length: 36 }).notNull(),
+  companyId: varchar("company_id", { length: 36 }).notNull().references((): AnyPgColumn => companies.id, { onDelete: "cascade" }),
   date: text("date").notNull(),
   name: text("name").notNull(),
   description: text("description"),
@@ -635,7 +636,7 @@ export type Holiday = typeof holidays.$inferSelect;
 // Biometric Devices table
 export const biometricDevices = pgTable("biometric_devices", {
   id: varchar("id", { length: 36 }).primaryKey(),
-  companyId: varchar("company_id", { length: 36 }),
+  companyId: varchar("company_id", { length: 36 }).references((): AnyPgColumn => companies.id, { onDelete: "set null" }),
   name: text("name").notNull(),
   // Short, human-friendly machine code shown to admins and used when
   // assigning an employee to a specific machine (e.g. "M1", "GATE-A").
@@ -683,8 +684,8 @@ export type BiometricDevice = typeof biometricDevices.$inferSelect;
 // Biometric Punch Logs table
 export const biometricPunchLogs = pgTable("biometric_punch_logs", {
   id: varchar("id", { length: 36 }).primaryKey(),
-  companyId: varchar("company_id", { length: 36 }).notNull(),
-  employeeId: varchar("employee_id", { length: 36 }),
+  companyId: varchar("company_id", { length: 36 }).notNull().references((): AnyPgColumn => companies.id, { onDelete: "cascade" }),
+  employeeId: varchar("employee_id", { length: 36 }).references((): AnyPgColumn => employees.id, { onDelete: "set null" }),
   deviceEmployeeId: text("device_employee_id").notNull(),
   punchTime: text("punch_time").notNull(),
   punchDate: text("punch_date").notNull(),
@@ -712,7 +713,7 @@ export type BiometricPunchLog = typeof biometricPunchLogs.$inferSelect;
 // even for employees who haven't punched yet.
 export const biometricDeviceUsers = pgTable("biometric_device_users", {
   id: varchar("id", { length: 36 }).primaryKey(),
-  deviceId: varchar("device_id", { length: 36 }).notNull(),
+  deviceId: varchar("device_id", { length: 36 }).notNull().references((): AnyPgColumn => biometricDevices.id, { onDelete: "cascade" }),
   deviceEmployeeId: text("device_employee_id").notNull(),
   name: text("name"),
   privilege: text("privilege"),
@@ -754,7 +755,7 @@ export type JobEmploymentType = typeof jobEmploymentTypes[number];
 // Job Postings table
 export const jobPostings = pgTable("job_postings", {
   id: varchar("id", { length: 36 }).primaryKey(),
-  companyId: varchar("company_id", { length: 36 }).notNull(),
+  companyId: varchar("company_id", { length: 36 }).notNull().references((): AnyPgColumn => companies.id, { onDelete: "cascade" }),
   title: text("title").notNull(),
   department: text("department"),
   location: text("location"),
@@ -778,10 +779,10 @@ export type JobPosting = typeof jobPostings.$inferSelect;
 // Job Applications table
 export const jobApplications = pgTable("job_applications", {
   id: varchar("id", { length: 36 }).primaryKey(),
-  jobPostingId: varchar("job_posting_id", { length: 36 }).notNull(),
-  companyId: varchar("company_id", { length: 36 }).notNull(),
-  applicantUserId: varchar("applicant_user_id", { length: 36 }),
-  employeeId: varchar("employee_id", { length: 36 }),
+  jobPostingId: varchar("job_posting_id", { length: 36 }).notNull().references((): AnyPgColumn => jobPostings.id, { onDelete: "cascade" }),
+  companyId: varchar("company_id", { length: 36 }).notNull().references((): AnyPgColumn => companies.id, { onDelete: "cascade" }),
+  applicantUserId: varchar("applicant_user_id", { length: 36 }).references((): AnyPgColumn => users.id, { onDelete: "set null" }),
+  employeeId: varchar("employee_id", { length: 36 }).references((): AnyPgColumn => employees.id, { onDelete: "set null" }),
   applicantName: text("applicant_name"),
   applicantEmail: text("applicant_email"),
   applicantPhone: text("applicant_phone"),
@@ -789,7 +790,7 @@ export const jobApplications = pgTable("job_applications", {
   resumeUrl: text("resume_url"),
   status: text("status").notNull().default("applied"),
   appliedAt: text("applied_at").notNull(),
-  reviewedBy: varchar("reviewed_by", { length: 36 }),
+  reviewedBy: varchar("reviewed_by", { length: 36 }).references((): AnyPgColumn => users.id, { onDelete: "set null" }),
   reviewedAt: text("reviewed_at"),
   remarks: text("remarks"),
   interviewDate: text("interview_date"),
@@ -813,7 +814,7 @@ export type JobApplication = typeof jobApplications.$inferSelect;
 // Candidate Profiles table (for self-signup employees)
 export const candidateProfiles = pgTable("candidate_profiles", {
   id: varchar("id", { length: 36 }).primaryKey(),
-  userId: varchar("user_id", { length: 36 }).notNull().unique(),
+  userId: varchar("user_id", { length: 36 }).notNull().unique().references((): AnyPgColumn => users.id, { onDelete: "cascade" }),
   firstName: text("first_name").notNull(),
   lastName: text("last_name").notNull(),
   aadhaar: text("aadhaar").notNull(),
@@ -847,8 +848,8 @@ export type CandidateProfile = typeof candidateProfiles.$inferSelect;
 
 export const previousExperiences = pgTable("previous_experiences", {
   id: varchar("id", { length: 36 }).primaryKey(),
-  employeeId: varchar("employee_id", { length: 36 }),
-  candidateProfileId: varchar("candidate_profile_id", { length: 36 }),
+  employeeId: varchar("employee_id", { length: 36 }).references((): AnyPgColumn => employees.id, { onDelete: "set null" }),
+  candidateProfileId: varchar("candidate_profile_id", { length: 36 }).references((): AnyPgColumn => candidateProfiles.id, { onDelete: "cascade" }),
   organizationName: text("organization_name").notNull(),
   postHeld: text("post_held").notNull(),
   dateOfJoining: text("date_of_joining").notNull(),
@@ -872,14 +873,14 @@ export type LoanAdvanceStatus = typeof loanAdvanceStatuses[number];
 
 export const loanAdvances = pgTable("loan_advances", {
   id: varchar("id", { length: 36 }).primaryKey(),
-  companyId: varchar("company_id", { length: 36 }).notNull(),
-  employeeId: varchar("employee_id", { length: 36 }).notNull(),
+  companyId: varchar("company_id", { length: 36 }).notNull().references((): AnyPgColumn => companies.id, { onDelete: "cascade" }),
+  employeeId: varchar("employee_id", { length: 36 }).notNull().references((): AnyPgColumn => employees.id, { onDelete: "cascade" }),
   type: text("type").notNull().default("advance"),
   amount: integer("amount").notNull(),
   purpose: text("purpose"),
   requestDate: text("request_date").notNull(),
   status: text("status").notNull().default("pending"),
-  approvedBy: varchar("approved_by", { length: 36 }),
+  approvedBy: varchar("approved_by", { length: 36 }).references((): AnyPgColumn => users.id, { onDelete: "set null" }),
   approvedAt: text("approved_at"),
   rejectionReason: text("rejection_reason"),
   totalInstallments: integer("total_installments"),
@@ -901,8 +902,8 @@ export type AppModule = typeof appModules[number];
 
 export const userPermissions = pgTable("user_permissions", {
   id: varchar("id", { length: 36 }).primaryKey(),
-  userId: varchar("user_id", { length: 36 }).notNull(),
-  companyId: varchar("company_id", { length: 36 }),
+  userId: varchar("user_id", { length: 36 }).notNull().references((): AnyPgColumn => users.id, { onDelete: "cascade" }),
+  companyId: varchar("company_id", { length: 36 }).references((): AnyPgColumn => companies.id, { onDelete: "set null" }),
   module: text("module").notNull(),
   canAccess: boolean("can_access").notNull().default(true),
   grantedBy: varchar("granted_by", { length: 36 }),
@@ -918,8 +919,8 @@ export type UserPermission = typeof userPermissions.$inferSelect;
 // canAccess=true (always permanent — admin manually revokes).
 export const moduleAccessRequests = pgTable("module_access_requests", {
   id: varchar("id", { length: 36 }).primaryKey(),
-  userId: varchar("user_id", { length: 36 }).notNull(),
-  companyId: varchar("company_id", { length: 36 }),
+  userId: varchar("user_id", { length: 36 }).notNull().references((): AnyPgColumn => users.id, { onDelete: "cascade" }),
+  companyId: varchar("company_id", { length: 36 }).references((): AnyPgColumn => companies.id, { onDelete: "set null" }),
   module: text("module").notNull(),
   // Specific actions requested within the module (e.g. ["create","edit"]).
   // NULL / empty array = full-module ("Select All") request.
@@ -927,7 +928,7 @@ export const moduleAccessRequests = pgTable("module_access_requests", {
   status: text("status").notNull().default("pending"), // pending | approved | denied | revoked
   reason: text("reason"),                              // user-supplied justification
   decisionNote: text("decision_note"),                 // admin's note on approve/deny
-  decidedBy: varchar("decided_by", { length: 36 }),
+  decidedBy: varchar("decided_by", { length: 36 }).references((): AnyPgColumn => users.id, { onDelete: "set null" }),
   decidedAt: text("decided_at"),
   createdAt: text("created_at").notNull(),
 });
@@ -946,8 +947,8 @@ export type ModuleAccessRequest = typeof moduleAccessRequests.$inferSelect;
 // Notifications table
 export const notifications = pgTable("notifications", {
   id: varchar("id", { length: 36 }).primaryKey(),
-  userId: varchar("user_id", { length: 36 }).notNull(),
-  companyId: varchar("company_id", { length: 36 }),
+  userId: varchar("user_id", { length: 36 }).notNull().references((): AnyPgColumn => users.id, { onDelete: "cascade" }),
+  companyId: varchar("company_id", { length: 36 }).references((): AnyPgColumn => companies.id, { onDelete: "set null" }),
   type: text("type").notNull(),
   title: text("title").notNull(),
   message: text("message").notNull(),
@@ -965,12 +966,12 @@ export type Notification = typeof notifications.$inferSelect;
 // Profile Update Requests — employee changes pending admin approval
 export const profileUpdateRequests = pgTable("profile_update_requests", {
   id: varchar("id", { length: 36 }).primaryKey(),
-  userId: varchar("user_id", { length: 36 }).notNull(),
-  companyId: varchar("company_id", { length: 36 }),
+  userId: varchar("user_id", { length: 36 }).notNull().references((): AnyPgColumn => users.id, { onDelete: "cascade" }),
+  companyId: varchar("company_id", { length: 36 }).references((): AnyPgColumn => companies.id, { onDelete: "set null" }),
   status: text("status").notNull().default("pending"), // pending | approved | rejected
   requestData: text("request_data").notNull(), // JSON of ProfileData
   adminNote: text("admin_note"),
-  reviewedBy: varchar("reviewed_by", { length: 36 }),
+  reviewedBy: varchar("reviewed_by", { length: 36 }).references((): AnyPgColumn => users.id, { onDelete: "set null" }),
   createdAt: text("created_at").notNull(),
   reviewedAt: text("reviewed_at"),
 });
@@ -979,8 +980,8 @@ export type ProfileUpdateRequest = typeof profileUpdateRequests.$inferSelect;
 // Compliance Adjustments table — completely separate from payroll
 export const complianceAdjustments = pgTable("compliance_adjustments", {
   id: varchar("id", { length: 36 }).primaryKey(),
-  companyId: varchar("company_id", { length: 36 }).notNull(),
-  employeeId: varchar("employee_id", { length: 36 }).notNull(),
+  companyId: varchar("company_id", { length: 36 }).notNull().references((): AnyPgColumn => companies.id, { onDelete: "cascade" }),
+  employeeId: varchar("employee_id", { length: 36 }).notNull().references((): AnyPgColumn => employees.id, { onDelete: "cascade" }),
   employeeName: text("employee_name"),
   employeeCode: text("employee_code"),
   month: text("month").notNull(),
@@ -999,7 +1000,7 @@ export const complianceAdjustments = pgTable("compliance_adjustments", {
   adjustedNetSalary: integer("adjusted_net_salary"),
   remarks: text("remarks"),
   status: text("status").notNull().default("draft"),
-  createdBy: varchar("created_by", { length: 36 }),
+  createdBy: varchar("created_by", { length: 36 }).references((): AnyPgColumn => users.id, { onDelete: "set null" }),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
 });
@@ -1011,7 +1012,7 @@ export type ComplianceAdjustment = typeof complianceAdjustments.$inferSelect;
 // Contractor Master table (company-specific)
 export const contractorMasters = pgTable("contractor_masters", {
   id: varchar("id", { length: 36 }).primaryKey(),
-  companyId: varchar("company_id", { length: 36 }).notNull(),
+  companyId: varchar("company_id", { length: 36 }).notNull().references((): AnyPgColumn => companies.id, { onDelete: "cascade" }),
   contractorName: text("contractor_name").notNull(),
   contractorAddress: text("contractor_address"),
   serviceChargePercent: real("service_charge_percent").default(0),
@@ -1026,7 +1027,7 @@ export type ContractorMaster = typeof contractorMasters.$inferSelect;
 // ─── CD Accounts (Credits & Billing) ──────────────────────────────────────────
 export const cdAccounts = pgTable("cd_accounts", {
   id: varchar("id", { length: 36 }).primaryKey(),
-  companyId: varchar("company_id", { length: 36 }).notNull().unique(),
+  companyId: varchar("company_id", { length: 36 }).notNull().unique().references((): AnyPgColumn => companies.id, { onDelete: "cascade" }),
   creditBalance: numeric("credit_balance", { precision: 14, scale: 4 }).notNull().default("0"),
   costPerEmployeePerDay: numeric("cost_per_employee_per_day", { precision: 10, scale: 4 }).notNull().default("15"),
   rateEffectiveFrom: text("rate_effective_from"),
@@ -1043,13 +1044,13 @@ export type CdAccount = typeof cdAccounts.$inferSelect;
 // ─── CD Transactions (Ledger) ─────────────────────────────────────────────────
 export const cdTransactions = pgTable("cd_transactions", {
   id: varchar("id", { length: 36 }).primaryKey(),
-  companyId: varchar("company_id", { length: 36 }).notNull(),
+  companyId: varchar("company_id", { length: 36 }).notNull().references((): AnyPgColumn => companies.id, { onDelete: "cascade" }),
   type: text("type").notNull(), // "credit" | "debit" | "adjustment"
   amount: numeric("amount", { precision: 14, scale: 4 }).notNull(),
   balanceAfter: numeric("balance_after", { precision: 14, scale: 4 }).notNull(),
   description: text("description").notNull(),
   referenceNo: text("reference_no"),
-  createdBy: varchar("created_by", { length: 36 }),
+  createdBy: varchar("created_by", { length: 36 }).references((): AnyPgColumn => users.id, { onDelete: "set null" }),
   createdAt: text("created_at").notNull(),
 });
 export const insertCdTransactionSchema = createInsertSchema(cdTransactions).omit({ id: true });
@@ -1059,7 +1060,7 @@ export type CdTransaction = typeof cdTransactions.$inferSelect;
 // ─── Daily Billing Logs ───────────────────────────────────────────────────────
 export const dailyBillingLogs = pgTable("daily_billing_logs", {
   id: varchar("id", { length: 36 }).primaryKey(),
-  companyId: varchar("company_id", { length: 36 }).notNull(),
+  companyId: varchar("company_id", { length: 36 }).notNull().references((): AnyPgColumn => companies.id, { onDelete: "cascade" }),
   date: text("date").notNull(),                    // YYYY-MM-DD
   employeeCount: integer("employee_count").notNull().default(0),
   ratePerDay: numeric("rate_per_day", { precision: 10, scale: 4 }).notNull(),
@@ -1074,7 +1075,7 @@ export type DailyBillingLog = typeof dailyBillingLogs.$inferSelect;
 export const invoices = pgTable("invoices", {
   id: varchar("id", { length: 36 }).primaryKey(),
   invoiceNo: text("invoice_no").notNull().unique(),
-  companyId: varchar("company_id", { length: 36 }).notNull(),
+  companyId: varchar("company_id", { length: 36 }).notNull().references((): AnyPgColumn => companies.id, { onDelete: "cascade" }),
   periodMonth: text("period_month").notNull(),     // YYYY-MM
   periodFrom: text("period_from").notNull(),       // YYYY-MM-DD
   periodTo: text("period_to").notNull(),           // YYYY-MM-DD
@@ -1099,15 +1100,15 @@ export type ExpenseStatus = typeof expenseStatuses[number];
 
 export const expenses = pgTable("expenses", {
   id: varchar("id", { length: 36 }).primaryKey(),
-  companyId: varchar("company_id", { length: 36 }).notNull(),
-  employeeId: varchar("employee_id", { length: 36 }).notNull(),
+  companyId: varchar("company_id", { length: 36 }).notNull().references((): AnyPgColumn => companies.id, { onDelete: "cascade" }),
+  employeeId: varchar("employee_id", { length: 36 }).notNull().references((): AnyPgColumn => employees.id, { onDelete: "cascade" }),
   date: text("date").notNull(),
   category: text("category").notNull().default("other"),
   amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
   description: text("description").notNull(),
   receiptNote: text("receipt_note"),
   status: text("status").notNull().default("submitted"),
-  approvedBy: varchar("approved_by", { length: 36 }),
+  approvedBy: varchar("approved_by", { length: 36 }).references((): AnyPgColumn => users.id, { onDelete: "set null" }),
   approvedAt: text("approved_at"),
   rejectionReason: text("rejection_reason"),
   createdAt: text("created_at").notNull(),
@@ -1119,13 +1120,13 @@ export type Expense = typeof expenses.$inferSelect;
 // ─── Leave Adjustments ────────────────────────────────────────────────────────
 export const leaveAdjustments = pgTable("leave_adjustments", {
   id: varchar("id", { length: 36 }).primaryKey(),
-  companyId: varchar("company_id", { length: 36 }).notNull(),
-  employeeId: varchar("employee_id", { length: 36 }).notNull(),
-  leaveTypeId: varchar("leave_type_id", { length: 36 }).notNull(),
+  companyId: varchar("company_id", { length: 36 }).notNull().references((): AnyPgColumn => companies.id, { onDelete: "cascade" }),
+  employeeId: varchar("employee_id", { length: 36 }).notNull().references((): AnyPgColumn => employees.id, { onDelete: "cascade" }),
+  leaveTypeId: varchar("leave_type_id", { length: 36 }).notNull().references((): AnyPgColumn => leaveTypes.id, { onDelete: "restrict" }),
   adjustmentType: text("adjustment_type").notNull().default("credit"), // "credit" | "debit"
   days: numeric("days", { precision: 6, scale: 1 }).notNull(),
   reason: text("reason").notNull(),
-  adjustedBy: varchar("adjusted_by", { length: 36 }).notNull(),
+  adjustedBy: varchar("adjusted_by", { length: 36 }).notNull().references((): AnyPgColumn => users.id, { onDelete: "restrict" }),
   createdAt: text("created_at").notNull(),
 });
 export const insertLeaveAdjustmentSchema = createInsertSchema(leaveAdjustments).omit({ id: true });
@@ -1135,15 +1136,15 @@ export type LeaveAdjustment = typeof leaveAdjustments.$inferSelect;
 // ─── Comp-Off Applications ────────────────────────────────────────────────────
 export const compOffApplications = pgTable("comp_off_applications", {
   id: varchar("id", { length: 36 }).primaryKey(),
-  companyId: varchar("company_id", { length: 36 }).notNull(),
-  employeeId: varchar("employee_id", { length: 36 }).notNull(),
+  companyId: varchar("company_id", { length: 36 }).notNull().references((): AnyPgColumn => companies.id, { onDelete: "cascade" }),
+  employeeId: varchar("employee_id", { length: 36 }).notNull().references((): AnyPgColumn => employees.id, { onDelete: "cascade" }),
   workedDate: text("worked_date").notNull(),
   workedType: text("worked_type").notNull().default("weekly_off"), // "weekly_off" | "holiday" | "extra_shift"
   creditedDays: numeric("credited_days", { precision: 4, scale: 1 }).notNull().default("1"),
   purpose: text("purpose").notNull(),
   compensatoryDate: text("compensatory_date"),
   status: text("status").notNull().default("pending"), // "pending" | "approved" | "rejected"
-  approvedBy: varchar("approved_by", { length: 36 }),
+  approvedBy: varchar("approved_by", { length: 36 }).references((): AnyPgColumn => users.id, { onDelete: "set null" }),
   approvedAt: text("approved_at"),
   rejectionReason: text("rejection_reason"),
   createdAt: text("created_at").notNull(),
@@ -1157,14 +1158,14 @@ export type CompOff = typeof compOffApplications.$inferSelect;
 // KRA Templates (reusable at company level)
 export const kraTemplates = pgTable("kra_templates", {
   id: varchar("id", { length: 36 }).primaryKey(),
-  companyId: varchar("company_id", { length: 36 }).notNull(),
+  companyId: varchar("company_id", { length: 36 }).notNull().references((): AnyPgColumn => companies.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
   description: text("description"),
   department: text("department"),
   reviewPeriodType: text("review_period_type").notNull().default("annual"), // "quarterly" | "half_yearly" | "annual" | "custom"
   status: text("status").notNull().default("active"), // "active" | "inactive"
   createdAt: text("created_at").notNull(),
-  createdBy: varchar("created_by", { length: 36 }),
+  createdBy: varchar("created_by", { length: 36 }).references((): AnyPgColumn => users.id, { onDelete: "set null" }),
 });
 export const insertKraTemplateSchema = createInsertSchema(kraTemplates).omit({ id: true });
 export type InsertKraTemplate = z.infer<typeof insertKraTemplateSchema>;
@@ -1173,7 +1174,7 @@ export type KraTemplate = typeof kraTemplates.$inferSelect;
 // KPI Metrics within a KRA Template
 export const kraTemplateKpis = pgTable("kra_template_kpis", {
   id: varchar("id", { length: 36 }).primaryKey(),
-  templateId: varchar("template_id", { length: 36 }).notNull(),
+  templateId: varchar("template_id", { length: 36 }).notNull().references((): AnyPgColumn => kraTemplates.id, { onDelete: "cascade" }),
   kpiName: text("kpi_name").notNull(),
   description: text("description"),
   weightage: real("weightage").notNull().default(0), // percentage, all KPIs in template should sum to 100
@@ -1188,9 +1189,9 @@ export type KraTemplateKpi = typeof kraTemplateKpis.$inferSelect;
 // KRA Assignments (assigned to an employee for a specific period)
 export const kraAssignments = pgTable("kra_assignments", {
   id: varchar("id", { length: 36 }).primaryKey(),
-  companyId: varchar("company_id", { length: 36 }).notNull(),
-  employeeId: varchar("employee_id", { length: 36 }).notNull(),
-  templateId: varchar("template_id", { length: 36 }), // optional – can be a custom assignment
+  companyId: varchar("company_id", { length: 36 }).notNull().references((): AnyPgColumn => companies.id, { onDelete: "cascade" }),
+  employeeId: varchar("employee_id", { length: 36 }).notNull().references((): AnyPgColumn => employees.id, { onDelete: "cascade" }),
+  templateId: varchar("template_id", { length: 36 }).references((): AnyPgColumn => kraTemplates.id, { onDelete: "set null" }), // optional – can be a custom assignment
   title: text("title").notNull(),
   reviewPeriod: text("review_period").notNull().default("annual"), // "Q1" | "Q2" | "Q3" | "Q4" | "H1" | "H2" | "annual" | "custom"
   periodYear: integer("period_year").notNull(),
@@ -1203,7 +1204,7 @@ export const kraAssignments = pgTable("kra_assignments", {
   totalScore: real("total_score"),   // final accepted score (0–100)
   feedback: text("feedback"),
   createdAt: text("created_at").notNull(),
-  createdBy: varchar("created_by", { length: 36 }),
+  createdBy: varchar("created_by", { length: 36 }).references((): AnyPgColumn => users.id, { onDelete: "set null" }),
 });
 export const insertKraAssignmentSchema = createInsertSchema(kraAssignments).omit({ id: true });
 export type InsertKraAssignment = z.infer<typeof insertKraAssignmentSchema>;
@@ -1212,7 +1213,7 @@ export type KraAssignment = typeof kraAssignments.$inferSelect;
 // KPI line-items copied into each assignment (with actuals & scores)
 export const kraAssignmentKpis = pgTable("kra_assignment_kpis", {
   id: varchar("id", { length: 36 }).primaryKey(),
-  assignmentId: varchar("assignment_id", { length: 36 }).notNull(),
+  assignmentId: varchar("assignment_id", { length: 36 }).notNull().references((): AnyPgColumn => kraAssignments.id, { onDelete: "cascade" }),
   kpiName: text("kpi_name").notNull(),
   description: text("description"),
   weightage: real("weightage").notNull().default(0),
@@ -1269,7 +1270,7 @@ export type AutomationJobType = typeof automationJobTypes[number];
 // Automation Jobs (queue table)
 export const automationJobs = pgTable("automation_jobs", {
   id: varchar("id", { length: 36 }).primaryKey(),
-  companyId: varchar("company_id", { length: 36 }).notNull(),
+  companyId: varchar("company_id", { length: 36 }).notNull().references((): AnyPgColumn => companies.id, { onDelete: "cascade" }),
   jobType: text("job_type").notNull(),
   status: text("status").notNull().default("pending"),
   payload: jsonb("payload").$type<Record<string, unknown>>().default({}),
@@ -1281,7 +1282,7 @@ export const automationJobs = pgTable("automation_jobs", {
   scheduledAt: text("scheduled_at"),
   startedAt: text("started_at"),
   completedAt: text("completed_at"),
-  createdBy: varchar("created_by", { length: 36 }),
+  createdBy: varchar("created_by", { length: 36 }).references((): AnyPgColumn => users.id, { onDelete: "set null" }),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
 }, (table) => [
@@ -1298,12 +1299,12 @@ export type AutomationLogLevel = typeof automationLogLevels[number];
 
 export const automationLogs = pgTable("automation_logs", {
   id: varchar("id", { length: 36 }).primaryKey(),
-  jobId: varchar("job_id", { length: 36 }).notNull(),
-  companyId: varchar("company_id", { length: 36 }).notNull(),
+  jobId: varchar("job_id", { length: 36 }).notNull().references((): AnyPgColumn => automationJobs.id, { onDelete: "cascade" }),
+  companyId: varchar("company_id", { length: 36 }).notNull().references((): AnyPgColumn => companies.id, { onDelete: "cascade" }),
   level: text("level").notNull().default("info"),
   message: text("message").notNull(),
   meta: jsonb("meta").$type<Record<string, unknown>>(),
-  createdBy: varchar("created_by", { length: 36 }),
+  createdBy: varchar("created_by", { length: 36 }).references((): AnyPgColumn => users.id, { onDelete: "set null" }),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
 }, (table) => [
@@ -1319,7 +1320,7 @@ export type PortalType = typeof portalTypes[number];
 
 export const portalSessions = pgTable("portal_sessions", {
   id: varchar("id", { length: 36 }).primaryKey(),
-  companyId: varchar("company_id", { length: 36 }).notNull(),
+  companyId: varchar("company_id", { length: 36 }).notNull().references((): AnyPgColumn => companies.id, { onDelete: "cascade" }),
   portal: text("portal").notNull(), // "epfo" | "esic"
   username: text("username").notNull(),
   encryptedPassword: text("encrypted_password").notNull(),
@@ -1327,7 +1328,7 @@ export const portalSessions = pgTable("portal_sessions", {
   lastLoginAt: text("last_login_at"),
   sessionValidUntil: text("session_valid_until"),
   isActive: boolean("is_active").notNull().default(true),
-  createdBy: varchar("created_by", { length: 36 }),
+  createdBy: varchar("created_by", { length: 36 }).references((): AnyPgColumn => users.id, { onDelete: "set null" }),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
 });
@@ -1341,18 +1342,18 @@ export type EpfoRegistrationStatus = typeof epfoRegistrationStatuses[number];
 
 export const epfoRegistrations = pgTable("epfo_registrations", {
   id: varchar("id", { length: 36 }).primaryKey(),
-  companyId: varchar("company_id", { length: 36 }).notNull(),
-  employeeId: varchar("employee_id", { length: 36 }).notNull(),
+  companyId: varchar("company_id", { length: 36 }).notNull().references((): AnyPgColumn => companies.id, { onDelete: "cascade" }),
+  employeeId: varchar("employee_id", { length: 36 }).notNull().references((): AnyPgColumn => employees.id, { onDelete: "cascade" }),
   uan: text("uan"),
   pfCode: text("pf_code"),
   memberIdAtEpfo: text("member_id_at_epfo"),
   status: text("status").notNull().default("pending"),
-  jobId: varchar("job_id", { length: 36 }),
+  jobId: varchar("job_id", { length: 36 }).references((): AnyPgColumn => automationJobs.id, { onDelete: "set null" }),
   submittedAt: text("submitted_at"),
   uanGeneratedAt: text("uan_generated_at"),
   errorMessage: text("error_message"),
   remarks: text("remarks"),
-  createdBy: varchar("created_by", { length: 36 }),
+  createdBy: varchar("created_by", { length: 36 }).references((): AnyPgColumn => users.id, { onDelete: "set null" }),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
 });
@@ -1368,17 +1369,17 @@ export const epfoKycStatuses = ["pending", "submitted", "approved", "rejected", 
 
 export const epfoKycRecords = pgTable("epfo_kyc_records", {
   id: varchar("id", { length: 36 }).primaryKey(),
-  companyId: varchar("company_id", { length: 36 }).notNull(),
-  employeeId: varchar("employee_id", { length: 36 }).notNull(),
+  companyId: varchar("company_id", { length: 36 }).notNull().references((): AnyPgColumn => companies.id, { onDelete: "cascade" }),
+  employeeId: varchar("employee_id", { length: 36 }).notNull().references((): AnyPgColumn => employees.id, { onDelete: "cascade" }),
   uan: text("uan"),
   kycType: text("kyc_type").notNull(), // aadhaar | pan | bank
   status: text("status").notNull().default("pending"),
   documentNumber: text("document_number"), // masked Aadhaar / PAN / account no.
-  jobId: varchar("job_id", { length: 36 }),
+  jobId: varchar("job_id", { length: 36 }).references((): AnyPgColumn => automationJobs.id, { onDelete: "set null" }),
   submittedAt: text("submitted_at"),
   approvedAt: text("approved_at"),
   errorMessage: text("error_message"),
-  createdBy: varchar("created_by", { length: 36 }),
+  createdBy: varchar("created_by", { length: 36 }).references((): AnyPgColumn => users.id, { onDelete: "set null" }),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
 });
@@ -1391,7 +1392,7 @@ export const epfoEcrStatuses = ["pending", "filed", "challan_generated", "paid",
 
 export const epfoEcrReturns = pgTable("epfo_ecr_returns", {
   id: varchar("id", { length: 36 }).primaryKey(),
-  companyId: varchar("company_id", { length: 36 }).notNull(),
+  companyId: varchar("company_id", { length: 36 }).notNull().references((): AnyPgColumn => companies.id, { onDelete: "cascade" }),
   month: text("month").notNull(), // "January" … "December"
   year: integer("year").notNull(),
   totalEmployees: integer("total_employees").default(0),
@@ -1404,11 +1405,11 @@ export const epfoEcrReturns = pgTable("epfo_ecr_returns", {
   status: text("status").notNull().default("pending"),
   ecrFilePath: text("ecr_file_path"),
   challanFilePath: text("challan_file_path"),
-  jobId: varchar("job_id", { length: 36 }),
+  jobId: varchar("job_id", { length: 36 }).references((): AnyPgColumn => automationJobs.id, { onDelete: "set null" }),
   filedAt: text("filed_at"),
   dueDate: text("due_date"),
   errorMessage: text("error_message"),
-  createdBy: varchar("created_by", { length: 36 }),
+  createdBy: varchar("created_by", { length: 36 }).references((): AnyPgColumn => users.id, { onDelete: "set null" }),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
 });
@@ -1421,17 +1422,17 @@ export const esicRegistrationStatuses = ["pending", "submitted", "ip_generated",
 
 export const esicRegistrations = pgTable("esic_registrations", {
   id: varchar("id", { length: 36 }).primaryKey(),
-  companyId: varchar("company_id", { length: 36 }).notNull(),
-  employeeId: varchar("employee_id", { length: 36 }).notNull(),
+  companyId: varchar("company_id", { length: 36 }).notNull().references((): AnyPgColumn => companies.id, { onDelete: "cascade" }),
+  employeeId: varchar("employee_id", { length: 36 }).notNull().references((): AnyPgColumn => employees.id, { onDelete: "cascade" }),
   ipNumber: text("ip_number"),
   esicCode: text("esic_code"),
   status: text("status").notNull().default("pending"),
-  jobId: varchar("job_id", { length: 36 }),
+  jobId: varchar("job_id", { length: 36 }).references((): AnyPgColumn => automationJobs.id, { onDelete: "set null" }),
   submittedAt: text("submitted_at"),
   ipGeneratedAt: text("ip_generated_at"),
   errorMessage: text("error_message"),
   remarks: text("remarks"),
-  createdBy: varchar("created_by", { length: 36 }),
+  createdBy: varchar("created_by", { length: 36 }).references((): AnyPgColumn => users.id, { onDelete: "set null" }),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
 });
@@ -1444,7 +1445,7 @@ export const esicReturnStatuses = ["pending", "filed", "challan_generated", "pai
 
 export const esicMonthlyReturns = pgTable("esic_monthly_returns", {
   id: varchar("id", { length: 36 }).primaryKey(),
-  companyId: varchar("company_id", { length: 36 }).notNull(),
+  companyId: varchar("company_id", { length: 36 }).notNull().references((): AnyPgColumn => companies.id, { onDelete: "cascade" }),
   month: text("month").notNull(),
   year: integer("year").notNull(),
   totalEmployees: integer("total_employees").default(0),
@@ -1456,11 +1457,11 @@ export const esicMonthlyReturns = pgTable("esic_monthly_returns", {
   status: text("status").notNull().default("pending"),
   returnFilePath: text("return_file_path"),
   challanFilePath: text("challan_file_path"),
-  jobId: varchar("job_id", { length: 36 }),
+  jobId: varchar("job_id", { length: 36 }).references((): AnyPgColumn => automationJobs.id, { onDelete: "set null" }),
   filedAt: text("filed_at"),
   dueDate: text("due_date"),
   errorMessage: text("error_message"),
-  createdBy: varchar("created_by", { length: 36 }),
+  createdBy: varchar("created_by", { length: 36 }).references((): AnyPgColumn => users.id, { onDelete: "set null" }),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
 });
@@ -1474,7 +1475,7 @@ export const challanStatuses = ["generated", "paid", "cancelled"] as const;
 
 export const challans = pgTable("challans", {
   id: varchar("id", { length: 36 }).primaryKey(),
-  companyId: varchar("company_id", { length: 36 }).notNull(),
+  companyId: varchar("company_id", { length: 36 }).notNull().references((): AnyPgColumn => companies.id, { onDelete: "cascade" }),
   portal: text("portal").notNull(), // "epfo" | "esic"
   month: text("month").notNull(),
   year: integer("year").notNull(),
@@ -1485,8 +1486,8 @@ export const challans = pgTable("challans", {
   paidDate: text("paid_date"),
   status: text("status").notNull().default("generated"),
   filePath: text("file_path"),
-  jobId: varchar("job_id", { length: 36 }),
-  createdBy: varchar("created_by", { length: 36 }),
+  jobId: varchar("job_id", { length: 36 }).references((): AnyPgColumn => automationJobs.id, { onDelete: "set null" }),
+  createdBy: varchar("created_by", { length: 36 }).references((): AnyPgColumn => users.id, { onDelete: "set null" }),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
 });
@@ -1500,7 +1501,7 @@ export type ComplianceCalendarEventType = typeof complianceCalendarEventTypes[nu
 
 export const complianceCalendarEvents = pgTable("compliance_calendar_events", {
   id: varchar("id", { length: 36 }).primaryKey(),
-  companyId: varchar("company_id", { length: 36 }).notNull(),
+  companyId: varchar("company_id", { length: 36 }).notNull().references((): AnyPgColumn => companies.id, { onDelete: "cascade" }),
   eventType: text("event_type").notNull(),
   title: text("title").notNull(),
   description: text("description"),
@@ -1509,7 +1510,7 @@ export const complianceCalendarEvents = pgTable("compliance_calendar_events", {
   periodYear: integer("period_year"),
   status: text("status").notNull().default("upcoming"), // upcoming | completed | overdue | waived
   relatedReturnId: varchar("related_return_id", { length: 36 }),
-  createdBy: varchar("created_by", { length: 36 }),
+  createdBy: varchar("created_by", { length: 36 }).references((): AnyPgColumn => users.id, { onDelete: "set null" }),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
 });
@@ -1520,15 +1521,15 @@ export type ComplianceCalendarEvent = typeof complianceCalendarEvents.$inferSele
 // ─── Outdoor Duty Entries ─────────────────────────────────────────────────────
 export const outdoorEntries = pgTable("outdoor_entries", {
   id: varchar("id", { length: 36 }).primaryKey(),
-  companyId: varchar("company_id", { length: 36 }).notNull(),
-  employeeId: varchar("employee_id", { length: 36 }).notNull(),
+  companyId: varchar("company_id", { length: 36 }).notNull().references((): AnyPgColumn => companies.id, { onDelete: "cascade" }),
+  employeeId: varchar("employee_id", { length: 36 }).notNull().references((): AnyPgColumn => employees.id, { onDelete: "cascade" }),
   date: text("date").notNull(),
   checkOutTime: text("check_out_time"),
   checkInTime: text("check_in_time"),
   purpose: text("purpose").notNull(),
   location: text("location"),
   status: text("status").notNull().default("pending"), // "pending" | "approved" | "rejected"
-  approvedBy: varchar("approved_by", { length: 36 }),
+  approvedBy: varchar("approved_by", { length: 36 }).references((): AnyPgColumn => users.id, { onDelete: "set null" }),
   approvedAt: text("approved_at"),
   rejectionReason: text("rejection_reason"),
   createdAt: text("created_at").notNull(),
@@ -1540,11 +1541,11 @@ export type OutdoorEntry = typeof outdoorEntries.$inferSelect;
 // ─── ESIC Fetched Employees (from portal) ─────────────────────────────────────
 export const esicFetchedEmployees = pgTable("esic_fetched_employees", {
   id: varchar("id", { length: 36 }).primaryKey(),
-  companyId: varchar("company_id", { length: 36 }).notNull(),
+  companyId: varchar("company_id", { length: 36 }).notNull().references((): AnyPgColumn => companies.id, { onDelete: "cascade" }),
   ipNo: text("ip_no").notNull(),
   name: text("name").notNull(),
   dateOfRegistration: text("date_of_registration"),
-  jobId: varchar("job_id", { length: 36 }),
+  jobId: varchar("job_id", { length: 36 }).references((): AnyPgColumn => automationJobs.id, { onDelete: "set null" }),
   fetchedAt: text("fetched_at").notNull(),
   createdAt: text("created_at").notNull(),
 }, (table) => [
@@ -1558,9 +1559,9 @@ export type EsicFetchedEmployee = typeof esicFetchedEmployees.$inferSelect;
 
 export const aiConversations = pgTable("ai_conversations", {
   id: varchar("id", { length: 36 }).primaryKey(),
-  employeeId: varchar("employee_id", { length: 36 }).notNull(),
-  userId: varchar("user_id", { length: 36 }).notNull(),
-  companyId: varchar("company_id", { length: 36 }).notNull(),
+  employeeId: varchar("employee_id", { length: 36 }).notNull().references((): AnyPgColumn => employees.id, { onDelete: "cascade" }),
+  userId: varchar("user_id", { length: 36 }).notNull().references((): AnyPgColumn => users.id, { onDelete: "cascade" }),
+  companyId: varchar("company_id", { length: 36 }).notNull().references((): AnyPgColumn => companies.id, { onDelete: "cascade" }),
   sessionType: text("session_type").notNull().default("kyc"),
   status: text("status").notNull().default("active"),
   language: text("language").notNull().default("english"),
@@ -1573,7 +1574,7 @@ export type AiConversation = typeof aiConversations.$inferSelect;
 
 export const aiMessages = pgTable("ai_messages", {
   id: varchar("id", { length: 36 }).primaryKey(),
-  conversationId: varchar("conversation_id", { length: 36 }).notNull(),
+  conversationId: varchar("conversation_id", { length: 36 }).notNull().references((): AnyPgColumn => aiConversations.id, { onDelete: "cascade" }),
   role: text("role").notNull(),
   content: text("content").notNull(),
   attachments: json("attachments"),
@@ -1585,9 +1586,9 @@ export type AiMessage = typeof aiMessages.$inferSelect;
 
 export const aiFollowUpTasks = pgTable("ai_follow_up_tasks", {
   id: varchar("id", { length: 36 }).primaryKey(),
-  employeeId: varchar("employee_id", { length: 36 }).notNull(),
-  userId: varchar("user_id", { length: 36 }),
-  companyId: varchar("company_id", { length: 36 }).notNull(),
+  employeeId: varchar("employee_id", { length: 36 }).notNull().references((): AnyPgColumn => employees.id, { onDelete: "cascade" }),
+  userId: varchar("user_id", { length: 36 }).references((): AnyPgColumn => users.id, { onDelete: "set null" }),
+  companyId: varchar("company_id", { length: 36 }).notNull().references((): AnyPgColumn => companies.id, { onDelete: "cascade" }),
   taskType: text("task_type").notNull(),
   status: text("status").notNull().default("pending"),
   dayNumber: integer("day_number").notNull().default(1),
@@ -1595,7 +1596,7 @@ export const aiFollowUpTasks = pgTable("ai_follow_up_tasks", {
   lastReminderAt: text("last_reminder_at"),
   nextReminderAt: text("next_reminder_at").notNull(),
   escalatedAt: text("escalated_at"),
-  escalatedTo: varchar("escalated_to", { length: 36 }),
+  escalatedTo: varchar("escalated_to", { length: 36 }).references((): AnyPgColumn => users.id, { onDelete: "set null" }),
   metadata: json("metadata"),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
@@ -1606,8 +1607,8 @@ export type AiFollowUpTask = typeof aiFollowUpTasks.$inferSelect;
 
 export const kycSubmissionStatus = pgTable("kyc_submission_status", {
   id: varchar("id", { length: 36 }).primaryKey(),
-  employeeId: varchar("employee_id", { length: 36 }).notNull().unique(),
-  companyId: varchar("company_id", { length: 36 }).notNull(),
+  employeeId: varchar("employee_id", { length: 36 }).notNull().unique().references((): AnyPgColumn => employees.id, { onDelete: "cascade" }),
+  companyId: varchar("company_id", { length: 36 }).notNull().references((): AnyPgColumn => companies.id, { onDelete: "cascade" }),
   aadhaarSubmitted: boolean("aadhaar_submitted").notNull().default(false),
   panSubmitted: boolean("pan_submitted").notNull().default(false),
   bankDetailsSubmitted: boolean("bank_details_submitted").notNull().default(false),

@@ -5,6 +5,7 @@
 - [Automation queue concurrency](automation-queue-concurrency.md) — one poll timer chain, reserve slot before async claim, abortJob kills running/paused jobs
 - [CLRA wage source of truth](compliance-wage-source.md) — all compliance reports must mirror Adjustment-tab rate logic (grade_min_wage, ss active, no NULLIF)
 - [Company asset uploads](company-asset-uploads.md) — logo/signature: unique filenames (cache), use upload-response company for state, safeUnlink within assets dir
+- [Dual migration mechanism](migration-mechanism.md) — dev=db:push from schema.ts, prod=numbered SQL+startup DDL; name raw constraints with Drizzle convention so push stays no-op; never run run-migrations.cjs on dev
 - [Storage layering](storage-layering.md) — interfaces + per-domain repositories + services + delegating facade; routes call services, repos own all db; rewire/brace gotchas
 - [Routes modularization](routes-modularization.md) — server/routes/ split; index.ts registration order is load-bearing; queueService intentionally unimported (pre-existing bug)
 - [EPFO/ESIC captcha UI](automation-captcha-ui.md) — CAPTCHA/OTP panel + live view + resume target must all follow the SAME paused job; bulk fan-out must throw on 0 children
