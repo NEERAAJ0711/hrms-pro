@@ -29,6 +29,7 @@ import {
   complianceCalendarEvents,
   employees,
   payroll,
+  salaryStructures,
   statutorySettings,
   automationJobTypes,
   users as usersTable,
@@ -343,7 +344,10 @@ function streamPdfReport(
 // registration automation. Includes the statutory fields (nominee, marital
 // status, mother's name, blood group, emergency contact) the portal forms need.
 // Missing values are left undefined so the automation skips them gracefully.
-function buildRegistrationPayload(emp: typeof employees.$inferSelect) {
+function buildRegistrationPayload(
+  emp: typeof employees.$inferSelect,
+  grossSalary: number = 0,
+) {
   const opt = (v: string | null | undefined) => (v && v.trim() ? v.trim() : undefined);
   return {
     employeeId: emp.id,
@@ -359,6 +363,10 @@ function buildRegistrationPayload(emp: typeof employees.$inferSelect) {
     pan: opt(emp.pan),
     bankAccount: opt(emp.bankAccount),
     ifsc: opt(emp.ifsc),
+    // Monthly gross wage for the ESIC IP salary field. Sourced from the active
+    // salary structure (or latest payroll as a fallback). 0 when no salary data
+    // exists — the automation skips the field when grossSalary is not > 0.
+    grossSalary: Number.isFinite(grossSalary) && grossSalary > 0 ? grossSalary : 0,
     // New statutory fields
     maritalStatus: opt(emp.maritalStatus),
     motherName: opt(emp.motherName),
@@ -368,6 +376,40 @@ function buildRegistrationPayload(emp: typeof employees.$inferSelect) {
     emergencyContactName: opt(emp.emergencyContactName),
     emergencyContactNumber: opt(emp.emergencyContactNumber),
   };
+}
+
+// Resolves the current monthly gross wage for each employee, used to populate the
+// ESIC IP registration salary field. Source of truth is the active salary
+// structure's grossSalary; when an employee has no active structure we fall back
+// to the latest generated payroll's totalEarnings. Employees with neither are
+// omitted from the map (callers default to 0).
+async function getGrossSalaryMap(employeeIds: string[]): Promise<Map<string, number>> {
+  const map = new Map<string, number>();
+  const ids = Array.from(new Set(employeeIds.filter(Boolean)));
+  if (ids.length === 0) return map;
+
+  const structures = await db
+    .select({ employeeId: salaryStructures.employeeId, grossSalary: salaryStructures.grossSalary })
+    .from(salaryStructures)
+    .where(and(inArray(salaryStructures.employeeId, ids), eq(salaryStructures.status, "active")));
+  for (const s of structures) {
+    if (s.grossSalary && s.grossSalary > 0) map.set(s.employeeId, s.grossSalary);
+  }
+
+  const missing = ids.filter((id) => !map.has(id));
+  if (missing.length > 0) {
+    const payrolls = await db
+      .select({ employeeId: payroll.employeeId, totalEarnings: payroll.totalEarnings, generatedAt: payroll.generatedAt })
+      .from(payroll)
+      .where(inArray(payroll.employeeId, missing))
+      .orderBy(desc(payroll.generatedAt));
+    for (const p of payrolls) {
+      if (!map.has(p.employeeId) && p.totalEarnings && p.totalEarnings > 0) {
+        map.set(p.employeeId, p.totalEarnings);
+      }
+    }
+  }
+  return map;
 }
 
 // ─── Route Registration ────────────────────────────────────────────────────────
@@ -758,10 +800,11 @@ export function registerEpfoEsicRoutes(
         and(eq(epfoRegistrations.companyId, cid), eq(epfoRegistrations.employeeId, data.employeeId))
       ).limit(1);
 
+      const grossMap = await getGrossSalaryMap([emp.id]);
       const job = await queueService.enqueueJob({
         jobType: "epfo_uan_generate",
         companyId: cid,
-        payload: buildRegistrationPayload(emp),
+        payload: buildRegistrationPayload(emp, grossMap.get(emp.id) ?? 0),
         createdBy: user.id,
       });
 
@@ -799,10 +842,11 @@ export function registerEpfoEsicRoutes(
       );
       if (emps.length === 0) return res.status(404).json({ error: "No matching employees found for this company" });
 
+      const grossMap = await getGrossSalaryMap(emps.map((e) => e.id));
       const job = await queueService.enqueueJob({
         jobType: "epfo_bulk_register",
         companyId: cidResult.companyId,
-        payload: { employees: emps.map(buildRegistrationPayload) },
+        payload: { employees: emps.map((e) => buildRegistrationPayload(e, grossMap.get(e.id) ?? 0)) },
         createdBy: user.id,
       });
       res.json({ ok: true, jobId: job.id, count: emps.length });
@@ -1160,10 +1204,11 @@ export function registerEpfoEsicRoutes(
         and(eq(esicRegistrations.companyId, cid), eq(esicRegistrations.employeeId, data.employeeId))
       ).limit(1);
 
+      const grossMap = await getGrossSalaryMap([emp.id]);
       const job = await queueService.enqueueJob({
         jobType: "esic_ip_generate",
         companyId: cid,
-        payload: buildRegistrationPayload(emp),
+        payload: buildRegistrationPayload(emp, grossMap.get(emp.id) ?? 0),
         createdBy: user.id,
       });
 
@@ -1201,10 +1246,11 @@ export function registerEpfoEsicRoutes(
       );
       if (emps.length === 0) return res.status(404).json({ error: "No matching employees found for this company" });
 
+      const grossMap = await getGrossSalaryMap(emps.map((e) => e.id));
       const job = await queueService.enqueueJob({
         jobType: "esic_bulk_register",
         companyId: cidResult.companyId,
-        payload: { employees: emps.map(buildRegistrationPayload) },
+        payload: { employees: emps.map((e) => buildRegistrationPayload(e, grossMap.get(e.id) ?? 0)) },
         createdBy: user.id,
       });
       res.json({ ok: true, jobId: job.id, count: emps.length });
