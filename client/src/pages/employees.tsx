@@ -1,4 +1,5 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useSort, sortData } from "@/lib/use-sort";
 import { SortableHead } from "@/components/sortable-head";
@@ -446,15 +447,22 @@ export default function Employees() {
     return "";
   });
 
-  const EMP_PAGE_SIZE = 50;
-  const [empPage, setEmpPage] = useState(1);
-  useEffect(() => {
-    setEmpPage(1);
-  }, [searchQuery, statusFilter, selectedCompany, contractorFilter]);
-  const empTotalPages = Math.max(1, Math.ceil(sortedEmployees.length / EMP_PAGE_SIZE));
-  const empPageClamped = Math.min(empPage, empTotalPages);
-  const empPageStart = (empPageClamped - 1) * EMP_PAGE_SIZE;
-  const pagedEmployees = sortedEmployees.slice(empPageStart, empPageStart + EMP_PAGE_SIZE);
+  // Virtualize the employees table so only the visible rows are mounted in the
+  // DOM. This keeps the page responsive even when a company has thousands of
+  // employees (the full filtered/sorted list still scrolls as one continuous list).
+  const tableScrollRef = useRef<HTMLDivElement>(null);
+  const rowVirtualizer = useVirtualizer({
+    count: sortedEmployees.length,
+    getScrollElement: () => tableScrollRef.current,
+    estimateSize: () => 73,
+    overscan: 12,
+  });
+  const virtualRows = rowVirtualizer.getVirtualItems();
+  const virtualPaddingTop = virtualRows.length > 0 ? virtualRows[0].start : 0;
+  const virtualPaddingBottom =
+    virtualRows.length > 0
+      ? rowVirtualizer.getTotalSize() - virtualRows[virtualRows.length - 1].end
+      : 0;
 
   const getCompanyName = (companyId: string) => {
     const company = companies.find((c) => c.id === companyId);
@@ -824,9 +832,9 @@ export default function Employees() {
               )}
             </div>
           ) : (
-            <div className="rounded-md border">
+            <div ref={tableScrollRef} className="rounded-md border max-h-[65vh] overflow-auto">
               <Table>
-                <TableHeader>
+                <TableHeader className="sticky top-0 z-10 bg-background">
                   <TableRow>
                     <TableHead className="w-10 text-center">Sr.</TableHead>
                     <TableHead className="w-24">Emp. ID</TableHead>
@@ -840,9 +848,15 @@ export default function Employees() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {pagedEmployees.map((employee, idx) => (
-                    <TableRow key={employee.id} data-testid={`employee-row-${employee.id}`} className={employee.status === "inactive" ? "opacity-75" : ""}>
-                      <TableCell className="text-center text-muted-foreground font-medium text-sm">{empPageStart + idx + 1}</TableCell>
+                  {virtualPaddingTop > 0 && (
+                    <tr aria-hidden="true"><td colSpan={9} style={{ height: virtualPaddingTop, padding: 0, border: 0 }} /></tr>
+                  )}
+                  {virtualRows.map((virtualRow) => {
+                    const employee = sortedEmployees[virtualRow.index];
+                    const idx = virtualRow.index;
+                    return (
+                    <TableRow key={employee.id} data-index={virtualRow.index} ref={rowVirtualizer.measureElement} data-testid={`employee-row-${employee.id}`} className={employee.status === "inactive" ? "opacity-75" : ""}>
+                      <TableCell className="text-center text-muted-foreground font-medium text-sm">{idx + 1}</TableCell>
                       <TableCell>
                         <span className="font-mono text-xs font-semibold text-primary">{employee.employeeCode}</span>
                       </TableCell>
@@ -962,39 +976,13 @@ export default function Employees() {
                         </div>
                       </TableCell>
                     </TableRow>
-                  ))}
+                    );
+                  })}
+                  {virtualPaddingBottom > 0 && (
+                    <tr aria-hidden="true"><td colSpan={9} style={{ height: virtualPaddingBottom, padding: 0, border: 0 }} /></tr>
+                  )}
                 </TableBody>
               </Table>
-              {empTotalPages > 1 && (
-                <div className="flex items-center justify-between border-t px-4 py-3 text-sm">
-                  <span className="text-muted-foreground" data-testid="text-employee-page-range">
-                    Showing {empPageStart + 1}–{Math.min(empPageStart + EMP_PAGE_SIZE, sortedEmployees.length)} of {sortedEmployees.length}
-                  </span>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setEmpPage((p) => Math.max(1, p - 1))}
-                      disabled={empPageClamped <= 1}
-                      data-testid="button-employees-prev-page"
-                    >
-                      Previous
-                    </Button>
-                    <span className="text-muted-foreground" data-testid="text-employee-page-number">
-                      Page {empPageClamped} of {empTotalPages}
-                    </span>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setEmpPage((p) => Math.min(empTotalPages, p + 1))}
-                      disabled={empPageClamped >= empTotalPages}
-                      data-testid="button-employees-next-page"
-                    >
-                      Next
-                    </Button>
-                  </div>
-                </div>
-              )}
             </div>
           )}
         </CardContent>
