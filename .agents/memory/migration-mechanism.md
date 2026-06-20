@@ -49,6 +49,19 @@ running the whole file via executeSql on dev (idempotent no-op).
 **Why:** can't query the self-hosted VPS DB from Replit, so the migration itself
 must tolerate an unknown subset of missing tables.
 
+**Add prod FKs as NOT VALID when legacy orphan data may exist:** the VPS prod DB
+has years of data that predate these FKs, so a plain `ADD CONSTRAINT ... FOREIGN
+KEY` fails with "insert or update on table ... violates foreign key constraint"
+whenever any row references a missing parent. NOT NULL FK columns (e.g.
+`statutory_settings.company_id`) can't be orphan-nulled, and fixing one table
+just exposes the next (93 NOT NULL CASCADE FKs in 020). Fix pattern: append
+`NOT VALID` to every FK `ADD CONSTRAINT` — it enforces the FK on all new
+inserts/updates immediately but does NOT validate (or delete) pre-existing rows.
+Non-destructive, idempotent (the pg_constraint NOT EXISTS guard skips already-
+present constraints rather than downgrading them), and avoids whack-a-mole.
+**Why:** can't clean unknown prod orphan data from Replit; NOT VALID unblocks the
+deploy without data loss. Orphans can be cleaned + `VALIDATE CONSTRAINT` later.
+
 **connect-pg-simple `session` table must be in schema.ts:** the web session
 store table is created at runtime by connect-pg-simple, not the app. If it is
 NOT declared in `shared/schema.ts`, `db:push` sees an unknown table and proposes

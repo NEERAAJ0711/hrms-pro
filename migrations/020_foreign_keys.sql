@@ -194,761 +194,761 @@ END IF; END $$;
 -- ============ Step 2: add foreign-key constraints (idempotent) ============
 DO $$ BEGIN
     IF to_regclass('public.company_contractors') IS NOT NULL AND to_regclass('public.companies') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='company_contractors_company_id_companies_id_fk') THEN
-      ALTER TABLE company_contractors ADD CONSTRAINT company_contractors_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE;
+      ALTER TABLE company_contractors ADD CONSTRAINT company_contractors_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.company_contractors') IS NOT NULL AND to_regclass('public.companies') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='company_contractors_contractor_id_companies_id_fk') THEN
-      ALTER TABLE company_contractors ADD CONSTRAINT company_contractors_contractor_id_companies_id_fk FOREIGN KEY (contractor_id) REFERENCES companies(id) ON DELETE CASCADE;
+      ALTER TABLE company_contractors ADD CONSTRAINT company_contractors_contractor_id_companies_id_fk FOREIGN KEY (contractor_id) REFERENCES companies(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.contractor_employees') IS NOT NULL AND to_regclass('public.company_contractors') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='contractor_employees_company_contractor_id_company_contractors_id_fk') THEN
-      ALTER TABLE contractor_employees ADD CONSTRAINT contractor_employees_company_contractor_id_company_contractors_id_fk FOREIGN KEY (company_contractor_id) REFERENCES company_contractors(id) ON DELETE CASCADE;
+      ALTER TABLE contractor_employees ADD CONSTRAINT contractor_employees_company_contractor_id_company_contractors_id_fk FOREIGN KEY (company_contractor_id) REFERENCES company_contractors(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.contractor_employees') IS NOT NULL AND to_regclass('public.employees') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='contractor_employees_employee_id_employees_id_fk') THEN
-      ALTER TABLE contractor_employees ADD CONSTRAINT contractor_employees_employee_id_employees_id_fk FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE;
+      ALTER TABLE contractor_employees ADD CONSTRAINT contractor_employees_employee_id_employees_id_fk FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.users') IS NOT NULL AND to_regclass('public.companies') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='users_company_id_companies_id_fk') THEN
-      ALTER TABLE users ADD CONSTRAINT users_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE SET NULL;
+      ALTER TABLE users ADD CONSTRAINT users_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE SET NULL NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.employees') IS NOT NULL AND to_regclass('public.companies') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='employees_company_id_companies_id_fk') THEN
-      ALTER TABLE employees ADD CONSTRAINT employees_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE;
+      ALTER TABLE employees ADD CONSTRAINT employees_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.employees') IS NOT NULL AND to_regclass('public.users') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='employees_user_id_users_id_fk') THEN
-      ALTER TABLE employees ADD CONSTRAINT employees_user_id_users_id_fk FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL;
+      ALTER TABLE employees ADD CONSTRAINT employees_user_id_users_id_fk FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.employees') IS NOT NULL AND to_regclass('public.employees') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='employees_reporting_manager_employees_id_fk') THEN
-      ALTER TABLE employees ADD CONSTRAINT employees_reporting_manager_employees_id_fk FOREIGN KEY (reporting_manager) REFERENCES employees(id) ON DELETE SET NULL;
+      ALTER TABLE employees ADD CONSTRAINT employees_reporting_manager_employees_id_fk FOREIGN KEY (reporting_manager) REFERENCES employees(id) ON DELETE SET NULL NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.employees') IS NOT NULL AND to_regclass('public.time_office_policies') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='employees_time_office_policy_id_time_office_policies_id_fk') THEN
-      ALTER TABLE employees ADD CONSTRAINT employees_time_office_policy_id_time_office_policies_id_fk FOREIGN KEY (time_office_policy_id) REFERENCES time_office_policies(id) ON DELETE SET NULL;
+      ALTER TABLE employees ADD CONSTRAINT employees_time_office_policy_id_time_office_policies_id_fk FOREIGN KEY (time_office_policy_id) REFERENCES time_office_policies(id) ON DELETE SET NULL NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.employees') IS NOT NULL AND to_regclass('public.wage_grades') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='employees_wage_grade_id_wage_grades_id_fk') THEN
-      ALTER TABLE employees ADD CONSTRAINT employees_wage_grade_id_wage_grades_id_fk FOREIGN KEY (wage_grade_id) REFERENCES wage_grades(id) ON DELETE SET NULL;
+      ALTER TABLE employees ADD CONSTRAINT employees_wage_grade_id_wage_grades_id_fk FOREIGN KEY (wage_grade_id) REFERENCES wage_grades(id) ON DELETE SET NULL NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.employees') IS NOT NULL AND to_regclass('public.contractor_masters') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='employees_contractor_master_id_contractor_masters_id_fk') THEN
-      ALTER TABLE employees ADD CONSTRAINT employees_contractor_master_id_contractor_masters_id_fk FOREIGN KEY (contractor_master_id) REFERENCES contractor_masters(id) ON DELETE SET NULL;
+      ALTER TABLE employees ADD CONSTRAINT employees_contractor_master_id_contractor_masters_id_fk FOREIGN KEY (contractor_master_id) REFERENCES contractor_masters(id) ON DELETE SET NULL NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.employees') IS NOT NULL AND to_regclass('public.leave_policies') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='employees_leave_policy_id_leave_policies_id_fk') THEN
-      ALTER TABLE employees ADD CONSTRAINT employees_leave_policy_id_leave_policies_id_fk FOREIGN KEY (leave_policy_id) REFERENCES leave_policies(id) ON DELETE SET NULL;
+      ALTER TABLE employees ADD CONSTRAINT employees_leave_policy_id_leave_policies_id_fk FOREIGN KEY (leave_policy_id) REFERENCES leave_policies(id) ON DELETE SET NULL NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.master_departments') IS NOT NULL AND to_regclass('public.companies') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='master_departments_company_id_companies_id_fk') THEN
-      ALTER TABLE master_departments ADD CONSTRAINT master_departments_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE;
+      ALTER TABLE master_departments ADD CONSTRAINT master_departments_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.master_designations') IS NOT NULL AND to_regclass('public.companies') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='master_designations_company_id_companies_id_fk') THEN
-      ALTER TABLE master_designations ADD CONSTRAINT master_designations_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE;
+      ALTER TABLE master_designations ADD CONSTRAINT master_designations_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.wage_grades') IS NOT NULL AND to_regclass('public.companies') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='wage_grades_company_id_companies_id_fk') THEN
-      ALTER TABLE wage_grades ADD CONSTRAINT wage_grades_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE;
+      ALTER TABLE wage_grades ADD CONSTRAINT wage_grades_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.master_locations') IS NOT NULL AND to_regclass('public.companies') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='master_locations_company_id_companies_id_fk') THEN
-      ALTER TABLE master_locations ADD CONSTRAINT master_locations_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE;
+      ALTER TABLE master_locations ADD CONSTRAINT master_locations_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.earning_heads') IS NOT NULL AND to_regclass('public.companies') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='earning_heads_company_id_companies_id_fk') THEN
-      ALTER TABLE earning_heads ADD CONSTRAINT earning_heads_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE;
+      ALTER TABLE earning_heads ADD CONSTRAINT earning_heads_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.deduction_heads') IS NOT NULL AND to_regclass('public.companies') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='deduction_heads_company_id_companies_id_fk') THEN
-      ALTER TABLE deduction_heads ADD CONSTRAINT deduction_heads_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE;
+      ALTER TABLE deduction_heads ADD CONSTRAINT deduction_heads_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.statutory_settings') IS NOT NULL AND to_regclass('public.companies') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='statutory_settings_company_id_companies_id_fk') THEN
-      ALTER TABLE statutory_settings ADD CONSTRAINT statutory_settings_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE;
+      ALTER TABLE statutory_settings ADD CONSTRAINT statutory_settings_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.attendance') IS NOT NULL AND to_regclass('public.employees') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='attendance_employee_id_employees_id_fk') THEN
-      ALTER TABLE attendance ADD CONSTRAINT attendance_employee_id_employees_id_fk FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE;
+      ALTER TABLE attendance ADD CONSTRAINT attendance_employee_id_employees_id_fk FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.attendance') IS NOT NULL AND to_regclass('public.companies') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='attendance_company_id_companies_id_fk') THEN
-      ALTER TABLE attendance ADD CONSTRAINT attendance_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE;
+      ALTER TABLE attendance ADD CONSTRAINT attendance_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.leave_types') IS NOT NULL AND to_regclass('public.companies') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='leave_types_company_id_companies_id_fk') THEN
-      ALTER TABLE leave_types ADD CONSTRAINT leave_types_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE SET NULL;
+      ALTER TABLE leave_types ADD CONSTRAINT leave_types_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE SET NULL NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.leave_requests') IS NOT NULL AND to_regclass('public.employees') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='leave_requests_employee_id_employees_id_fk') THEN
-      ALTER TABLE leave_requests ADD CONSTRAINT leave_requests_employee_id_employees_id_fk FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE;
+      ALTER TABLE leave_requests ADD CONSTRAINT leave_requests_employee_id_employees_id_fk FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.leave_requests') IS NOT NULL AND to_regclass('public.companies') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='leave_requests_company_id_companies_id_fk') THEN
-      ALTER TABLE leave_requests ADD CONSTRAINT leave_requests_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE;
+      ALTER TABLE leave_requests ADD CONSTRAINT leave_requests_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.leave_requests') IS NOT NULL AND to_regclass('public.leave_types') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='leave_requests_leave_type_id_leave_types_id_fk') THEN
-      ALTER TABLE leave_requests ADD CONSTRAINT leave_requests_leave_type_id_leave_types_id_fk FOREIGN KEY (leave_type_id) REFERENCES leave_types(id) ON DELETE RESTRICT;
+      ALTER TABLE leave_requests ADD CONSTRAINT leave_requests_leave_type_id_leave_types_id_fk FOREIGN KEY (leave_type_id) REFERENCES leave_types(id) ON DELETE RESTRICT NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.leave_requests') IS NOT NULL AND to_regclass('public.users') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='leave_requests_approved_by_users_id_fk') THEN
-      ALTER TABLE leave_requests ADD CONSTRAINT leave_requests_approved_by_users_id_fk FOREIGN KEY (approved_by) REFERENCES users(id) ON DELETE SET NULL;
+      ALTER TABLE leave_requests ADD CONSTRAINT leave_requests_approved_by_users_id_fk FOREIGN KEY (approved_by) REFERENCES users(id) ON DELETE SET NULL NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.leave_policies') IS NOT NULL AND to_regclass('public.companies') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='leave_policies_company_id_companies_id_fk') THEN
-      ALTER TABLE leave_policies ADD CONSTRAINT leave_policies_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE;
+      ALTER TABLE leave_policies ADD CONSTRAINT leave_policies_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.salary_structures') IS NOT NULL AND to_regclass('public.employees') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='salary_structures_employee_id_employees_id_fk') THEN
-      ALTER TABLE salary_structures ADD CONSTRAINT salary_structures_employee_id_employees_id_fk FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE;
+      ALTER TABLE salary_structures ADD CONSTRAINT salary_structures_employee_id_employees_id_fk FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.salary_structures') IS NOT NULL AND to_regclass('public.companies') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='salary_structures_company_id_companies_id_fk') THEN
-      ALTER TABLE salary_structures ADD CONSTRAINT salary_structures_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE;
+      ALTER TABLE salary_structures ADD CONSTRAINT salary_structures_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.payroll') IS NOT NULL AND to_regclass('public.employees') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='payroll_employee_id_employees_id_fk') THEN
-      ALTER TABLE payroll ADD CONSTRAINT payroll_employee_id_employees_id_fk FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE;
+      ALTER TABLE payroll ADD CONSTRAINT payroll_employee_id_employees_id_fk FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.payroll') IS NOT NULL AND to_regclass('public.companies') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='payroll_company_id_companies_id_fk') THEN
-      ALTER TABLE payroll ADD CONSTRAINT payroll_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE;
+      ALTER TABLE payroll ADD CONSTRAINT payroll_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.settings') IS NOT NULL AND to_regclass('public.companies') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='settings_company_id_companies_id_fk') THEN
-      ALTER TABLE settings ADD CONSTRAINT settings_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE SET NULL;
+      ALTER TABLE settings ADD CONSTRAINT settings_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE SET NULL NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.time_office_policies') IS NOT NULL AND to_regclass('public.companies') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='time_office_policies_company_id_companies_id_fk') THEN
-      ALTER TABLE time_office_policies ADD CONSTRAINT time_office_policies_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE;
+      ALTER TABLE time_office_policies ADD CONSTRAINT time_office_policies_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.fnf_settlements') IS NOT NULL AND to_regclass('public.employees') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='fnf_settlements_employee_id_employees_id_fk') THEN
-      ALTER TABLE fnf_settlements ADD CONSTRAINT fnf_settlements_employee_id_employees_id_fk FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE;
+      ALTER TABLE fnf_settlements ADD CONSTRAINT fnf_settlements_employee_id_employees_id_fk FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.fnf_settlements') IS NOT NULL AND to_regclass('public.companies') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='fnf_settlements_company_id_companies_id_fk') THEN
-      ALTER TABLE fnf_settlements ADD CONSTRAINT fnf_settlements_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE;
+      ALTER TABLE fnf_settlements ADD CONSTRAINT fnf_settlements_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.fnf_settlements') IS NOT NULL AND to_regclass('public.users') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='fnf_settlements_approved_by_users_id_fk') THEN
-      ALTER TABLE fnf_settlements ADD CONSTRAINT fnf_settlements_approved_by_users_id_fk FOREIGN KEY (approved_by) REFERENCES users(id) ON DELETE SET NULL;
+      ALTER TABLE fnf_settlements ADD CONSTRAINT fnf_settlements_approved_by_users_id_fk FOREIGN KEY (approved_by) REFERENCES users(id) ON DELETE SET NULL NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.holidays') IS NOT NULL AND to_regclass('public.companies') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='holidays_company_id_companies_id_fk') THEN
-      ALTER TABLE holidays ADD CONSTRAINT holidays_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE;
+      ALTER TABLE holidays ADD CONSTRAINT holidays_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.biometric_devices') IS NOT NULL AND to_regclass('public.companies') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='biometric_devices_company_id_companies_id_fk') THEN
-      ALTER TABLE biometric_devices ADD CONSTRAINT biometric_devices_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE SET NULL;
+      ALTER TABLE biometric_devices ADD CONSTRAINT biometric_devices_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE SET NULL NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.biometric_punch_logs') IS NOT NULL AND to_regclass('public.companies') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='biometric_punch_logs_company_id_companies_id_fk') THEN
-      ALTER TABLE biometric_punch_logs ADD CONSTRAINT biometric_punch_logs_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE;
+      ALTER TABLE biometric_punch_logs ADD CONSTRAINT biometric_punch_logs_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.biometric_punch_logs') IS NOT NULL AND to_regclass('public.employees') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='biometric_punch_logs_employee_id_employees_id_fk') THEN
-      ALTER TABLE biometric_punch_logs ADD CONSTRAINT biometric_punch_logs_employee_id_employees_id_fk FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE SET NULL;
+      ALTER TABLE biometric_punch_logs ADD CONSTRAINT biometric_punch_logs_employee_id_employees_id_fk FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE SET NULL NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.biometric_device_users') IS NOT NULL AND to_regclass('public.biometric_devices') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='biometric_device_users_device_id_biometric_devices_id_fk') THEN
-      ALTER TABLE biometric_device_users ADD CONSTRAINT biometric_device_users_device_id_biometric_devices_id_fk FOREIGN KEY (device_id) REFERENCES biometric_devices(id) ON DELETE CASCADE;
+      ALTER TABLE biometric_device_users ADD CONSTRAINT biometric_device_users_device_id_biometric_devices_id_fk FOREIGN KEY (device_id) REFERENCES biometric_devices(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.job_postings') IS NOT NULL AND to_regclass('public.companies') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='job_postings_company_id_companies_id_fk') THEN
-      ALTER TABLE job_postings ADD CONSTRAINT job_postings_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE;
+      ALTER TABLE job_postings ADD CONSTRAINT job_postings_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.job_applications') IS NOT NULL AND to_regclass('public.job_postings') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='job_applications_job_posting_id_job_postings_id_fk') THEN
-      ALTER TABLE job_applications ADD CONSTRAINT job_applications_job_posting_id_job_postings_id_fk FOREIGN KEY (job_posting_id) REFERENCES job_postings(id) ON DELETE CASCADE;
+      ALTER TABLE job_applications ADD CONSTRAINT job_applications_job_posting_id_job_postings_id_fk FOREIGN KEY (job_posting_id) REFERENCES job_postings(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.job_applications') IS NOT NULL AND to_regclass('public.companies') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='job_applications_company_id_companies_id_fk') THEN
-      ALTER TABLE job_applications ADD CONSTRAINT job_applications_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE;
+      ALTER TABLE job_applications ADD CONSTRAINT job_applications_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.job_applications') IS NOT NULL AND to_regclass('public.users') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='job_applications_applicant_user_id_users_id_fk') THEN
-      ALTER TABLE job_applications ADD CONSTRAINT job_applications_applicant_user_id_users_id_fk FOREIGN KEY (applicant_user_id) REFERENCES users(id) ON DELETE SET NULL;
+      ALTER TABLE job_applications ADD CONSTRAINT job_applications_applicant_user_id_users_id_fk FOREIGN KEY (applicant_user_id) REFERENCES users(id) ON DELETE SET NULL NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.job_applications') IS NOT NULL AND to_regclass('public.employees') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='job_applications_employee_id_employees_id_fk') THEN
-      ALTER TABLE job_applications ADD CONSTRAINT job_applications_employee_id_employees_id_fk FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE SET NULL;
+      ALTER TABLE job_applications ADD CONSTRAINT job_applications_employee_id_employees_id_fk FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE SET NULL NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.job_applications') IS NOT NULL AND to_regclass('public.users') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='job_applications_reviewed_by_users_id_fk') THEN
-      ALTER TABLE job_applications ADD CONSTRAINT job_applications_reviewed_by_users_id_fk FOREIGN KEY (reviewed_by) REFERENCES users(id) ON DELETE SET NULL;
+      ALTER TABLE job_applications ADD CONSTRAINT job_applications_reviewed_by_users_id_fk FOREIGN KEY (reviewed_by) REFERENCES users(id) ON DELETE SET NULL NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.candidate_profiles') IS NOT NULL AND to_regclass('public.users') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='candidate_profiles_user_id_users_id_fk') THEN
-      ALTER TABLE candidate_profiles ADD CONSTRAINT candidate_profiles_user_id_users_id_fk FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+      ALTER TABLE candidate_profiles ADD CONSTRAINT candidate_profiles_user_id_users_id_fk FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.previous_experiences') IS NOT NULL AND to_regclass('public.employees') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='previous_experiences_employee_id_employees_id_fk') THEN
-      ALTER TABLE previous_experiences ADD CONSTRAINT previous_experiences_employee_id_employees_id_fk FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE SET NULL;
+      ALTER TABLE previous_experiences ADD CONSTRAINT previous_experiences_employee_id_employees_id_fk FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE SET NULL NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.previous_experiences') IS NOT NULL AND to_regclass('public.candidate_profiles') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='previous_experiences_candidate_profile_id_candidate_profiles_id_fk') THEN
-      ALTER TABLE previous_experiences ADD CONSTRAINT previous_experiences_candidate_profile_id_candidate_profiles_id_fk FOREIGN KEY (candidate_profile_id) REFERENCES candidate_profiles(id) ON DELETE CASCADE;
+      ALTER TABLE previous_experiences ADD CONSTRAINT previous_experiences_candidate_profile_id_candidate_profiles_id_fk FOREIGN KEY (candidate_profile_id) REFERENCES candidate_profiles(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.loan_advances') IS NOT NULL AND to_regclass('public.companies') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='loan_advances_company_id_companies_id_fk') THEN
-      ALTER TABLE loan_advances ADD CONSTRAINT loan_advances_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE;
+      ALTER TABLE loan_advances ADD CONSTRAINT loan_advances_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.loan_advances') IS NOT NULL AND to_regclass('public.employees') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='loan_advances_employee_id_employees_id_fk') THEN
-      ALTER TABLE loan_advances ADD CONSTRAINT loan_advances_employee_id_employees_id_fk FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE;
+      ALTER TABLE loan_advances ADD CONSTRAINT loan_advances_employee_id_employees_id_fk FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.loan_advances') IS NOT NULL AND to_regclass('public.users') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='loan_advances_approved_by_users_id_fk') THEN
-      ALTER TABLE loan_advances ADD CONSTRAINT loan_advances_approved_by_users_id_fk FOREIGN KEY (approved_by) REFERENCES users(id) ON DELETE SET NULL;
+      ALTER TABLE loan_advances ADD CONSTRAINT loan_advances_approved_by_users_id_fk FOREIGN KEY (approved_by) REFERENCES users(id) ON DELETE SET NULL NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.user_permissions') IS NOT NULL AND to_regclass('public.users') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='user_permissions_user_id_users_id_fk') THEN
-      ALTER TABLE user_permissions ADD CONSTRAINT user_permissions_user_id_users_id_fk FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+      ALTER TABLE user_permissions ADD CONSTRAINT user_permissions_user_id_users_id_fk FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.user_permissions') IS NOT NULL AND to_regclass('public.companies') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='user_permissions_company_id_companies_id_fk') THEN
-      ALTER TABLE user_permissions ADD CONSTRAINT user_permissions_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE SET NULL;
+      ALTER TABLE user_permissions ADD CONSTRAINT user_permissions_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE SET NULL NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.module_access_requests') IS NOT NULL AND to_regclass('public.users') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='module_access_requests_user_id_users_id_fk') THEN
-      ALTER TABLE module_access_requests ADD CONSTRAINT module_access_requests_user_id_users_id_fk FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+      ALTER TABLE module_access_requests ADD CONSTRAINT module_access_requests_user_id_users_id_fk FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.module_access_requests') IS NOT NULL AND to_regclass('public.companies') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='module_access_requests_company_id_companies_id_fk') THEN
-      ALTER TABLE module_access_requests ADD CONSTRAINT module_access_requests_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE SET NULL;
+      ALTER TABLE module_access_requests ADD CONSTRAINT module_access_requests_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE SET NULL NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.module_access_requests') IS NOT NULL AND to_regclass('public.users') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='module_access_requests_decided_by_users_id_fk') THEN
-      ALTER TABLE module_access_requests ADD CONSTRAINT module_access_requests_decided_by_users_id_fk FOREIGN KEY (decided_by) REFERENCES users(id) ON DELETE SET NULL;
+      ALTER TABLE module_access_requests ADD CONSTRAINT module_access_requests_decided_by_users_id_fk FOREIGN KEY (decided_by) REFERENCES users(id) ON DELETE SET NULL NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.notifications') IS NOT NULL AND to_regclass('public.users') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='notifications_user_id_users_id_fk') THEN
-      ALTER TABLE notifications ADD CONSTRAINT notifications_user_id_users_id_fk FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+      ALTER TABLE notifications ADD CONSTRAINT notifications_user_id_users_id_fk FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.notifications') IS NOT NULL AND to_regclass('public.companies') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='notifications_company_id_companies_id_fk') THEN
-      ALTER TABLE notifications ADD CONSTRAINT notifications_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE SET NULL;
+      ALTER TABLE notifications ADD CONSTRAINT notifications_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE SET NULL NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.profile_update_requests') IS NOT NULL AND to_regclass('public.users') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='profile_update_requests_user_id_users_id_fk') THEN
-      ALTER TABLE profile_update_requests ADD CONSTRAINT profile_update_requests_user_id_users_id_fk FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+      ALTER TABLE profile_update_requests ADD CONSTRAINT profile_update_requests_user_id_users_id_fk FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.profile_update_requests') IS NOT NULL AND to_regclass('public.companies') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='profile_update_requests_company_id_companies_id_fk') THEN
-      ALTER TABLE profile_update_requests ADD CONSTRAINT profile_update_requests_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE SET NULL;
+      ALTER TABLE profile_update_requests ADD CONSTRAINT profile_update_requests_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE SET NULL NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.profile_update_requests') IS NOT NULL AND to_regclass('public.users') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='profile_update_requests_reviewed_by_users_id_fk') THEN
-      ALTER TABLE profile_update_requests ADD CONSTRAINT profile_update_requests_reviewed_by_users_id_fk FOREIGN KEY (reviewed_by) REFERENCES users(id) ON DELETE SET NULL;
+      ALTER TABLE profile_update_requests ADD CONSTRAINT profile_update_requests_reviewed_by_users_id_fk FOREIGN KEY (reviewed_by) REFERENCES users(id) ON DELETE SET NULL NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.compliance_adjustments') IS NOT NULL AND to_regclass('public.companies') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='compliance_adjustments_company_id_companies_id_fk') THEN
-      ALTER TABLE compliance_adjustments ADD CONSTRAINT compliance_adjustments_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE;
+      ALTER TABLE compliance_adjustments ADD CONSTRAINT compliance_adjustments_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.compliance_adjustments') IS NOT NULL AND to_regclass('public.employees') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='compliance_adjustments_employee_id_employees_id_fk') THEN
-      ALTER TABLE compliance_adjustments ADD CONSTRAINT compliance_adjustments_employee_id_employees_id_fk FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE;
+      ALTER TABLE compliance_adjustments ADD CONSTRAINT compliance_adjustments_employee_id_employees_id_fk FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.compliance_adjustments') IS NOT NULL AND to_regclass('public.users') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='compliance_adjustments_created_by_users_id_fk') THEN
-      ALTER TABLE compliance_adjustments ADD CONSTRAINT compliance_adjustments_created_by_users_id_fk FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL;
+      ALTER TABLE compliance_adjustments ADD CONSTRAINT compliance_adjustments_created_by_users_id_fk FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.contractor_masters') IS NOT NULL AND to_regclass('public.companies') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='contractor_masters_company_id_companies_id_fk') THEN
-      ALTER TABLE contractor_masters ADD CONSTRAINT contractor_masters_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE;
+      ALTER TABLE contractor_masters ADD CONSTRAINT contractor_masters_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.cd_accounts') IS NOT NULL AND to_regclass('public.companies') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='cd_accounts_company_id_companies_id_fk') THEN
-      ALTER TABLE cd_accounts ADD CONSTRAINT cd_accounts_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE;
+      ALTER TABLE cd_accounts ADD CONSTRAINT cd_accounts_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.cd_transactions') IS NOT NULL AND to_regclass('public.companies') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='cd_transactions_company_id_companies_id_fk') THEN
-      ALTER TABLE cd_transactions ADD CONSTRAINT cd_transactions_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE;
+      ALTER TABLE cd_transactions ADD CONSTRAINT cd_transactions_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.cd_transactions') IS NOT NULL AND to_regclass('public.users') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='cd_transactions_created_by_users_id_fk') THEN
-      ALTER TABLE cd_transactions ADD CONSTRAINT cd_transactions_created_by_users_id_fk FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL;
+      ALTER TABLE cd_transactions ADD CONSTRAINT cd_transactions_created_by_users_id_fk FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.daily_billing_logs') IS NOT NULL AND to_regclass('public.companies') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='daily_billing_logs_company_id_companies_id_fk') THEN
-      ALTER TABLE daily_billing_logs ADD CONSTRAINT daily_billing_logs_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE;
+      ALTER TABLE daily_billing_logs ADD CONSTRAINT daily_billing_logs_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.invoices') IS NOT NULL AND to_regclass('public.companies') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='invoices_company_id_companies_id_fk') THEN
-      ALTER TABLE invoices ADD CONSTRAINT invoices_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE;
+      ALTER TABLE invoices ADD CONSTRAINT invoices_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.expenses') IS NOT NULL AND to_regclass('public.companies') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='expenses_company_id_companies_id_fk') THEN
-      ALTER TABLE expenses ADD CONSTRAINT expenses_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE;
+      ALTER TABLE expenses ADD CONSTRAINT expenses_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.expenses') IS NOT NULL AND to_regclass('public.employees') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='expenses_employee_id_employees_id_fk') THEN
-      ALTER TABLE expenses ADD CONSTRAINT expenses_employee_id_employees_id_fk FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE;
+      ALTER TABLE expenses ADD CONSTRAINT expenses_employee_id_employees_id_fk FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.expenses') IS NOT NULL AND to_regclass('public.users') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='expenses_approved_by_users_id_fk') THEN
-      ALTER TABLE expenses ADD CONSTRAINT expenses_approved_by_users_id_fk FOREIGN KEY (approved_by) REFERENCES users(id) ON DELETE SET NULL;
+      ALTER TABLE expenses ADD CONSTRAINT expenses_approved_by_users_id_fk FOREIGN KEY (approved_by) REFERENCES users(id) ON DELETE SET NULL NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.leave_adjustments') IS NOT NULL AND to_regclass('public.companies') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='leave_adjustments_company_id_companies_id_fk') THEN
-      ALTER TABLE leave_adjustments ADD CONSTRAINT leave_adjustments_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE;
+      ALTER TABLE leave_adjustments ADD CONSTRAINT leave_adjustments_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.leave_adjustments') IS NOT NULL AND to_regclass('public.employees') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='leave_adjustments_employee_id_employees_id_fk') THEN
-      ALTER TABLE leave_adjustments ADD CONSTRAINT leave_adjustments_employee_id_employees_id_fk FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE;
+      ALTER TABLE leave_adjustments ADD CONSTRAINT leave_adjustments_employee_id_employees_id_fk FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.leave_adjustments') IS NOT NULL AND to_regclass('public.leave_types') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='leave_adjustments_leave_type_id_leave_types_id_fk') THEN
-      ALTER TABLE leave_adjustments ADD CONSTRAINT leave_adjustments_leave_type_id_leave_types_id_fk FOREIGN KEY (leave_type_id) REFERENCES leave_types(id) ON DELETE RESTRICT;
+      ALTER TABLE leave_adjustments ADD CONSTRAINT leave_adjustments_leave_type_id_leave_types_id_fk FOREIGN KEY (leave_type_id) REFERENCES leave_types(id) ON DELETE RESTRICT NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.leave_adjustments') IS NOT NULL AND to_regclass('public.users') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='leave_adjustments_adjusted_by_users_id_fk') THEN
-      ALTER TABLE leave_adjustments ADD CONSTRAINT leave_adjustments_adjusted_by_users_id_fk FOREIGN KEY (adjusted_by) REFERENCES users(id) ON DELETE RESTRICT;
+      ALTER TABLE leave_adjustments ADD CONSTRAINT leave_adjustments_adjusted_by_users_id_fk FOREIGN KEY (adjusted_by) REFERENCES users(id) ON DELETE RESTRICT NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.comp_off_applications') IS NOT NULL AND to_regclass('public.companies') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='comp_off_applications_company_id_companies_id_fk') THEN
-      ALTER TABLE comp_off_applications ADD CONSTRAINT comp_off_applications_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE;
+      ALTER TABLE comp_off_applications ADD CONSTRAINT comp_off_applications_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.comp_off_applications') IS NOT NULL AND to_regclass('public.employees') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='comp_off_applications_employee_id_employees_id_fk') THEN
-      ALTER TABLE comp_off_applications ADD CONSTRAINT comp_off_applications_employee_id_employees_id_fk FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE;
+      ALTER TABLE comp_off_applications ADD CONSTRAINT comp_off_applications_employee_id_employees_id_fk FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.comp_off_applications') IS NOT NULL AND to_regclass('public.users') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='comp_off_applications_approved_by_users_id_fk') THEN
-      ALTER TABLE comp_off_applications ADD CONSTRAINT comp_off_applications_approved_by_users_id_fk FOREIGN KEY (approved_by) REFERENCES users(id) ON DELETE SET NULL;
+      ALTER TABLE comp_off_applications ADD CONSTRAINT comp_off_applications_approved_by_users_id_fk FOREIGN KEY (approved_by) REFERENCES users(id) ON DELETE SET NULL NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.kra_templates') IS NOT NULL AND to_regclass('public.companies') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='kra_templates_company_id_companies_id_fk') THEN
-      ALTER TABLE kra_templates ADD CONSTRAINT kra_templates_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE;
+      ALTER TABLE kra_templates ADD CONSTRAINT kra_templates_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.kra_templates') IS NOT NULL AND to_regclass('public.users') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='kra_templates_created_by_users_id_fk') THEN
-      ALTER TABLE kra_templates ADD CONSTRAINT kra_templates_created_by_users_id_fk FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL;
+      ALTER TABLE kra_templates ADD CONSTRAINT kra_templates_created_by_users_id_fk FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.kra_template_kpis') IS NOT NULL AND to_regclass('public.kra_templates') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='kra_template_kpis_template_id_kra_templates_id_fk') THEN
-      ALTER TABLE kra_template_kpis ADD CONSTRAINT kra_template_kpis_template_id_kra_templates_id_fk FOREIGN KEY (template_id) REFERENCES kra_templates(id) ON DELETE CASCADE;
+      ALTER TABLE kra_template_kpis ADD CONSTRAINT kra_template_kpis_template_id_kra_templates_id_fk FOREIGN KEY (template_id) REFERENCES kra_templates(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.kra_assignments') IS NOT NULL AND to_regclass('public.companies') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='kra_assignments_company_id_companies_id_fk') THEN
-      ALTER TABLE kra_assignments ADD CONSTRAINT kra_assignments_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE;
+      ALTER TABLE kra_assignments ADD CONSTRAINT kra_assignments_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.kra_assignments') IS NOT NULL AND to_regclass('public.employees') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='kra_assignments_employee_id_employees_id_fk') THEN
-      ALTER TABLE kra_assignments ADD CONSTRAINT kra_assignments_employee_id_employees_id_fk FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE;
+      ALTER TABLE kra_assignments ADD CONSTRAINT kra_assignments_employee_id_employees_id_fk FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.kra_assignments') IS NOT NULL AND to_regclass('public.kra_templates') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='kra_assignments_template_id_kra_templates_id_fk') THEN
-      ALTER TABLE kra_assignments ADD CONSTRAINT kra_assignments_template_id_kra_templates_id_fk FOREIGN KEY (template_id) REFERENCES kra_templates(id) ON DELETE SET NULL;
+      ALTER TABLE kra_assignments ADD CONSTRAINT kra_assignments_template_id_kra_templates_id_fk FOREIGN KEY (template_id) REFERENCES kra_templates(id) ON DELETE SET NULL NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.kra_assignments') IS NOT NULL AND to_regclass('public.users') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='kra_assignments_created_by_users_id_fk') THEN
-      ALTER TABLE kra_assignments ADD CONSTRAINT kra_assignments_created_by_users_id_fk FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL;
+      ALTER TABLE kra_assignments ADD CONSTRAINT kra_assignments_created_by_users_id_fk FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.kra_assignment_kpis') IS NOT NULL AND to_regclass('public.kra_assignments') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='kra_assignment_kpis_assignment_id_kra_assignments_id_fk') THEN
-      ALTER TABLE kra_assignment_kpis ADD CONSTRAINT kra_assignment_kpis_assignment_id_kra_assignments_id_fk FOREIGN KEY (assignment_id) REFERENCES kra_assignments(id) ON DELETE CASCADE;
+      ALTER TABLE kra_assignment_kpis ADD CONSTRAINT kra_assignment_kpis_assignment_id_kra_assignments_id_fk FOREIGN KEY (assignment_id) REFERENCES kra_assignments(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.automation_jobs') IS NOT NULL AND to_regclass('public.companies') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='automation_jobs_company_id_companies_id_fk') THEN
-      ALTER TABLE automation_jobs ADD CONSTRAINT automation_jobs_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE;
+      ALTER TABLE automation_jobs ADD CONSTRAINT automation_jobs_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.automation_jobs') IS NOT NULL AND to_regclass('public.users') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='automation_jobs_created_by_users_id_fk') THEN
-      ALTER TABLE automation_jobs ADD CONSTRAINT automation_jobs_created_by_users_id_fk FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL;
+      ALTER TABLE automation_jobs ADD CONSTRAINT automation_jobs_created_by_users_id_fk FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.automation_logs') IS NOT NULL AND to_regclass('public.automation_jobs') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='automation_logs_job_id_automation_jobs_id_fk') THEN
-      ALTER TABLE automation_logs ADD CONSTRAINT automation_logs_job_id_automation_jobs_id_fk FOREIGN KEY (job_id) REFERENCES automation_jobs(id) ON DELETE CASCADE;
+      ALTER TABLE automation_logs ADD CONSTRAINT automation_logs_job_id_automation_jobs_id_fk FOREIGN KEY (job_id) REFERENCES automation_jobs(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.automation_logs') IS NOT NULL AND to_regclass('public.companies') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='automation_logs_company_id_companies_id_fk') THEN
-      ALTER TABLE automation_logs ADD CONSTRAINT automation_logs_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE;
+      ALTER TABLE automation_logs ADD CONSTRAINT automation_logs_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.automation_logs') IS NOT NULL AND to_regclass('public.users') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='automation_logs_created_by_users_id_fk') THEN
-      ALTER TABLE automation_logs ADD CONSTRAINT automation_logs_created_by_users_id_fk FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL;
+      ALTER TABLE automation_logs ADD CONSTRAINT automation_logs_created_by_users_id_fk FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.portal_sessions') IS NOT NULL AND to_regclass('public.companies') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='portal_sessions_company_id_companies_id_fk') THEN
-      ALTER TABLE portal_sessions ADD CONSTRAINT portal_sessions_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE;
+      ALTER TABLE portal_sessions ADD CONSTRAINT portal_sessions_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.portal_sessions') IS NOT NULL AND to_regclass('public.users') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='portal_sessions_created_by_users_id_fk') THEN
-      ALTER TABLE portal_sessions ADD CONSTRAINT portal_sessions_created_by_users_id_fk FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL;
+      ALTER TABLE portal_sessions ADD CONSTRAINT portal_sessions_created_by_users_id_fk FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.epfo_registrations') IS NOT NULL AND to_regclass('public.companies') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='epfo_registrations_company_id_companies_id_fk') THEN
-      ALTER TABLE epfo_registrations ADD CONSTRAINT epfo_registrations_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE;
+      ALTER TABLE epfo_registrations ADD CONSTRAINT epfo_registrations_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.epfo_registrations') IS NOT NULL AND to_regclass('public.employees') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='epfo_registrations_employee_id_employees_id_fk') THEN
-      ALTER TABLE epfo_registrations ADD CONSTRAINT epfo_registrations_employee_id_employees_id_fk FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE;
+      ALTER TABLE epfo_registrations ADD CONSTRAINT epfo_registrations_employee_id_employees_id_fk FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.epfo_registrations') IS NOT NULL AND to_regclass('public.automation_jobs') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='epfo_registrations_job_id_automation_jobs_id_fk') THEN
-      ALTER TABLE epfo_registrations ADD CONSTRAINT epfo_registrations_job_id_automation_jobs_id_fk FOREIGN KEY (job_id) REFERENCES automation_jobs(id) ON DELETE SET NULL;
+      ALTER TABLE epfo_registrations ADD CONSTRAINT epfo_registrations_job_id_automation_jobs_id_fk FOREIGN KEY (job_id) REFERENCES automation_jobs(id) ON DELETE SET NULL NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.epfo_registrations') IS NOT NULL AND to_regclass('public.users') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='epfo_registrations_created_by_users_id_fk') THEN
-      ALTER TABLE epfo_registrations ADD CONSTRAINT epfo_registrations_created_by_users_id_fk FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL;
+      ALTER TABLE epfo_registrations ADD CONSTRAINT epfo_registrations_created_by_users_id_fk FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.epfo_kyc_records') IS NOT NULL AND to_regclass('public.companies') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='epfo_kyc_records_company_id_companies_id_fk') THEN
-      ALTER TABLE epfo_kyc_records ADD CONSTRAINT epfo_kyc_records_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE;
+      ALTER TABLE epfo_kyc_records ADD CONSTRAINT epfo_kyc_records_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.epfo_kyc_records') IS NOT NULL AND to_regclass('public.employees') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='epfo_kyc_records_employee_id_employees_id_fk') THEN
-      ALTER TABLE epfo_kyc_records ADD CONSTRAINT epfo_kyc_records_employee_id_employees_id_fk FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE;
+      ALTER TABLE epfo_kyc_records ADD CONSTRAINT epfo_kyc_records_employee_id_employees_id_fk FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.epfo_kyc_records') IS NOT NULL AND to_regclass('public.automation_jobs') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='epfo_kyc_records_job_id_automation_jobs_id_fk') THEN
-      ALTER TABLE epfo_kyc_records ADD CONSTRAINT epfo_kyc_records_job_id_automation_jobs_id_fk FOREIGN KEY (job_id) REFERENCES automation_jobs(id) ON DELETE SET NULL;
+      ALTER TABLE epfo_kyc_records ADD CONSTRAINT epfo_kyc_records_job_id_automation_jobs_id_fk FOREIGN KEY (job_id) REFERENCES automation_jobs(id) ON DELETE SET NULL NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.epfo_kyc_records') IS NOT NULL AND to_regclass('public.users') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='epfo_kyc_records_created_by_users_id_fk') THEN
-      ALTER TABLE epfo_kyc_records ADD CONSTRAINT epfo_kyc_records_created_by_users_id_fk FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL;
+      ALTER TABLE epfo_kyc_records ADD CONSTRAINT epfo_kyc_records_created_by_users_id_fk FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.epfo_ecr_returns') IS NOT NULL AND to_regclass('public.companies') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='epfo_ecr_returns_company_id_companies_id_fk') THEN
-      ALTER TABLE epfo_ecr_returns ADD CONSTRAINT epfo_ecr_returns_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE;
+      ALTER TABLE epfo_ecr_returns ADD CONSTRAINT epfo_ecr_returns_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.epfo_ecr_returns') IS NOT NULL AND to_regclass('public.automation_jobs') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='epfo_ecr_returns_job_id_automation_jobs_id_fk') THEN
-      ALTER TABLE epfo_ecr_returns ADD CONSTRAINT epfo_ecr_returns_job_id_automation_jobs_id_fk FOREIGN KEY (job_id) REFERENCES automation_jobs(id) ON DELETE SET NULL;
+      ALTER TABLE epfo_ecr_returns ADD CONSTRAINT epfo_ecr_returns_job_id_automation_jobs_id_fk FOREIGN KEY (job_id) REFERENCES automation_jobs(id) ON DELETE SET NULL NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.epfo_ecr_returns') IS NOT NULL AND to_regclass('public.users') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='epfo_ecr_returns_created_by_users_id_fk') THEN
-      ALTER TABLE epfo_ecr_returns ADD CONSTRAINT epfo_ecr_returns_created_by_users_id_fk FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL;
+      ALTER TABLE epfo_ecr_returns ADD CONSTRAINT epfo_ecr_returns_created_by_users_id_fk FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.esic_registrations') IS NOT NULL AND to_regclass('public.companies') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='esic_registrations_company_id_companies_id_fk') THEN
-      ALTER TABLE esic_registrations ADD CONSTRAINT esic_registrations_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE;
+      ALTER TABLE esic_registrations ADD CONSTRAINT esic_registrations_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.esic_registrations') IS NOT NULL AND to_regclass('public.employees') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='esic_registrations_employee_id_employees_id_fk') THEN
-      ALTER TABLE esic_registrations ADD CONSTRAINT esic_registrations_employee_id_employees_id_fk FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE;
+      ALTER TABLE esic_registrations ADD CONSTRAINT esic_registrations_employee_id_employees_id_fk FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.esic_registrations') IS NOT NULL AND to_regclass('public.automation_jobs') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='esic_registrations_job_id_automation_jobs_id_fk') THEN
-      ALTER TABLE esic_registrations ADD CONSTRAINT esic_registrations_job_id_automation_jobs_id_fk FOREIGN KEY (job_id) REFERENCES automation_jobs(id) ON DELETE SET NULL;
+      ALTER TABLE esic_registrations ADD CONSTRAINT esic_registrations_job_id_automation_jobs_id_fk FOREIGN KEY (job_id) REFERENCES automation_jobs(id) ON DELETE SET NULL NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.esic_registrations') IS NOT NULL AND to_regclass('public.users') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='esic_registrations_created_by_users_id_fk') THEN
-      ALTER TABLE esic_registrations ADD CONSTRAINT esic_registrations_created_by_users_id_fk FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL;
+      ALTER TABLE esic_registrations ADD CONSTRAINT esic_registrations_created_by_users_id_fk FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.esic_monthly_returns') IS NOT NULL AND to_regclass('public.companies') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='esic_monthly_returns_company_id_companies_id_fk') THEN
-      ALTER TABLE esic_monthly_returns ADD CONSTRAINT esic_monthly_returns_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE;
+      ALTER TABLE esic_monthly_returns ADD CONSTRAINT esic_monthly_returns_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.esic_monthly_returns') IS NOT NULL AND to_regclass('public.automation_jobs') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='esic_monthly_returns_job_id_automation_jobs_id_fk') THEN
-      ALTER TABLE esic_monthly_returns ADD CONSTRAINT esic_monthly_returns_job_id_automation_jobs_id_fk FOREIGN KEY (job_id) REFERENCES automation_jobs(id) ON DELETE SET NULL;
+      ALTER TABLE esic_monthly_returns ADD CONSTRAINT esic_monthly_returns_job_id_automation_jobs_id_fk FOREIGN KEY (job_id) REFERENCES automation_jobs(id) ON DELETE SET NULL NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.esic_monthly_returns') IS NOT NULL AND to_regclass('public.users') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='esic_monthly_returns_created_by_users_id_fk') THEN
-      ALTER TABLE esic_monthly_returns ADD CONSTRAINT esic_monthly_returns_created_by_users_id_fk FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL;
+      ALTER TABLE esic_monthly_returns ADD CONSTRAINT esic_monthly_returns_created_by_users_id_fk FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.challans') IS NOT NULL AND to_regclass('public.companies') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='challans_company_id_companies_id_fk') THEN
-      ALTER TABLE challans ADD CONSTRAINT challans_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE;
+      ALTER TABLE challans ADD CONSTRAINT challans_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.challans') IS NOT NULL AND to_regclass('public.automation_jobs') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='challans_job_id_automation_jobs_id_fk') THEN
-      ALTER TABLE challans ADD CONSTRAINT challans_job_id_automation_jobs_id_fk FOREIGN KEY (job_id) REFERENCES automation_jobs(id) ON DELETE SET NULL;
+      ALTER TABLE challans ADD CONSTRAINT challans_job_id_automation_jobs_id_fk FOREIGN KEY (job_id) REFERENCES automation_jobs(id) ON DELETE SET NULL NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.challans') IS NOT NULL AND to_regclass('public.users') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='challans_created_by_users_id_fk') THEN
-      ALTER TABLE challans ADD CONSTRAINT challans_created_by_users_id_fk FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL;
+      ALTER TABLE challans ADD CONSTRAINT challans_created_by_users_id_fk FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.compliance_calendar_events') IS NOT NULL AND to_regclass('public.companies') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='compliance_calendar_events_company_id_companies_id_fk') THEN
-      ALTER TABLE compliance_calendar_events ADD CONSTRAINT compliance_calendar_events_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE;
+      ALTER TABLE compliance_calendar_events ADD CONSTRAINT compliance_calendar_events_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.compliance_calendar_events') IS NOT NULL AND to_regclass('public.users') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='compliance_calendar_events_created_by_users_id_fk') THEN
-      ALTER TABLE compliance_calendar_events ADD CONSTRAINT compliance_calendar_events_created_by_users_id_fk FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL;
+      ALTER TABLE compliance_calendar_events ADD CONSTRAINT compliance_calendar_events_created_by_users_id_fk FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.outdoor_entries') IS NOT NULL AND to_regclass('public.companies') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='outdoor_entries_company_id_companies_id_fk') THEN
-      ALTER TABLE outdoor_entries ADD CONSTRAINT outdoor_entries_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE;
+      ALTER TABLE outdoor_entries ADD CONSTRAINT outdoor_entries_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.outdoor_entries') IS NOT NULL AND to_regclass('public.employees') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='outdoor_entries_employee_id_employees_id_fk') THEN
-      ALTER TABLE outdoor_entries ADD CONSTRAINT outdoor_entries_employee_id_employees_id_fk FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE;
+      ALTER TABLE outdoor_entries ADD CONSTRAINT outdoor_entries_employee_id_employees_id_fk FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.outdoor_entries') IS NOT NULL AND to_regclass('public.users') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='outdoor_entries_approved_by_users_id_fk') THEN
-      ALTER TABLE outdoor_entries ADD CONSTRAINT outdoor_entries_approved_by_users_id_fk FOREIGN KEY (approved_by) REFERENCES users(id) ON DELETE SET NULL;
+      ALTER TABLE outdoor_entries ADD CONSTRAINT outdoor_entries_approved_by_users_id_fk FOREIGN KEY (approved_by) REFERENCES users(id) ON DELETE SET NULL NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.esic_fetched_employees') IS NOT NULL AND to_regclass('public.companies') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='esic_fetched_employees_company_id_companies_id_fk') THEN
-      ALTER TABLE esic_fetched_employees ADD CONSTRAINT esic_fetched_employees_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE;
+      ALTER TABLE esic_fetched_employees ADD CONSTRAINT esic_fetched_employees_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.esic_fetched_employees') IS NOT NULL AND to_regclass('public.automation_jobs') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='esic_fetched_employees_job_id_automation_jobs_id_fk') THEN
-      ALTER TABLE esic_fetched_employees ADD CONSTRAINT esic_fetched_employees_job_id_automation_jobs_id_fk FOREIGN KEY (job_id) REFERENCES automation_jobs(id) ON DELETE SET NULL;
+      ALTER TABLE esic_fetched_employees ADD CONSTRAINT esic_fetched_employees_job_id_automation_jobs_id_fk FOREIGN KEY (job_id) REFERENCES automation_jobs(id) ON DELETE SET NULL NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.ai_conversations') IS NOT NULL AND to_regclass('public.employees') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='ai_conversations_employee_id_employees_id_fk') THEN
-      ALTER TABLE ai_conversations ADD CONSTRAINT ai_conversations_employee_id_employees_id_fk FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE;
+      ALTER TABLE ai_conversations ADD CONSTRAINT ai_conversations_employee_id_employees_id_fk FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.ai_conversations') IS NOT NULL AND to_regclass('public.users') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='ai_conversations_user_id_users_id_fk') THEN
-      ALTER TABLE ai_conversations ADD CONSTRAINT ai_conversations_user_id_users_id_fk FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+      ALTER TABLE ai_conversations ADD CONSTRAINT ai_conversations_user_id_users_id_fk FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.ai_conversations') IS NOT NULL AND to_regclass('public.companies') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='ai_conversations_company_id_companies_id_fk') THEN
-      ALTER TABLE ai_conversations ADD CONSTRAINT ai_conversations_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE;
+      ALTER TABLE ai_conversations ADD CONSTRAINT ai_conversations_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.ai_messages') IS NOT NULL AND to_regclass('public.ai_conversations') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='ai_messages_conversation_id_ai_conversations_id_fk') THEN
-      ALTER TABLE ai_messages ADD CONSTRAINT ai_messages_conversation_id_ai_conversations_id_fk FOREIGN KEY (conversation_id) REFERENCES ai_conversations(id) ON DELETE CASCADE;
+      ALTER TABLE ai_messages ADD CONSTRAINT ai_messages_conversation_id_ai_conversations_id_fk FOREIGN KEY (conversation_id) REFERENCES ai_conversations(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.ai_follow_up_tasks') IS NOT NULL AND to_regclass('public.employees') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='ai_follow_up_tasks_employee_id_employees_id_fk') THEN
-      ALTER TABLE ai_follow_up_tasks ADD CONSTRAINT ai_follow_up_tasks_employee_id_employees_id_fk FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE;
+      ALTER TABLE ai_follow_up_tasks ADD CONSTRAINT ai_follow_up_tasks_employee_id_employees_id_fk FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.ai_follow_up_tasks') IS NOT NULL AND to_regclass('public.users') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='ai_follow_up_tasks_user_id_users_id_fk') THEN
-      ALTER TABLE ai_follow_up_tasks ADD CONSTRAINT ai_follow_up_tasks_user_id_users_id_fk FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL;
+      ALTER TABLE ai_follow_up_tasks ADD CONSTRAINT ai_follow_up_tasks_user_id_users_id_fk FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.ai_follow_up_tasks') IS NOT NULL AND to_regclass('public.companies') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='ai_follow_up_tasks_company_id_companies_id_fk') THEN
-      ALTER TABLE ai_follow_up_tasks ADD CONSTRAINT ai_follow_up_tasks_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE;
+      ALTER TABLE ai_follow_up_tasks ADD CONSTRAINT ai_follow_up_tasks_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.ai_follow_up_tasks') IS NOT NULL AND to_regclass('public.users') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='ai_follow_up_tasks_escalated_to_users_id_fk') THEN
-      ALTER TABLE ai_follow_up_tasks ADD CONSTRAINT ai_follow_up_tasks_escalated_to_users_id_fk FOREIGN KEY (escalated_to) REFERENCES users(id) ON DELETE SET NULL;
+      ALTER TABLE ai_follow_up_tasks ADD CONSTRAINT ai_follow_up_tasks_escalated_to_users_id_fk FOREIGN KEY (escalated_to) REFERENCES users(id) ON DELETE SET NULL NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.kyc_submission_status') IS NOT NULL AND to_regclass('public.employees') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='kyc_submission_status_employee_id_employees_id_fk') THEN
-      ALTER TABLE kyc_submission_status ADD CONSTRAINT kyc_submission_status_employee_id_employees_id_fk FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE;
+      ALTER TABLE kyc_submission_status ADD CONSTRAINT kyc_submission_status_employee_id_employees_id_fk FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.kyc_submission_status') IS NOT NULL AND to_regclass('public.companies') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='kyc_submission_status_company_id_companies_id_fk') THEN
-      ALTER TABLE kyc_submission_status ADD CONSTRAINT kyc_submission_status_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE;
+      ALTER TABLE kyc_submission_status ADD CONSTRAINT kyc_submission_status_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.compliance_employee_setup') IS NOT NULL AND to_regclass('public.companies') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='compliance_employee_setup_company_id_companies_id_fk') THEN
-      ALTER TABLE compliance_employee_setup ADD CONSTRAINT compliance_employee_setup_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE;
+      ALTER TABLE compliance_employee_setup ADD CONSTRAINT compliance_employee_setup_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.compliance_employee_setup') IS NOT NULL AND to_regclass('public.employees') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='compliance_employee_setup_employee_id_employees_id_fk') THEN
-      ALTER TABLE compliance_employee_setup ADD CONSTRAINT compliance_employee_setup_employee_id_employees_id_fk FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE;
+      ALTER TABLE compliance_employee_setup ADD CONSTRAINT compliance_employee_setup_employee_id_employees_id_fk FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.compliance_employee_setup') IS NOT NULL AND to_regclass('public.wage_grades') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='compliance_employee_setup_wage_grade_id_wage_grades_id_fk') THEN
-      ALTER TABLE compliance_employee_setup ADD CONSTRAINT compliance_employee_setup_wage_grade_id_wage_grades_id_fk FOREIGN KEY (wage_grade_id) REFERENCES wage_grades(id) ON DELETE SET NULL;
+      ALTER TABLE compliance_employee_setup ADD CONSTRAINT compliance_employee_setup_wage_grade_id_wage_grades_id_fk FOREIGN KEY (wage_grade_id) REFERENCES wage_grades(id) ON DELETE SET NULL NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.compliance_employee_setup') IS NOT NULL AND to_regclass('public.users') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='compliance_employee_setup_created_by_users_id_fk') THEN
-      ALTER TABLE compliance_employee_setup ADD CONSTRAINT compliance_employee_setup_created_by_users_id_fk FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL;
+      ALTER TABLE compliance_employee_setup ADD CONSTRAINT compliance_employee_setup_created_by_users_id_fk FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.compliance_clients') IS NOT NULL AND to_regclass('public.companies') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='compliance_clients_company_id_companies_id_fk') THEN
-      ALTER TABLE compliance_clients ADD CONSTRAINT compliance_clients_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE;
+      ALTER TABLE compliance_clients ADD CONSTRAINT compliance_clients_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.compliance_clients') IS NOT NULL AND to_regclass('public.users') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='compliance_clients_created_by_users_id_fk') THEN
-      ALTER TABLE compliance_clients ADD CONSTRAINT compliance_clients_created_by_users_id_fk FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL;
+      ALTER TABLE compliance_clients ADD CONSTRAINT compliance_clients_created_by_users_id_fk FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.compliance_carry_forward') IS NOT NULL AND to_regclass('public.companies') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='compliance_carry_forward_company_id_companies_id_fk') THEN
-      ALTER TABLE compliance_carry_forward ADD CONSTRAINT compliance_carry_forward_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE;
+      ALTER TABLE compliance_carry_forward ADD CONSTRAINT compliance_carry_forward_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.compliance_carry_forward') IS NOT NULL AND to_regclass('public.employees') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='compliance_carry_forward_employee_id_employees_id_fk') THEN
-      ALTER TABLE compliance_carry_forward ADD CONSTRAINT compliance_carry_forward_employee_id_employees_id_fk FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE;
+      ALTER TABLE compliance_carry_forward ADD CONSTRAINT compliance_carry_forward_employee_id_employees_id_fk FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.compliance_client_employees') IS NOT NULL AND to_regclass('public.companies') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='compliance_client_employees_company_id_companies_id_fk') THEN
-      ALTER TABLE compliance_client_employees ADD CONSTRAINT compliance_client_employees_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE;
+      ALTER TABLE compliance_client_employees ADD CONSTRAINT compliance_client_employees_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.compliance_client_employees') IS NOT NULL AND to_regclass('public.employees') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='compliance_client_employees_employee_id_employees_id_fk') THEN
-      ALTER TABLE compliance_client_employees ADD CONSTRAINT compliance_client_employees_employee_id_employees_id_fk FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE;
+      ALTER TABLE compliance_client_employees ADD CONSTRAINT compliance_client_employees_employee_id_employees_id_fk FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.compliance_client_employees') IS NOT NULL AND to_regclass('public.compliance_clients') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='compliance_client_employees_client_id_compliance_clients_id_fk') THEN
-      ALTER TABLE compliance_client_employees ADD CONSTRAINT compliance_client_employees_client_id_compliance_clients_id_fk FOREIGN KEY (client_id) REFERENCES compliance_clients(id) ON DELETE CASCADE;
+      ALTER TABLE compliance_client_employees ADD CONSTRAINT compliance_client_employees_client_id_compliance_clients_id_fk FOREIGN KEY (client_id) REFERENCES compliance_clients(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.compliance_client_employees') IS NOT NULL AND to_regclass('public.users') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='compliance_client_employees_created_by_users_id_fk') THEN
-      ALTER TABLE compliance_client_employees ADD CONSTRAINT compliance_client_employees_created_by_users_id_fk FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL;
+      ALTER TABLE compliance_client_employees ADD CONSTRAINT compliance_client_employees_created_by_users_id_fk FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.placeholder_backfill_heals') IS NOT NULL AND to_regclass('public.companies') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='placeholder_backfill_heals_company_id_companies_id_fk') THEN
-      ALTER TABLE placeholder_backfill_heals ADD CONSTRAINT placeholder_backfill_heals_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE;
+      ALTER TABLE placeholder_backfill_heals ADD CONSTRAINT placeholder_backfill_heals_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.placeholder_backfill_heals') IS NOT NULL AND to_regclass('public.employees') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='placeholder_backfill_heals_employee_id_employees_id_fk') THEN
-      ALTER TABLE placeholder_backfill_heals ADD CONSTRAINT placeholder_backfill_heals_employee_id_employees_id_fk FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE;
+      ALTER TABLE placeholder_backfill_heals ADD CONSTRAINT placeholder_backfill_heals_employee_id_employees_id_fk FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.employee_documents') IS NOT NULL AND to_regclass('public.companies') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='employee_documents_company_id_companies_id_fk') THEN
-      ALTER TABLE employee_documents ADD CONSTRAINT employee_documents_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE;
+      ALTER TABLE employee_documents ADD CONSTRAINT employee_documents_company_id_companies_id_fk FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.employee_documents') IS NOT NULL AND to_regclass('public.employees') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='employee_documents_employee_id_employees_id_fk') THEN
-      ALTER TABLE employee_documents ADD CONSTRAINT employee_documents_employee_id_employees_id_fk FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE;
+      ALTER TABLE employee_documents ADD CONSTRAINT employee_documents_employee_id_employees_id_fk FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE NOT VALID;
     END IF;
   END $$;
 DO $$ BEGIN
     IF to_regclass('public.employee_documents') IS NOT NULL AND to_regclass('public.users') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='employee_documents_created_by_users_id_fk') THEN
-      ALTER TABLE employee_documents ADD CONSTRAINT employee_documents_created_by_users_id_fk FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL;
+      ALTER TABLE employee_documents ADD CONSTRAINT employee_documents_created_by_users_id_fk FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL NOT VALID;
     END IF;
   END $$;
