@@ -35,6 +35,20 @@ compliance_client_employees, placeholder_backfill_heals, employee_documents)
 are not in `shared/schema.ts`, so their constraints live only in the numbered
 SQL migration, not as `.references()`.
 
+**FK/hardening migrations must guard every table with to_regclass:** the VPS prod
+DB was bootstrapped by a one-time db:push and thereafter only gets numbered SQL
+migrations — so any table added to schema.ts AFTER that bootstrap (e.g. `expenses`)
+exists on dev but NOT on prod, and has no CREATE migration. A migration that does
+bare `UPDATE <t> ...` or `ALTER TABLE <t> ADD CONSTRAINT ... REFERENCES <parent>`
+on such a table fails on prod with `relation "<t>" does not exist` and rolls back
+the whole deploy. Fix pattern (applied to 020_foreign_keys.sql): wrap every
+statement in `DO $$ BEGIN IF to_regclass('public.<t>') IS NOT NULL AND
+to_regclass('public.<parent>') IS NOT NULL [AND NOT EXISTS pg_constraint...] THEN
+... END IF; END $$;` so it self-adapts to whichever tables exist. Validate by
+running the whole file via executeSql on dev (idempotent no-op).
+**Why:** can't query the self-hosted VPS DB from Replit, so the migration itself
+must tolerate an unknown subset of missing tables.
+
 **connect-pg-simple `session` table must be in schema.ts:** the web session
 store table is created at runtime by connect-pg-simple, not the app. If it is
 NOT declared in `shared/schema.ts`, `db:push` sees an unknown table and proposes
