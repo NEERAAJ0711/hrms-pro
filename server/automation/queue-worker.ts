@@ -149,6 +149,13 @@ export interface AutomationContext {
   /** Save a screenshot and return its relative path */
   takeScreenshot(label: string): Promise<string>;
   /**
+   * Save a copy of the currently-rendered portal form: the full page HTML plus
+   * a distilled list of every input/select/textarea field (id/name/type/label).
+   * Lets an engineer correct mismatched selectors offline from one real run
+   * instead of repeated live runs. Returns the relative path of the HTML file.
+   */
+  saveFormSnapshot(label: string): Promise<string>;
+  /**
    * Pause the job (CAPTCHA or OTP). Saves screenshot, marks job paused,
    * and waits for admin to call the resume API.
    * Returns the answer provided by the admin.
@@ -203,6 +210,11 @@ function buildContext(job: JobRecord, screenshotDir: string): AutomationContext 
       return path.join(screenshotDir, filename);
     },
 
+    async saveFormSnapshot(label) {
+      // Real capture requires a live page; bindPageToContext overrides this.
+      return path.join(screenshotDir, `${label}.form.html`);
+    },
+
     async pause(screenshotPath, reason) {
       await queueService.markJobPaused(job.id, screenshotPath);
       await queueService.addLog(job.id, job.companyId, "info", `Job paused: ${reason}`, { screenshotPath });
@@ -236,6 +248,7 @@ function buildContext(job: JobRecord, screenshotDir: string): AutomationContext 
  */
 function bindPageToContext(ctx: AutomationContext, page: Page): AutomationContext {
   let screenshotIndex = 0;
+  let snapshotIndex = 0;
   return {
     ...ctx,
     async takeScreenshot(label: string): Promise<string> {
@@ -247,6 +260,51 @@ function bindPageToContext(ctx: AutomationContext, page: Page): AutomationContex
         // Page may already be closed — non-fatal
       }
       return filePath;
+    },
+
+    async saveFormSnapshot(label: string): Promise<string> {
+      const prefix = `${String(snapshotIndex++).padStart(3, "0")}-${label}`;
+      const htmlPath = path.join(ctx.screenshotDir, `${prefix}.form.html`);
+      const fieldsPath = path.join(ctx.screenshotDir, `${prefix}.fields.json`);
+
+      // Distilled field list — the input/select/textarea id/name/type that an
+      // engineer needs to correct mismatched selectors offline.
+      try {
+        const fields = await page.$$eval(
+          "input, select, textarea",
+          (els) =>
+            els.map((el) => {
+              const e = el as HTMLInputElement;
+              const id = e.id || null;
+              // Find an associated visible label, if any
+              let label: string | null = null;
+              if (id) {
+                const lbl = document.querySelector(`label[for="${id}"]`);
+                if (lbl) label = (lbl.textContent || "").trim().replace(/\s+/g, " ") || null;
+              }
+              return {
+                tag: el.tagName.toLowerCase(),
+                type: e.getAttribute("type") || null,
+                id,
+                name: e.getAttribute("name") || null,
+                placeholder: e.getAttribute("placeholder") || null,
+                label,
+              };
+            }),
+        );
+        fs.writeFileSync(fieldsPath, JSON.stringify(fields, null, 2), "utf8");
+      } catch {
+        // Page may be closed or eval blocked — skip the distilled list, still try HTML.
+      }
+
+      // Full rendered page HTML — a complete copy of the form as the portal served it.
+      try {
+        const html = await page.content();
+        fs.writeFileSync(htmlPath, html, "utf8");
+      } catch {
+        // Page may already be closed — non-fatal
+      }
+      return htmlPath;
     },
   };
 }

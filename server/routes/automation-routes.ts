@@ -14,6 +14,7 @@ import {
 } from "@shared/schema";
 import { eq, and, desc, sql, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
+import { queueService } from "../queue-service";
 import { createNotification, createNotificationForMany } from "../notifications";
 import { addSSEClient, removeSSEClient } from "../sse";
 import { setOpenAIKeyOverride, setGeminiKeyOverride, loadAllApiKeysFromDB } from "../ai-service";
@@ -54,6 +55,96 @@ export async function registerAutomationRoutes(app: Express): Promise<void> {
       res.json({ data: job.result ?? null, job: { id: job.id, completedAt: job.completedAt, createdAt: job.createdAt } });
     } catch (err) {
       res.status(500).json({ error: "Failed to fetch employee list" });
+    }
+  });
+
+  // ─── Automation: saved portal form snapshots ──────────────────────────────────
+  // Lists the form snapshots captured during a registration run (rendered HTML +
+  // distilled field id/name/type list) so an engineer can correct mismatched
+  // selectors offline instead of re-running a full live job.
+  app.get("/api/automation/jobs/:id/form-snapshots", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const user = (req as any).user;
+      const job = await queueService.getJob(req.params.id).catch(() => null);
+      if (!job) return res.status(404).json({ error: "Job not found" });
+      // Non-super-admins may only view their own company's jobs.
+      if (user.role !== "super_admin" && job.companyId !== user.companyId) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
+
+      const dir = path.join(process.cwd(), "uploads", "automation-screenshots", job.id);
+      if (!fs.existsSync(dir)) return res.json({ snapshots: [] });
+
+      const files = fs.readdirSync(dir);
+      // Group HTML + its sibling fields JSON by shared "NNN-label" prefix.
+      // NOTE: the snapshot HTML is untrusted portal markup. It is NOT linked
+      // through the static /uploads mount (which would render it as an active
+      // same-origin page → stored-XSS). Instead each artifact is served through
+      // the authenticated, non-executable download route below.
+      const byPrefix = new Map<string, { label: string; htmlUrl?: string; fieldsUrl?: string }>();
+      for (const f of files) {
+        let prefix: string | null = null;
+        let kind: "html" | "fields" | null = null;
+        if (f.endsWith(".form.html")) { prefix = f.slice(0, -".form.html".length); kind = "html"; }
+        else if (f.endsWith(".fields.json")) { prefix = f.slice(0, -".fields.json".length); kind = "fields"; }
+        if (!prefix || !kind) continue;
+
+        const label = prefix.replace(/^\d+-/, "");
+        const entry = byPrefix.get(prefix) ?? { label };
+        const url = `/api/automation/jobs/${job.id}/form-snapshots/${encodeURIComponent(f)}`;
+        if (kind === "html") entry.htmlUrl = url;
+        else entry.fieldsUrl = url;
+        byPrefix.set(prefix, entry);
+      }
+
+      const snapshots = Array.from(byPrefix.entries())
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([prefix, v]) => ({ id: prefix, ...v }));
+      res.json({ snapshots });
+    } catch (err) {
+      res.status(500).json({ error: "Failed to list form snapshots" });
+    }
+  });
+
+  // ─── Automation: download a single saved form snapshot (auth-gated) ────────────
+  // Serves snapshot artifacts behind auth + company authorization. Crucially, the
+  // captured portal HTML is untrusted, so it is served as text/plain with
+  // nosniff + an attachment disposition — never as active text/html on the app
+  // origin — to eliminate any stored-XSS / origin-confusion risk.
+  app.get("/api/automation/jobs/:id/form-snapshots/:file", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const user = (req as any).user;
+      const job = await queueService.getJob(req.params.id).catch(() => null);
+      if (!job) return res.status(404).json({ error: "Job not found" });
+      if (user.role !== "super_admin" && job.companyId !== user.companyId) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
+
+      // Reject any path traversal — only a bare snapshot filename is allowed.
+      const requested = String(req.params.file);
+      const safeName = path.basename(requested);
+      if (safeName !== requested) return res.status(400).json({ error: "Invalid file name" });
+      const isHtml = safeName.endsWith(".form.html");
+      const isFields = safeName.endsWith(".fields.json");
+      if (!isHtml && !isFields) return res.status(400).json({ error: "Invalid file type" });
+
+      const dir = path.join(process.cwd(), "uploads", "automation-screenshots", job.id);
+      const filePath = path.join(dir, safeName);
+      // Defence-in-depth: ensure the resolved path is still inside the job dir.
+      if (!filePath.startsWith(dir + path.sep) || !fs.existsSync(filePath)) {
+        return res.status(404).json({ error: "Snapshot not found" });
+      }
+
+      const content = fs.readFileSync(filePath, "utf8");
+      // Never serve as text/html. text/plain + nosniff guarantees the browser
+      // will not parse/execute the untrusted portal markup as a page.
+      res.setHeader("Content-Type", isFields ? "application/json; charset=utf-8" : "text/plain; charset=utf-8");
+      res.setHeader("X-Content-Type-Options", "nosniff");
+      res.setHeader("Content-Disposition", `attachment; filename="${safeName}"`);
+      res.setHeader("Cache-Control", "private, no-store");
+      res.send(content);
+    } catch (err) {
+      res.status(500).json({ error: "Failed to load form snapshot" });
     }
   });
 

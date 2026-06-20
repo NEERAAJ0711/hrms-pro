@@ -529,6 +529,9 @@ export async function uanGenerate(
   });
   await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {});
   await safeScreenshot(page, ctx, "uan-generate-start");
+  // Save a copy of the rendered registration form (HTML + distilled field list)
+  // so mismatched selectors can be corrected offline from this one run.
+  await ctx.saveFormSnapshot("uan-generate-form");
 
   // Fill core employee details — routed through fillStatutoryField (same as the
   // statutory fields below) so each field's outcome (filled / not-found /

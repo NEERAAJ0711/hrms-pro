@@ -16,8 +16,12 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger,
+} from "@/components/ui/dialog";
+import {
   Bot, RefreshCw, AlertTriangle, CheckCircle2, Clock, Pause,
   RotateCcw, Loader2, Activity, FileText, Search, Trash2, Ban, Sparkles,
+  FileCode, ExternalLink,
 } from "lucide-react";
 import { ComplianceAiPanel } from "@/components/compliance-ai-panel";
 
@@ -263,6 +267,94 @@ function JobActions({ job }: { job: AutomationJob }) {
   return <span className="text-xs text-muted-foreground">—</span>;
 }
 
+// ─── Form Snapshot Viewer ─────────────────────────────────────────────────────
+// Job types whose runs capture a copy of the rendered portal registration form.
+const SNAPSHOT_JOB_TYPES = new Set(["epfo_uan_generate", "esic_ip_generate"]);
+
+interface FormSnapshot {
+  id: string;
+  label: string;
+  htmlUrl?: string;
+  fieldsUrl?: string;
+}
+
+function FormSnapshotButton({ job }: { job: AutomationJob }) {
+  const [open, setOpen] = useState(false);
+
+  const { data, isLoading } = useQuery<{ snapshots: FormSnapshot[] }>({
+    queryKey: ["/api/automation/jobs", job.id, "form-snapshots"],
+    queryFn: async () => {
+      const res = await fetch(`/api/automation/jobs/${job.id}/form-snapshots`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch form snapshots");
+      return res.json();
+    },
+    enabled: open,
+  });
+
+  const snapshots = data?.snapshots ?? [];
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-7 px-2 text-xs"
+          data-testid={`button-form-snapshot-${job.id}`}
+          title="View the saved portal registration form (for fixing field selectors)"
+        >
+          <FileCode className="h-3 w-3 mr-1" /> Form
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-lg" data-testid={`dialog-form-snapshot-${job.id}`}>
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-base">
+            <FileCode className="h-4 w-4" /> Saved Portal Form
+          </DialogTitle>
+        </DialogHeader>
+        <p className="text-xs text-muted-foreground">
+          A copy of the registration form captured during this run, so field names can be checked and selectors corrected without re-running a live job.
+        </p>
+        {isLoading ? (
+          <div className="flex justify-center py-8"><Loader2 className="h-5 w-5 animate-spin" /></div>
+        ) : snapshots.length === 0 ? (
+          <p className="py-6 text-center text-sm text-muted-foreground">
+            No form snapshots saved for this job.
+          </p>
+        ) : (
+          <div className="space-y-2">
+            {snapshots.map(snap => (
+              <div
+                key={snap.id}
+                className="flex items-center justify-between gap-2 rounded-md border p-2"
+                data-testid={`snapshot-${job.id}-${snap.id}`}
+              >
+                <span className="text-sm font-mono truncate">{snap.label}</span>
+                <div className="flex items-center gap-1 flex-shrink-0">
+                  {snap.fieldsUrl && (
+                    <a href={snap.fieldsUrl} target="_blank" rel="noopener noreferrer">
+                      <Button size="sm" variant="outline" className="h-7 px-2 text-xs" data-testid={`link-fields-${job.id}-${snap.id}`}>
+                        Fields <ExternalLink className="h-3 w-3 ml-1" />
+                      </Button>
+                    </a>
+                  )}
+                  {snap.htmlUrl && (
+                    <a href={snap.htmlUrl} target="_blank" rel="noopener noreferrer">
+                      <Button size="sm" variant="outline" className="h-7 px-2 text-xs" data-testid={`link-html-${job.id}-${snap.id}`}>
+                        HTML <ExternalLink className="h-3 w-3 ml-1" />
+                      </Button>
+                    </a>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ─── All Jobs Tab ─────────────────────────────────────────────────────────────
 function AllJobsTab({ onAnalyzeError }: { onAnalyzeError: (job: { jobType: string; errorMessage: string; jobId: string }) => void }) {
   const { user } = useAuth();
@@ -369,7 +461,12 @@ function AllJobsTab({ onAnalyzeError }: { onAnalyzeError: (job: { jobType: strin
                     <span className="text-muted-foreground">{job.errorMessage ?? "—"}</span>
                   )}
                 </TableCell>
-                <TableCell><JobActions job={job} /></TableCell>
+                <TableCell>
+                  <div className="flex items-center gap-1">
+                    {SNAPSHOT_JOB_TYPES.has(job.jobType) && <FormSnapshotButton job={job} />}
+                    <JobActions job={job} />
+                  </div>
+                </TableCell>
               </TableRow>
             ))}
           </TableBody>
