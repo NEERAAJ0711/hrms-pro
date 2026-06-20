@@ -190,6 +190,13 @@ async function fetchEmployeeContext(employeeId: string, companyId: string): Prom
     ifsc: emp.ifsc ?? null,
     presentAddress: emp.presentAddress ?? null,
     permanentAddress: emp.permanentAddress ?? null,
+    maritalStatus: emp.maritalStatus ?? null,
+    motherName: emp.motherName ?? null,
+    bloodGroup: emp.bloodGroup ?? null,
+    nomineeName: emp.nomineeName ?? null,
+    nomineeRelation: emp.nomineeRelation ?? null,
+    emergencyContactName: emp.emergencyContactName ?? null,
+    emergencyContactNumber: emp.emergencyContactNumber ?? null,
   } : undefined;
 
   // ── Recent payslips ───────────────────────────────────────────────────────
@@ -845,6 +852,13 @@ export async function registerAiHrRoutes(
           officialEmail: "Email",
           uan: "UAN (EPFO)",
           esiNumber: "ESIC IP number",
+          maritalStatus: "Marital status",
+          motherName: "Mother's name",
+          bloodGroup: "Blood group",
+          nomineeName: "Nominee name",
+          nomineeRelation: "Nominee relationship",
+          emergencyContactName: "Emergency contact name",
+          emergencyContactNumber: "Emergency contact number",
         };
         const savedLabels = updatedKeys.map((k) => fieldNames[k] ?? k).join(", ");
         const botContent =

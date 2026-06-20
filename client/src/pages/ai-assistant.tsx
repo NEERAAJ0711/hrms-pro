@@ -85,6 +85,13 @@ const EXTRACTION_FIELD_LABELS: Record<string, string> = {
   bankAccount: "Bank Account Number",
   presentAddress: "Present Address",
   permanentAddress: "Permanent Address",
+  maritalStatus: "Marital Status",
+  motherName: "Mother's Name",
+  bloodGroup: "Blood Group",
+  nomineeName: "Nominee Name",
+  nomineeRelation: "Nominee Relationship",
+  emergencyContactName: "Emergency Contact Name",
+  emergencyContactNumber: "Emergency Contact Number",
 };
 
 interface AiMessage {

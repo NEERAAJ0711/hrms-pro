@@ -335,6 +335,16 @@ export async function runStartupMigrations(): Promise<void> {
     CREATE INDEX IF NOT EXISTS daily_billing_logs_company_date_idx ON daily_billing_logs (company_id, date DESC)
   `).catch(() => {});
 
+  // Add statutory profile fields (nominee, marital status, mother's name,
+  // emergency contact, blood group) for ESIC/EPFO so the AI HR assistant can save them
+  await db.execute(sql`ALTER TABLE employees ADD COLUMN IF NOT EXISTS marital_status TEXT`).catch(() => {});
+  await db.execute(sql`ALTER TABLE employees ADD COLUMN IF NOT EXISTS mother_name TEXT`).catch(() => {});
+  await db.execute(sql`ALTER TABLE employees ADD COLUMN IF NOT EXISTS blood_group TEXT`).catch(() => {});
+  await db.execute(sql`ALTER TABLE employees ADD COLUMN IF NOT EXISTS nominee_name TEXT`).catch(() => {});
+  await db.execute(sql`ALTER TABLE employees ADD COLUMN IF NOT EXISTS nominee_relation TEXT`).catch(() => {});
+  await db.execute(sql`ALTER TABLE employees ADD COLUMN IF NOT EXISTS emergency_contact_name TEXT`).catch(() => {});
+  await db.execute(sql`ALTER TABLE employees ADD COLUMN IF NOT EXISTS emergency_contact_number TEXT`).catch(() => {});
+
   // Create employee_documents table if not exists
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS employee_documents (

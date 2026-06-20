@@ -62,6 +62,13 @@ export function mapExtractionToUpdates(
     setIf("ifsc", clean(fields.ifsc).replace(/\s+/g, "").toUpperCase());
     setIf("presentAddress", clean(fields.presentAddress));
     setIf("permanentAddress", clean(fields.permanentAddress));
+    setIf("maritalStatus", clean(fields.maritalStatus));
+    setIf("motherName", clean(fields.motherName));
+    setIf("bloodGroup", clean(fields.bloodGroup).toUpperCase());
+    setIf("nomineeName", clean(fields.nomineeName));
+    setIf("nomineeRelation", clean(fields.nomineeRelation));
+    setIf("emergencyContactName", clean(fields.emergencyContactName));
+    setIf("emergencyContactNumber", clean(fields.emergencyContactNumber).replace(/\s+/g, ""));
   } else {
     return null;
   }

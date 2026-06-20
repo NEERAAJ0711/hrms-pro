@@ -149,6 +149,13 @@ export const employees = pgTable("employees", {
   address: text("address"),
   addressState: text("address_state"),
   addressDistrict: text("address_district"),
+  maritalStatus: text("marital_status"),
+  motherName: text("mother_name"),
+  bloodGroup: text("blood_group"),
+  nomineeName: text("nominee_name"),
+  nomineeRelation: text("nominee_relation"),
+  emergencyContactName: text("emergency_contact_name"),
+  emergencyContactNumber: text("emergency_contact_number"),
 }, (table) => [
   index("idx_employees_company").on(table.companyId),
   index("idx_employees_company_status").on(table.companyId, table.status),

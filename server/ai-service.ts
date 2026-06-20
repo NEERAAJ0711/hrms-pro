@@ -229,11 +229,18 @@ const PROFILE_EXTRACTION_FIELDS = [
   "ifsc",
   "presentAddress",
   "permanentAddress",
+  "maritalStatus",
+  "motherName",
+  "bloodGroup",
+  "nomineeName",
+  "nomineeRelation",
+  "emergencyContactName",
+  "emergencyContactNumber",
 ] as const;
 
 // Cheap gate so we only spend an AI call when the message plausibly contains profile data.
 const PROFILE_HINT_RE =
-  /\d|@|\buan\b|\besic?\b|\bifsc\b|\baccount\b|\bpan\b|\baadh?aar\b|\bmobile\b|\bphone\b|\bemail\b|\baddress\b|\bdob\b|\bborn\b|\bfather\b|\bhusband\b|\bgender\b|\bmale\b|\bfemale\b|\bpin ?code\b/i;
+  /\d|@|\buan\b|\besic?\b|\bifsc\b|\baccount\b|\bpan\b|\baadh?aar\b|\bmobile\b|\bphone\b|\bemail\b|\baddress\b|\bdob\b|\bborn\b|\bfather\b|\bhusband\b|\bgender\b|\bmale\b|\bfemale\b|\bpin ?code\b|\bmarried\b|\bsingle\b|\bunmarried\b|\bspouse\b|\bmarital\b|\bmother\b|\bblood\b|\bnominee\b|\bnomination\b|\bemergency\b/i;
 
 export function messageMayContainProfileInfo(text: string): boolean {
   return !!text && PROFILE_HINT_RE.test(text);
@@ -261,7 +268,10 @@ export async function extractProfileFromText(
             `Return ONLY a JSON object with these keys: ${fieldList}. ` +
             `Rules: include a value ONLY if the employee clearly stated it in this message; otherwise use an empty string. Never guess or infer. ` +
             `gender: "Male"/"Female"/"Other". dateOfBirth: format as DD/MM/YYYY. uan: 12 digits. aadhaar: 12 digits. pan: 10 chars uppercase. ` +
-            `mobileNumber: 10 digits. ifsc: 11 chars uppercase. Strip spaces from numbers, UAN, Aadhaar, account number, IFSC and PAN.`,
+            `mobileNumber: 10 digits. ifsc: 11 chars uppercase. Strip spaces from numbers, UAN, Aadhaar, account number, IFSC and PAN. ` +
+            `maritalStatus: "Married"/"Single"/"Widowed"/"Divorced". motherName: full name. bloodGroup: e.g. "O+","AB-". ` +
+            `nomineeName: full name of the nominee. nomineeRelation: relationship to the employee (e.g. "Wife","Husband","Son","Mother"). ` +
+            `emergencyContactName: full name. emergencyContactNumber: 10 digits.`,
         },
         { role: "user", content: text },
       ],
@@ -322,6 +332,13 @@ export interface EmployeeContext {
     ifsc: string | null;
     presentAddress: string | null;
     permanentAddress: string | null;
+    maritalStatus: string | null;
+    motherName: string | null;
+    bloodGroup: string | null;
+    nomineeName: string | null;
+    nomineeRelation: string | null;
+    emergencyContactName: string | null;
+    emergencyContactNumber: string | null;
   };
   // Last few payslips
   recentPayslips: Array<{
@@ -469,6 +486,13 @@ function buildLiveDataSection(ctx: EmployeeContext | null): string {
       ["ifsc", "IFSC Code"],
       ["presentAddress", "Present Address"],
       ["permanentAddress", "Permanent Address"],
+      ["maritalStatus", "Marital Status"],
+      ["motherName", "Mother's Name"],
+      ["bloodGroup", "Blood Group"],
+      ["nomineeName", "Nominee Name"],
+      ["nomineeRelation", "Nominee Relationship"],
+      ["emergencyContactName", "Emergency Contact Name"],
+      ["emergencyContactNumber", "Emergency Contact Number"],
     ];
     const onFile = fieldDefs.filter(([k]) => p[k] && String(p[k]).trim());
     const missing = fieldDefs.filter(([k]) => !p[k] || !String(p[k]).trim());
