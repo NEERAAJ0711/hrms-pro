@@ -108,13 +108,13 @@ const SEL = {
   ipFatherName:       '#txtFatherName, input[name*="fatherName" i]',
   ipJoinDate:         '#txtJoinDate, input[name*="joinDate" i]',
   ipSalary:           '#txtSalary, input[name*="salary" i]',
-  ipMaritalStatus:    '#ddlMaritalStatus, select[name*="marital" i], input[name*="marital" i]',
-  ipMotherName:       '#txtMotherName, input[name*="motherName" i]',
-  ipBloodGroup:       '#ddlBloodGroup, select[name*="blood" i], input[name*="blood" i]',
-  ipNomineeName:      '#txtNomineeName, input[name*="nominee" i][name*="name" i]',
-  ipNomineeRelation:  '#ddlNomineeRelation, select[name*="nominee" i][name*="relation" i], input[name*="nominee" i][name*="relation" i]',
-  ipEmergencyName:    '#txtEmergencyName, input[name*="emergency" i][name*="name" i]',
-  ipEmergencyNumber:  '#txtEmergencyNo, input[name*="emergency" i][name*="mobile" i], input[name*="emergency" i][name*="phone" i]',
+  ipMaritalStatus:    '#ddlMaritalStatus, #ddlMarital, select[name*="marital" i], select[id*="marital" i], input[name*="marital" i]',
+  ipMotherName:       '#txtMotherName, input[name*="motherName" i], input[name*="mother" i], input[id*="mother" i]',
+  ipBloodGroup:       '#ddlBloodGroup, #ddlBlood, select[name*="blood" i], select[id*="blood" i], input[name*="blood" i]',
+  ipNomineeName:      '#txtNomineeName, input[name*="nominee" i][name*="name" i], input[id*="nominee" i][id*="name" i], input[name*="nominee" i]:not([name*="relation" i])',
+  ipNomineeRelation:  '#ddlNomineeRelation, #ddlNominee, select[name*="nominee" i][name*="relation" i], select[id*="nominee" i][id*="relation" i], select[name*="relation" i], input[name*="nominee" i][name*="relation" i]',
+  ipEmergencyName:    '#txtEmergencyName, input[name*="emergency" i][name*="name" i], input[id*="emergency" i][id*="name" i], input[name*="emergency" i]:not([name*="no" i]):not([name*="mobile" i]):not([name*="phone" i])',
+  ipEmergencyNumber:  '#txtEmergencyNo, #txtEmergencyMobile, input[name*="emergency" i][name*="mobile" i], input[name*="emergency" i][name*="phone" i], input[name*="emergency" i][name*="no" i], input[id*="emergency" i][id*="mobile" i]',
   ipRegisterBtn:      '#btnSave, button[id*="save" i], input[value*="Save" i]',
   ipNumber:           '#lblIPNo, span[id*="ipNo" i], .ipNumber',
 
@@ -190,6 +190,63 @@ async function hasOtp(page: Page): Promise<boolean> {
     return await page.isVisible(SEL.otpInput, { timeout: 2000 });
   } catch {
     return false;
+  }
+}
+
+/**
+ * Fill a statutory field (marital status, mother's name, blood group, nominee,
+ * emergency contact) and report the outcome to the job log so a real-portal run
+ * produces verifiable evidence of which selectors actually matched.
+ *
+ * These fields use best-effort selectors. Previously a missing field was
+ * swallowed silently, so a wrong selector looked identical to success. This
+ * helper logs whether each field was filled, skipped (no matching element on
+ * the form), or matched-but-failed — turning a silent miss into an actionable
+ * warning that names the selector to correct. Handles both <select> dropdowns
+ * and text <input>s automatically.
+ */
+async function fillStatutoryField(
+  page: Page,
+  ctx: AutomationContext,
+  label: string,
+  selector: string,
+  value: string | undefined,
+): Promise<"filled" | "skipped-no-data" | "not-found" | "fill-failed"> {
+  if (!value) return "skipped-no-data";
+  const el = await page
+    .waitForSelector(selector, { timeout: 3000, state: "visible" })
+    .catch(() => null);
+  if (!el) {
+    await ctx.log(
+      "warn",
+      `Statutory field "${label}" was NOT filled — no matching field found on the portal form. Selector may need correcting.`,
+      { selector, field: label },
+    );
+    return "not-found";
+  }
+  try {
+    const tag = (await el.evaluate((node) => (node as Element).tagName)).toLowerCase();
+    if (tag === "select") {
+      await el
+        .selectOption({ label: value })
+        .catch(async () => {
+          await el.selectOption(value);
+        });
+    } else {
+      await el.fill(value);
+    }
+    await ctx.log("info", `Statutory field "${label}" filled successfully`, {
+      selector,
+      field: label,
+    });
+    return "filled";
+  } catch (err) {
+    await ctx.log(
+      "warn",
+      `Statutory field "${label}" matched a field but could not be filled — the field type or options may differ from expected.`,
+      { selector, field: label, error: (err as Error).message },
+    );
+    return "fill-failed";
   }
 }
 
@@ -491,24 +548,25 @@ export async function ipNumberGenerate(
     await page.fill(SEL.ipSalary, String(payload.grossSalary)).catch(() => {});
   }
 
-  // New statutory fields — filled best-effort; skipped silently when the data
-  // is missing or the portal does not expose the field.
-  if (payload.maritalStatus) {
-    await page.selectOption(SEL.ipMaritalStatus, { label: payload.maritalStatus })
-      .catch(() => page.fill(SEL.ipMaritalStatus, payload.maritalStatus!).catch(() => {}));
+  // New statutory fields — filled best-effort and the outcome of each is logged
+  // (filled / not-found / fill-failed) so a real-portal run produces verifiable
+  // evidence of which selectors matched. fillStatutoryField auto-detects whether
+  // the matched element is a <select> dropdown or a text <input>.
+  const statutoryFields: Array<[string, string, string | undefined]> = [
+    ["Marital Status", SEL.ipMaritalStatus, payload.maritalStatus],
+    ["Mother's Name", SEL.ipMotherName, payload.motherName],
+    ["Blood Group", SEL.ipBloodGroup, payload.bloodGroup],
+    ["Nominee Name", SEL.ipNomineeName, payload.nomineeName],
+    ["Nominee Relation", SEL.ipNomineeRelation, payload.nomineeRelation],
+    ["Emergency Contact Name", SEL.ipEmergencyName, payload.emergencyContactName],
+    ["Emergency Contact Number", SEL.ipEmergencyNumber, payload.emergencyContactNumber],
+  ];
+
+  const statutoryOutcomes: Record<string, string> = {};
+  for (const [label, selector, value] of statutoryFields) {
+    statutoryOutcomes[label] = await fillStatutoryField(page, ctx, label, selector, value);
   }
-  if (payload.motherName) await page.fill(SEL.ipMotherName, payload.motherName).catch(() => {});
-  if (payload.bloodGroup) {
-    await page.selectOption(SEL.ipBloodGroup, { label: payload.bloodGroup })
-      .catch(() => page.fill(SEL.ipBloodGroup, payload.bloodGroup!).catch(() => {}));
-  }
-  if (payload.nomineeName) await page.fill(SEL.ipNomineeName, payload.nomineeName).catch(() => {});
-  if (payload.nomineeRelation) {
-    await page.selectOption(SEL.ipNomineeRelation, { label: payload.nomineeRelation })
-      .catch(() => page.fill(SEL.ipNomineeRelation, payload.nomineeRelation!).catch(() => {}));
-  }
-  if (payload.emergencyContactName) await page.fill(SEL.ipEmergencyName, payload.emergencyContactName).catch(() => {});
-  if (payload.emergencyContactNumber) await page.fill(SEL.ipEmergencyNumber, payload.emergencyContactNumber).catch(() => {});
+  await ctx.log("info", "IP registration statutory field fill summary", statutoryOutcomes);
 
   if (await hasCaptcha(page)) {
     const ans = await solveCaptcha(page, ctx, "ip-generate-captcha");

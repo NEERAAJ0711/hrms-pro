@@ -154,6 +154,64 @@ async function waitFor(page: Page, selector: string, timeout = 15000): Promise<b
   }
 }
 
+/**
+ * Fill a statutory field (nominee, marital status, mother's name, etc.) and
+ * report the outcome to the job log so a real-portal run produces verifiable
+ * evidence of which selectors actually matched.
+ *
+ * These fields use best-effort selectors. Previously a missing field was
+ * swallowed silently, so a wrong selector looked identical to success. This
+ * helper logs whether each field was filled, skipped (no matching element on
+ * the form), or matched-but-failed — turning a silent miss into an actionable
+ * warning that names the selector to correct.
+ *
+ * Returns the outcome so callers can build a summary line for screenshots/logs.
+ */
+async function fillStatutoryField(
+  page: Page,
+  ctx: AutomationContext,
+  label: string,
+  selector: string,
+  value: string | undefined,
+): Promise<"filled" | "skipped-no-data" | "not-found" | "fill-failed"> {
+  if (!value) return "skipped-no-data";
+  const el = await page
+    .waitForSelector(selector, { timeout: 3000, state: "visible" })
+    .catch(() => null);
+  if (!el) {
+    await ctx.log(
+      "warn",
+      `Statutory field "${label}" was NOT filled — no matching field found on the portal form. Selector may need correcting.`,
+      { selector, field: label },
+    );
+    return "not-found";
+  }
+  try {
+    const tag = (await el.evaluate((node) => (node as Element).tagName)).toLowerCase();
+    if (tag === "select") {
+      await el
+        .selectOption({ label: value })
+        .catch(async () => {
+          await el.selectOption(value);
+        });
+    } else {
+      await el.fill(value);
+    }
+    await ctx.log("info", `Statutory field "${label}" filled successfully`, {
+      selector,
+      field: label,
+    });
+    return "filled";
+  } catch (err) {
+    await ctx.log(
+      "warn",
+      `Statutory field "${label}" matched a field but could not be filled — the field type or options may differ from expected.`,
+      { selector, field: label, error: (err as Error).message },
+    );
+    return "fill-failed";
+  }
+}
+
 /** Check if current page looks like a CAPTCHA challenge */
 async function hasCaptcha(page: Page): Promise<boolean> {
   try {
@@ -482,7 +540,7 @@ export async function uanGenerate(
   await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {});
   await safeScreenshot(page, ctx, "uan-generate-start");
 
-  // Fill employee details
+  // Fill core employee details
   const fieldMap: Array<[string, string]> = [
     ['input[name*="memberName" i], #memberName', payload.name],
     ['input[name*="dob" i], #dob', payload.dob],
@@ -491,12 +549,6 @@ export async function uanGenerate(
     ['input[name*="aadhaar" i], #aadhaarNo', payload.aadhaar ?? ""],
     ['input[name*="mobile" i], #mobile', payload.mobileNumber ?? ""],
     ['input[name*="doj" i], #doj', payload.dateOfJoining],
-    // New statutory fields — filled best-effort; skipped when missing or the
-    // portal does not expose the field.
-    ['input[name*="marital" i], #maritalStatus', payload.maritalStatus ?? ""],
-    ['input[name*="motherName" i], #motherName', payload.motherName ?? ""],
-    ['input[name*="nominee" i][name*="name" i], #nomineeName', payload.nomineeName ?? ""],
-    ['input[name*="nominee" i][name*="relation" i], #nomineeRelation', payload.nomineeRelation ?? ""],
   ];
 
   for (const [selector, value] of fieldMap) {
@@ -506,6 +558,39 @@ export async function uanGenerate(
       await page.fill(selector, value).catch(() => {});
     }
   }
+
+  // New statutory fields — filled best-effort and the outcome of each is logged
+  // (filled / not-found / fill-failed) so a real-portal run produces verifiable
+  // evidence of which selectors matched. Marital status and nominee relation are
+  // commonly <select> dropdowns; mother's name and nominee name are text inputs.
+  const statutoryFields: Array<[string, string, string | undefined]> = [
+    [
+      "Marital Status",
+      '#maritalStatus, #ddlMaritalStatus, select[name*="marital" i], select[id*="marital" i], input[name*="marital" i]',
+      payload.maritalStatus,
+    ],
+    [
+      "Mother's Name",
+      '#motherName, input[name*="motherName" i], input[name*="mother" i], input[id*="mother" i]',
+      payload.motherName,
+    ],
+    [
+      "Nominee Name",
+      '#nomineeName, input[name*="nominee" i][name*="name" i], input[id*="nominee" i][id*="name" i], input[name*="nominee" i]:not([name*="relation" i])',
+      payload.nomineeName,
+    ],
+    [
+      "Nominee Relation",
+      '#nomineeRelation, #ddlNomineeRelation, select[name*="nominee" i][name*="relation" i], select[id*="nominee" i][id*="relation" i], select[name*="relation" i], input[name*="nominee" i][name*="relation" i]',
+      payload.nomineeRelation,
+    ],
+  ];
+
+  const statutoryOutcomes: Record<string, string> = {};
+  for (const [label, selector, value] of statutoryFields) {
+    statutoryOutcomes[label] = await fillStatutoryField(page, ctx, label, selector, value);
+  }
+  await ctx.log("info", "UAN statutory field fill summary", statutoryOutcomes);
 
   // Handle CAPTCHA/OTP if it appears before submit
   if (await hasCaptcha(page)) {
