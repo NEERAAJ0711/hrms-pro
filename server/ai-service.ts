@@ -1055,6 +1055,158 @@ function buildRuleBasedResponse(
       : `Thank you, ${firstName}! Document received ✅. ${nextPending ? `Next, please upload your **${nextPending}**.` : "All documents submitted! 🎉 HR will review and verify them shortly."}`;
   }
 
+  // ── Personal / profile info lookups (name, father's name, address, DOB, etc.) ──
+  // Answered straight from the employee's HRMS master record — works without an AI key.
+  {
+    const ei = ctx?.employeeInfo;
+    const onRecord = (val: string | null | undefined) => (val && val.trim() ? val.trim() : null);
+    const notOnRecord = isHindi
+      ? "यह जानकारी अभी आपके HRMS record में दर्ज नहीं है। कृपया HR से अपडेट करवाएँ।"
+      : "this isn't recorded in your HRMS profile yet. Please ask HR to update it.";
+
+    // Father's / Husband's name
+    if (msg.includes("father") || msg.includes("husband") || msg.includes("पिता") || msg.includes("पति") || msg.includes("f. name") || msg.includes("f.name") || msg.includes("f name") || msg.includes("fname")) {
+      const v = onRecord(prof?.fatherHusbandName);
+      return v
+        ? (isHindi ? `${firstName} जी, आपके record में पिता/पति का नाम: **${v}** है।` : `${firstName}, the father's/husband's name on your record is: **${v}**.`)
+        : (isHindi ? `${firstName} जी, पिता/पति का नाम — ${notOnRecord}` : `${firstName}, your father's/husband's name — ${notOnRecord}`);
+    }
+
+    // Mother's name
+    if (msg.includes("mother") || msg.includes("माता") || msg.includes("माँ") || msg.includes("मां")) {
+      const v = onRecord(prof?.motherName);
+      return v
+        ? (isHindi ? `${firstName} जी, आपकी माता का नाम: **${v}** है।` : `${firstName}, your mother's name on record is: **${v}**.`)
+        : (isHindi ? `${firstName} जी, माता का नाम — ${notOnRecord}` : `${firstName}, your mother's name — ${notOnRecord}`);
+    }
+
+    // Address (present + permanent) — but not "email address"
+    if ((msg.includes("address") || msg.includes("पता") || msg.includes("residence")) && !msg.includes("email") && !msg.includes("e-mail") && !msg.includes("mail")) {
+      const present = onRecord(prof?.presentAddress);
+      const permanent = onRecord(prof?.permanentAddress);
+      if (present || permanent) {
+        const lines = [
+          present ? `${isHindi ? "वर्तमान पता" : "Present Address"}: ${present}` : null,
+          permanent ? `${isHindi ? "स्थायी पता" : "Permanent Address"}: ${permanent}` : null,
+        ].filter(Boolean).join("\n");
+        return isHindi ? `${firstName} जी, आपके record में पता:\n${lines}` : `${firstName}, the address on your record:\n${lines}`;
+      }
+      return isHindi ? `${firstName} जी, आपका पता — ${notOnRecord}` : `${firstName}, your address — ${notOnRecord}`;
+    }
+
+    // Date of birth
+    if (msg.includes("date of birth") || msg.includes("dob") || msg.includes("born") || msg.includes("birthday") || msg.includes("जन्म")) {
+      const v = onRecord(prof?.dateOfBirth);
+      return v
+        ? (isHindi ? `${firstName} जी, आपकी जन्म तिथि: **${v}** है।` : `${firstName}, your date of birth on record is: **${v}**.`)
+        : (isHindi ? `${firstName} जी, जन्म तिथि — ${notOnRecord}` : `${firstName}, your date of birth — ${notOnRecord}`);
+    }
+
+    // Gender
+    if (msg.includes("gender") || msg.includes("लिंग")) {
+      const v = onRecord(prof?.gender);
+      return v
+        ? (isHindi ? `${firstName} जी, record में लिंग: **${v}**।` : `${firstName}, your gender on record is: **${v}**.`)
+        : (isHindi ? `${firstName} जी, लिंग — ${notOnRecord}` : `${firstName}, your gender — ${notOnRecord}`);
+    }
+
+    // Mobile / phone — but not "emergency contact number" (handled below)
+    if ((msg.includes("mobile") || msg.includes("phone") || msg.includes("contact number") || msg.includes("मोबाइल") || msg.includes("फोन")) && !msg.includes("emergency") && !msg.includes("आपातकालीन")) {
+      const v = onRecord(prof?.mobileNumber);
+      return v
+        ? (isHindi ? `${firstName} जी, record में मोबाइल नंबर: **${v}**।` : `${firstName}, your mobile number on record is: **${v}**.`)
+        : (isHindi ? `${firstName} जी, मोबाइल नंबर — ${notOnRecord}` : `${firstName}, your mobile number — ${notOnRecord}`);
+    }
+
+    // Email
+    if (msg.includes("email") || msg.includes("e-mail") || msg.includes("ईमेल")) {
+      const v = onRecord(prof?.officialEmail);
+      return v
+        ? (isHindi ? `${firstName} जी, record में ईमेल: **${v}**।` : `${firstName}, your email on record is: **${v}**.`)
+        : (isHindi ? `${firstName} जी, ईमेल — ${notOnRecord}` : `${firstName}, your email — ${notOnRecord}`);
+    }
+
+    // Marital status
+    if (msg.includes("marital") || msg.includes("married") || msg.includes("वैवाहिक") || msg.includes("शादी")) {
+      const v = onRecord(prof?.maritalStatus);
+      return v
+        ? (isHindi ? `${firstName} जी, वैवाहिक स्थिति: **${v}**।` : `${firstName}, your marital status on record is: **${v}**.`)
+        : (isHindi ? `${firstName} जी, वैवाहिक स्थिति — ${notOnRecord}` : `${firstName}, your marital status — ${notOnRecord}`);
+    }
+
+    // Blood group
+    if (msg.includes("blood") || msg.includes("रक्त")) {
+      const v = onRecord(prof?.bloodGroup);
+      return v
+        ? (isHindi ? `${firstName} जी, रक्त समूह: **${v}**।` : `${firstName}, your blood group on record is: **${v}**.`)
+        : (isHindi ? `${firstName} जी, रक्त समूह — ${notOnRecord}` : `${firstName}, your blood group — ${notOnRecord}`);
+    }
+
+    // Emergency contact
+    if (msg.includes("emergency") || msg.includes("आपातकालीन")) {
+      const nm = onRecord(prof?.emergencyContactName);
+      const num = onRecord(prof?.emergencyContactNumber);
+      if (nm || num) {
+        return isHindi
+          ? `${firstName} जी, आपातकालीन संपर्क: ${nm ?? "—"}${num ? ` (${num})` : ""}।`
+          : `${firstName}, your emergency contact: ${nm ?? "—"}${num ? ` (${num})` : ""}.`;
+      }
+      return isHindi ? `${firstName} जी, आपातकालीन संपर्क — ${notOnRecord}` : `${firstName}, your emergency contact — ${notOnRecord}`;
+    }
+
+    // Nominee
+    if (msg.includes("nominee") || msg.includes("nomination") || msg.includes("नामांकित") || msg.includes("नामिनी")) {
+      const nm = onRecord(prof?.nomineeName);
+      const rel = onRecord(prof?.nomineeRelation);
+      if (nm) {
+        return isHindi
+          ? `${firstName} जी, नामांकित व्यक्ति: **${nm}**${rel ? ` (${rel})` : ""}।`
+          : `${firstName}, your nominee: **${nm}**${rel ? ` (relation: ${rel})` : ""}.`;
+      }
+      return isHindi ? `${firstName} जी, नामांकित व्यक्ति — ${notOnRecord}` : `${firstName}, your nominee — ${notOnRecord}`;
+    }
+
+    // Designation / department / role
+    if (msg.includes("designation") || msg.includes("department") || msg.includes("my role") || msg.includes("my post") || msg.includes("पद") || msg.includes("विभाग")) {
+      const desig = onRecord(ei?.designation);
+      const dept = onRecord(ei?.department);
+      if (desig || dept) {
+        return isHindi
+          ? `${firstName} जी, आपका पद: **${desig ?? "—"}**${dept ? `, विभाग: **${dept}**` : ""}।`
+          : `${firstName}, your designation: **${desig ?? "—"}**${dept ? `, department: **${dept}**` : ""}.`;
+      }
+      return isHindi ? `${firstName} जी, पद/विभाग — ${notOnRecord}` : `${firstName}, your designation/department — ${notOnRecord}`;
+    }
+
+    // Date of joining
+    if (msg.includes("joining") || msg.includes("date of join") || msg.includes("doj") || msg.includes("नियुक्ति") || msg.includes("ज्वाइन")) {
+      const v = onRecord(ei?.dateOfJoining);
+      return v
+        ? (isHindi ? `${firstName} जी, आपकी नियुक्ति तिथि: **${v}**।` : `${firstName}, your date of joining is: **${v}**.`)
+        : (isHindi ? `${firstName} जी, नियुक्ति तिथि — ${notOnRecord}` : `${firstName}, your date of joining — ${notOnRecord}`);
+    }
+
+    // General profile summary / "my name" / "my details" / "who am I"
+    if (
+      msg.includes("my name") || msg.includes("what is my name") || msg.includes("मेरा नाम") ||
+      msg.includes("my detail") || msg.includes("my profile") || msg.includes("my information") || msg.includes("my info") ||
+      msg.includes("about me") || msg.includes("who am i") || msg.includes("मेरी जानकारी") || msg.includes("मेरा विवरण") ||
+      /\b(my|full|complete|legal|employee)\s+name\b/.test(msg)
+    ) {
+      const summary = [
+        `${isHindi ? "नाम" : "Name"}: ${employeeName}`,
+        ei?.designation ? `${isHindi ? "पद" : "Designation"}: ${ei.designation}${ei.department ? ` (${ei.department})` : ""}` : null,
+        onRecord(prof?.fatherHusbandName) ? `${isHindi ? "पिता/पति का नाम" : "Father's/Husband's Name"}: ${prof!.fatherHusbandName}` : null,
+        onRecord(prof?.dateOfBirth) ? `${isHindi ? "जन्म तिथि" : "Date of Birth"}: ${prof!.dateOfBirth}` : null,
+        onRecord(prof?.presentAddress) ? `${isHindi ? "वर्तमान पता" : "Present Address"}: ${prof!.presentAddress}` : null,
+        onRecord(prof?.mobileNumber) ? `${isHindi ? "मोबाइल" : "Mobile"}: ${prof!.mobileNumber}` : null,
+      ].filter(Boolean).join("\n");
+      return isHindi
+        ? `${firstName} जी, आपके HRMS record का विवरण:\n${summary}\n\nकिसी और जानकारी के लिए पूछें।`
+        : `${firstName}, here are your HRMS record details:\n${summary}\n\nAsk me for anything else you'd like to check.`;
+    }
+  }
+
   // Default response
   if (pendingDocs.length > 0) {
     return isHindi
