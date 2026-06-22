@@ -732,6 +732,20 @@ IMPORTANT: When an employee uploads a document, confirm receipt and tell them wh
 
 // ─── Rule-based fallback responses ────────────────────────────────────────────
 
+// Mask a sensitive number, leaving only the last `visible` characters readable.
+function maskTail(value: string, visible = 4): string {
+  const v = value.replace(/\s+/g, "");
+  if (v.length <= visible) return v;
+  return "•".repeat(v.length - visible) + v.slice(-visible);
+}
+
+// Aadhaar is always shown as the last 4 digits only.
+function maskAadhaar(value: string): string {
+  const v = value.replace(/[\s-]+/g, "");
+  if (v.length < 4) return v;
+  return `XXXX XXXX ${v.slice(-4)}`;
+}
+
 function buildRuleBasedResponse(
   userMessage: string,
   employeeName: string,
@@ -767,8 +781,14 @@ function buildRuleBasedResponse(
     }`;
   }
 
-  // KYC status query
-  if (msg.includes("kyc") && (msg.includes("status") || msg.includes("pending") || msg.includes("complete") || msg.includes("स्थिति"))) {
+  // KYC status query — but don't preempt a specific Aadhaar/PAN/bank value query
+  // (e.g. "kyc update my pan FDXPS…" should be handled by the PAN block below).
+  if (
+    msg.includes("kyc") &&
+    (msg.includes("status") || msg.includes("pending") || msg.includes("complete") || msg.includes("update") || msg.includes("done") || msg.includes("स्थिति")) &&
+    !/\b(pan|aadhaar|aadhar|adhar|bank|account|ifsc)\b/.test(msg) &&
+    !msg.includes("पैन") && !msg.includes("आधार") && !msg.includes("बैंक") && !msg.includes("खाता")
+  ) {
     if (pendingDocs.length === 0) {
       return isHindi
         ? `${firstName} जी, आपका KYC पूरा हो चुका है! ✅ सभी ${6} दस्तावेज़ जमा हो चुके हैं।`
@@ -779,25 +799,69 @@ function buildRuleBasedResponse(
       : `${firstName}, here's your current KYC status:\n\n**Pending (${pendingDocs.length}):**\n${pendingDocs.map((d, i) => `${i + 1}. ${d}`).join("\n")}\n\nPlease upload them using the 📎 attachment button above. Which one would you like to start with?`;
   }
 
+  // ── Identity / statutory VALUE lookups ───────────────────────────────────────
+  // Must run BEFORE the upload-guidance below. "What is my PAN / Aadhaar / bank
+  // account", "is my PAN updated", or the employee typing a new value should NOT
+  // be answered with "please upload your document".
+  const prof = ctx?.profile;
+  const wantsUploadHelp =
+    /\b(upload|submit|attach|scan|photo|kaise|how do i|how to)\b/.test(msg) ||
+    msg.includes("अपलोड") || msg.includes("जमा") || msg.includes("कैसे") || msg.includes("फोटो");
+  const panTyped = userMessage.match(/[A-Z]{5}[0-9]{4}[A-Z]/i)?.[0]?.toUpperCase() ?? null;
+  const aadhaarTyped = userMessage.replace(/[\s-]/g, "").match(/(?<!\d)\d{12}(?!\d)/)?.[0] ?? null;
+
   // Aadhaar query
-  if (msg.includes("aadhaar") || msg.includes("aadhar") || msg.includes("आधार")) {
+  if (msg.includes("aadhaar") || msg.includes("aadhar") || msg.includes("adhar") || msg.includes("आधार")) {
+    const onFile = prof?.aadhaar?.trim();
+    if (aadhaarTyped) {
+      return isHindi
+        ? `${firstName} जी, मैंने आपका आधार नंबर नोट कर लिया है। ऊपर दिए verify कार्ड से confirm करें — फिर यह आपकी HRMS profile में सेव हो जाएगा।`
+        : `Got it, ${firstName} — I've noted your Aadhaar number. Please confirm it using the verification card above and it will be saved to your HRMS profile.`;
+    }
+    if (!wantsUploadHelp && onFile) {
+      return isHindi
+        ? `${firstName} जी, आपका आधार file पर है: **${maskAadhaar(onFile)}** ✅ (सुरक्षा के लिए सिर्फ़ अंतिम 4 अंक दिखाए गए हैं)।`
+        : `${firstName}, your Aadhaar on file: **${maskAadhaar(onFile)}** ✅ (last 4 digits shown for security). It's saved in your HRMS profile.`;
+    }
     return isHindi
-      ? `${firstName} जी, आधार कार्ड की दोनों तरफ की clear फोटो अपलोड करें। यह PF और ESIC पंजीकरण के लिए जरूरी है।`
-      : `For Aadhaar, please upload clear photos/scans of **both front and back** sides. This is required for your PF and ESIC registration. Use the 📎 button to upload.`;
+      ? `${firstName} जी, आधार कार्ड की दोनों तरफ की clear फोटो अपलोड करें, या 12-अंकों का आधार नंबर यहाँ टाइप करें। यह PF और ESIC पंजीकरण के लिए जरूरी है।`
+      : `For Aadhaar, please upload clear photos/scans of **both front and back** sides, or type your 12-digit Aadhaar number here. This is required for your PF and ESIC registration. Use the 📎 button to upload.`;
   }
 
   // PAN query
   if (msg.includes("pan") || msg.includes("पैन")) {
+    const onFile = (prof?.pan || ctx?.employeeInfo?.pan)?.trim();
+    if (panTyped) {
+      return isHindi
+        ? `${firstName} जी, मैंने आपका PAN **${panTyped}** नोट कर लिया है। ऊपर दिए verify कार्ड से confirm करें — फिर यह आपकी HRMS profile में सेव हो जाएगा।`
+        : `Got it, ${firstName} — I've noted your PAN **${panTyped}**. Please confirm it using the verification card above and it will be saved to your HRMS profile.`;
+    }
+    if (!wantsUploadHelp && onFile) {
+      return isHindi
+        ? `${firstName} जी, आपका PAN file पर है: **${onFile}** ✅ — यह आपकी HRMS profile में सेव है।`
+        : `${firstName}, your PAN on file: **${onFile}** ✅ — it's saved in your HRMS profile.`;
+    }
     return isHindi
-      ? `${firstName} जी, PAN कार्ड की clear फोटो अपलोड करें। TDS कटौती और आयकर के लिए यह अनिवार्य है।`
-      : `Please upload a clear photo/scan of your **PAN card**. This is mandatory for TDS deduction and income tax purposes. Use the 📎 button to upload.`;
+      ? `${firstName} जी, PAN कार्ड की clear फोटो अपलोड करें, या 10-अंकों का PAN यहाँ टाइप करें। TDS कटौती और आयकर के लिए यह अनिवार्य है।`
+      : `Please upload a clear photo/scan of your **PAN card**, or type your 10-character PAN here. This is mandatory for TDS deduction and income tax purposes. Use the 📎 button to upload.`;
   }
 
-  // Bank details
-  if (msg.includes("bank") || msg.includes("account") || msg.includes("salary") || msg.includes("बैंक") || msg.includes("खाता")) {
+  // Bank details / account number / IFSC
+  if (msg.includes("bank") || msg.includes("account") || msg.includes("ifsc") || msg.includes("बैंक") || msg.includes("खाता")) {
+    const acc = prof?.bankAccount?.trim();
+    const ifsc = prof?.ifsc?.trim();
+    if (!wantsUploadHelp && (acc || ifsc)) {
+      const accLine = acc
+        ? `${isHindi ? "खाता संख्या" : "Account Number"}: **${maskTail(acc)}**`
+        : `${isHindi ? "खाता संख्या" : "Account Number"}: ${isHindi ? "अभी file पर नहीं" : "not on file yet"}`;
+      const ifscLine = `IFSC: ${ifsc ? `**${ifsc}**` : isHindi ? "अभी file पर नहीं" : "not on file yet"}`;
+      return isHindi
+        ? `${firstName} जी, आपके bank details (file पर) ✅:\n- ${accLine}\n- ${ifscLine}\n(सुरक्षा के लिए account number के सिर्फ़ अंतिम 4 अंक दिखाए गए हैं)।`
+        : `${firstName}, your bank details on file ✅:\n- ${accLine}\n- ${ifscLine}\n(only the last 4 digits of the account number are shown for security).`;
+    }
     return isHindi
-      ? `${firstName} जी, कृपया अपना बैंक विवरण दें:\n1. खाता संख्या\n2. IFSC कोड\n3. बैंक का नाम\n4. शाखा का नाम\n\nया फिर cancelled cheque की फोटो अपलोड करें।`
-      : `To process your salary, I need your bank details:\n1. **Account Number**\n2. **IFSC Code**\n3. **Bank Name**\n4. **Branch Name**\n\nYou can type them here or upload a **Cancelled Cheque** using the 📎 button.`;
+      ? `${firstName} जी, bank details add/update करने के लिए कृपया दें:\n1. खाता संख्या\n2. IFSC कोड\n3. बैंक का नाम\n4. शाखा का नाम\n\nया फिर cancelled cheque की फोटो अपलोड करें।`
+      : `To add or update your bank details, please share:\n1. **Account Number**\n2. **IFSC Code**\n3. **Bank Name**\n4. **Branch Name**\n\nYou can type them here or upload a **Cancelled Cheque** using the 📎 button.`;
   }
 
   // Leave query — use real data if available
