@@ -82,7 +82,7 @@ async function callGemini(
     const { GoogleGenerativeAI } = await import("@google/generative-ai");
     const genAI = new GoogleGenerativeAI(key);
     const model = genAI.getGenerativeModel({
-      model: "gemini-1.5-flash",
+      model: "gemini-2.0-flash",
       systemInstruction: systemPrompt,
     });
 
@@ -117,7 +117,7 @@ async function callGeminiJson(
     const { GoogleGenerativeAI } = await import("@google/generative-ai");
     const genAI = new GoogleGenerativeAI(key);
     const model = genAI.getGenerativeModel({
-      model: "gemini-1.5-flash",
+      model: "gemini-2.0-flash",
       systemInstruction: systemPrompt,
       generationConfig: { temperature: 0, responseMimeType: "application/json" },
     });
@@ -214,7 +214,7 @@ export async function testAiProviders(): Promise<{
       const { GoogleGenerativeAI } = await import("@google/generative-ai");
       const genAI = new GoogleGenerativeAI(getGeminiKey()!);
       const model = genAI.getGenerativeModel(
-        { model: "gemini-1.5-flash" },
+        { model: "gemini-2.0-flash" },
         { timeout: TEST_TIMEOUT_MS },
       );
       const result = await model.generateContent("ping");

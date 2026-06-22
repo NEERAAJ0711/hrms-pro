@@ -218,7 +218,7 @@ export function ApiKeysTab() {
           {/* ── Gemini ── */}
           <KeyRow
             label="Google Gemini API Key"
-            description="Fallback AI provider — Gemini 1.5 Flash (used when OpenAI is unavailable)"
+            description="Fallback AI provider — Gemini 2.0 Flash (used when OpenAI is unavailable)"
             placeholder="AIzaSy..."
             isLoading={isLoading}
             status={data?.gemini}
