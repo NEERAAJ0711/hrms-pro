@@ -68,7 +68,7 @@ export function setGeminiKeyOverride(key: string | null) {
 }
 
 function getGeminiKey(): string | null {
-  return process.env.GOOGLE_GEMINI_API_KEY || _geminiKey || null;
+  return process.env.GOOGLE_GEMINI_API_KEY || process.env.GEMINI_API_KEY || _geminiKey || null;
 }
 
 async function callGemini(
@@ -125,6 +125,73 @@ export async function loadAllApiKeysFromDB(): Promise<void> {
 /** @deprecated use loadAllApiKeysFromDB */
 export async function loadOpenAIKeyFromDB(): Promise<void> {
   return loadAllApiKeysFromDB();
+}
+
+// ─── Provider status & live diagnostics ───────────────────────────────────────
+// Lets admins/ops see exactly which AI provider is active and whether the
+// configured key actually works — instead of silently falling back to the
+// rule-based engine (which makes every reply look the same).
+
+export function getAiProviderStatus(): { openaiConfigured: boolean; geminiConfigured: boolean } {
+  return { openaiConfigured: !!getOpenAI(), geminiConfigured: !!getGeminiKey() };
+}
+
+export interface AiProviderTest {
+  configured: boolean;
+  ok: boolean;
+  error?: string;
+}
+
+// Runs a tiny live request against each configured provider and reports the
+// real error (invalid key, deprecated model, network/firewall block, quota…).
+export async function testAiProviders(): Promise<{
+  openai: AiProviderTest;
+  gemini: AiProviderTest;
+  activeProvider: "openai" | "gemini" | "rule-based";
+}> {
+  const openai: AiProviderTest = { configured: false, ok: false };
+  const gemini: AiProviderTest = { configured: false, ok: false };
+
+  const TEST_TIMEOUT_MS = 12000; // keep diagnostics snappy even if a firewall blocks the API
+
+  const client = getOpenAI();
+  if (client) {
+    openai.configured = true;
+    try {
+      const r = await client.chat.completions.create(
+        {
+          model: "gpt-4o-mini",
+          messages: [{ role: "user", content: "ping" }],
+          max_tokens: 5,
+        },
+        { timeout: TEST_TIMEOUT_MS },
+      );
+      openai.ok = !!r.choices?.[0]?.message;
+      if (!openai.ok) openai.error = "OpenAI returned an empty response.";
+    } catch (err: any) {
+      openai.error = err?.message || String(err);
+    }
+  }
+
+  if (getGeminiKey()) {
+    gemini.configured = true;
+    try {
+      const { GoogleGenerativeAI } = await import("@google/generative-ai");
+      const genAI = new GoogleGenerativeAI(getGeminiKey()!);
+      const model = genAI.getGenerativeModel(
+        { model: "gemini-1.5-flash" },
+        { timeout: TEST_TIMEOUT_MS },
+      );
+      const result = await model.generateContent("ping");
+      gemini.ok = !!result.response.text();
+      if (!gemini.ok) gemini.error = "Gemini returned an empty response.";
+    } catch (err: any) {
+      gemini.error = err?.message || String(err);
+    }
+  }
+
+  const activeProvider = openai.ok ? "openai" : gemini.ok ? "gemini" : "rule-based";
+  return { openai, gemini, activeProvider };
 }
 
 // ─── KYC Document Vision Extraction ───────────────────────────────────────────
@@ -991,6 +1058,17 @@ export async function generateAiReply(
   }
 
   // ── 3. Rule-based fallback ──────────────────────────────────────────────────
+  if (!getOpenAI() && !getGeminiKey()) {
+    console.warn(
+      "[AI] No OpenAI/Gemini key configured — using rule-based fallback (replies will be generic). " +
+        "Set OPENAI_API_KEY or GOOGLE_GEMINI_API_KEY, or save a key under Settings → API Keys.",
+    );
+  } else {
+    console.warn(
+      "[AI] A provider key is configured but every provider failed — using rule-based fallback. " +
+        "Check the [AI] warnings above (or Settings → API Keys → Test) for the real error.",
+    );
+  }
   return buildRuleBasedResponse(userMessage, employeeName, kyc, language, ctx);
 }
 

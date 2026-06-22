@@ -17,7 +17,7 @@ import { eq, and, desc, sql, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { createNotification, createNotificationForMany } from "../notifications";
 import { addSSEClient, removeSSEClient } from "../sse";
-import { setOpenAIKeyOverride, setGeminiKeyOverride, loadAllApiKeysFromDB } from "../ai-service";
+import { setOpenAIKeyOverride, setGeminiKeyOverride, loadAllApiKeysFromDB, testAiProviders } from "../ai-service";
 import { getAdmsActivityLog, getAdmsActivityLogFromDB, getAdmsServerStatus, processAttlog, processUserRecords } from "../adms";
 import * as dnsPromises from "dns/promises";
 import multer from "multer";
@@ -120,6 +120,19 @@ export async function registerSettingsRoutes(app: Express): Promise<void> {
       res.json({ success: true });
     } catch {
       res.status(500).json({ error: "Failed to save API keys" });
+    }
+  });
+
+  // Live diagnostic: actually call each configured provider and report the real
+  // result so admins can see WHY the assistant falls back to canned replies.
+  app.get("/api/settings/api-keys/test", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const user = (req as any).user;
+      if (user.role !== "super_admin") return res.status(403).json({ error: "Forbidden" });
+      const result = await testAiProviders();
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || "Failed to test AI providers" });
     }
   });
 

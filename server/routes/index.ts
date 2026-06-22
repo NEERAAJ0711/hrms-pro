@@ -11,7 +11,7 @@ import { registerComplianceRoutes } from "../compliance-routes";
 import { registerKraRoutes, startKraDeadlineScheduler } from "../kra-routes";
 import { registerEpfoEsicRoutes } from "../epfo-esic-routes";
 import { registerAiHrRoutes } from "../ai-hr-routes";
-import { loadAllApiKeysFromDB } from "../ai-service";
+import { loadAllApiKeysFromDB, getAiProviderStatus } from "../ai-service";
 
 import { requireAuth, requireRole } from "./shared";
 import { runStartupMigrations } from "./startup-migrations";
@@ -88,7 +88,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
   await registerAiHrRoutes(app, requireAuth);
 
   // Load OpenAI + Gemini keys from DB (if admin saved them via Settings → API Keys)
-  loadAllApiKeysFromDB().catch(() => {});
+  loadAllApiKeysFromDB()
+    .then(() => {
+      const s = getAiProviderStatus();
+      console.log(
+        `[AI] Provider status — OpenAI: ${s.openaiConfigured ? "configured" : "NOT configured"}, ` +
+          `Gemini: ${s.geminiConfigured ? "configured" : "NOT configured"}`,
+      );
+      if (!s.openaiConfigured && !s.geminiConfigured) {
+        console.warn(
+          "[AI] No AI provider key found — the HR Assistant will use generic rule-based replies " +
+            "until a key is set (env OPENAI_API_KEY / GOOGLE_GEMINI_API_KEY, or Settings → API Keys).",
+        );
+      }
+    })
+    .catch(() => {});
 
   await registerAutomationRoutes(app);
 

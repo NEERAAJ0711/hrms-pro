@@ -10,6 +10,7 @@
 - [Routes modularization](routes-modularization.md) — server/routes/ split; index.ts registration order is load-bearing; queueService intentionally unimported (pre-existing bug)
 - [EPFO/ESIC captcha UI](automation-captcha-ui.md) — CAPTCHA/OTP panel + live view + resume target must all follow the SAME paused job; bulk fan-out must throw on 0 children
 - [Env load ordering](env-load-ordering.md) — import-time secret checks (jwt-auth throw) run before entrypoint body; .env loader must be a first-imported side-effect module (server/load-env.ts)
+- [AI assistant fallback](ai-assistant-fallback.md) — "same answer for every query" = missing/invalid LLM key → silent rule-based fallback; diagnose via Settings → API Keys → Test, not chat-flow code
 - [CI npm firewall URLs](ci-npm-firewall-urls.md) — package-lock.json bakes in package-firewall.replit.local; external CI npm ci fails EAI_AGAIN; sed-rewrite resolved URLs to registry.npmjs.org
 - [Automation register payloads](automation-enqueue-payload.md) — queue worker does NO employee hydration; enqueue full payload at route layer; bulk uses {employees:[...]} not {employeeIds}
 - [JWT secret handling](jwt-secret-handling.md) — no managed JWT_SECRET in Replit (set on VPS); jwt-auth fail-closed except NODE_ENV dev/test ephemeral fallback; .replit env vars edited via secrets tooling only

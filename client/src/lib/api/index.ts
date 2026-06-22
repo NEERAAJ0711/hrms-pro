@@ -111,6 +111,12 @@ export const api = {
     save: (body: unknown) => apiRequest("POST", "/api/settings", body),
     apiKeys: () => fetchJson<{ openai: { set: boolean; hint: string }; gemini: { set: boolean; hint: string } }>("/api/settings/api-keys"),
     saveApiKeys: (body: { openaiApiKey?: string; geminiApiKey?: string }) => apiRequest("POST", "/api/settings/api-keys", body),
+    testApiKeys: () =>
+      fetchJson<{
+        openai: { configured: boolean; ok: boolean; error?: string };
+        gemini: { configured: boolean; ok: boolean; error?: string };
+        activeProvider: "openai" | "gemini" | "rule-based";
+      }>("/api/settings/api-keys/test"),
   },
 };
 
