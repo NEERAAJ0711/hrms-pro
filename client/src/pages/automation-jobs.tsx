@@ -21,7 +21,7 @@ import {
 import {
   Bot, RefreshCw, AlertTriangle, CheckCircle2, Clock, Pause,
   RotateCcw, Loader2, Activity, FileText, Search, Trash2, Ban, Sparkles,
-  FileCode, ExternalLink,
+  FileCode, ExternalLink, Users, Download,
 } from "lucide-react";
 import { ComplianceAiPanel } from "@/components/compliance-ai-panel";
 
@@ -875,6 +875,152 @@ function LogsTab() {
   );
 }
 
+// ─── Data Tab (fetched portal employee lists) ───────────────────────────────
+// Surfaces the result stored on a completed `esic_employee_list` /
+// `epfo_employee_list` job. Columns are derived dynamically from the row keys
+// so it works for both ESIC ({ ipNo, name, dateOfRegistration }) and EPFO
+// (table-header keyed) result shapes.
+interface EmployeeListResult {
+  employees?: Record<string, unknown>[];
+  count?: number;
+  pages?: number;
+  fetchedAt?: string;
+}
+
+function DataTab() {
+  const { user } = useAuth();
+  const [portal, setPortal] = useState<"esic" | "epfo">("esic");
+  const cid = user?.companyId || undefined;
+  // The backend scopes this endpoint by company and requires a companyId even
+  // for super admins (who have no own companyId). Without a company picker on
+  // this page, prompt them rather than firing a request that 400s.
+  const needsCompany = user?.role === "super_admin" && !cid;
+
+  const { data, isLoading, isError, error, refetch, isFetching } = useQuery<{
+    data: EmployeeListResult | null;
+    job: { id: string; completedAt: string | null; createdAt: string } | null;
+  }>({
+    queryKey: ["/api/automation/portal-employee-list", portal, cid],
+    queryFn: async () => {
+      const url = `/api/automation/portal-employee-list/${portal}${cid ? `?companyId=${cid}` : ""}`;
+      const res = await fetch(url, { credentials: "include" });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.error || `Failed to fetch employee list (${res.status})`);
+      }
+      return res.json();
+    },
+    enabled: !needsCompany,
+  });
+
+  const result = data?.data ?? null;
+  const employees = Array.isArray(result?.employees) ? result!.employees! : [];
+  const columns = employees.length
+    ? Array.from(
+        employees.reduce<Set<string>>((set, row) => {
+          Object.keys(row ?? {}).forEach((k) => set.add(k));
+          return set;
+        }, new Set<string>())
+      )
+    : [];
+
+  const exportCsv = () => {
+    if (!employees.length) return;
+    const escape = (v: unknown) => {
+      const s = v == null ? "" : String(v);
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const csv = [
+      columns.map(escape).join(","),
+      ...employees.map((r) => columns.map((c) => escape(r[c])).join(",")),
+    ].join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `${portal}-employee-list.csv`;
+    link.click();
+    URL.revokeObjectURL(link.href);
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-3 flex-wrap">
+        <Select value={portal} onValueChange={(v) => setPortal(v as "esic" | "epfo")}>
+          <SelectTrigger className="w-44" data-testid="select-data-portal">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="esic">ESIC Employees</SelectItem>
+            <SelectItem value="epfo">EPFO Members</SelectItem>
+          </SelectContent>
+        </Select>
+        <Button variant="outline" size="sm" onClick={() => refetch()} data-testid="button-refresh-data">
+          <RefreshCw className={`h-4 w-4 mr-1 ${isFetching ? "animate-spin" : ""}`} /> Refresh
+        </Button>
+        <Button variant="outline" size="sm" onClick={exportCsv} disabled={!employees.length} data-testid="button-export-data">
+          <Download className="h-4 w-4 mr-1" /> Export CSV
+        </Button>
+        {result?.fetchedAt && (
+          <span className="text-xs text-muted-foreground ml-auto" data-testid="text-data-meta">
+            {employees.length} records · fetched {formatDate(result.fetchedAt)}
+          </span>
+        )}
+      </div>
+
+      {needsCompany ? (
+        <Card>
+          <CardContent className="py-12 text-center text-muted-foreground" data-testid="text-needs-company">
+            <Users className="h-8 w-8 mx-auto mb-2 opacity-40" />
+            <p>Company-specific data.</p>
+            <p className="text-xs mt-1">Sign in as a company admin to view that company’s ESIC/EPFO employee list.</p>
+          </CardContent>
+        </Card>
+      ) : isLoading ? (
+        <Card><CardContent className="py-12 text-center"><Loader2 className="h-5 w-5 animate-spin mx-auto" /></CardContent></Card>
+      ) : isError ? (
+        <Card className="border-red-200 bg-red-50/30">
+          <CardContent className="py-12 text-center text-red-600" data-testid="text-data-error">
+            <AlertTriangle className="h-8 w-8 mx-auto mb-2 opacity-70" />
+            <p>Could not load the data.</p>
+            <p className="text-xs mt-1">{(error as Error)?.message ?? "Please try again."}</p>
+          </CardContent>
+        </Card>
+      ) : employees.length === 0 ? (
+        <Card>
+          <CardContent className="py-12 text-center text-muted-foreground" data-testid="text-no-data">
+            <Users className="h-8 w-8 mx-auto mb-2 opacity-40" />
+            <p>No {portal.toUpperCase()} employee data yet.</p>
+            <p className="text-xs mt-1">
+              Run a “{portal === "esic" ? "ESIC Employee List" : "EPFO Member List"}” job, wait until it shows Completed, then click Refresh.
+            </p>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="rounded-md border overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-12">#</TableHead>
+                {columns.map((col) => <TableHead key={col}>{col}</TableHead>)}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {employees.map((row, i) => (
+                <TableRow key={i} data-testid={`row-data-${i}`}>
+                  <TableCell className="text-xs text-muted-foreground">{i + 1}</TableCell>
+                  {columns.map((col) => (
+                    <TableCell key={col} className="text-sm">{row[col] == null || row[col] === "" ? "—" : String(row[col])}</TableCell>
+                  ))}
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function AutomationJobsPage() {
   const { user } = useAuth();
@@ -949,12 +1095,14 @@ export default function AutomationJobsPage() {
           <TabsTrigger value="failed" data-testid="tab-failed-jobs">
             Failed {summary?.failedJobs ? `(${summary.failedJobs})` : ""}
           </TabsTrigger>
+          <TabsTrigger value="data" data-testid="tab-data">Data</TabsTrigger>
           <TabsTrigger value="logs" data-testid="tab-logs">Logs</TabsTrigger>
         </TabsList>
 
         <TabsContent value="all" className="mt-4"><AllJobsTab onAnalyzeError={setSelectedError} /></TabsContent>
         <TabsContent value="paused" className="mt-4"><PausedJobsTab /></TabsContent>
         <TabsContent value="failed" className="mt-4"><FailedJobsTab onAnalyzeError={setSelectedError} /></TabsContent>
+        <TabsContent value="data" className="mt-4"><DataTab /></TabsContent>
         <TabsContent value="logs" className="mt-4"><LogsTab /></TabsContent>
       </Tabs>
 
