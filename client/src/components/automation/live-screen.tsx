@@ -25,9 +25,11 @@ export function LiveScreen({ jobId, active, className = "", label = "Live Browse
   const [connected, setConnected] = useState(false);
   const [lastTick, setLastTick] = useState<string | null>(null);
   const [jobStatus, setJobStatus] = useState<JobStatus | null>(null);
+  const [isBlank, setIsBlank] = useState(false);
   const urlRef = useRef<string | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cancelledRef = useRef(false);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   // When jobId changes, reset all state
   useEffect(() => {
@@ -35,6 +37,7 @@ export function LiveScreen({ jobId, active, className = "", label = "Live Browse
     setConnected(false);
     setLastTick(null);
     setJobStatus(null);
+    setIsBlank(false);
     return () => {
       if (urlRef.current) {
         URL.revokeObjectURL(urlRef.current);
@@ -74,15 +77,21 @@ export function LiveScreen({ jobId, active, className = "", label = "Live Browse
         });
         if (!cancelledRef.current && res.ok) {
           const blob = await res.blob();
-          const newUrl = URL.createObjectURL(blob);
-          setImgSrc(prev => {
-            if (urlRef.current) URL.revokeObjectURL(urlRef.current);
-            urlRef.current = newUrl;
-            return newUrl;
-          });
-          setConnected(true);
-          setLastTick(new Date().toLocaleTimeString());
-          setJobStatus(null); // clear status overlay once we have a live image
+          if (blob.size === 0) {
+            // 200 with an empty body — the browser isn't producing frames yet.
+            setConnected(false);
+            await fetchJobStatus();
+          } else {
+            const newUrl = URL.createObjectURL(blob);
+            setImgSrc(prev => {
+              if (urlRef.current) URL.revokeObjectURL(urlRef.current);
+              urlRef.current = newUrl;
+              return newUrl;
+            });
+            setConnected(true);
+            setLastTick(new Date().toLocaleTimeString());
+            setJobStatus(null); // clear status overlay once we have a live image
+          }
         } else if (!cancelledRef.current) {
           setConnected(false);
           // Screenshot not available — fetch actual job status for a real message
@@ -120,6 +129,35 @@ export function LiveScreen({ jobId, active, className = "", label = "Live Browse
   function popOut() {
     const url = `/live-view?jobId=${jobId}&label=${encodeURIComponent(label)}`;
     window.open(url, `live_${jobId}`, "width=960,height=700,popup=yes,resizable=yes");
+  }
+
+  // Detect a blank / near-uniform frame (e.g. the portal page still white while
+  // loading or navigating) so we can show a "working" overlay instead of a
+  // confusing blank white screen. Same-origin blob → canvas is not tainted.
+  function analyzeFrame(img: HTMLImageElement) {
+    try {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const w = 48, h = 27;
+      canvas.width = w; canvas.height = h;
+      const cx = canvas.getContext("2d", { willReadFrequently: true });
+      if (!cx) { setIsBlank(false); return; }
+      cx.drawImage(img, 0, 0, w, h);
+      const { data } = cx.getImageData(0, 0, w, h);
+      const total = w * h;
+      let nearWhite = 0, min = 255, max = 0;
+      for (let i = 0; i < data.length; i += 4) {
+        const r = data[i], g = data[i + 1], b = data[i + 2];
+        if (r > 244 && g > 244 && b > 244) nearWhite++;
+        const lum = (r + g + b) / 3;
+        if (lum < min) min = lum;
+        if (lum > max) max = lum;
+      }
+      // Blank if almost entirely white, or the whole frame is one flat colour.
+      setIsBlank(nearWhite / total > 0.985 || max - min < 6);
+    } catch {
+      setIsBlank(false);
+    }
   }
 
   // ── Status overlay when no screenshot yet ────────────────────────────────────
@@ -249,15 +287,37 @@ export function LiveScreen({ jobId, active, className = "", label = "Live Browse
 
       {/* Screen content */}
       {imgSrc ? (
-        <img
-          src={imgSrc}
-          alt="Live browser view"
-          className="w-full block"
-          style={{ imageRendering: "auto" }}
-        />
+        <div className="relative">
+          <img
+            src={imgSrc}
+            alt="Live browser view"
+            className="w-full block"
+            style={{ imageRendering: "auto" }}
+            onLoad={e => analyzeFrame(e.currentTarget)}
+            onError={() => setIsBlank(true)}
+          />
+          {isBlank && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-slate-950/85 backdrop-blur-sm px-6 text-center">
+              {active ? (
+                <>
+                  <Loader2 className="h-8 w-8 animate-spin text-blue-400" />
+                  <span className="text-sm font-medium text-blue-300">Working… loading portal page</span>
+                  <span className="text-xs text-slate-500">The page is still rendering — this updates automatically every second</span>
+                </>
+              ) : (
+                <>
+                  <Monitor className="h-8 w-8 text-slate-500" />
+                  <span className="text-sm font-medium text-slate-300">No page preview captured</span>
+                  <span className="text-xs text-slate-500">Open the Logs tab to see what the portal returned</span>
+                </>
+              )}
+            </div>
+          )}
+        </div>
       ) : (
         renderStatusPlaceholder()
       )}
+      <canvas ref={canvasRef} className="hidden" aria-hidden="true" />
     </div>
   );
 }

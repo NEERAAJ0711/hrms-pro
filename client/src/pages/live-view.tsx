@@ -19,9 +19,11 @@ export default function LiveViewPage() {
   const [connected, setConnected] = useState(false);
   const [lastTick, setLastTick] = useState<string | null>(null);
   const [jobStatus, setJobStatus] = useState<JobStatus | null>(null);
+  const [isBlank, setIsBlank] = useState(false);
   const urlRef = useRef<string | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cancelledRef = useRef(false);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   useEffect(() => {
     document.title = label + " — HRMS Pro";
@@ -51,15 +53,20 @@ export default function LiveViewPage() {
         });
         if (!cancelledRef.current && res.ok) {
           const blob = await res.blob();
-          const newUrl = URL.createObjectURL(blob);
-          setImgSrc(prev => {
-            if (urlRef.current) URL.revokeObjectURL(urlRef.current);
-            urlRef.current = newUrl;
-            return newUrl;
-          });
-          setConnected(true);
-          setLastTick(new Date().toLocaleTimeString());
-          setJobStatus(null);
+          if (blob.size === 0) {
+            setConnected(false);
+            await fetchJobStatus();
+          } else {
+            const newUrl = URL.createObjectURL(blob);
+            setImgSrc(prev => {
+              if (urlRef.current) URL.revokeObjectURL(urlRef.current);
+              urlRef.current = newUrl;
+              return newUrl;
+            });
+            setConnected(true);
+            setLastTick(new Date().toLocaleTimeString());
+            setJobStatus(null);
+          }
         } else if (!cancelledRef.current) {
           setConnected(false);
           await fetchJobStatus();
@@ -79,6 +86,10 @@ export default function LiveViewPage() {
     return () => {
       cancelledRef.current = true;
       if (timerRef.current) clearTimeout(timerRef.current);
+      if (urlRef.current) {
+        URL.revokeObjectURL(urlRef.current);
+        urlRef.current = null;
+      }
     };
   }, [jobId]);
 
@@ -96,6 +107,31 @@ export default function LiveViewPage() {
     jobStatus?.status === "failed" ? "text-red-400" :
     jobStatus?.status === "completed" ? "text-green-400" :
     "text-yellow-400";
+
+  function analyzeFrame(img: HTMLImageElement) {
+    try {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const w = 48, h = 27;
+      canvas.width = w; canvas.height = h;
+      const cx = canvas.getContext("2d", { willReadFrequently: true });
+      if (!cx) { setIsBlank(false); return; }
+      cx.drawImage(img, 0, 0, w, h);
+      const { data } = cx.getImageData(0, 0, w, h);
+      const total = w * h;
+      let nearWhite = 0, min = 255, max = 0;
+      for (let i = 0; i < data.length; i += 4) {
+        const r = data[i], g = data[i + 1], b = data[i + 2];
+        if (r > 244 && g > 244 && b > 244) nearWhite++;
+        const lum = (r + g + b) / 3;
+        if (lum < min) min = lum;
+        if (lum > max) max = lum;
+      }
+      setIsBlank(nearWhite / total > 0.985 || max - min < 6);
+    } catch {
+      setIsBlank(false);
+    }
+  }
 
   function renderPlaceholder() {
     if (!jobStatus) {
@@ -199,13 +235,44 @@ export default function LiveViewPage() {
       {/* Main content */}
       <div className="flex-1 flex items-start justify-center p-4">
         {imgSrc ? (
-          <img src={imgSrc} alt="Live browser view" className="max-w-full rounded shadow-2xl" style={{ imageRendering: "auto" }} />
+          <div className="relative max-w-full">
+            <img
+              src={imgSrc}
+              alt="Live browser view"
+              className="max-w-full rounded shadow-2xl"
+              style={{ imageRendering: "auto" }}
+              onLoad={e => analyzeFrame(e.currentTarget)}
+              onError={() => setIsBlank(true)}
+            />
+            {isBlank && (() => {
+              const s = jobStatus?.status;
+              const terminal = s === "completed" || s === "failed" || s === "cancelled";
+              return (
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 rounded bg-slate-950/85 backdrop-blur-sm px-6 text-center">
+                  {terminal ? (
+                    <>
+                      <Monitor className="h-10 w-10 text-slate-500" />
+                      <p className="text-base font-semibold text-slate-300">No page preview captured</p>
+                      <p className="text-sm text-slate-500">Open the Logs tab to see what the portal returned</p>
+                    </>
+                  ) : (
+                    <>
+                      <Loader2 className="h-10 w-10 animate-spin text-blue-400" />
+                      <p className="text-base font-semibold text-blue-300">Working… loading portal page</p>
+                      <p className="text-sm text-slate-500">The page is still rendering — this updates automatically every second</p>
+                    </>
+                  )}
+                </div>
+              );
+            })()}
+          </div>
         ) : (
           <div className="flex flex-col items-center justify-center min-h-[400px]">
             {renderPlaceholder()}
           </div>
         )}
       </div>
+      <canvas ref={canvasRef} className="hidden" aria-hidden="true" />
     </div>
   );
 }
