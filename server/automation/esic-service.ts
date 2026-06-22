@@ -904,9 +904,19 @@ export async function esicEmployeeList(
   // Strategy 4: full DOM scan (any link whose text contains the phrase)
   // Strategy 5: click via onclick evaluation (last resort for JS-only links)
 
+  // ── Watch for the feature opening in a NEW browser tab ──────────────────────
+  // ESIC menu items frequently open via target="_blank" / window.open. Capture
+  // the new page so the automation can switch to it after the click below
+  // instead of continuing to scrape the now-stale dashboard tab.
+  const browserCtx = page.context();
+  let newTab: Page | null = null;
+  const onNewPage = (p: Page) => { if (!newTab) newTab = p; };
+  browserCtx.on("page", onNewPage);
+
   let clicked = false;
   let clickedText = "";
 
+  try {
   // ── Strategy 1 & 2: direct selectors (text + href) ─────────────────────────
   const DIRECT_SELS = [
     'a:has-text("List of Employees")',
@@ -1020,6 +1030,14 @@ export async function esicEmployeeList(
     } catch { /* ignore */ }
   }
 
+    // Give a freshly-opened tab a moment to register before we stop listening.
+    if (clicked) await page.waitForTimeout(1500);
+  } finally {
+    // Always stop listening — the ESIC browser context is reused across jobs,
+    // so a leaked listener could capture the wrong tab on a later job.
+    browserCtx.off("page", onNewPage);
+  }
+
   if (!clicked) {
     // Take a debug screenshot and return an error result WITHOUT throwing —
     // this keeps the browser alive so the user can inspect it.
@@ -1038,6 +1056,20 @@ export async function esicEmployeeList(
       pageUrl: page.url(),
       linksFound: allPageLinks.map((l) => l.text),
     };
+  }
+
+  // ── Step 2.5: follow the feature if it opened in a NEW browser tab ──────────
+  if (newTab && newTab !== page) {
+    await ctx.log("info", "ESIC opened this feature in a new browser tab — switching the automation to it");
+    try {
+      await newTab.waitForLoadState("domcontentloaded", { timeout: 20000 });
+    } catch { /* continue even if the load event is slow */ }
+    const stalePage = page;
+    page = newTab;
+    ctx.setActivePage(page);
+    // Close the now-stale dashboard tab so only the active feature tab remains.
+    await stalePage.close().catch(() => {});
+    await ctx.log("info", "Now operating on the new tab: " + page.url());
   }
 
   // ── Step 3: Wait for the list page and kill new popups ───────────────────────

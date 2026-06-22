@@ -396,60 +396,66 @@ export async function epfoLogin(
   // Screenshot of the login page — confirms popup was cleared
   await safeScreenshot(page, ctx, "epfo-login-page");
 
-  // Fill credentials
-  await page.fill(SEL.username, payload.username);
-  await ctx.log("info", "Filled username");
-  await page.fill(SEL.password, payload.password);
-  await ctx.log("info", "Filled password");
+  // ── Login attempts with a FRESH RESTART on a wrong CAPTCHA ──────────────────
+  // EPFO invalidates the CAPTCHA image after every submit, so retrying in-place
+  // against the same (stale) image is rejected every time. On a wrong CAPTCHA we
+  // reload the whole login page to get a brand-new CAPTCHA, re-fill credentials,
+  // and try again from scratch.
+  const MAX_LOGIN_ATTEMPTS = 3;
 
-  // EPFO can render the captcha image asynchronously after page load
-  await page.waitForTimeout(800);
+  for (let attempt = 1; attempt <= MAX_LOGIN_ATTEMPTS; attempt++) {
+    if (attempt > 1) {
+      await ctx.log("warn",
+        `CAPTCHA was wrong — restarting EPFO login from scratch for a fresh CAPTCHA (attempt ${attempt}/${MAX_LOGIN_ATTEMPTS})`);
+      await gotoWithRetry(page, EPFO_LOGIN_URL, { waitUntil: "domcontentloaded", timeout: 60000 });
+      await page.waitForTimeout(2500);
+      await dismissAllPopups(page, ctx, `epfo-restart-${attempt}-1`);
+      await page.waitForTimeout(600);
+      await dismissAllPopups(page, ctx, `epfo-restart-${attempt}-2`);
+    }
 
-  // ── DISMISS AGAIN right before clicking Login ────────────────────────────────
-  // The notification popup can appear (or re-appear) while we were filling the
-  // form. If it's covering the login button the click will miss.
-  await dismissAllPopups(page, ctx, "epfo-pre-click");
-  await safeScreenshot(page, ctx, "epfo-before-click");
+    // Fill credentials fresh on every attempt (a reload clears the form)
+    await page.fill(SEL.username, payload.username);
+    await page.fill(SEL.password, payload.password);
+    await ctx.log("info", `Filled credentials (attempt ${attempt}/${MAX_LOGIN_ATTEMPTS})`);
 
-  // Handle CAPTCHA if present — retry up to 3 times if the portal rejects the answer
-  const captchaVisible = await hasCaptcha(page);
-  const MAX_CAPTCHA_ATTEMPTS = 3;
+    // EPFO can render the captcha image asynchronously after page load
+    await page.waitForTimeout(800);
 
-  if (captchaVisible) {
-    let captchaAccepted = false;
-    for (let attempt = 1; attempt <= MAX_CAPTCHA_ATTEMPTS; attempt++) {
-      const label = attempt === 1 ? "login-captcha" : `login-captcha-retry-${attempt}`;
+    // The notification popup can re-appear while filling — clear it before clicking
+    await dismissAllPopups(page, ctx, `epfo-pre-click-${attempt}`);
+    await safeScreenshot(page, ctx, `epfo-before-click-${attempt}`);
+
+    const captchaVisible = await hasCaptcha(page);
+    if (captchaVisible) {
+      const label = attempt === 1 ? "login-captcha" : `login-captcha-attempt-${attempt}`;
       const captchaAnswer = await solveCaptcha(page, ctx, label);
       await page.fill(SEL.captchaInput, captchaAnswer);
-      await ctx.log("info", `Filled CAPTCHA answer (attempt ${attempt}/${MAX_CAPTCHA_ATTEMPTS})`);
+      await ctx.log("info", `Filled CAPTCHA answer (attempt ${attempt}/${MAX_LOGIN_ATTEMPTS})`);
 
-      // Dismiss one more time right before the actual click
       await dismissAllPopups(page, ctx, `epfo-pre-loginbtn-${attempt}`);
-
       await page.click(SEL.loginBtn);
       await ctx.log("info", "Clicked login button");
       await page.waitForLoadState("domcontentloaded", { timeout: 15000 }).catch(() => {});
 
-      // If a CAPTCHA is still visible the portal rejected the answer and showed a new one
+      // A still-visible CAPTCHA means the portal rejected the answer.
       if (await hasCaptcha(page)) {
-        if (attempt < MAX_CAPTCHA_ATTEMPTS) {
-          await ctx.log("warn", `CAPTCHA rejected by portal (attempt ${attempt}/${MAX_CAPTCHA_ATTEMPTS}) — pausing for new answer`);
-          continue;
-        } else {
-          throw new Error(`CAPTCHA was entered incorrectly ${MAX_CAPTCHA_ATTEMPTS} times. Please start a new login test.`);
+        if (attempt < MAX_LOGIN_ATTEMPTS) {
+          await ctx.log("warn", `CAPTCHA rejected by portal (attempt ${attempt}/${MAX_LOGIN_ATTEMPTS})`);
+          continue; // → fresh restart at the top of the loop
         }
+        throw new Error(`CAPTCHA was entered incorrectly ${MAX_LOGIN_ATTEMPTS} times. Please start a new login test.`);
       }
-
-      captchaAccepted = true;
+      break; // CAPTCHA accepted — proceed to OTP / verification
+    } else {
+      // No CAPTCHA — screenshot for debugging, then click
+      await safeScreenshot(page, ctx, "epfo-login-no-captcha");
+      await dismissAllPopups(page, ctx, `epfo-pre-loginbtn-nocaptcha-${attempt}`);
+      await page.click(SEL.loginBtn);
+      await ctx.log("info", "Clicked login button");
+      await page.waitForLoadState("domcontentloaded", { timeout: 15000 }).catch(() => {});
       break;
     }
-  } else {
-    // No CAPTCHA — screenshot for debugging, then click
-    await safeScreenshot(page, ctx, "epfo-login-no-captcha");
-    await dismissAllPopups(page, ctx, "epfo-pre-loginbtn-nocaptcha");
-    await page.click(SEL.loginBtn);
-    await ctx.log("info", "Clicked login button");
-    await page.waitForLoadState("domcontentloaded", { timeout: 15000 }).catch(() => {});
   }
 
   // Check for OTP challenge

@@ -162,6 +162,12 @@ export interface AutomationContext {
    * Returns the answer provided by the admin.
    */
   pause(screenshotPath: string, reason: string): Promise<string>;
+  /**
+   * Switch the page this context operates on. When a portal opens a feature in
+   * a NEW browser tab, the automation calls this so screenshots, the live-view
+   * API and on-demand kill all follow the new tab instead of the stale original.
+   */
+  setActivePage(page: Page): void;
 }
 
 // ─── Worker state ─────────────────────────────────────────────────────────────
@@ -252,6 +258,10 @@ function buildContext(job: JobRecord, screenshotDir: string): AutomationContext 
       }
       return answer;
     },
+
+    setActivePage() {
+      // No-op until a real page is bound — bindPageToContext overrides this.
+    },
   };
 }
 
@@ -262,13 +272,25 @@ function buildContext(job: JobRecord, screenshotDir: string): AutomationContext 
 function bindPageToContext(ctx: AutomationContext, page: Page): AutomationContext {
   let screenshotIndex = 0;
   let snapshotIndex = 0;
+  // Mutable so the context can follow a portal feature that opens in a new tab.
+  let currentPage = page;
   return {
     ...ctx,
+    setActivePage(newPage: Page): void {
+      currentPage = newPage;
+      // Live-view API screenshots this page; on-demand kill closes it.
+      activePages.set(ctx.jobId, newPage);
+      const running = runningSessions.get(ctx.jobId);
+      if (running) running.page = newPage;
+      // Mirror the safety defaults applied to the original page.
+      newPage.setDefaultTimeout(25_000);
+      newPage.on("dialog", (dialog) => { dialog.dismiss().catch(() => {}); });
+    },
     async takeScreenshot(label: string): Promise<string> {
       const filename = `${String(screenshotIndex++).padStart(3, "0")}-${label}.png`;
       const filePath = path.join(ctx.screenshotDir, filename);
       try {
-        await page.screenshot({ path: filePath, fullPage: true });
+        await currentPage.screenshot({ path: filePath, fullPage: true });
       } catch {
         // Page may already be closed — non-fatal
       }
@@ -283,7 +305,7 @@ function bindPageToContext(ctx: AutomationContext, page: Page): AutomationContex
       // Distilled field list — the input/select/textarea id/name/type that an
       // engineer needs to correct mismatched selectors offline.
       try {
-        const fields = await page.$$eval(
+        const fields = await currentPage.$$eval(
           "input, select, textarea",
           (els) =>
             els.map((el) => {
@@ -312,7 +334,7 @@ function bindPageToContext(ctx: AutomationContext, page: Page): AutomationContex
 
       // Full rendered page HTML — a complete copy of the form as the portal served it.
       try {
-        const html = await page.content();
+        const html = await currentPage.content();
         fs.writeFileSync(htmlPath, html, "utf8");
       } catch {
         // Page may already be closed — non-fatal
