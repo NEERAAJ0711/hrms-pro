@@ -82,6 +82,26 @@ interface KycRecord {
   designation: string | null;
 }
 
+interface KycDocsResponse {
+  values: {
+    aadhaar: string | null;
+    pan: string | null;
+    bankAccount: string | null;
+    ifsc: string | null;
+  };
+  documents: {
+    docType: string;
+    fileName: string;
+    filePath: string;
+    uploadedAt: string;
+    extracted?: Record<string, string>;
+  }[];
+}
+
+function isImagePath(p: string): boolean {
+  return /\.(png|jpe?g|gif|webp|bmp|heic|heif)$/i.test(p);
+}
+
 interface FollowUpTask {
   task: {
     id: string;
@@ -257,6 +277,11 @@ export default function AiHrDashboard() {
       setKycVerifyUpdates({});
     },
     onError: () => toast({ title: "Verification update failed", variant: "destructive" }),
+  });
+
+  const { data: kycDocs, isLoading: kycDocsLoading } = useQuery<KycDocsResponse>({
+    queryKey: ["/api/ai-hr/kyc-documents", verifyDialog?.employeeId],
+    enabled: !!verifyDialog?.employeeId,
   });
 
   const initKycMutation = useMutation({
@@ -726,50 +751,126 @@ export default function AiHrDashboard() {
       {/* ── KYC Verify Dialog ── */}
       {verifyDialog && (
         <Dialog open={!!verifyDialog} onOpenChange={() => setVerifyDialog(null)}>
-          <DialogContent className="sm:max-w-[440px]">
+          <DialogContent className="sm:max-w-[560px]">
             <DialogHeader>
               <DialogTitle>
                 Verify KYC — {verifyDialog.firstName} {verifyDialog.lastName}
               </DialogTitle>
             </DialogHeader>
-            <div className="space-y-3 pt-2">
+            <div className="space-y-3 pt-2 max-h-[65vh] overflow-y-auto">
               <p className="text-xs text-muted-foreground">
-                Mark documents as verified after reviewing the uploaded files.
-                Green checkmarks (✅) = submitted by employee. Verification = HR review complete.
+                Review the uploaded document and the details on record below, then mark each as verified.
+                Green checkmark (✅) = submitted by employee. Verification = HR review complete.
               </p>
-              {[
-                { key: "aadhaarVerified", label: "Aadhaar Verified", submitted: verifyDialog.aadhaarSubmitted },
-                { key: "panVerified", label: "PAN Verified", submitted: verifyDialog.panSubmitted },
-                { key: "bankVerified", label: "Bank Details Verified", submitted: verifyDialog.bankDetailsSubmitted },
-              ].map((item) => (
-                <div key={item.key} className="flex items-center justify-between py-2 border-b">
-                  <div className="flex items-center gap-2">
-                    {item.submitted ? (
-                      <CheckCircle2 className="h-4 w-4 text-green-500" />
-                    ) : (
-                      <div className="h-4 w-4 rounded-full border-2 border-muted-foreground/30" />
-                    )}
-                    <span className="text-sm">{item.label}</span>
-                    {!item.submitted && (
-                      <Badge variant="outline" className="text-xs text-muted-foreground">
-                        Not submitted
-                      </Badge>
-                    )}
-                  </div>
-                  <Button
-                    variant={kycVerifyUpdates[item.key] ? "default" : "outline"}
-                    size="sm"
-                    className="h-7 text-xs"
-                    disabled={!item.submitted}
-                    onClick={() =>
-                      setKycVerifyUpdates((prev) => ({ ...prev, [item.key]: !prev[item.key] }))
-                    }
-                    data-testid={`button-toggle-${item.key}`}
-                  >
-                    {kycVerifyUpdates[item.key] ? "✓ Verified" : "Mark Verified"}
-                  </Button>
+              {kycDocsLoading && (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground py-4">
+                  <Loader2 className="h-4 w-4 animate-spin" /> Loading documents…
                 </div>
-              ))}
+              )}
+              {[
+                { key: "aadhaarVerified", label: "Aadhaar", submitted: verifyDialog.aadhaarSubmitted, docTypes: ["aadhaar"] },
+                { key: "panVerified", label: "PAN", submitted: verifyDialog.panSubmitted, docTypes: ["pan"] },
+                { key: "bankVerified", label: "Bank Details", submitted: verifyDialog.bankDetailsSubmitted, docTypes: ["bank_details", "cancelled_cheque"] },
+              ].map((item) => {
+                const doc = kycDocs?.documents.find((d) => item.docTypes.includes(d.docType));
+                return (
+                  <div key={item.key} className="rounded-lg border p-3 space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        {item.submitted ? (
+                          <CheckCircle2 className="h-4 w-4 text-green-500" />
+                        ) : (
+                          <div className="h-4 w-4 rounded-full border-2 border-muted-foreground/30" />
+                        )}
+                        <span className="text-sm font-medium">{item.label}</span>
+                        {!item.submitted && (
+                          <Badge variant="outline" className="text-xs text-muted-foreground">
+                            Not submitted
+                          </Badge>
+                        )}
+                      </div>
+                      <Button
+                        variant={kycVerifyUpdates[item.key] ? "default" : "outline"}
+                        size="sm"
+                        className="h-7 text-xs"
+                        disabled={!item.submitted}
+                        onClick={() =>
+                          setKycVerifyUpdates((prev) => ({ ...prev, [item.key]: !prev[item.key] }))
+                        }
+                        data-testid={`button-toggle-${item.key}`}
+                      >
+                        {kycVerifyUpdates[item.key] ? "✓ Verified" : "Mark Verified"}
+                      </Button>
+                    </div>
+
+                    {/* Value(s) on record */}
+                    {item.key === "bankVerified" ? (
+                      kycDocs?.values.bankAccount || kycDocs?.values.ifsc ? (
+                        <div className="text-xs space-y-0.5" data-testid={`text-value-${item.key}`}>
+                          <div>
+                            Account No: <span className="font-mono font-medium">{kycDocs?.values.bankAccount ?? "—"}</span>
+                          </div>
+                          <div>
+                            IFSC: <span className="font-mono font-medium">{kycDocs?.values.ifsc ?? "—"}</span>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="text-xs text-muted-foreground">No value on record yet.</div>
+                      )
+                    ) : (item.key === "aadhaarVerified" ? kycDocs?.values.aadhaar : kycDocs?.values.pan) ? (
+                      <div className="text-xs" data-testid={`text-value-${item.key}`}>
+                        {item.label} No:{" "}
+                        <span className="font-mono font-medium">
+                          {item.key === "aadhaarVerified" ? kycDocs?.values.aadhaar : kycDocs?.values.pan}
+                        </span>
+                      </div>
+                    ) : (
+                      <div className="text-xs text-muted-foreground">No value on record yet.</div>
+                    )}
+
+                    {/* Fields read from the uploaded document */}
+                    {doc?.extracted && Object.keys(doc.extracted).length > 0 && (
+                      <div className="text-xs bg-muted/50 rounded p-2 space-y-0.5">
+                        <div className="text-muted-foreground mb-1">Read from document:</div>
+                        {Object.entries(doc.extracted).map(([k, v]) => (
+                          <div key={k}>
+                            <span className="text-muted-foreground">{k}:</span>{" "}
+                            <span className="font-medium">{v}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Uploaded file preview */}
+                    {doc ? (
+                      isImagePath(doc.filePath) ? (
+                        <a href={doc.filePath} target="_blank" rel="noopener noreferrer">
+                          <img
+                            src={doc.filePath}
+                            alt={`${item.label} document`}
+                            className="max-h-52 w-auto rounded border object-contain"
+                            data-testid={`img-doc-${item.key}`}
+                          />
+                        </a>
+                      ) : (
+                        <a
+                          href={doc.filePath}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1.5 text-xs text-primary underline"
+                          data-testid={`link-doc-${item.key}`}
+                        >
+                          <Eye className="h-3.5 w-3.5" /> View uploaded file ({doc.fileName})
+                        </a>
+                      )
+                    ) : item.submitted ? (
+                      <div className="text-xs text-muted-foreground">
+                        Marked submitted, but no file preview is available.
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })}
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setVerifyDialog(null)}>

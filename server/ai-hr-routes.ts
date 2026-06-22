@@ -18,7 +18,7 @@ import {
   kraAssignments,
   kraAssignmentKpis,
 } from "../shared/schema";
-import { eq, and, desc, sql, or, ne, count, gte, lte } from "drizzle-orm";
+import { eq, and, desc, sql, or, ne, count, gte, lte, isNotNull } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import multer from "multer";
 import * as path from "path";
@@ -1351,6 +1351,91 @@ export async function registerAiHrRoutes(
 
       return res.json(records);
     } catch (err: any) {
+      return res.status(500).json({ message: "Server error" });
+    }
+  });
+
+  // ── GET /api/ai-hr/kyc-documents/:employeeId ────────────────────────────────
+  // Uploaded KYC document files + typed values for an employee, for HR review.
+  app.get("/api/ai-hr/kyc-documents/:employeeId", requireAuth, requireHR, async (req: Request, res: Response) => {
+    try {
+      const user = (req as any).user;
+      const employeeId = String(req.params.employeeId);
+
+      const emp = (
+        await db
+          .select({
+            id: employees.id,
+            companyId: employees.companyId,
+            aadhaar: employees.aadhaar,
+            pan: employees.pan,
+            bankAccount: employees.bankAccount,
+            ifsc: employees.ifsc,
+          })
+          .from(employees)
+          .where(eq(employees.id, employeeId))
+          .limit(1)
+      )[0];
+      if (!emp) return res.status(404).json({ message: "Employee not found" });
+
+      // Multi-tenancy: non-super-admin can only view their own company's employees.
+      if (user.role !== "super_admin" && emp.companyId !== user.companyId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      // Gather uploaded documents from the employee's AI conversation messages.
+      const rows = await db
+        .select({ attachments: aiMessages.attachments, createdAt: aiMessages.createdAt })
+        .from(aiMessages)
+        .innerJoin(aiConversations, eq(aiConversations.id, aiMessages.conversationId))
+        .where(
+          and(
+            eq(aiConversations.employeeId, employeeId),
+            isNotNull(aiMessages.attachments),
+            user?.role === "super_admin"
+              ? undefined
+              : eq(aiConversations.companyId, emp.companyId),
+          ),
+        )
+        .orderBy(desc(aiMessages.createdAt));
+
+      type DocOut = {
+        docType: string;
+        fileName: string;
+        filePath: string;
+        uploadedAt: string;
+        extracted?: Record<string, string>;
+      };
+      const latestByType: Record<string, DocOut> = {};
+      for (const r of rows) {
+        const atts = Array.isArray(r.attachments) ? (r.attachments as any[]) : [];
+        for (const a of atts) {
+          if (!a?.docType || !a?.filePath) continue;
+          const uploadedAt: string = a.uploadedAt ?? r.createdAt;
+          const existing = latestByType[a.docType];
+          if (!existing || uploadedAt > existing.uploadedAt) {
+            latestByType[a.docType] = {
+              docType: a.docType,
+              fileName: a.fileName ?? "document",
+              filePath: a.filePath,
+              uploadedAt,
+              extracted: a.extracted ?? undefined,
+            };
+          }
+        }
+      }
+
+      return res.json({
+        values: {
+          aadhaar: emp.aadhaar ?? null,
+          pan: emp.pan ?? null,
+          bankAccount: emp.bankAccount ?? null,
+          ifsc: emp.ifsc ?? null,
+        },
+        documents: Object.values(latestByType),
+      });
+    } catch (err: any) {
+      console.error("[AI HR] kyc-documents error:", err);
       return res.status(500).json({ message: "Server error" });
     }
   });
