@@ -786,8 +786,8 @@ function buildRuleBasedResponse(
   if (
     msg.includes("kyc") &&
     (msg.includes("status") || msg.includes("pending") || msg.includes("complete") || msg.includes("update") || msg.includes("done") || msg.includes("स्थिति")) &&
-    !/\b(pan|aadhaar|aadhar|adhar|bank|account|ifsc)\b/.test(msg) &&
-    !msg.includes("पैन") && !msg.includes("आधार") && !msg.includes("बैंक") && !msg.includes("खाता")
+    !/\bpan\b|aadha|adha|\bbank\b|\baccount\b|\bifsc\b|\bsalary\b|salry|payslip/.test(msg) &&
+    !msg.includes("पैन") && !msg.includes("आधार") && !msg.includes("बैंक") && !msg.includes("खाता") && !msg.includes("वेतन")
   ) {
     if (pendingDocs.length === 0) {
       return isHindi
@@ -810,8 +810,8 @@ function buildRuleBasedResponse(
   const panTyped = userMessage.match(/[A-Z]{5}[0-9]{4}[A-Z]/i)?.[0]?.toUpperCase() ?? null;
   const aadhaarTyped = userMessage.replace(/[\s-]/g, "").match(/(?<!\d)\d{12}(?!\d)/)?.[0] ?? null;
 
-  // Aadhaar query
-  if (msg.includes("aadhaar") || msg.includes("aadhar") || msg.includes("adhar") || msg.includes("आधार")) {
+  // Aadhaar query (tolerant of common spellings: aadhaar/aadhar/adhar/adhaar/aadhaa)
+  if (msg.includes("aadha") || msg.includes("adha") || msg.includes("आधार")) {
     const onFile = prof?.aadhaar?.trim();
     if (aadhaarTyped) {
       return isHindi
@@ -880,7 +880,7 @@ function buildRuleBasedResponse(
   }
 
   // Payroll/salary/payslip query — use real data if available
-  if (msg.includes("salary") || msg.includes("payroll") || msg.includes("payslip") || msg.includes("वेतन") || msg.includes("ctc") || msg.includes("net")) {
+  if (msg.includes("salary") || msg.includes("salry") || msg.includes("salery") || msg.includes("salay") || msg.includes("payroll") || msg.includes("payslip") || msg.includes("वेतन") || msg.includes("ctc") || msg.includes("net pay")) {
     if (ctx && ctx.recentPayslips.length > 0) {
       const latest = ctx.recentPayslips[0];
       return isHindi
@@ -1063,8 +1063,8 @@ function buildRuleBasedResponse(
   }
 
   return isHindi
-    ? `${firstName} जी, आपका KYC पूरा है! 🎉 कोई और जानकारी चाहिए तो पूछें।`
-    : `${firstName}, your KYC is complete! 🎉 Feel free to ask me anything about HR policies, leave, payroll, or any other queries.`;
+    ? `${firstName} जी, मैं इनमें मदद कर सकती हूँ:\n- सैलरी / पेस्लिप\n- छुट्टी (leave)\n- अटेंडेंस\n- PAN / आधार / बैंक जानकारी\n- PF / UAN\n- KYC स्थिति\n\nआप क्या जानना चाहेंगे?`
+    : `${firstName}, I can help you with:\n- Salary / payslip\n- Leave balance\n- Attendance\n- Your PAN / Aadhaar / bank details\n- PF / UAN\n- KYC status\n\nWhat would you like to know?`;
 }
 
 // ─── Main AI Reply Generator ────────────────────────────────────────────────
