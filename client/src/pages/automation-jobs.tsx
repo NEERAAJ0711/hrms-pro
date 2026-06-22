@@ -914,6 +914,7 @@ function DataTab() {
   });
 
   const result = data?.data ?? null;
+  const job = data?.job ?? null;
   const employees = Array.isArray(result?.employees) ? result!.employees! : [];
   const columns = employees.length
     ? Array.from(
@@ -989,10 +990,23 @@ function DataTab() {
         <Card>
           <CardContent className="py-12 text-center text-muted-foreground" data-testid="text-no-data">
             <Users className="h-8 w-8 mx-auto mb-2 opacity-40" />
-            <p>No {portal.toUpperCase()} employee data yet.</p>
-            <p className="text-xs mt-1">
-              Run a “{portal === "esic" ? "ESIC Employee List" : "EPFO Member List"}” job, wait until it shows Completed, then click Refresh.
-            </p>
+            {job ? (
+              <>
+                <p>The last {portal === "esic" ? "ESIC Employee List" : "EPFO Member List"} run captured 0 records.</p>
+                <p className="text-xs mt-1">
+                  Job completed {formatDate(job.completedAt)} but pulled no rows from the portal. Open the{" "}
+                  <span className="font-medium">Logs</span> tab and filter by job{" "}
+                  <span className="font-mono">{job.id.slice(0, 8)}…</span> to see what the portal returned (or check its screenshots).
+                </p>
+              </>
+            ) : (
+              <>
+                <p>No {portal.toUpperCase()} employee data yet.</p>
+                <p className="text-xs mt-1">
+                  Run a “{portal === "esic" ? "ESIC Employee List" : "EPFO Member List"}” job, wait until it shows Completed, then click Refresh.
+                </p>
+              </>
+            )}
           </CardContent>
         </Card>
       ) : (
