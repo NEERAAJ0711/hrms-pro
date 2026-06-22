@@ -23,8 +23,24 @@ increment the count itself. **Why:** the capacity check (`activeJobCount <
 MAX_CONCURRENT`) and the claim are async-separated; without a synchronous reserve,
 two concurrent callers (recurring poll + post-job drain) both pass the check and
 each claim a different pending job (`FOR UPDATE SKIP LOCKED`), exceeding
-MAX_CONCURRENT. **How to apply:** keep the reserve/handoff symmetry; pause path
-does `--` on pause and `++` on resume to balance.
+MAX_CONCURRENT. **How to apply:** keep the reserve/handoff symmetry. The slot is
+reserved once on claim and released once in `processJob`'s finally — that's the
+whole lifecycle.
+
+## pause() must NOT release the concurrency slot
+A paused (CAPTCHA/OTP) job keeps holding the slot for its entire lifecycle — do
+**not** `activeJobCount--` on pause / `++` on resume. **Why:** with
+`MAX_CONCURRENT=1` and `MAX_BROWSERS_PER_PORTAL=1`, the paused job still owns the
+only browser. Releasing the slot lets the worker claim the next job, which runs
+its idle-session reuse check BEFORE login finishes (so it finds none), then
+deadlocks on `acquireBrowser()` for the single in-use browser — the completed
+login parks that browser as an idle session and never releases it. Symptom seen
+in prod: "only login works, every follow-up job fails / browser closes". **How to
+apply:** `pause()` holds the slot and guards against an abandoned CAPTCHA with
+`PAUSE_TIMEOUT_MS` (must stay < `JOB_TIMEOUT_MS`) that rejects + deletes the
+resolver so `processJob` unwinds and frees the browser. The `JOB_TIMEOUT` race
+handler calls `abortJob(jobId)` (not `markJobFailed`) so the job tears down
+deterministically instead of becoming a ghost-running job.
 
 ## On-demand kill (abortJob)
 A job is killed via `abortJob(jobId)`: it adds the id to `cancelledJobIds`,

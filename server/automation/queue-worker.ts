@@ -26,6 +26,7 @@ const POLL_INTERVAL_MS = 5_000;
 const RECOVERY_INTERVAL_MS = 5 * 60_000;
 const MAX_CONCURRENT = 1;
 const JOB_TIMEOUT_MS = 10 * 60_000; // 10-minute hard ceiling per job (govt portals are slow)
+const PAUSE_TIMEOUT_MS = 8 * 60_000; // max wait for a CAPTCHA/OTP answer — MUST stay < JOB_TIMEOUT_MS
 const SCREENSHOT_BASE = path.join(process.cwd(), "uploads", "automation-screenshots");
 const BACKOFF_SECONDS = [30, 120, 300]; // delay after 1st, 2nd, 3rd failure
 
@@ -219,17 +220,29 @@ function buildContext(job: JobRecord, screenshotDir: string): AutomationContext 
       await queueService.markJobPaused(job.id, screenshotPath);
       await queueService.addLog(job.id, job.companyId, "info", `Job paused: ${reason}`, { screenshotPath });
 
-      // ── Release the active slot so the rest of the queue keeps moving ────────
-      // Without this, a paused CAPTCHA/OTP job would block every other job
-      // because activeJobCount stays at MAX_CONCURRENT indefinitely.
-      activeJobCount--;
-
-      const answer = await new Promise<string>((resolve) => {
-        resumeResolvers.set(job.id, resolve);
+      // IMPORTANT: do NOT release the concurrency slot while paused.
+      // With one browser per portal and MAX_CONCURRENT = 1, this paused job
+      // still owns the only browser. If we freed the slot, the worker would
+      // claim the next job, which would miss session-reuse (login isn't
+      // finished yet) and then deadlock waiting for the single in-use browser.
+      // Holding the slot keeps the browser open for THIS job until it finishes;
+      // the next job then reuses the same logged-in session.
+      //
+      // A hard timeout guards against an abandoned CAPTCHA/OTP: if no answer
+      // arrives in time we reject so processJob can unwind via catch/finally
+      // and release the browser/slot — the queue is never blocked forever.
+      const answer = await new Promise<string>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          resumeResolvers.delete(job.id);
+          reject(new Error(
+            `Timed out after ${Math.round(PAUSE_TIMEOUT_MS / 60_000)} min waiting for CAPTCHA/OTP — please retry`
+          ));
+        }, PAUSE_TIMEOUT_MS);
+        resumeResolvers.set(job.id, (ans: string) => {
+          clearTimeout(timer);
+          resolve(ans);
+        });
       });
-
-      // Reclaim the slot now that we are about to resume execution
-      activeJobCount++;
 
       // A killed job unblocks the pause with this sentinel — abort immediately
       // instead of feeding it to the automation as a CAPTCHA/OTP answer, so no
@@ -937,9 +950,13 @@ async function tryClaimAndRun(): Promise<void> {
       );
       Promise.race([jobPromise, timeoutPromise]).catch(async (err) => {
         const msg = err instanceof Error ? err.message : String(err);
-        console.error(`[QueueWorker] Job ${job.id} (${job.jobType}) error: ${msg}`);
-        // Best-effort: mark the job failed if it is still in a running state
-        await queueService.markJobFailed(job.id, msg).catch(() => {});
+        console.error(`[QueueWorker] Job ${job.id} (${job.jobType}) timed out: ${msg}`);
+        // Hard-cancel so processJob unwinds and its finally releases the
+        // browser/slot deterministically. Calling markJobFailed() directly here
+        // would leave processJob still running (a ghost job) while the DB row
+        // flips to failed — abortJob() closes the live page and unblocks any
+        // pause so the job tears down cleanly.
+        await abortJob(job.id).catch(() => {});
       });
     }
   } catch (err) {
