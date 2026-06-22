@@ -101,6 +101,41 @@ async function callGemini(
   }
 }
 
+/**
+ * Ask Gemini for a strict JSON object (optionally about an image). Used as the
+ * extraction fallback so KYC/profile reading works whether the configured key is
+ * OpenAI or Gemini. Returns the parsed object, or null if unavailable/failed.
+ */
+async function callGeminiJson(
+  systemPrompt: string,
+  userText: string,
+  image?: { mimeType: string; base64: string },
+): Promise<Record<string, any> | null> {
+  const key = getGeminiKey();
+  if (!key) return null;
+  try {
+    const { GoogleGenerativeAI } = await import("@google/generative-ai");
+    const genAI = new GoogleGenerativeAI(key);
+    const model = genAI.getGenerativeModel({
+      model: "gemini-1.5-flash",
+      systemInstruction: systemPrompt,
+      generationConfig: { temperature: 0, responseMimeType: "application/json" },
+    });
+    const parts: any[] = [{ text: userText }];
+    if (image) parts.push({ inlineData: { mimeType: image.mimeType, data: image.base64 } });
+    const result = await model.generateContent(parts);
+    const txt = result.response.text() || "{}";
+    try {
+      return JSON.parse(txt);
+    } catch {
+      return null;
+    }
+  } catch (err: any) {
+    console.warn("[AI] Gemini JSON extraction failed:", err?.message);
+    return null;
+  }
+}
+
 // ── Startup loader — pulls both keys from DB ────────────────────────────────────
 export async function loadAllApiKeysFromDB(): Promise<void> {
   try {
@@ -197,7 +232,8 @@ export async function testAiProviders(): Promise<{
 // ─── KYC Document Vision Extraction ───────────────────────────────────────────
 // Reads an uploaded KYC image (JPEG/PNG/WebP) with a vision model and returns the
 // structured fields found on the document so the employee can verify them before
-// they are saved to the master record. Requires an OpenAI key (live server).
+// they are saved to the master record. Works with either provider: tries OpenAI
+// first, then falls back to Gemini, so a single configured key is enough.
 
 const KYC_EXTRACTION_SPEC: Record<string, { label: string; fields: string[] }> = {
   aadhaar: { label: "Aadhaar Card", fields: ["name", "dateOfBirth", "gender", "aadhaarNumber", "address"] },
@@ -227,57 +263,79 @@ export async function extractKycDocument(
   if (!/^image\//i.test(mimeType)) return { available: false, reason: "not_an_image" };
 
   const openai = getOpenAI();
-  if (!openai) return { available: false, reason: "no_ai_key" };
+  const geminiAvailable = !!getGeminiKey();
+  if (!openai && !geminiAvailable) return { available: false, reason: "no_ai_key" };
 
+  const fieldList = spec.fields.join(", ");
+  const systemPrompt =
+    `You are an OCR assistant for Indian KYC documents. Read the ${spec.label} in the image and extract the requested fields exactly as printed. ` +
+    `Return ONLY a JSON object with these keys: ${fieldList}. ` +
+    `Use an empty string for any field you cannot read clearly. Format dates as DD/MM/YYYY. Do not guess or invent values.`;
+  const userText = `Extract these fields from this ${spec.label}: ${fieldList}`;
+
+  let parsed: Record<string, any> | null = null;
+  let providerResponded = false;
   try {
     const buf = fs.readFileSync(absFilePath);
-    const dataUri = `data:${mimeType};base64,${buf.toString("base64")}`;
-    const fieldList = spec.fields.join(", ");
+    const base64 = buf.toString("base64");
+    const dataUri = `data:${mimeType};base64,${base64}`;
 
-    const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      temperature: 0,
-      response_format: { type: "json_object" },
-      messages: [
-        {
-          role: "system",
-          content:
-            `You are an OCR assistant for Indian KYC documents. Read the ${spec.label} in the image and extract the requested fields exactly as printed. ` +
-            `Return ONLY a JSON object with these keys: ${fieldList}. ` +
-            `Use an empty string for any field you cannot read clearly. Format dates as DD/MM/YYYY. Do not guess or invent values.`,
-        },
-        {
-          role: "user",
-          content: [
-            { type: "text", text: `Extract these fields from this ${spec.label}: ${fieldList}` },
-            { type: "image_url", image_url: { url: dataUri } },
-          ] as any,
-        },
-      ],
-    });
-
-    const txt = response.choices?.[0]?.message?.content ?? "{}";
-    let parsed: Record<string, any> = {};
-    try {
-      parsed = JSON.parse(txt);
-    } catch {
-      parsed = {};
+    // 1. Try OpenAI vision (if an OpenAI key is configured)
+    if (openai) {
+      try {
+        const response = await openai.chat.completions.create({
+          model: "gpt-4o-mini",
+          temperature: 0,
+          response_format: { type: "json_object" },
+          messages: [
+            { role: "system", content: systemPrompt },
+            {
+              role: "user",
+              content: [
+                { type: "text", text: userText },
+                { type: "image_url", image_url: { url: dataUri } },
+              ] as any,
+            },
+          ],
+        });
+        providerResponded = true;
+        const txt = response.choices?.[0]?.message?.content ?? "{}";
+        try {
+          parsed = JSON.parse(txt);
+        } catch {
+          parsed = null;
+        }
+      } catch (err: any) {
+        console.warn("[AI] OpenAI KYC extraction failed, trying Gemini:", err?.message);
+      }
     }
 
-    const fields: Record<string, string> = {};
-    for (const f of spec.fields) {
-      const v = parsed[f];
-      if (v != null && String(v).trim()) fields[f] = String(v).trim();
+    // 2. Fall back to Gemini vision (if OpenAI is absent or failed)
+    if (!parsed && geminiAvailable) {
+      parsed = await callGeminiJson(systemPrompt, userText, { mimeType, base64 });
     }
-
-    if (Object.keys(fields).length === 0) {
-      return { available: true, reason: "no_fields_found", fields: {} };
-    }
-    return { available: true, fields };
   } catch (err: any) {
     console.warn("[AI] KYC extraction failed:", err?.message);
     return { available: false, reason: "extraction_error" };
   }
+
+  // A provider answered but returned unparseable JSON → treat as no fields found
+  // (preserves prior behavior) rather than a hard error.
+  if (!parsed) {
+    if (providerResponded) return { available: true, reason: "no_fields_found", fields: {} };
+    return { available: false, reason: "extraction_error" };
+  }
+
+  const fields: Record<string, string> = {};
+  for (const f of spec.fields) {
+    const v = parsed[f];
+    if (v != null && String(v).trim()) fields[f] = String(v).trim();
+  }
+
+  if (Object.keys(fields).length === 0) {
+    return { available: true, reason: "no_fields_found", fields: {} };
+  }
+  return { available: true, fields };
 }
 
 // ─── Typed profile-info extraction (ESIC / EPFO / HRMS master fields) ──────────
@@ -319,53 +377,72 @@ export async function extractProfileFromText(
   if (!messageMayContainProfileInfo(text)) return { available: false, reason: "no_hint" };
 
   const openai = getOpenAI();
-  if (!openai) return { available: false, reason: "no_ai_key" };
+  const geminiAvailable = !!getGeminiKey();
+  if (!openai && !geminiAvailable) return { available: false, reason: "no_ai_key" };
 
+  const fieldList = PROFILE_EXTRACTION_FIELDS.join(", ");
+  const systemPrompt =
+    `You extract Indian HR/statutory profile details that an employee has explicitly stated in their message, for their ESIC, EPFO and HRMS records. ` +
+    `Return ONLY a JSON object with these keys: ${fieldList}. ` +
+    `Rules: include a value ONLY if the employee clearly stated it in this message; otherwise use an empty string. Never guess or infer. ` +
+    `gender: "Male"/"Female"/"Other". dateOfBirth: format as DD/MM/YYYY. uan: 12 digits. aadhaar: 12 digits. pan: 10 chars uppercase. ` +
+    `mobileNumber: 10 digits. ifsc: 11 chars uppercase. Strip spaces from numbers, UAN, Aadhaar, account number, IFSC and PAN. ` +
+    `maritalStatus: "Married"/"Single"/"Widowed"/"Divorced". motherName: full name. bloodGroup: e.g. "O+","AB-". ` +
+    `nomineeName: full name of the nominee. nomineeRelation: relationship to the employee (e.g. "Wife","Husband","Son","Mother"). ` +
+    `emergencyContactName: full name. emergencyContactNumber: 10 digits.`;
+
+  let parsed: Record<string, any> | null = null;
+  let providerResponded = false;
   try {
-    const fieldList = PROFILE_EXTRACTION_FIELDS.join(", ");
-    const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      temperature: 0,
-      response_format: { type: "json_object" },
-      messages: [
-        {
-          role: "system",
-          content:
-            `You extract Indian HR/statutory profile details that an employee has explicitly stated in their message, for their ESIC, EPFO and HRMS records. ` +
-            `Return ONLY a JSON object with these keys: ${fieldList}. ` +
-            `Rules: include a value ONLY if the employee clearly stated it in this message; otherwise use an empty string. Never guess or infer. ` +
-            `gender: "Male"/"Female"/"Other". dateOfBirth: format as DD/MM/YYYY. uan: 12 digits. aadhaar: 12 digits. pan: 10 chars uppercase. ` +
-            `mobileNumber: 10 digits. ifsc: 11 chars uppercase. Strip spaces from numbers, UAN, Aadhaar, account number, IFSC and PAN. ` +
-            `maritalStatus: "Married"/"Single"/"Widowed"/"Divorced". motherName: full name. bloodGroup: e.g. "O+","AB-". ` +
-            `nomineeName: full name of the nominee. nomineeRelation: relationship to the employee (e.g. "Wife","Husband","Son","Mother"). ` +
-            `emergencyContactName: full name. emergencyContactNumber: 10 digits.`,
-        },
-        { role: "user", content: text },
-      ],
-    });
-
-    const txt = response.choices?.[0]?.message?.content ?? "{}";
-    let parsed: Record<string, any> = {};
-    try {
-      parsed = JSON.parse(txt);
-    } catch {
-      parsed = {};
+    // 1. Try OpenAI (if an OpenAI key is configured)
+    if (openai) {
+      try {
+        const response = await openai.chat.completions.create({
+          model: "gpt-4o-mini",
+          temperature: 0,
+          response_format: { type: "json_object" },
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: text },
+          ],
+        });
+        providerResponded = true;
+        const txt = response.choices?.[0]?.message?.content ?? "{}";
+        try {
+          parsed = JSON.parse(txt);
+        } catch {
+          parsed = null;
+        }
+      } catch (err: any) {
+        console.warn("[AI] OpenAI profile extraction failed, trying Gemini:", err?.message);
+      }
     }
 
-    const fields: Record<string, string> = {};
-    for (const f of PROFILE_EXTRACTION_FIELDS) {
-      const v = parsed[f];
-      if (v != null && String(v).trim()) fields[f] = String(v).trim();
+    // 2. Fall back to Gemini (if OpenAI is absent or failed)
+    if (!parsed && geminiAvailable) {
+      parsed = await callGeminiJson(systemPrompt, text);
     }
-
-    if (Object.keys(fields).length === 0) {
-      return { available: true, reason: "no_fields_found", fields: {} };
-    }
-    return { available: true, fields };
   } catch (err: any) {
     console.warn("[AI] Profile extraction failed:", err?.message);
     return { available: false, reason: "extraction_error" };
   }
+
+  // A provider answered but returned unparseable JSON → treat as no fields found.
+  if (!parsed) {
+    if (providerResponded) return { available: true, reason: "no_fields_found", fields: {} };
+    return { available: false, reason: "extraction_error" };
+  }
+
+  const fields: Record<string, string> = {};
+  for (const f of PROFILE_EXTRACTION_FIELDS) {
+    const v = parsed[f];
+    if (v != null && String(v).trim()) fields[f] = String(v).trim();
+  }
+
+  if (Object.keys(fields).length === 0) {
+    return { available: true, reason: "no_fields_found", fields: {} };
+  }
+  return { available: true, fields };
 }
 
 // ─── Employee Live Data Context ───────────────────────────────────────────────
