@@ -211,19 +211,6 @@ jobs:
               mv "$APP_DIR/node_modules" "$SAVED_NM"
             fi
 
-            # ── Preserve user uploads across deploys ──────────────────────────
-            # User-uploaded files (KYC docs, company assets, employee docs) are
-            # gitignored and NOT in the deploy tarball. This deploy replaces the
-            # whole app dir, so without this step they would be destroyed on
-            # every deploy. Keep them in a persistent dir OUTSIDE the app dir and
-            # symlink it back in after extraction.
-            PERSIST_UPLOADS="$HOME/hrms-uploads"
-            mkdir -p "$PERSIST_UPLOADS"
-            if [ -d "$APP_DIR/uploads" ] && [ ! -L "$APP_DIR/uploads" ]; then
-              echo "▶ Folding existing uploads into $PERSIST_UPLOADS"
-              cp -an "$APP_DIR/uploads/." "$PERSIST_UPLOADS/" 2>/dev/null || true
-            fi
-
             # ── Purge old backups NOW to free disk before extract ─────────────
             ls -dt "$HOME"/hrms-app-backup-* 2>/dev/null | tail -n +2 | xargs rm -rf 2>/dev/null || true
             ls -dt "$HOME"/hrms-pro-backup-* 2>/dev/null | xargs rm -rf 2>/dev/null || true
@@ -246,13 +233,6 @@ jobs:
               echo "▶ Restoring node_modules from rescue copy"
               mv "$SAVED_NM" "$APP_DIR/node_modules"
             fi
-
-            # ── Link persistent uploads into the fresh app dir ────────────────
-            # The app reads/writes uploads relative to its working directory, so
-            # point $APP_DIR/uploads at the persistent store that survives deploys.
-            rm -rf "$APP_DIR/uploads" 2>/dev/null || true
-            ln -sfn "$PERSIST_UPLOADS" "$APP_DIR/uploads"
-            echo "▶ uploads → $PERSIST_UPLOADS (persistent across deploys)"
 
             # ── Write .env ────────────────────────────────────────────────────
             {
