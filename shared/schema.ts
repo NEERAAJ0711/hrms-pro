@@ -1626,6 +1626,28 @@ export const insertAiFollowUpTaskSchema = createInsertSchema(aiFollowUpTasks).om
 export type InsertAiFollowUpTask = z.infer<typeof insertAiFollowUpTaskSchema>;
 export type AiFollowUpTask = typeof aiFollowUpTasks.$inferSelect;
 
+// AI usage/observability log — additive, intentionally has NO foreign keys so it
+// can be written best-effort without coupling to other tables' lifecycles.
+export const aiUsageLogs = pgTable("ai_usage_logs", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  companyId: varchar("company_id", { length: 36 }),
+  employeeId: varchar("employee_id", { length: 36 }),
+  feature: text("feature").notNull(),
+  provider: text("provider").notNull(),
+  model: text("model"),
+  promptTokens: integer("prompt_tokens").notNull().default(0),
+  completionTokens: integer("completion_tokens").notNull().default(0),
+  totalTokens: integer("total_tokens").notNull().default(0),
+  estimatedCostUsd: numeric("estimated_cost_usd", { precision: 12, scale: 6 }).notNull().default("0"),
+  latencyMs: integer("latency_ms").notNull().default(0),
+  success: boolean("success").notNull().default(true),
+  error: text("error"),
+  createdAt: text("created_at").notNull(),
+});
+export const insertAiUsageLogSchema = createInsertSchema(aiUsageLogs).omit({ id: true });
+export type InsertAiUsageLog = z.infer<typeof insertAiUsageLogSchema>;
+export type AiUsageLog = typeof aiUsageLogs.$inferSelect;
+
 export const kycSubmissionStatus = pgTable("kyc_submission_status", {
   id: varchar("id", { length: 36 }).primaryKey(),
   employeeId: varchar("employee_id", { length: 36 }).notNull().unique().references((): AnyPgColumn => employees.id, { onDelete: "cascade" }),
