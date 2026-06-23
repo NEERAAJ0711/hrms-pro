@@ -94,6 +94,11 @@ const ADMIN_INTENT_ROLES: Record<string, string[]> = {
   pending_resignations: HR,
   pending_payroll: HR,
   quick_summary: HR_MGR,
+  // Phase 4 — AI analytics. Self intents (explain_my_*) need no row (scope self).
+  attendance_insights: HR_MGR,
+  leave_insights: HR_MGR,
+  team_insights: HR_MGR,
+  executive_summary: HR, // leadership-level, company-wide
 };
 
 export interface AuthResult {

@@ -12,6 +12,7 @@ import {
 import { SearchableEmployeeSelect } from "@/components/searchable-employee-select";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { AiInsightsPanel } from "@/components/ai-insights-panel";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -525,6 +526,13 @@ export default function LeavePage() {
     return (
       <div className="p-4 sm:p-6 max-w-5xl mx-auto space-y-6" data-testid="leave-page">
         {ApplyLeaveDialog}
+        <AiInsightsPanel
+          endpoint="/api/ai/me/leave"
+          title="My Leave AI Insights"
+          description="A plain-language summary of your leave for this year."
+          actionLabel="leave insights"
+          testIdPrefix="my-leave-insights"
+        />
 
         {/* ── Clean Light Header ── */}
         <div className="rounded-2xl bg-white border border-slate-200 shadow-sm overflow-hidden">
@@ -1044,6 +1052,15 @@ export default function LeavePage() {
   // ══════════════════════════════════════════════════════════════════════════
   return (
     <div className="p-6" data-testid="leave-page">
+      <div className="mb-6">
+        <AiInsightsPanel
+          endpoint="/api/ai/leave/insights"
+          title="Leave AI Insights"
+          description="Plain-language analysis of leave across your organization this year."
+          actionLabel="leave insights"
+          testIdPrefix="leave-insights"
+        />
+      </div>
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">

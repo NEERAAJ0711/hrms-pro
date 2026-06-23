@@ -80,6 +80,8 @@ const KW = {
   leave: ["leave", "chhutti", "chutti", "avkash", "chuttiyan"],
   attendance: ["attendance", "haaziri", "haziri", "upasthiti", "present day", "presence"],
   salary: ["salary", "payslip", "pay slip", "salary slip", "vetan", "tankhwah", "tankhah", "ctc", "pay"],
+  // Phase 4 — AI analytics asks ("explain / analyze / insights / anomalies").
+  insight: ["insight", "insights", "analyze", "analyse", "analysis", "explain", "breakdown", "break down", "anomaly", "anomalies", "unusual", "trend", "trends", "intelligence", "samjhao", "vishleshan", "why", "kyon", "kyu"],
 };
 
 const MATCHERS: Matcher[] = [
@@ -124,6 +126,20 @@ const MATCHERS: Matcher[] = [
     },
   },
 
+  // ── Phase 4 AI analytics — self (must precede the broad my_* readers) ───────
+  {
+    intent: "explain_my_attendance", module: "self", kind: "read", scope: "self",
+    test: (l) => has(l, ...KW.insight) && has(l, ...KW.attendance) && has(l, ...KW.my) ? {} : null,
+  },
+  {
+    intent: "explain_my_leave", module: "self", kind: "read", scope: "self",
+    test: (l) => has(l, ...KW.insight) && has(l, ...KW.leave) && has(l, ...KW.my) ? {} : null,
+  },
+  {
+    intent: "explain_my_payslip", module: "self", kind: "read", scope: "self",
+    test: (l) => has(l, ...KW.insight) && has(l, ...KW.salary) && has(l, ...KW.my) ? {} : null,
+  },
+
   // ── Employee self-service (scope: self) ────────────────────────────────────
   {
     intent: "my_leave_balance", module: "self", kind: "read", scope: "self",
@@ -139,7 +155,9 @@ const MATCHERS: Matcher[] = [
   },
   {
     intent: "my_attendance", module: "self", kind: "read", scope: "self",
-    test: (l) => has(l, ...KW.attendance) && (has(l, ...KW.my) || has(l, ...KW.show)) ? {} : null,
+    // "show attendance insights" (no "my") is an analytics ask → let the admin
+    // attendance_insights matcher claim it; only grab a plain "show attendance".
+    test: (l) => has(l, ...KW.attendance) && (has(l, ...KW.my) || (has(l, ...KW.show) && !has(l, ...KW.insight))) ? {} : null,
   },
   {
     intent: "my_shift", module: "self", kind: "read", scope: "self",
@@ -199,6 +217,28 @@ const MATCHERS: Matcher[] = [
   },
 
   // ── HR / Admin (scope: admin) ──────────────────────────────────────────────
+  // Phase 4 AI analytics — admin (precede attendance_summary / quick_summary).
+  {
+    intent: "attendance_insights", module: "attendance", kind: "read", scope: "admin",
+    test: (l) => has(l, ...KW.insight) && has(l, ...KW.attendance) && !has(l, ...KW.my) ? {} : null,
+  },
+  {
+    intent: "leave_insights", module: "leave", kind: "read", scope: "admin",
+    test: (l) => has(l, ...KW.insight) && has(l, ...KW.leave) && !has(l, ...KW.my) ? {} : null,
+  },
+  {
+    intent: "team_insights", module: "attendance", kind: "read", scope: "admin",
+    // Note: NO !my guard — "my team update" legitimately contains "my".
+    test: (l) => has(l, "team", "meri team", "my team") && has(l, ...KW.insight, "briefing", "brief", "update", "how is", "how's", "status", "overview") ? {} : null,
+  },
+  {
+    intent: "executive_summary", module: "employees", kind: "read", scope: "admin",
+    test: (l) =>
+      has(l, "executive summary", "leadership summary", "executive report", "leadership brief", "company health", "workforce health", "org health", "organisation health", "organization health")
+        || (has(l, "executive", "leadership", "ceo", "management") && has(l, "summary", "report", "brief", "overview", "dashboard"))
+        ? {}
+        : null,
+  },
   {
     intent: "absentees_today", module: "attendance", kind: "read", scope: "admin",
     test: (l) => has(l, "absent", "gair haazir", "anupasthit", "not present") && has(l, ...KW.today, "list", "who") ? {} : null,

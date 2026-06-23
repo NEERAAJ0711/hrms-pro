@@ -6,6 +6,7 @@ import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, parseIS
 import { Calendar, Clock, Plus, CheckCircle, XCircle, AlertCircle, Users, Zap, Eye, Pencil, Trash2, Download, Search, Lock, FileClock, RefreshCw } from "lucide-react";
 import * as XLSX from "xlsx";
 import { SearchableEmployeeSelect } from "@/components/searchable-employee-select";
+import { AiInsightsPanel } from "@/components/ai-insights-panel";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -933,6 +934,15 @@ export default function AttendancePage() {
 
   return (
     <div className="p-6" data-testid="attendance-page">
+      <div className="mb-6">
+        <AiInsightsPanel
+          endpoint={`/api/ai/attendance/insights?month=${selectedMonth.split("-")[1]}&year=${selectedMonth.split("-")[0]}`}
+          title="Attendance AI Insights"
+          description="Plain-language analysis of attendance for the selected month."
+          actionLabel="attendance insights"
+          testIdPrefix="attendance-insights"
+        />
+      </div>
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold">Attendance Management</h1>

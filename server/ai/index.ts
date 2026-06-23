@@ -55,6 +55,36 @@ export {
   type CandidateSearchResult,
 } from "./recruitment/search";
 export { computeRecruitmentDashboard, type DashboardJob, type DashboardApplication } from "./recruitment/dashboard";
+
+// Phase 4 — Attendance, Leave & Payroll AI (read-only intelligence). Importing
+// prompts here registers the analytics narratives in the prompt registry.
+import "./analytics/prompts";
+export {
+  computeAttendanceFacts,
+  explainAttendance,
+  type AttendanceFacts,
+  type AttendanceScope,
+} from "./attendance/service";
+export {
+  computeLeaveFacts,
+  explainLeave,
+  type LeaveFacts,
+  type LeaveScope,
+} from "./leave/service";
+export {
+  computePayrollFacts,
+  explainPayroll,
+  type PayrollFacts,
+} from "./payroll/service";
+export {
+  computeManagerInsights,
+  explainManagerInsights,
+  computeExecutiveSummary,
+  explainExecutiveSummary,
+  type ManagerInsightFacts,
+  type ExecutiveSummaryFacts,
+} from "./insights/service";
+export type { AiNarrative, Anomaly, AnomalySeverity } from "./analytics/types";
 export type {
   ParsedResume,
   CandidateScore,

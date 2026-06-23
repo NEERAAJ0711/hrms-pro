@@ -12,6 +12,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { queryClient, apiRequest } from "@/lib/queryClient";
+import { AiInsightsPanel } from "@/components/ai-insights-panel";
 import { fetchJson, fetchJsonOrEmpty, mutateJson } from "@/lib/api";
 import type { Payroll, SalaryStructure, Employee, Company, StatutorySettings, Attendance, WageGrade, EarningHead, DeductionHead } from "@shared/schema";
 import FnfSettlementPage from "@/pages/fnf-settlement";
@@ -1118,6 +1119,18 @@ export default function PayrollPage() {
           </>
         }
       />
+
+      {["super_admin", "company_admin", "hr_admin"].includes(user?.role || "") && (
+        <div className="mb-6">
+          <AiInsightsPanel
+            endpoint={`/api/ai/insights/executive?month=${months.indexOf(selectedMonth) + 1}&year=${selectedYear}`}
+            title="Executive AI Summary"
+            description="Company-wide workforce health for the selected period."
+            actionLabel="the executive summary"
+            testIdPrefix="executive-summary"
+          />
+        </div>
+      )}
 
       <PayrollSummaryCards
         totalPayroll={totalPayroll}

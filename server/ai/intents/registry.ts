@@ -6,6 +6,7 @@ import type { IntentHandler } from "./handlers/shared";
 import * as self from "./handlers/employee-self";
 import * as admin from "./handlers/hr-admin";
 import * as actions from "./handlers/actions";
+import * as analytics from "./handlers/analytics";
 
 export const HANDLERS: Record<string, IntentHandler> = {
   // Employee self-service
@@ -52,6 +53,15 @@ export const HANDLERS: Record<string, IntentHandler> = {
   pending_resignations: admin.pendingResignations,
   pending_payroll: admin.pendingPayroll,
   quick_summary: admin.quickSummary,
+
+  // Phase 4 — Attendance / Leave / Payroll AI (read-only intelligence)
+  explain_my_attendance: analytics.explainMyAttendance,
+  explain_my_leave: analytics.explainMyLeave,
+  explain_my_payslip: analytics.explainMyPayslip,
+  attendance_insights: analytics.attendanceInsights,
+  leave_insights: analytics.leaveInsights,
+  team_insights: analytics.teamInsights,
+  executive_summary: analytics.executiveSummary,
 
   // Actions
   find_employee: actions.findEmployee,

@@ -28,6 +28,9 @@ export const AI_CONFIG = {
     extraction: 0,
     // Recruitment AI: low temperature for consistent, deterministic-leaning output.
     recruitment: 0.2,
+    // Phase 4 analytics (attendance/leave/payroll narratives): low temperature so
+    // the plain-language explanation stays faithful to the computed facts.
+    analytics: 0.3,
   },
   maxTokens: {
     chat: 400,
@@ -36,6 +39,8 @@ export const AI_CONFIG = {
     test: 5,
     // Recruitment AI generates richer JSON (breakdowns, question sets, summaries).
     recruitment: 1200,
+    // Phase 4 analytics narratives (explanation + insights + recommendations).
+    analytics: 1000,
   },
   history: {
     chatWindow: 12,
@@ -81,6 +86,12 @@ export type AiFeature =
   | "interview_questions"
   | "candidate_rank"
   | "candidate_search"
-  | "recruitment_dashboard";
+  | "recruitment_dashboard"
+  // Phase 4 — Attendance, Leave & Payroll AI (read-only intelligence)
+  | "attendance_insight"
+  | "leave_insight"
+  | "payroll_explain"
+  | "manager_insight"
+  | "executive_summary";
 
 export type AiProvider = "openai" | "gemini" | "rule-based";

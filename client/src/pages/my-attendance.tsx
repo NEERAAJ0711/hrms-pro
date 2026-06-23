@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { AiInsightsPanel } from "@/components/ai-insights-panel";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -301,6 +302,14 @@ export default function MyAttendancePage() {
 
   return (
     <div className="p-4 sm:p-6 space-y-6 max-w-6xl mx-auto">
+
+      <AiInsightsPanel
+        endpoint={`/api/ai/me/attendance?month=${selectedMonth + 1}&year=${selectedYear}`}
+        title="My Attendance AI Insights"
+        description="A plain-language summary of your attendance this month."
+        actionLabel="attendance insights"
+        testIdPrefix="my-attendance-insights"
+      />
 
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
