@@ -34,14 +34,17 @@ export async function extractResumeText(absFilePath: string, fileName: string): 
     }
 
     if (ext === ".pdf") {
-      // pdf-parse's package entry runs debug code when required at top level;
-      // import the library module directly and call it with the buffer.
-      // @ts-ignore — pdf-parse ships no type declarations for this deep path.
-      const mod: any = await import("pdf-parse/lib/pdf-parse.js");
-      const pdfParse = mod.default || mod;
+      // pdf-parse@2.x exposes a PDFParse class: construct with the buffer, then
+      // getText() returns a TextResult whose `text` is the whole-document string.
+      const { PDFParse } = (await import("pdf-parse")) as any;
       const buf = fs.readFileSync(absFilePath);
-      const data = await pdfParse(buf);
-      return finalizeText(data?.text || "");
+      const parser = new PDFParse({ data: new Uint8Array(buf) });
+      try {
+        const result = await parser.getText();
+        return finalizeText(result?.text || "");
+      } finally {
+        await parser.destroy?.();
+      }
     }
 
     if (ext === ".docx") {

@@ -5,8 +5,11 @@
 // Run with:  node_modules/.bin/tsx --test server/__tests__/ai-recruitment.test.ts
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import * as fs from "fs";
+import * as os from "os";
+import * as path from "path";
 
-import { normalizeParsedResume, isResumeExtractable } from "../ai/extraction/resume";
+import { normalizeParsedResume, isResumeExtractable, extractResumeText } from "../ai/extraction/resume";
 import {
   rankCandidates,
   scoreCandidate,
@@ -50,6 +53,50 @@ test("normalizeParsedResume keeps known fields, coerces types, drops junk", () =
 test("normalizeParsedResume ignores a non-numeric experience value", () => {
   const out = normalizeParsedResume({ totalExperienceYears: "many" });
   assert.equal(out.totalExperienceYears, undefined);
+});
+
+// Generate a small PDF with pdfkit, write to a temp file, and confirm the
+// pdf-parse@2.x extraction path returns the embedded text (regression guard for
+// the v2 PDFParse API).
+function makePdf(text: string): Promise<Buffer> {
+  return new Promise(async (resolve, reject) => {
+    const PDFDocument = (await import("pdfkit")).default;
+    const doc = new PDFDocument();
+    const chunks: Buffer[] = [];
+    doc.on("data", (c: Buffer) => chunks.push(c));
+    doc.on("end", () => resolve(Buffer.concat(chunks)));
+    doc.on("error", reject);
+    doc.text(text);
+    doc.end();
+  });
+}
+
+test("extractResumeText reads text from a real PDF (pdf-parse v2)", async () => {
+  const marker = "Asha Rao Senior Engineer React Node";
+  const pdf = await makePdf(marker);
+  const tmp = path.join(os.tmpdir(), `resume-test-${Date.now()}.pdf`);
+  fs.writeFileSync(tmp, pdf);
+  try {
+    const result = await extractResumeText(tmp, "resume.pdf");
+    assert.equal(result.ok, true);
+    if (result.ok) assert.ok(result.text.includes("Asha Rao"), `expected marker in: ${result.text}`);
+  } finally {
+    fs.rmSync(tmp, { force: true });
+  }
+});
+
+test("extractResumeText reads a TXT file and rejects unsupported types", async () => {
+  const tmp = path.join(os.tmpdir(), `resume-test-${Date.now()}.txt`);
+  fs.writeFileSync(tmp, "Plain text resume for Asha Rao");
+  try {
+    const ok = await extractResumeText(tmp, "resume.txt");
+    assert.equal(ok.ok, true);
+    const bad = await extractResumeText(tmp, "resume.png");
+    assert.equal(bad.ok, false);
+    if (!bad.ok) assert.equal(bad.reason, "unsupported_format");
+  } finally {
+    fs.rmSync(tmp, { force: true });
+  }
 });
 
 // ── Deterministic ranking ──────────────────────────────────────────────────────
