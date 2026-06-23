@@ -35,6 +35,7 @@ import {
   upload, docUpload, companyAssetUpload, safeUnlinkCompanyAsset,
   COMPANY_ASSETS_DIR, DOC_UPLOAD_DIR, daysInMonth,
 } from "./shared";
+import { resolveCrossCompanyLink, backfillMasterLink } from "../services/employee-link";
 
 export async function registerEmployeeRoutes(app: Express): Promise<void> {
   async function validateEmployeeDuplicates(data: any, companyId: string, excludeId?: string): Promise<string | null> {
@@ -78,80 +79,6 @@ export async function registerEmployeeRoutes(app: Express): Promise<void> {
     return null;
   }
 
-  // ── Cross-company employee association ──────────────────────────────────────
-  // The same person (matched by PAN or Aadhaar) may be employed at two companies
-  // with different employment details, BUT they can be On-Roll (permanent) in
-  // only ONE company. In any other company they must be added as Contractual
-  // (employmentType = "contract") with a contractor tag (contractorMasterId).
-  // The second-company record is linked to the On-Roll ("master") record via
-  // masterEmployeeId so the two are associated as the same person.
-  const ONROLL_TYPE = "permanent";
-
-  // Find this person's records in OTHER companies (same PAN or Aadhaar).
-  async function findPersonInOtherCompanies(
-    data: any,
-    companyId: string,
-    excludeId?: string,
-  ): Promise<any[]> {
-    const idConds: any[] = [];
-    if (data.pan) idConds.push(eq(employees.pan, String(data.pan)));
-    if (data.aadhaar) idConds.push(eq(employees.aadhaar, String(data.aadhaar)));
-    if (idConds.length === 0) return [];
-    const rows = await db
-      .select()
-      .from(employees)
-      .where(and(or(...idConds), sql`${employees.companyId} <> ${companyId}`));
-    return excludeId ? rows.filter((r: any) => r.id !== excludeId) : rows;
-  }
-
-  // Validate + resolve the cross-company link for a create/update.
-  // Returns { error } to reject, or { masterEmployeeId, backfillIds } to apply.
-  async function resolveCrossCompanyLink(
-    data: any,
-    companyId: string,
-    excludeId?: string,
-  ): Promise<{ error?: string; masterEmployeeId?: string | null; backfillIds?: string[] }> {
-    const matches = await findPersonInOtherCompanies(data, companyId, excludeId);
-    if (matches.length === 0) return {}; // brand-new person — nothing to link
-
-    const incomingType = data.employmentType ?? ONROLL_TYPE;
-    const existingOnRoll = matches.find((m) => (m.employmentType ?? ONROLL_TYPE) === ONROLL_TYPE);
-    const ref = existingOnRoll || matches[0];
-    const who = `${ref.firstName} ${ref.lastName} (${ref.employeeCode})`;
-
-    if (incomingType === ONROLL_TYPE) {
-      // Trying to put them On-Roll here.
-      if (existingOnRoll) {
-        return {
-          error:
-            `${who} is already On-Roll (permanent) in another company. ` +
-            `A person can be On-Roll in only one company — for this company set ` +
-            `Employment Type to "Contract" and tag a contractor.`,
-        };
-      }
-      // No On-Roll record yet anywhere → this record becomes the master.
-      // Link any existing (contractual) records to it.
-      const backfillIds = matches.filter((m) => !m.masterEmployeeId).map((m) => m.id);
-      return { masterEmployeeId: null, backfillIds };
-    }
-
-    // Contractual (or any non-permanent) record in a second company.
-    if (incomingType !== "contract" || !data.contractorMasterId) {
-      return {
-        error:
-          `${who} already exists in another company. In this company they must be ` +
-          `added as Contractual — set Employment Type to "Contract" and tag a contractor.`,
-      };
-    }
-
-    // Link to the group's master (the On-Roll record, else the group's existing
-    // master, else the oldest matched record).
-    const masterId = existingOnRoll
-      ? existingOnRoll.id
-      : ref.masterEmployeeId || ref.id;
-    return { masterEmployeeId: masterId };
-  }
-
   // ===== Employee CRUD Routes =====
   app.post("/api/employees", requireAuth, requireAction("employees", "create"), async (req, res) => {
     try {
@@ -173,11 +100,7 @@ export async function registerEmployeeRoutes(app: Express): Promise<void> {
       const employee = await employeeService.createEmployee(data);
       // If this new record became the On-Roll master for an already-existing
       // (contractual) record in another company, link those records back to it.
-      if (pendingBackfillIds && pendingBackfillIds.length > 0) {
-        await db.update(employees)
-          .set({ masterEmployeeId: employee.id })
-          .where(inArray(employees.id, pendingBackfillIds));
-      }
+      await backfillMasterLink(employee.id, pendingBackfillIds);
       res.status(201).json(employee);
     } catch (error: any) {
       res.status(400).json({ error: error?.message || "Failed to create employee" });
@@ -262,11 +185,7 @@ export async function registerEmployeeRoutes(app: Express): Promise<void> {
       if (link.masterEmployeeId !== undefined) req.body.masterEmployeeId = link.masterEmployeeId;
 
       const updated = await employeeService.updateEmployee(req.params.id, req.body);
-      if (link.backfillIds && link.backfillIds.length > 0) {
-        await db.update(employees)
-          .set({ masterEmployeeId: req.params.id })
-          .where(inArray(employees.id, link.backfillIds));
-      }
+      await backfillMasterLink(req.params.id, link.backfillIds);
 
       // If the biometric device ID changed, retroactively link all existing punch logs
       // for that PIN so historical attendance immediately appears under this employee.

@@ -57,6 +57,18 @@ export async function resolveCrossCompanyLink(
   const ref = existingOnRoll || matches[0];
   const who = `${ref.firstName} ${ref.lastName} (${ref.employeeCode})`;
 
+  // Cardinality: a person may be associated with at most TWO companies. `matches`
+  // only contains records in OTHER companies (the current one is excluded), so if
+  // the person already exists in 2+ other companies, adding them here is a 3rd.
+  const otherCompanyIds = new Set(matches.map((m) => m.companyId));
+  if (otherCompanyIds.size >= 2) {
+    return {
+      error:
+        `${who} is already associated with two companies. ` +
+        `A person can belong to at most two companies.`,
+    };
+  }
+
   if (incomingType === ONROLL_TYPE) {
     // Trying to put them On-Roll here.
     if (existingOnRoll) {
@@ -68,8 +80,10 @@ export async function resolveCrossCompanyLink(
       };
     }
     // No On-Roll record yet anywhere → this record becomes the master.
-    // Link any existing (contractual) records to it.
-    const backfillIds = matches.filter((m) => !m.masterEmployeeId).map((m) => m.id);
+    // Re-parent ALL existing records (in the other company) to this new master so
+    // the On-Roll record is always the master, even if they were created earlier
+    // and pointed at each other.
+    const backfillIds = matches.map((m) => m.id);
     return { masterEmployeeId: null, backfillIds };
   }
 

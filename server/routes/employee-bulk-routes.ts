@@ -22,6 +22,7 @@ import { getAdmsActivityLog, getAdmsActivityLogFromDB, getAdmsServerStatus, proc
 import * as dnsPromises from "dns/promises";
 import multer from "multer";
 import { makeFileFilter, DOCUMENT_EXTENSIONS, DATA_EXTENSIONS, APK_EXTENSIONS } from "../upload-security";
+import { resolveCrossCompanyLink, backfillMasterLink } from "../services/employee-link";
 import * as XLSX from "xlsx";
 import { randomUUID } from "crypto";
 import * as fs from "fs";
@@ -248,8 +249,19 @@ export async function registerEmployeeBulkRoutes(app: Express): Promise<void> {
             status: "active",
           };
 
-          await employeeService.createEmployee(empData as any);
-          existingEmployees.push({ ...empData, id: "temp" } as any);
+          // Enforce the cross-company On-Roll/Contractual rule (same person in
+          // another company must be Contractual + contractor-tagged).
+          const link = await resolveCrossCompanyLink(empData as any, companyId);
+          if (link.error) {
+            results.errors.push(`Row ${rowNum}: ${link.error}`);
+            results.skipped++;
+            continue;
+          }
+          if (link.masterEmployeeId !== undefined) (empData as any).masterEmployeeId = link.masterEmployeeId;
+
+          const created = await employeeService.createEmployee(empData as any);
+          await backfillMasterLink(created.id, link.backfillIds);
+          existingEmployees.push({ ...empData, id: created.id } as any);
           results.created++;
         } catch (err: any) {
           results.errors.push(`Row ${rowNum}: ${err.message || "Unknown error"}`);
@@ -549,7 +561,24 @@ export async function registerEmployeeBulkRoutes(app: Express): Promise<void> {
         if (Object.keys(updates).length === 0) { results.skipped++; continue; }
 
         try {
+          // Enforce the cross-company On-Roll/Contractual rule using the effective
+          // (existing + patched) identity & employment fields.
+          const merged = {
+            pan: updates.pan ?? emp.pan,
+            aadhaar: updates.aadhaar ?? emp.aadhaar,
+            employmentType: updates.employmentType ?? emp.employmentType,
+            contractorMasterId: updates.contractorMasterId ?? emp.contractorMasterId,
+          };
+          const link = await resolveCrossCompanyLink(merged, emp.companyId, emp.id);
+          if (link.error) {
+            results.errors.push(`Row ${rowNum} (${code}): ${link.error}`);
+            results.skipped++;
+            continue;
+          }
+          if (link.masterEmployeeId !== undefined) (updates as any).masterEmployeeId = link.masterEmployeeId;
+
           await employeeService.updateEmployee(emp.id, updates as any);
+          await backfillMasterLink(emp.id, link.backfillIds);
           results.updated++;
         } catch (err: any) {
           results.errors.push(`Row ${rowNum} (${code}): ${err.message}`);

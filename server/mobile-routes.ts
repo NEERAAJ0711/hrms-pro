@@ -14,6 +14,7 @@ import fs from "fs";
 // face-match (TensorFlow/face-api) is imported lazily inside the handler that
 // needs it so the heavy TF runtime + model weights only load on first face match.
 import { makeFileFilter, IMAGE_EXTENSIONS } from "./upload-security";
+import { resolveCrossCompanyLink, backfillMasterLink } from "./services/employee-link";
 
 const faceUpload = multer({
   storage: multer.diskStorage({
@@ -952,7 +953,14 @@ export function registerMobileRoutes(app: Express) {
         }
       }
 
+      // Enforce the cross-company On-Roll/Contractual rule (same person in
+      // another company must be Contractual + contractor-tagged).
+      const link = await resolveCrossCompanyLink(data, data.companyId);
+      if (link.error) return res.status(400).json({ error: link.error });
+      if (link.masterEmployeeId !== undefined) data.masterEmployeeId = link.masterEmployeeId;
+
       const employee = await employeeService.createEmployee(data);
+      await backfillMasterLink(employee.id, link.backfillIds);
       res.status(201).json(employee);
     } catch (error) {
       res.status(500).json({ error: "Failed to register employee" });
