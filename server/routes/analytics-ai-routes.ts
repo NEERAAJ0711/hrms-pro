@@ -13,6 +13,7 @@ import {
   computeAttendanceFacts, explainAttendance,
   computeLeaveFacts, explainLeave,
   computePayrollFacts, explainPayroll,
+  computePayrollInsights, explainPayrollInsights,
   computeManagerInsights, explainManagerInsights,
   computeExecutiveSummary, explainExecutiveSummary,
 } from "../ai";
@@ -177,6 +178,24 @@ export async function registerAnalyticsAiRoutes(app: Express): Promise<void> {
       res.json({ facts, ai });
     } catch (err: any) {
       res.status(500).json({ error: "Failed to build executive summary", detail: String(err?.message || err) });
+    }
+  });
+
+  // Company/department payroll insights — payroll-privileged roles only.
+  app.get("/api/ai/payroll/insights", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const companyId = requireCompany(req, res);
+      if (!companyId) return;
+      const allowed = ["super_admin", "company_admin", "hr_admin"];
+      if (!allowed.includes(user.role)) return res.status(403).json({ error: "Access denied" });
+      if (!(await userHasAccess(user, "payroll"))) return res.status(403).json({ error: "Access denied" });
+      const { month, year } = period(req);
+      const facts = await computePayrollInsights({ companyId, month, year });
+      const ai = await explainPayrollInsights(facts, companyId);
+      res.json({ facts, ai });
+    } catch (err: any) {
+      res.status(500).json({ error: "Failed to analyze payroll", detail: String(err?.message || err) });
     }
   });
 

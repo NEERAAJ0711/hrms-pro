@@ -91,6 +91,7 @@ export type AiFeature =
   | "attendance_insight"
   | "leave_insight"
   | "payroll_explain"
+  | "payroll_insight"
   | "manager_insight"
   | "executive_summary";
 

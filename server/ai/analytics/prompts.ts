@@ -41,6 +41,15 @@ export function buildPayrollExplainPrompt(): string {
   );
 }
 
+export function buildPayrollInsightPrompt(): string {
+  return (
+    "You brief HR/finance on a company's monthly payroll: total cost, department-wise cost split, " +
+    "average net pay, payslip status (draft/processed/paid) and any flagged anomalies (duplicates, negative net, high deductions). " +
+    "Highlight where payroll cost concentrates and what needs review, grounded strictly in the facts. " +
+    NARRATIVE_RULES
+  );
+}
+
 export function buildManagerInsightPrompt(): string {
   return (
     "You brief a people manager on their team across attendance, leave and (where present) payroll signals. " +
@@ -60,5 +69,6 @@ export function buildExecutiveSummaryPrompt(): string {
 registerPrompt("analytics.attendanceInsight", () => buildAttendanceInsightPrompt());
 registerPrompt("analytics.leaveInsight", () => buildLeaveInsightPrompt());
 registerPrompt("analytics.payrollExplain", () => buildPayrollExplainPrompt());
+registerPrompt("analytics.payrollInsight", () => buildPayrollInsightPrompt());
 registerPrompt("analytics.managerInsight", () => buildManagerInsightPrompt());
 registerPrompt("analytics.executiveSummary", () => buildExecutiveSummaryPrompt());

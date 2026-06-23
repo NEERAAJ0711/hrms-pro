@@ -1121,13 +1121,20 @@ export default function PayrollPage() {
       />
 
       {["super_admin", "company_admin", "hr_admin"].includes(user?.role || "") && (
-        <div className="mb-6">
+        <div className="mb-6 grid gap-6 lg:grid-cols-2">
           <AiInsightsPanel
             endpoint={`/api/ai/insights/executive?month=${months.indexOf(selectedMonth) + 1}&year=${selectedYear}`}
             title="Executive AI Summary"
             description="Company-wide workforce health for the selected period."
             actionLabel="the executive summary"
             testIdPrefix="executive-summary"
+          />
+          <AiInsightsPanel
+            endpoint={`/api/ai/payroll/insights?month=${months.indexOf(selectedMonth) + 1}&year=${selectedYear}`}
+            title="Payroll AI Insights"
+            description="Department-wise cost split and payroll anomalies for the selected period."
+            actionLabel="the payroll analysis"
+            testIdPrefix="payroll-insights"
           />
         </div>
       )}

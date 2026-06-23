@@ -8,7 +8,7 @@
 
 import { computeAttendanceFacts, explainAttendance } from "../../attendance/service";
 import { computeLeaveFacts, explainLeave } from "../../leave/service";
-import { computePayrollFacts, explainPayroll } from "../../payroll/service";
+import { computePayrollFacts, explainPayroll, computePayrollInsights, explainPayrollInsights } from "../../payroll/service";
 import {
   computeManagerInsights, explainManagerInsights,
   computeExecutiveSummary, explainExecutiveSummary,
@@ -148,6 +148,26 @@ export const teamInsights: IntentHandler = async (ctx) => {
   );
   base += anomalyLines(lang, facts.anomalies);
   const ai = await explainManagerInsights(facts, companyId);
+  return ok(appendNarrative(lang, base, ai));
+};
+
+export const payrollInsights: IntentHandler = async (ctx) => {
+  const lang = ctx.actor.language;
+  const companyId = ctx.actor.companyId!;
+  const { month, year } = currentMonthIST();
+  const facts = await computePayrollInsights({ companyId, month, year });
+  if (facts.totals.payslips === 0) return noData(lang, "payroll generated for this month", "इस महीने का कोई पेरोल");
+  const t1 = facts.totals;
+  const deptLines = facts.byDepartment
+    .slice(0, 6)
+    .map((d) => `• ${d.department}: ${money(d.totalNet)} (${d.payslips})`);
+  let base = t(
+    lang,
+    `Payroll insights for ${facts.period.month} ${facts.period.year}:\n• Payslips: ${t1.payslips} (paid ${t1.paid}, processed ${t1.processed}, draft ${t1.draft})\n• Total net cost: ${money(t1.totalNet)} (gross ${money(t1.totalEarnings)}, deductions ${money(t1.totalDeductions)})\n• Average net: ${money(t1.avgNet)}\n${t(lang, "By department (net cost)", "विभाग अनुसार (शुद्ध लागत)")}:\n${deptLines.join("\n")}`,
+    `${facts.period.month} ${facts.period.year} की पेरोल जानकारी:\n• पेस्लिप: ${t1.payslips} (भुगतान ${t1.paid}, संसाधित ${t1.processed}, ड्राफ़्ट ${t1.draft})\n• कुल शुद्ध लागत: ${money(t1.totalNet)} (सकल ${money(t1.totalEarnings)}, कटौती ${money(t1.totalDeductions)})\n• औसत शुद्ध: ${money(t1.avgNet)}\n${t(lang, "By department (net cost)", "विभाग अनुसार (शुद्ध लागत)")}:\n${deptLines.join("\n")}`,
+  );
+  base += anomalyLines(lang, facts.anomalies);
+  const ai = await explainPayrollInsights(facts, companyId);
   return ok(appendNarrative(lang, base, ai));
 };
 

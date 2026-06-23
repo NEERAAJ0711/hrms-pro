@@ -7,10 +7,10 @@ Any AI insight that composes data from more than one HR module must verify the
 caller has access to EVERY module surfaced — at BOTH the HTTP route and the
 assistant intent/orchestrator path.
 
-**Why:** A code review rejected Phase 4 twice. First gap: admin insight routes
+**Why:** Two real gaps caused cross-domain leaks. First: admin insight routes
 gated only on `userHasAccess(module)`, but `MODULE_ACCESS` lists `employee` under
 attendance/leave, so a plain employee could pull company-wide aggregates (their
-`allowedEmployeeIds` is often null = no restriction). Second gap: team insights
+`allowedEmployeeIds` is often null = no restriction). Second: team insights
 (attendance+leave) and executive summary (attendance+leave+payroll) checked only
 the intent's single primary `module`, so a user with attendance access but a
 revoked leave/payroll permission still read the sibling domain's aggregates.

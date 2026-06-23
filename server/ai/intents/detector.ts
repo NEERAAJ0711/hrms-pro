@@ -169,7 +169,9 @@ const MATCHERS: Matcher[] = [
   },
   {
     intent: "my_payslip", module: "self", kind: "read", scope: "self",
-    test: (l) => has(l, ...KW.salary) ? {} : null,
+    // Salary keyword, BUT yield to the admin payroll_insights matcher when the
+    // ask is a company/department analytics/cost question that lacks "my".
+    test: (l) => has(l, ...KW.salary) && !(has(l, ...KW.insight, "cost", "department", "dept", "wage", "wages") && !has(l, ...KW.my)) ? {} : null,
   },
   {
     intent: "my_pf", module: "self", kind: "read", scope: "self",
@@ -230,6 +232,12 @@ const MATCHERS: Matcher[] = [
     intent: "team_insights", module: "attendance", kind: "read", scope: "admin",
     // Note: NO !my guard — "my team update" legitimately contains "my".
     test: (l) => has(l, "team", "meri team", "my team") && has(l, ...KW.insight, "briefing", "brief", "update", "how is", "how's", "status", "overview") ? {} : null,
+  },
+  {
+    intent: "payroll_insights", module: "payroll", kind: "read", scope: "admin",
+    // Company/department payroll analytics (NOT "my" payslip). Must precede
+    // pending_payroll so an analytics ask isn't grabbed as a pending-payroll read.
+    test: (l) => has(l, ...KW.insight, "cost", "department cost", "dept cost", "payroll cost") && has(l, "payroll", "salary cost", "salaries", "wage", "wages", "ctc", "payroll cost") && !has(l, ...KW.my) ? {} : null,
   },
   {
     intent: "executive_summary", module: "employees", kind: "read", scope: "admin",

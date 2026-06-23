@@ -61,6 +61,7 @@ export const HANDLERS: Record<string, IntentHandler> = {
   attendance_insights: analytics.attendanceInsights,
   leave_insights: analytics.leaveInsights,
   team_insights: analytics.teamInsights,
+  payroll_insights: analytics.payrollInsights,
   executive_summary: analytics.executiveSummary,
 
   // Actions

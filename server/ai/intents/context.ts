@@ -98,6 +98,7 @@ const ADMIN_INTENT_ROLES: Record<string, string[]> = {
   attendance_insights: HR_MGR,
   leave_insights: HR_MGR,
   team_insights: HR_MGR,
+  payroll_insights: HR, // payroll-privileged only (company_admin/hr_admin + super)
   executive_summary: HR, // leadership-level, company-wide
 };
 
@@ -109,6 +110,7 @@ const ADMIN_INTENT_ROLES: Record<string, string[]> = {
 // listed here fall back to a single-module check on `detected.module`.
 export const INTENT_REQUIRED_MODULES: Record<string, string[]> = {
   team_insights: ["attendance", "leave"], // computeManagerInsights = attendance + leave
+  payroll_insights: ["payroll"], // company/department payroll aggregates
   executive_summary: ["attendance", "leave", "payroll"], // company-wide incl. payroll totals
 };
 

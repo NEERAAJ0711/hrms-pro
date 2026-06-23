@@ -74,7 +74,10 @@ export {
 export {
   computePayrollFacts,
   explainPayroll,
+  computePayrollInsights,
+  explainPayrollInsights,
   type PayrollFacts,
+  type PayrollInsightFacts,
 } from "./payroll/service";
 export {
   computeManagerInsights,

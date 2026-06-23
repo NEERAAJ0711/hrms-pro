@@ -10,9 +10,14 @@
 // this service returns full figures and the caller applies masking as needed.
 
 import { payrollService, employeeService } from "../../services";
-import { buildPayrollExplainPrompt } from "../analytics/prompts";
+import { buildPayrollExplainPrompt, buildPayrollInsightPrompt } from "../analytics/prompts";
 import { explainFacts } from "../analytics/narrative";
 import type { AiResult, AiNarrative, Anomaly } from "../analytics/types";
+
+const MONTH_NAMES = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+];
 
 export interface PayrollScope {
   companyId: string;
@@ -168,6 +173,137 @@ export async function explainPayroll(facts: PayrollFacts, companyId?: string | n
     system: buildPayrollExplainPrompt(),
     facts,
     action: "explain payroll",
+    companyId,
+  });
+}
+
+// ── Company / department payroll insights (read-only) ─────────────────────────
+// Aggregates one month of payroll for the whole company: total cost, department-
+// wise cost split, average net, payslip status mix, and anomalies (duplicate
+// payslips, non-positive net, high deductions). Every figure is summed from the
+// stored payroll records — nothing is AI-generated.
+
+export interface PayrollInsightScope {
+  companyId: string;
+  month: number; // 1–12
+  year: number;
+}
+
+export interface DepartmentCost {
+  department: string;
+  payslips: number;
+  totalEarnings: number;
+  totalDeductions: number;
+  totalNet: number;
+}
+
+export interface PayrollInsightFacts {
+  scope: "payroll_insights";
+  period: { month: string; year: number };
+  totals: {
+    payslips: number; draft: number; processed: number; paid: number;
+    totalEarnings: number; totalDeductions: number; totalNet: number; avgNet: number;
+  };
+  byDepartment: DepartmentCost[];
+  topCost: { name: string; department: string | null; net: number }[];
+  anomalies: Anomaly[];
+}
+
+export async function computePayrollInsights(scope: PayrollInsightScope): Promise<PayrollInsightFacts> {
+  const monthName = MONTH_NAMES[scope.month - 1] || String(scope.month);
+  const [records, employees] = await Promise.all([
+    payrollService.getPayrollByMonth(scope.companyId, monthName, scope.year) as Promise<any[]>,
+    employeeService.getEmployeesByCompany(scope.companyId) as Promise<any[]>,
+  ]);
+  const empById = new Map<string, any>(employees.map((e) => [e.id, e]));
+  const nameOf = (id: string) => {
+    const e = empById.get(id);
+    return e ? `${e.firstName || ""} ${e.lastName || ""}`.trim() || "Employee" : "Employee";
+  };
+  const deptOf = (id: string) => (empById.get(id)?.department || "Unassigned") as string;
+
+  const totals = { payslips: records.length, draft: 0, processed: 0, paid: 0, totalEarnings: 0, totalDeductions: 0, totalNet: 0, avgNet: 0 };
+  const deptMap = new Map<string, DepartmentCost>();
+  const perEmployeeCount = new Map<string, number>();
+  let nonPositiveNet = 0;
+  let highDeduction = 0;
+
+  for (const r of records) {
+    const status = String(r.status || "").toLowerCase();
+    if (status === "paid") totals.paid += 1;
+    else if (status === "processed") totals.processed += 1;
+    else totals.draft += 1;
+
+    const earn = num(r.totalEarnings);
+    const ded = num(r.totalDeductions);
+    const net = num(r.netSalary);
+    totals.totalEarnings += earn;
+    totals.totalDeductions += ded;
+    totals.totalNet += net;
+
+    if (net <= 0) nonPositiveNet += 1;
+    if (earn > 0 && ded / earn > 0.5) highDeduction += 1;
+
+    const dept = deptOf(String(r.employeeId));
+    const dc = deptMap.get(dept) || { department: dept, payslips: 0, totalEarnings: 0, totalDeductions: 0, totalNet: 0 };
+    dc.payslips += 1;
+    dc.totalEarnings += earn;
+    dc.totalDeductions += ded;
+    dc.totalNet += net;
+    deptMap.set(dept, dc);
+
+    const empId = String(r.employeeId);
+    perEmployeeCount.set(empId, (perEmployeeCount.get(empId) || 0) + 1);
+  }
+
+  totals.totalEarnings = round2(totals.totalEarnings);
+  totals.totalDeductions = round2(totals.totalDeductions);
+  totals.totalNet = round2(totals.totalNet);
+  totals.avgNet = totals.payslips > 0 ? round2(totals.totalNet / totals.payslips) : 0;
+
+  const byDepartment = Array.from(deptMap.values())
+    .map((d) => ({ ...d, totalEarnings: round2(d.totalEarnings), totalDeductions: round2(d.totalDeductions), totalNet: round2(d.totalNet) }))
+    .sort((a, b) => b.totalNet - a.totalNet);
+
+  const topCost = [...records]
+    .sort((a, b) => num(b.netSalary) - num(a.netSalary))
+    .slice(0, 8)
+    .map((r) => ({ name: nameOf(String(r.employeeId)), department: deptOf(String(r.employeeId)), net: round2(num(r.netSalary)) }));
+
+  const anomalies: Anomaly[] = [];
+  if (totals.payslips === 0) {
+    anomalies.push({ code: "no_payroll", severity: "info", message: `No payroll has been generated for ${monthName} ${scope.year}.` });
+  }
+  const duplicates = Array.from(perEmployeeCount.values()).filter((c) => c > 1);
+  if (duplicates.length) {
+    anomalies.push({ code: "duplicate_payslips", severity: "warning", message: `${duplicates.length} employee(s) have more than one payslip for ${monthName} ${scope.year}.`, value: duplicates.length });
+  }
+  if (nonPositiveNet > 0) {
+    anomalies.push({ code: "non_positive_net", severity: "critical", message: `${nonPositiveNet} payslip(s) have zero or negative net pay.`, value: nonPositiveNet });
+  }
+  if (highDeduction > 0) {
+    anomalies.push({ code: "high_deductions", severity: "warning", message: `${highDeduction} payslip(s) have deductions over 50% of earnings.`, value: highDeduction });
+  }
+  if (totals.draft > 0 && totals.payslips > 0) {
+    anomalies.push({ code: "payroll_in_draft", severity: totals.draft === totals.payslips ? "warning" : "info", message: `${totals.draft} of ${totals.payslips} payslip(s) still in draft.`, value: totals.draft });
+  }
+
+  return {
+    scope: "payroll_insights",
+    period: { month: monthName, year: scope.year },
+    totals,
+    byDepartment,
+    topCost,
+    anomalies,
+  };
+}
+
+export async function explainPayrollInsights(facts: PayrollInsightFacts, companyId?: string | null): Promise<AiResult<AiNarrative>> {
+  return explainFacts({
+    feature: "payroll_insight",
+    system: buildPayrollInsightPrompt(),
+    facts,
+    action: "analyze payroll",
     companyId,
   });
 }

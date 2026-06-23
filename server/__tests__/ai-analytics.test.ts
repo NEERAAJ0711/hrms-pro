@@ -93,6 +93,28 @@ test("executive summary is leadership-only (managers denied)", () => {
   assert.equal(authorizeIntent(actor("super_admin"), d).ok, true);
 });
 
+test("detects company/department payroll insights (not the self payslip)", () => {
+  assert.equal(detectIntent("payroll cost insights")?.intent, "payroll_insights");
+  assert.equal(detectIntent("department wise salary cost")?.intent, "payroll_insights");
+  assert.equal(detectIntent("analyze payroll cost for the company")?.intent, "payroll_insights");
+  // "my payslip" must still route to the self intent, never the admin insight.
+  assert.equal(detectIntent("explain my payslip")?.intent, "explain_my_payslip");
+  assert.notEqual(detectIntent("explain my payslip")?.intent, "payroll_insights");
+});
+
+test("payroll insights surface only the payroll module", () => {
+  assert.deepEqual([...INTENT_REQUIRED_MODULES.payroll_insights].sort(), ["payroll"]);
+});
+
+test("payroll insights are payroll-privileged only (managers denied)", () => {
+  const d = detectIntent("payroll cost insights")!;
+  assert.equal(authorizeIntent(actor("company_admin"), d).ok, true);
+  assert.equal(authorizeIntent(actor("hr_admin"), d).ok, true);
+  assert.equal(authorizeIntent(actor("super_admin"), d).ok, true);
+  assert.equal(authorizeIntent(actor("manager"), d).ok, false);
+  assert.equal(authorizeIntent(actor("employee", { employeeId: "e1" }), d).ok, false);
+});
+
 test("admin analytics intents require a company context", () => {
   const d = detectIntent("attendance insights")!;
   const r = authorizeIntent(actor("hr_admin", { companyId: null }), d);

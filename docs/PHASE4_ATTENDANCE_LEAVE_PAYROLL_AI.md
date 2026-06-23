@@ -104,6 +104,7 @@ is the (possibly unavailable) narrative envelope.
 | `GET /api/ai/leave/insights?year` | company/team | leave access |
 | `GET /api/ai/insights/team?month&year` | team | manager+ (attendance access) |
 | `GET /api/ai/insights/executive?month&year` | company | super/company/hr admin |
+| `GET /api/ai/payroll/insights?month&year` | company/department | super/company/hr admin + payroll access |
 | `GET /api/ai/payroll/explain/:employeeId?month&year` | one employee | owner OR payroll access |
 
 ## Intent engine wiring
@@ -113,7 +114,7 @@ New intents in `detector.ts` / `registry.ts` / `context.ts`, handled by
 
 - Self: `explain_my_attendance`, `explain_my_leave`, `explain_my_payslip`
 - Admin: `attendance_insights`, `leave_insights`, `team_insights`,
-  `executive_summary`
+  `payroll_insights`, `executive_summary`
 
 Detector ordering: the self analytics matchers precede the broad `my_*` readers;
 the admin analytics matchers precede `attendance_summary` / `quick_summary`. The
@@ -131,6 +132,7 @@ A single reusable, read-only panel — `client/src/components/ai-insights-panel.
   `/api/ai/leave/insights` (admin)
 - `client/src/pages/attendance.tsx` → `/api/ai/attendance/insights` (admin)
 - `client/src/pages/payroll.tsx` → `/api/ai/insights/executive` (leadership)
+  and `/api/ai/payroll/insights` (department-cost + payroll anomalies, payroll-privileged)
 
 ## Example assistant commands (~75)
 
