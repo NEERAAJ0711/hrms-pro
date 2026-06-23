@@ -24,6 +24,7 @@ import multer from "multer";
 import * as path from "path";
 import * as fs from "fs";
 import { generateAiReply, computeKycOverallStatus, createFollowUpTask, startAiFollowUpScheduler, generateComplianceReply, analyzeJobError, extractKycDocument, isKycExtractable, extractProfileFromText, type EmployeeContext } from "./ai-service";
+import { handleAssistantQuery, buildActor } from "./ai";
 import { createNotification } from "./notifications";
 import { sendKycReminderEmail, sendAiFollowUpEmail } from "./services/email-service";
 import { mapExtractionToUpdates, checkConversationAccess } from "./ai-extraction";
@@ -591,15 +592,47 @@ export async function registerAiHrRoutes(
         console.warn("[AI HR] fetchEmployeeContext failed (non-fatal):", ctxErr?.message);
       }
 
-      // Generate AI reply with live context injected into system prompt
-      const replyContent = await generateAiReply(
-        conv.id,
-        content.trim(),
-        employeeName,
-        kyc,
-        conv.language,
-        empCtx,
-      );
+      // Phase 2 — try the deterministic, RBAC-checked intent layer first. It
+      // answers module questions and safe actions straight from live DB data
+      // (no hallucination). If no intent matches (or it errors), it returns
+      // handled:false and we fall back to the existing LLM/rule-based chat.
+      let replyContent: string | null = null;
+      try {
+        const actor = buildActor({
+          userId: user.id,
+          role: user.role,
+          companyId: conv.companyId,
+          userName: user.name || user.username || employeeName,
+          employeeId: conv.employeeId,
+          employeeName,
+          language: conv.language,
+        });
+        const intentResult = await handleAssistantQuery({
+          user,
+          actor,
+          message: content.trim(),
+          employee: emp,
+          empCtx,
+          kyc,
+        });
+        if (intentResult.handled && intentResult.text) {
+          replyContent = intentResult.text;
+        }
+      } catch (intentErr: any) {
+        console.warn("[AI HR] intent layer failed (non-fatal):", intentErr?.message);
+      }
+
+      // Fallback: generate AI reply with live context injected into system prompt
+      if (!replyContent) {
+        replyContent = await generateAiReply(
+          conv.id,
+          content.trim(),
+          employeeName,
+          kyc,
+          conv.language,
+          empCtx,
+        );
+      }
 
       // Detect statutory/HRMS profile details the employee typed (live server with
       // AI key). If found, attach them so the employee can verify & save to master.

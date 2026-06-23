@@ -38,3 +38,10 @@ export {
 
 // Metrics (observability — additive, not part of the legacy API)
 export { getUsageSummary, getRecentUsage, recordUsage } from "./metrics/usage";
+
+// Phase 2 — Enterprise AI intent layer (deterministic, RBAC-checked, live-data
+// handlers). The chat route calls handleAssistantQuery before generateAiReply.
+export { handleAssistantQuery, type AssistantQueryInput } from "./intents/orchestrator";
+export { detectIntent } from "./intents/detector";
+export { buildActor, authorizeIntent, normalizeLanguage } from "./intents/context";
+export type { AiActor, DetectedIntent, AiQueryResult } from "./intents/types";

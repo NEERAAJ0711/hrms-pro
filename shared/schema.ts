@@ -1632,6 +1632,12 @@ export const aiUsageLogs = pgTable("ai_usage_logs", {
   id: varchar("id", { length: 36 }).primaryKey(),
   companyId: varchar("company_id", { length: 36 }),
   employeeId: varchar("employee_id", { length: 36 }),
+  // Phase 2: who/what for AI-assistant action auditing (all nullable & additive
+  // so legacy usage rows and best-effort recording keep working unchanged).
+  userId: varchar("user_id", { length: 36 }),
+  intent: text("intent"),
+  module: text("module"),
+  action: text("action"),
   feature: text("feature").notNull(),
   provider: text("provider").notNull(),
   model: text("model"),

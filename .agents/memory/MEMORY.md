@@ -18,3 +18,4 @@
 - [JWT secret handling](jwt-secret-handling.md) — no managed JWT_SECRET in Replit (set on VPS); jwt-auth fail-closed except NODE_ENV dev/test ephemeral fallback; .replit env vars edited via secrets tooling only
 - [Statutory field fills](automation-statutory-fields.md) — best-effort EPFO/ESIC portal fields use fillStatutoryField (logs filled/not-found per field); only confirmable via real-portal run
 - [AI extraction provider-agnostic](ai-extraction-provider-agnostic.md) — KYC/profile extraction must try OpenAI then Gemini (was OpenAI-only); Gemini-only key gave empty KYC modal
+- [AI intent layer](ai-intent-layer.md) — recognized intents stay deterministic (only null detection falls to LLM); AI path must honor userHasAccess revokes + scope summary counts

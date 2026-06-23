@@ -391,4 +391,12 @@ export async function runStartupMigrations(): Promise<void> {
     CREATE INDEX IF NOT EXISTS ai_usage_logs_feature_idx
       ON ai_usage_logs (feature, created_at DESC)
   `).catch(() => {});
+
+  // Mirror of migrations/023: Phase-2 AI-assistant action audit columns.
+  // Additive & nullable so existing usage rows and best-effort recording keep
+  // working; lets the AI layer log user/intent/module/action per action.
+  await db.execute(sql`ALTER TABLE ai_usage_logs ADD COLUMN IF NOT EXISTS user_id VARCHAR(36)`).catch(() => {});
+  await db.execute(sql`ALTER TABLE ai_usage_logs ADD COLUMN IF NOT EXISTS intent TEXT`).catch(() => {});
+  await db.execute(sql`ALTER TABLE ai_usage_logs ADD COLUMN IF NOT EXISTS module TEXT`).catch(() => {});
+  await db.execute(sql`ALTER TABLE ai_usage_logs ADD COLUMN IF NOT EXISTS action TEXT`).catch(() => {});
 }

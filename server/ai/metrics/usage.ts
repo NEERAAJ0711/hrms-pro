@@ -22,6 +22,11 @@ export interface UsageRecord {
   success: boolean;
   companyId: string | null;
   employeeId: string | null;
+  // Phase 2 — AI-assistant action audit fields (null for legacy/raw usage rows).
+  userId: string | null;
+  intent: string | null;
+  module: string | null;
+  action: string | null;
   error: string | null;
   createdAt: string;
 }
@@ -54,6 +59,10 @@ export interface RecordUsageInput {
   success?: boolean;
   companyId?: string | null;
   employeeId?: string | null;
+  userId?: string | null;
+  intent?: string | null;
+  module?: string | null;
+  action?: string | null;
   error?: string | null;
 }
 
@@ -79,6 +88,10 @@ export function recordUsage(input: RecordUsageInput): void {
       success: input.success ?? true,
       companyId: input.companyId ?? null,
       employeeId: input.employeeId ?? null,
+      userId: input.userId ?? null,
+      intent: input.intent ?? null,
+      module: input.module ?? null,
+      action: input.action ?? null,
       error: input.error ?? null,
       createdAt: new Date().toISOString(),
     };
@@ -98,6 +111,10 @@ async function persist(rec: UsageRecord): Promise<void> {
       id: rec.id,
       companyId: rec.companyId,
       employeeId: rec.employeeId,
+      userId: rec.userId,
+      intent: rec.intent,
+      module: rec.module,
+      action: rec.action,
       feature: rec.feature,
       provider: rec.provider,
       model: rec.model,
