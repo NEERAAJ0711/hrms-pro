@@ -415,4 +415,12 @@ export async function runStartupMigrations(): Promise<void> {
   await db.execute(sql`ALTER TABLE candidate_profiles ADD COLUMN IF NOT EXISTS resume_text TEXT`).catch(() => {});
   await db.execute(sql`ALTER TABLE candidate_profiles ADD COLUMN IF NOT EXISTS parsed_resume JSONB`).catch(() => {});
   await db.execute(sql`ALTER TABLE candidate_profiles ADD COLUMN IF NOT EXISTS ai_summary TEXT`).catch(() => {});
+
+  // Mirror of migrations/025: cross-company employee link. When the same person
+  // (same PAN/Aadhaar) is employed at a second company, the second record points
+  // to the On-Roll (master) record so the two are associated. Additive & nullable.
+  await db.execute(sql`ALTER TABLE employees ADD COLUMN IF NOT EXISTS master_employee_id VARCHAR(36)`).catch((err) => console.error("[migrations] add employees.master_employee_id failed:", err));
+  await db.execute(sql`
+    CREATE INDEX IF NOT EXISTS employees_master_employee_idx ON employees (master_employee_id)
+  `).catch(() => {});
 }

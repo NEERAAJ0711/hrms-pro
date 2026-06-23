@@ -149,6 +149,10 @@ export const employees = pgTable("employees", {
   biometricDeviceId: text("biometric_device_id"),
   wageGradeId: varchar("wage_grade_id", { length: 36 }).references((): AnyPgColumn => wageGrades.id, { onDelete: "set null" }),
   contractorMasterId: varchar("contractor_master_id", { length: 36 }).references((): AnyPgColumn => contractorMasters.id, { onDelete: "set null" }),
+  // Cross-company link: points to the On-Roll (master) employee record when the
+  // same person is also employed at another company. NULL = this record is the
+  // master (or the person works at only one company). See migrations/025.
+  masterEmployeeId: varchar("master_employee_id", { length: 36 }).references((): AnyPgColumn => employees.id, { onDelete: "set null" }),
   leavePolicyId: varchar("leave_policy_id", { length: 36 }).references((): AnyPgColumn => leavePolicies.id, { onDelete: "set null" }),
   registeredFaceImage: text("registered_face_image"),
   fatherHusbandName: text("father_husband_name"),
