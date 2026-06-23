@@ -26,6 +26,46 @@ export {
 // Extraction
 export { extractKycDocument, isKycExtractable } from "./extraction/kyc";
 export { extractProfileFromText, messageMayContainProfileInfo } from "./extraction/profile";
+export {
+  extractResumeText,
+  parseResumeText,
+  isResumeExtractable,
+  normalizeParsedResume,
+  RESUME_EXTENSIONS,
+} from "./extraction/resume";
+
+// Phase 3 — Recruitment AI Suite (scoring, JD match, summary, questions, rank,
+// dedupe, dashboard). Importing prompts here registers them in the prompt registry.
+import "./recruitment/prompts";
+export {
+  scoreCandidate,
+  matchJd,
+  summarizeCandidate,
+  generateInterviewQuestions,
+  rankCandidates,
+  type JobContext,
+  type CandidateContext,
+  type ScoredInput,
+} from "./recruitment/service";
+export { findDuplicates, resumeSimilarity, type DedupeCandidate } from "./recruitment/dedupe";
+export {
+  searchCandidates,
+  parseSearchQuery,
+  type SearchableCandidate,
+  type CandidateSearchResult,
+} from "./recruitment/search";
+export { computeRecruitmentDashboard, type DashboardJob, type DashboardApplication } from "./recruitment/dashboard";
+export type {
+  ParsedResume,
+  CandidateScore,
+  JdMatch,
+  CandidateSummary,
+  InterviewQuestions,
+  RankedCandidate,
+  DuplicateMatch,
+  RecruitmentDashboard,
+  AiResult,
+} from "./recruitment/types";
 
 // Services
 export { generateAiReply } from "./services/chat-service";

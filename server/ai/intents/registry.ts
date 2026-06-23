@@ -44,6 +44,8 @@ export const HANDLERS: Record<string, IntentHandler> = {
   location_wise: admin.locationWise,
   employee_count: admin.employeeCount,
   recruitment_status: admin.recruitmentStatus,
+  recruitment_dashboard: admin.recruitmentDashboard,
+  candidate_search: admin.candidateSearch,
   pending_interviews: admin.pendingInterviews,
   pending_approvals: admin.pendingApprovals,
   pending_onboarding: admin.pendingOnboarding,

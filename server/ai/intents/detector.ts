@@ -261,7 +261,13 @@ const MATCHERS: Matcher[] = [
   },
   {
     intent: "recruitment_status", module: "recruitment", kind: "read", scope: "admin",
-    test: (l) => has(l, "recruitment", "hiring", "job posting", "openings", "vacancies", "bharti") ? {} : null,
+    // Yield to recruitment_dashboard when dashboard/funnel/metrics terms are present
+    // (that intent is defined later in this array, so guard here to reach it).
+    test: (l) =>
+      has(l, "recruitment", "hiring", "job posting", "openings", "vacancies", "bharti")
+        && !has(l, "dashboard", "funnel", "pipeline", "metrics", "analytics", "conversion", "time to hire", "acceptance")
+        ? {}
+        : null,
   },
   {
     intent: "pending_interviews", module: "recruitment", kind: "read", scope: "admin",
@@ -285,7 +291,43 @@ const MATCHERS: Matcher[] = [
   },
   {
     intent: "quick_summary", module: "employees", kind: "read", scope: "admin",
-    test: (l) => has(l, "quick summary", "overview", "dashboard summary", "company summary", "give me a summary", "overall summary", "saaransh") ? {} : null,
+    // Yield to recruitment_dashboard for recruitment-scoped dashboard/funnel asks
+    // (e.g. "recruitment dashboard summary") so they reach the hiring metrics view.
+    test: (l) =>
+      has(l, "quick summary", "overview", "dashboard summary", "company summary", "give me a summary", "overall summary", "saaransh")
+        && !(has(l, "recruitment", "hiring", "candidate", "candidates", "applicant", "applicants", "bharti")
+          && has(l, "dashboard", "funnel", "pipeline", "metrics", "analytics", "conversion", "time to hire", "acceptance"))
+        ? {}
+        : null,
+  },
+  // ── Recruitment AI (scope: admin) ──────────────────────────────────────────
+  {
+    // Recruitment dashboard snapshot — must be checked BEFORE candidate_search
+    // and recruitment_status so "recruitment dashboard / hiring funnel" routes
+    // to the metrics view rather than the generic status reply.
+    intent: "recruitment_dashboard", module: "recruitment", kind: "read", scope: "admin",
+    test: (l) => {
+      const topic = has(l, "recruitment", "hiring", "candidate", "candidates", "applicant", "applicants", "bharti");
+      if (!topic) return null;
+      // Strong dashboard nouns always route here.
+      if (has(l, "dashboard", "funnel", "metrics", "analytics", "conversion", "time to hire", "acceptance")) return {};
+      // "pipeline" alone is dashboard ONLY when it is not an explicit candidate
+      // search ("find candidates in pipeline" should be a search, not the dashboard).
+      const wantsSearch = has(l, "find", "search", "lookup", "look up", "list", "khojo", "dhundo", "dhoondo", "get", "which");
+      if (has(l, "pipeline") && !wantsSearch) return {};
+      return null;
+    },
+  },
+  {
+    // NL candidate search — "find candidates with React 5 years in Pune".
+    // Carries the full query so the handler can parse skill/experience/location.
+    intent: "candidate_search", module: "recruitment", kind: "read", scope: "admin",
+    test: (l, raw) => {
+      const wantsSearch = has(l, "find", "search", "lookup", "look up", "show", "list", "khojo", "dhundo", "dhoondo", "get", "which");
+      const aboutCandidates = has(l, "candidate", "candidates", "applicant", "applicants", "resume", "resumes", "cv", "umeedwar", "ummedwar");
+      if (!wantsSearch || !aboutCandidates) return null;
+      return { query: raw };
+    },
   },
 ];
 

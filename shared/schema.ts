@@ -825,6 +825,23 @@ export const jobApplications = pgTable("job_applications", {
   offerExpiryDate: text("offer_expiry_date"),
   employeeResponse: text("employee_response"),
   negotiationNote: text("negotiation_note"),
+  // ── Phase 3 Recruitment AI (all nullable / additive / back-compatible) ──────
+  // Raw text extracted from the uploaded resume (PDF/DOCX/TXT) and the structured
+  // fields parsed from it by the AI resume parser. Never overwrites manually
+  // entered application data — it is reviewed/confirmed in the UI first.
+  resumeText: text("resume_text"),
+  parsedResume: jsonb("parsed_resume"),
+  // AI candidate score (0–100) against a specific job, with the breakdown
+  // (strengths/weaknesses/missing skills/recommendation) and which job it scored.
+  aiScore: integer("ai_score"),
+  aiScoreBreakdown: jsonb("ai_score_breakdown"),
+  aiScoredJobId: varchar("ai_scored_job_id", { length: 36 }),
+  aiScoredAt: text("ai_scored_at"),
+  // Concise AI candidate summary and AI-generated interview questions.
+  aiSummary: text("ai_summary"),
+  aiQuestions: jsonb("ai_questions"),
+  // Duplicate detection: id of an existing application this one likely duplicates.
+  duplicateOf: varchar("duplicate_of", { length: 36 }),
   createdAt: text("created_at").notNull(),
 });
 
@@ -859,6 +876,10 @@ export const candidateProfiles = pgTable("candidate_profiles", {
   currentSalary: text("current_salary"),
   expectedSalary: text("expected_salary"),
   skills: text("skills"),
+  // ── Phase 3 Recruitment AI (all nullable / additive / back-compatible) ──────
+  resumeText: text("resume_text"),
+  parsedResume: jsonb("parsed_resume"),
+  aiSummary: text("ai_summary"),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at"),
 });

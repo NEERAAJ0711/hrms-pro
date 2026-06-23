@@ -26,12 +26,16 @@ export const AI_CONFIG = {
     compliance: 0.3,
     jobAnalysis: 0.2,
     extraction: 0,
+    // Recruitment AI: low temperature for consistent, deterministic-leaning output.
+    recruitment: 0.2,
   },
   maxTokens: {
     chat: 400,
     compliance: 500,
     jobAnalysis: 400,
     test: 5,
+    // Recruitment AI generates richer JSON (breakdowns, question sets, summaries).
+    recruitment: 1200,
   },
   history: {
     chatWindow: 12,
@@ -68,6 +72,15 @@ export type AiFeature =
   | "job_analysis"
   | "kyc_extraction"
   | "profile_extraction"
-  | "provider_test";
+  | "provider_test"
+  // Phase 3 — Recruitment AI Suite
+  | "resume_parse"
+  | "candidate_score"
+  | "jd_match"
+  | "candidate_summary"
+  | "interview_questions"
+  | "candidate_rank"
+  | "candidate_search"
+  | "recruitment_dashboard";
 
 export type AiProvider = "openai" | "gemini" | "rule-based";

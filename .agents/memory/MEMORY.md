@@ -19,3 +19,5 @@
 - [Statutory field fills](automation-statutory-fields.md) — best-effort EPFO/ESIC portal fields use fillStatutoryField (logs filled/not-found per field); only confirmable via real-portal run
 - [AI extraction provider-agnostic](ai-extraction-provider-agnostic.md) — KYC/profile extraction must try OpenAI then Gemini (was OpenAI-only); Gemini-only key gave empty KYC modal
 - [AI intent layer](ai-intent-layer.md) — recognized intents stay deterministic (only null detection falls to LLM); AI path must honor userHasAccess revokes + scope summary counts
+- [Recruitment intent ordering](recruitment-intent-ordering.md) — generic recruitment_status/quick_summary must guard against dashboard/funnel terms so recruitment_dashboard (defined later in detector array) is reachable; explicit search verbs route to candidate_search not dashboard
+- [Recruitment AI tenant isolation](recruitment-ai-isolation.md) — body.jobId override in score/match/questions must verify posting.companyId === application.companyId; all AI fns gate on hasCandidateEvidence before any AI call

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Briefcase, Plus, Pencil, Trash2, Users } from "lucide-react";
+import { Briefcase, Plus, Pencil, Trash2, Users, ListOrdered, Loader2, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -16,6 +16,15 @@ import { useAuth } from "@/lib/auth";
 import type { JobPosting, Company } from "@shared/schema";
 
 interface CompanyOption { id: string; name: string; }
+
+interface RankedCandidate {
+  applicationId: string;
+  candidateName: string;
+  score: number;
+  recommendation: string;
+  rank: number;
+  rationale: string;
+}
 
 const statusColors: Record<string, string> = {
   draft: "bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-300",
@@ -81,6 +90,11 @@ export default function JobPostingsPage() {
   const [editingPosting, setEditingPosting] = useState<JobPosting | null>(null);
   const [deletingPosting, setDeletingPosting] = useState<JobPosting | null>(null);
   const [formData, setFormData] = useState<JobPostingFormData>(emptyForm);
+
+  const [rankDialogOpen, setRankDialogOpen] = useState(false);
+  const [rankingPosting, setRankingPosting] = useState<JobPosting | null>(null);
+  const [rankResults, setRankResults] = useState<RankedCandidate[] | null>(null);
+  const [rankNotice, setRankNotice] = useState<string | null>(null);
 
   const { data: companies = [] } = useQuery<CompanyOption[]>({
     queryKey: ["/api/companies"],
@@ -158,6 +172,31 @@ export default function JobPostingsPage() {
       toast({ title: "Error", description: error.message, variant: "destructive" });
     },
   });
+
+  const rankMutation = useMutation({
+    mutationFn: async (id: string) => (await apiRequest("POST", `/api/recruitment/postings/${id}/rank`)).json(),
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/job-applications"] });
+      if (data.available === false) {
+        setRankResults([]);
+        setRankNotice(data.message as string);
+        return;
+      }
+      setRankNotice(null);
+      setRankResults((data.ranked as RankedCandidate[]) ?? []);
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const handleOpenRank = (posting: JobPosting) => {
+    setRankingPosting(posting);
+    setRankResults(null);
+    setRankNotice(null);
+    setRankDialogOpen(true);
+    rankMutation.mutate(posting.id);
+  };
 
   const handleOpenCreate = () => {
     setEditingPosting(null);
@@ -297,6 +336,9 @@ export default function JobPostingsPage() {
                         <TableCell>{posting.closingDate || "—"}</TableCell>
                         <TableCell className="text-right">
                           <div className="flex justify-end gap-2">
+                            <Button variant="ghost" size="icon" title="Rank candidates" onClick={() => handleOpenRank(posting)} data-testid={`button-rank-posting-${posting.id}`}>
+                              <ListOrdered className="h-4 w-4" />
+                            </Button>
                             <Button variant="ghost" size="icon" onClick={() => handleOpenEdit(posting)} data-testid={`button-edit-posting-${posting.id}`}>
                               <Pencil className="h-4 w-4" />
                             </Button>
@@ -484,6 +526,59 @@ export default function JobPostingsPage() {
             >
               {deleteMutation.isPending ? "Deleting..." : "Delete"}
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={rankDialogOpen} onOpenChange={setRankDialogOpen}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ListOrdered className="h-5 w-5" /> Ranked Candidates
+            </DialogTitle>
+            <DialogDescription>
+              AI ranking for "{rankingPosting?.title}" based on resume-to-job fit.
+            </DialogDescription>
+          </DialogHeader>
+          {rankMutation.isPending ? (
+            <div className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" /> Scoring and ranking candidates…
+            </div>
+          ) : rankNotice ? (
+            <div
+              className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200"
+              data-testid="notice-rank-unavailable"
+            >
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>{rankNotice}</span>
+            </div>
+          ) : rankResults && rankResults.length === 0 ? (
+            <p className="py-6 text-sm text-muted-foreground" data-testid="text-rank-empty">No candidates to rank yet.</p>
+          ) : (
+            <ol className="space-y-2" data-testid="list-ranked-candidates">
+              {rankResults?.map((c) => (
+                <li
+                  key={c.applicationId}
+                  className="flex items-start gap-3 rounded-md border bg-background p-3"
+                  data-testid={`row-ranked-${c.applicationId}`}
+                >
+                  <span className="text-lg font-bold text-muted-foreground w-6 text-center">{c.rank}</span>
+                  <div className="flex-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="font-medium">{c.candidateName}</p>
+                      <div className="flex items-center gap-2">
+                        <Badge variant="secondary">{c.recommendation.replace("_", " ")}</Badge>
+                        <span className="text-lg font-bold" data-testid={`text-rank-score-${c.applicationId}`}>{c.score}</span>
+                      </div>
+                    </div>
+                    {c.rationale && <p className="text-sm text-muted-foreground">{c.rationale}</p>}
+                  </div>
+                </li>
+              ))}
+            </ol>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRankDialogOpen(false)}>Close</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

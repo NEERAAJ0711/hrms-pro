@@ -399,4 +399,20 @@ export async function runStartupMigrations(): Promise<void> {
   await db.execute(sql`ALTER TABLE ai_usage_logs ADD COLUMN IF NOT EXISTS intent TEXT`).catch(() => {});
   await db.execute(sql`ALTER TABLE ai_usage_logs ADD COLUMN IF NOT EXISTS module TEXT`).catch(() => {});
   await db.execute(sql`ALTER TABLE ai_usage_logs ADD COLUMN IF NOT EXISTS action TEXT`).catch(() => {});
+
+  // Mirror of migrations/024: Phase-3 Recruitment AI columns. Additive & nullable
+  // so existing recruitment rows/endpoints keep working; hold parsed resume data
+  // and AI results (score, breakdown, summary, interview questions, dedupe link).
+  await db.execute(sql`ALTER TABLE job_applications ADD COLUMN IF NOT EXISTS resume_text TEXT`).catch(() => {});
+  await db.execute(sql`ALTER TABLE job_applications ADD COLUMN IF NOT EXISTS parsed_resume JSONB`).catch(() => {});
+  await db.execute(sql`ALTER TABLE job_applications ADD COLUMN IF NOT EXISTS ai_score INTEGER`).catch(() => {});
+  await db.execute(sql`ALTER TABLE job_applications ADD COLUMN IF NOT EXISTS ai_score_breakdown JSONB`).catch(() => {});
+  await db.execute(sql`ALTER TABLE job_applications ADD COLUMN IF NOT EXISTS ai_scored_job_id VARCHAR(36)`).catch(() => {});
+  await db.execute(sql`ALTER TABLE job_applications ADD COLUMN IF NOT EXISTS ai_scored_at TEXT`).catch(() => {});
+  await db.execute(sql`ALTER TABLE job_applications ADD COLUMN IF NOT EXISTS ai_summary TEXT`).catch(() => {});
+  await db.execute(sql`ALTER TABLE job_applications ADD COLUMN IF NOT EXISTS ai_questions JSONB`).catch(() => {});
+  await db.execute(sql`ALTER TABLE job_applications ADD COLUMN IF NOT EXISTS duplicate_of VARCHAR(36)`).catch(() => {});
+  await db.execute(sql`ALTER TABLE candidate_profiles ADD COLUMN IF NOT EXISTS resume_text TEXT`).catch(() => {});
+  await db.execute(sql`ALTER TABLE candidate_profiles ADD COLUMN IF NOT EXISTS parsed_resume JSONB`).catch(() => {});
+  await db.execute(sql`ALTER TABLE candidate_profiles ADD COLUMN IF NOT EXISTS ai_summary TEXT`).catch(() => {});
 }

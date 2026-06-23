@@ -86,6 +86,8 @@ const ADMIN_INTENT_ROLES: Record<string, string[]> = {
   company_wise: [], // super_admin only (cross-company)
   employee_count: HR_MGR,
   recruitment_status: HR_REC,
+  recruitment_dashboard: HR_REC,
+  candidate_search: HR_REC,
   pending_interviews: HR_REC,
   pending_approvals: HR_MGR,
   pending_onboarding: HR,

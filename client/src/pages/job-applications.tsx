@@ -15,6 +15,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth";
+import { RecruitmentAiPanel } from "@/components/recruitment-ai-panel";
+import { RecruitmentAiInsights } from "@/components/recruitment-ai-insights";
 import type { JobPosting, JobApplication, Employee, Company } from "@shared/schema";
 
 const statusColors: Record<string, string> = {
@@ -877,6 +879,10 @@ export default function JobApplicationsPage() {
         </Card>
       </div>
 
+      <div className="mb-6">
+        <RecruitmentAiInsights />
+      </div>
+
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -1121,7 +1127,7 @@ export default function JobApplicationsPage() {
       </Dialog>
 
       <Dialog open={viewDialogOpen} onOpenChange={setViewDialogOpen}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Application Details</DialogTitle>
             <DialogDescription>Review and update this application</DialogDescription>
@@ -1174,6 +1180,7 @@ export default function JobApplicationsPage() {
                   <p className="text-sm">{selectedApplication.negotiationNote}</p>
                 </div>
               )}
+              <RecruitmentAiPanel application={selectedApplication} />
               <div className="space-y-2">
                 <Label>Status</Label>
                 <Select value={updateStatus} onValueChange={setUpdateStatus}>

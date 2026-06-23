@@ -14,6 +14,9 @@ import {
 } from "../../../services";
 import { todayIST, currentMonthIST } from "../context";
 import { maskMobile } from "../../security/masking";
+import { searchCandidates, type SearchableCandidate } from "../../recruitment/search";
+import { computeRecruitmentDashboard } from "../../recruitment/dashboard";
+import type { ParsedResume } from "../../recruitment/types";
 import type { HandlerContext, IntentHandler } from "./shared";
 import { t, ok, fail, fullName, noData } from "./shared";
 
@@ -359,6 +362,84 @@ export const quickSummary: IntentHandler = async (ctx) => {
       lang,
       `Company snapshot (${date}):\n• Active employees: ${emps.length}\n• Present today: ${present}\n• Pending leave approvals: ${pendingLeaves}\n• Incomplete KYC: ${incompleteKyc}`,
       `कंपनी झलक (${date}):\n• सक्रिय कर्मचारी: ${emps.length}\n• आज उपस्थित: ${present}\n• लंबित छुट्टी मंज़ूरी: ${pendingLeaves}\n• अधूरा KYC: ${incompleteKyc}`,
+    ),
+  );
+};
+
+// Natural-language candidate search over live applications (deterministic — the
+// query is parsed into skill/experience/location/status filters, never sent to
+// an LLM, so results are always real candidates).
+export const candidateSearch: IntentHandler = async (ctx) => {
+  const lang = ctx.actor.language;
+  const companyId = ctx.actor.companyId!;
+  const query = (ctx.detected.params?.query || "").trim();
+  if (!query) {
+    return ok(
+      t(
+        lang,
+        "Tell me what to look for, e.g. \"find candidates with React and 5 years experience in Pune\".",
+        "बताइए क्या ढूँढना है, जैसे \"React और 5 साल अनुभव वाले उम्मीदवार Pune में खोजें\"।",
+      ),
+      false,
+    );
+  }
+  const apps = (await recruitmentService.getJobApplicationsByCompany(companyId)) as any[];
+  const searchable: SearchableCandidate[] = apps.map((a) => {
+    const parsed = (a.parsedResume || {}) as ParsedResume;
+    return {
+      applicationId: a.id,
+      name: a.applicantName || "Unknown",
+      status: a.status,
+      location: parsed.location || null,
+      skills: parsed.skills || null,
+      experienceYears: parsed.totalExperienceYears ?? null,
+      resumeText: a.resumeText,
+      appliedAt: a.appliedAt,
+    };
+  });
+  const results = searchCandidates(query, searchable);
+  if (results.length === 0) {
+    return ok(
+      t(lang, `No candidates matched "${query}".`, `"${query}" से मेल खाता कोई उम्मीदवार नहीं मिला।`),
+      false,
+    );
+  }
+  const lines = results
+    .slice(0, 15)
+    .map((r) => {
+      const exp = r.experienceYears != null ? `, ${r.experienceYears} yr` : "";
+      return `• ${r.name} (${r.status}${exp}) — ${r.matchedOn.slice(0, 4).join(", ")}`;
+    });
+  return ok(
+    t(
+      lang,
+      `Found ${results.length} candidate(s) for "${query}":\n${lines.join("\n")}`,
+      `"${query}" के लिए ${results.length} उम्मीदवार मिले:\n${lines.join("\n")}`,
+    ),
+  );
+};
+
+// Recruitment dashboard snapshot — deterministic metrics from live data.
+export const recruitmentDashboard: IntentHandler = async (ctx) => {
+  const lang = ctx.actor.language;
+  const companyId = ctx.actor.companyId!;
+  const [postings, apps] = await Promise.all([
+    recruitmentService.getJobPostingsByCompany(companyId) as Promise<any[]>,
+    recruitmentService.getJobApplicationsByCompany(companyId) as Promise<any[]>,
+  ]);
+  if (postings.length === 0 && apps.length === 0) {
+    return noData(lang, "recruitment activity", "कोई भर्ती गतिविधि");
+  }
+  const d = computeRecruitmentDashboard(
+    postings.map((p) => ({ status: p.status })),
+    apps.map((a) => ({ status: a.status, appliedAt: a.appliedAt, hiredAt: a.status === "hired" ? a.reviewedAt : null })),
+  );
+  const stageLines = Object.entries(d.pipelineByStage).map(([s, n]) => `   - ${s}: ${n}`);
+  return ok(
+    t(
+      lang,
+      `Recruitment dashboard:\n• Open positions: ${d.openPositions}\n• Total applications: ${d.totalApplications}\n• Interview conversion: ${d.interviewConversionRate}%\n• Offers extended: ${d.offersExtended} (accepted ${d.offersAccepted}, ${d.offerAcceptanceRate}%)${d.averageTimeToHireDays != null ? `\n• Avg time to hire: ${d.averageTimeToHireDays} day(s)` : ""}\nPipeline:\n${stageLines.join("\n")}`,
+      `भर्ती डैशबोर्ड:\n• खुले पद: ${d.openPositions}\n• कुल आवेदन: ${d.totalApplications}\n• साक्षात्कार रूपांतरण: ${d.interviewConversionRate}%\n• ऑफर दिए: ${d.offersExtended} (स्वीकृत ${d.offersAccepted}, ${d.offerAcceptanceRate}%)${d.averageTimeToHireDays != null ? `\n• औसत हायर समय: ${d.averageTimeToHireDays} दिन` : ""}\nपाइपलाइन:\n${stageLines.join("\n")}`,
     ),
   );
 };
