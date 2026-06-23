@@ -2,6 +2,7 @@ import * as fs from "fs";
 import type { KycExtractionResult } from "../types";
 import { getOpenAI } from "../providers/openai";
 import { getGeminiKey, callGeminiJson } from "../providers/gemini";
+import { getAnthropicKey, callAnthropicJson } from "../providers/anthropic";
 import { AI_CONFIG } from "../config";
 import { recordUsage } from "../metrics/usage";
 import {
@@ -31,7 +32,8 @@ export async function extractKycDocument(
 
   const openai = getOpenAI();
   const geminiAvailable = !!getGeminiKey();
-  if (!openai && !geminiAvailable) return { available: false, reason: "no_ai_key" };
+  const anthropicAvailable = !!getAnthropicKey();
+  if (!openai && !geminiAvailable && !anthropicAvailable) return { available: false, reason: "no_ai_key" };
 
   const systemPrompt = buildKycSystemPrompt(spec);
   const userText = buildKycUserText(spec);
@@ -85,7 +87,17 @@ export async function extractKycDocument(
     if (!parsed && geminiAvailable) {
       parsed = await callGeminiJson(systemPrompt, userText, { mimeType, base64 });
       if (parsed) {
+        providerResponded = true;
         recordUsage({ feature: "kyc_extraction", provider: "gemini", model: AI_CONFIG.models.geminiChat });
+      }
+    }
+
+    // 3. Fall back to Anthropic Claude vision (if both above are absent or failed)
+    if (!parsed && anthropicAvailable) {
+      parsed = await callAnthropicJson(systemPrompt, userText, { mimeType, base64 });
+      if (parsed) {
+        providerResponded = true;
+        recordUsage({ feature: "kyc_extraction", provider: "anthropic", model: AI_CONFIG.models.anthropicChat });
       }
     }
   } catch (err: any) {

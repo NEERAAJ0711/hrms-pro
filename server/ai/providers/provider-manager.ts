@@ -1,6 +1,7 @@
 import { AI_CONFIG, type AiProvider } from "../config";
 import { getOpenAI, setOpenAIKeyOverride } from "./openai";
 import { getGeminiKey, setGeminiKeyOverride } from "./gemini";
+import { getAnthropicKey, setAnthropicKeyOverride } from "./anthropic";
 
 // Central place that owns provider key loading, configuration status, and live
 // diagnostics. The individual call shapes live in openai.ts / gemini.ts; this
@@ -21,6 +22,7 @@ export async function loadAllApiKeysFromDB(): Promise<void> {
     for (const row of rows) {
       if (row.key === "openai_api_key" && row.value) setOpenAIKeyOverride(row.value);
       if (row.key === "gemini_api_key" && row.value) setGeminiKeyOverride(row.value);
+      if (row.key === "anthropic_api_key" && row.value) setAnthropicKeyOverride(row.value);
     }
   } catch {
     // DB may not be ready yet — safe to skip
@@ -37,8 +39,16 @@ export async function loadOpenAIKeyFromDB(): Promise<void> {
 // configured key actually works — instead of silently falling back to the
 // rule-based engine (which makes every reply look the same).
 
-export function getAiProviderStatus(): { openaiConfigured: boolean; geminiConfigured: boolean } {
-  return { openaiConfigured: !!getOpenAI(), geminiConfigured: !!getGeminiKey() };
+export function getAiProviderStatus(): {
+  openaiConfigured: boolean;
+  geminiConfigured: boolean;
+  anthropicConfigured: boolean;
+} {
+  return {
+    openaiConfigured: !!getOpenAI(),
+    geminiConfigured: !!getGeminiKey(),
+    anthropicConfigured: !!getAnthropicKey(),
+  };
 }
 
 export interface AiProviderTest {
@@ -52,10 +62,12 @@ export interface AiProviderTest {
 export async function testAiProviders(): Promise<{
   openai: AiProviderTest;
   gemini: AiProviderTest;
+  anthropic: AiProviderTest;
   activeProvider: AiProvider;
 }> {
   const openai: AiProviderTest = { configured: false, ok: false };
   const gemini: AiProviderTest = { configured: false, ok: false };
+  const anthropic: AiProviderTest = { configured: false, ok: false };
 
   const TEST_TIMEOUT_MS = AI_CONFIG.timeouts.providerTestMs; // keep diagnostics snappy even if a firewall blocks the API
 
@@ -95,6 +107,29 @@ export async function testAiProviders(): Promise<{
     }
   }
 
-  const activeProvider: AiProvider = openai.ok ? "openai" : gemini.ok ? "gemini" : "rule-based";
-  return { openai, gemini, activeProvider };
+  if (getAnthropicKey()) {
+    anthropic.configured = true;
+    try {
+      const { default: Anthropic } = await import("@anthropic-ai/sdk");
+      const client = new Anthropic({ apiKey: getAnthropicKey()!, timeout: TEST_TIMEOUT_MS });
+      const r = await client.messages.create({
+        model: AI_CONFIG.models.anthropicChat,
+        max_tokens: AI_CONFIG.maxTokens.test,
+        messages: [{ role: "user", content: "ping" }],
+      });
+      anthropic.ok = Array.isArray(r.content) && r.content.length > 0;
+      if (!anthropic.ok) anthropic.error = "Anthropic returned an empty response.";
+    } catch (err: any) {
+      anthropic.error = err?.message || String(err);
+    }
+  }
+
+  const activeProvider: AiProvider = openai.ok
+    ? "openai"
+    : gemini.ok
+    ? "gemini"
+    : anthropic.ok
+    ? "anthropic"
+    : "rule-based";
+  return { openai, gemini, anthropic, activeProvider };
 }

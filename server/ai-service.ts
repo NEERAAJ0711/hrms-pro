@@ -18,6 +18,7 @@ export {
   // Providers / keys / diagnostics
   setOpenAIKeyOverride,
   setGeminiKeyOverride,
+  setAnthropicKeyOverride,
   loadAllApiKeysFromDB,
   loadOpenAIKeyFromDB,
   getAiProviderStatus,

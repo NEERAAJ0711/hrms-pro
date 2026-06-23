@@ -1,6 +1,7 @@
 import { AI_CONFIG } from "../config";
 import { getOpenAI } from "../providers/openai";
 import { getGeminiKey, callGemini } from "../providers/gemini";
+import { getAnthropicKey, callAnthropic, callAnthropicJson } from "../providers/anthropic";
 import { buildComplianceSystemPrompt, buildComplianceRuleResponse } from "../prompts/compliance";
 import { buildJobErrorUserMessage } from "../prompts/job-analysis";
 import { recordUsage } from "../metrics/usage";
@@ -55,7 +56,21 @@ export async function generateComplianceReply(
     }
   }
 
-  // ── 3. Rule-based fallback ───────────────────────────────────────────────────
+  // ── 3. Try Anthropic Claude ──────────────────────────────────────────────────
+  if (getAnthropicKey()) {
+    const reply = await callAnthropic(
+      systemPrompt,
+      history.slice(-AI_CONFIG.history.complianceWindow),
+      message,
+      AI_CONFIG.maxTokens.compliance,
+    );
+    if (reply) {
+      recordUsage({ feature: "compliance", provider: "anthropic", model: AI_CONFIG.models.anthropicChat });
+      return reply;
+    }
+  }
+
+  // ── 4. Rule-based fallback ───────────────────────────────────────────────────
   recordUsage({ feature: "compliance", provider: "rule-based", success: true });
   return buildComplianceRuleResponse(message);
 }
@@ -114,7 +129,16 @@ export async function analyzeJobError(
     }
   }
 
-  // ── 3. Rule-based fallback ───────────────────────────────────────────────────
+  // ── 3. Try Anthropic Claude ──────────────────────────────────────────────────
+  if (getAnthropicKey()) {
+    const parsed = await callAnthropicJson(prompt, userMsg, undefined, AI_CONFIG.maxTokens.jobAnalysis);
+    if (parsed) {
+      recordUsage({ feature: "job_analysis", provider: "anthropic", model: AI_CONFIG.models.anthropicChat });
+      return parsed as { summary: string; likelyCause: string; suggestedFix: string; canRetry: boolean };
+    }
+  }
+
+  // ── 4. Rule-based fallback ───────────────────────────────────────────────────
   const em = errorMessage.toLowerCase();
   const canRetry = !em.includes("invalid credentials") && !em.includes("aadhaar mismatch") && !em.includes("not found");
   recordUsage({ feature: "job_analysis", provider: "rule-based", success: true });

@@ -22,7 +22,7 @@ import { Textarea } from "@/components/ui/textarea";
 
 // ─── API Keys Tab ──────────────────────────────────────────────────────────────
 
-type ApiKeysData = { openai: { set: boolean; hint: string }; gemini: { set: boolean; hint: string } };
+type ApiKeysData = { openai: { set: boolean; hint: string }; gemini: { set: boolean; hint: string }; anthropic: { set: boolean; hint: string } };
 
 function KeyRow({
   label,
@@ -117,7 +117,13 @@ function KeyRow({
 }
 
 type ProviderTest = { configured: boolean; ok: boolean; error?: string };
-type TestResult = { openai: ProviderTest; gemini: ProviderTest; activeProvider: "openai" | "gemini" | "rule-based" };
+type TestResult = { openai: ProviderTest; gemini: ProviderTest; anthropic: ProviderTest; activeProvider: "openai" | "gemini" | "anthropic" | "rule-based" };
+
+const PROVIDER_LABEL: Record<"openai" | "gemini" | "anthropic", string> = {
+  openai: "OpenAI",
+  gemini: "Gemini",
+  anthropic: "Claude",
+};
 
 export function ApiKeysTab() {
   const { toast } = useToast();
@@ -125,6 +131,8 @@ export function ApiKeysTab() {
   const [showOpenai, setShowOpenai] = useState(false);
   const [geminiKey, setGeminiKey] = useState("");
   const [showGemini, setShowGemini] = useState(false);
+  const [anthropicKey, setAnthropicKey] = useState("");
+  const [showAnthropic, setShowAnthropic] = useState(false);
   const [testResult, setTestResult] = useState<TestResult | null>(null);
 
   const { data, isLoading } = useQuery<ApiKeysData>({
@@ -144,7 +152,7 @@ export function ApiKeysTab() {
       } else {
         toast({
           title: "AI is working",
-          description: `Active provider: ${res.activeProvider === "openai" ? "OpenAI" : "Gemini"}.`,
+          description: `Active provider: ${PROVIDER_LABEL[res.activeProvider]}.`,
         });
       }
     },
@@ -154,12 +162,13 @@ export function ApiKeysTab() {
   });
 
   const saveMutation = useMutation({
-    mutationFn: (payload: { openaiApiKey?: string; geminiApiKey?: string }) =>
+    mutationFn: (payload: { openaiApiKey?: string; geminiApiKey?: string; anthropicApiKey?: string }) =>
       api.settings.saveApiKeys(payload),
     onSuccess: (_data, vars) => {
       queryClient.invalidateQueries({ queryKey: ["/api/settings/api-keys"] });
       if (vars.openaiApiKey !== undefined) setOpenaiKey("");
       if (vars.geminiApiKey !== undefined) setGeminiKey("");
+      if (vars.anthropicApiKey !== undefined) setAnthropicKey("");
       toast({ title: "Saved", description: "API key is now active globally." });
     },
     onError: () => {
@@ -167,7 +176,7 @@ export function ApiKeysTab() {
     },
   });
 
-  const save = (payload: { openaiApiKey?: string; geminiApiKey?: string }) => {
+  const save = (payload: { openaiApiKey?: string; geminiApiKey?: string; anthropicApiKey?: string }) => {
     const hasValue = Object.values(payload).some((v) => v !== undefined && (v as string).trim() !== "");
     if (!hasValue) {
       toast({ title: "No key entered", description: "Paste a key before saving.", variant: "destructive" });
@@ -185,7 +194,7 @@ export function ApiKeysTab() {
             AI Provider Keys
           </CardTitle>
           <CardDescription>
-            Keys are stored globally and shared across all companies. The AI assistant tries providers in order: <strong>OpenAI → Gemini → built-in rule-based</strong>.
+            Keys are stored globally and shared across all companies. The AI assistant tries providers in order: <strong>OpenAI → Gemini → Claude → built-in rule-based</strong>.
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-6">
@@ -241,12 +250,38 @@ export function ApiKeysTab() {
 
           <Separator />
 
+          {/* ── Anthropic Claude ── */}
+          <KeyRow
+            label="Anthropic Claude API Key"
+            description="Fallback AI provider — Claude 3.5 Sonnet (used when OpenAI and Gemini are unavailable)"
+            placeholder="sk-ant-..."
+            isLoading={isLoading}
+            status={data?.anthropic}
+            value={anthropicKey}
+            onChange={setAnthropicKey}
+            show={showAnthropic}
+            onToggleShow={() => setShowAnthropic((v) => !v)}
+            onSave={() => save({ anthropicApiKey: anthropicKey.trim() })}
+            onClear={() => saveMutation.mutate({ anthropicApiKey: "" })}
+            saving={saveMutation.isPending}
+            testPrefix="anthropic"
+          />
+          <p className="text-xs text-muted-foreground -mt-1">
+            Get your key at{" "}
+            <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener noreferrer" className="underline text-primary">
+              console.anthropic.com/settings/keys
+            </a>
+          </p>
+
+          <Separator />
+
           <div className="rounded-lg bg-muted/50 p-4 text-sm text-muted-foreground">
             <p className="font-medium text-foreground mb-2">How the fallback chain works</p>
             <ol className="list-decimal list-inside space-y-1">
               <li>OpenAI key is tried first (env var <code className="text-xs bg-muted px-1 rounded">OPENAI_API_KEY</code> takes priority over DB).</li>
               <li>If OpenAI fails or has no key, Gemini is tried (env var <code className="text-xs bg-muted px-1 rounded">GOOGLE_GEMINI_API_KEY</code> or DB).</li>
-              <li>If both are unavailable, the assistant uses a built-in rule-based engine — no AI needed.</li>
+              <li>If those fail too, Claude is tried (env var <code className="text-xs bg-muted px-1 rounded">ANTHROPIC_API_KEY</code> or DB).</li>
+              <li>If all are unavailable, the assistant uses a built-in rule-based engine — no AI needed.</li>
             </ol>
             <p className="mt-2">Keys are never shown in full after saving. Clearing a key disables that provider.</p>
           </div>
@@ -285,13 +320,13 @@ export function ApiKeysTab() {
                 >
                   {testResult.activeProvider === "rule-based"
                     ? "⚠️ AI is NOT active — replies are coming from the built-in canned engine, so every answer looks the same."
-                    : `✅ AI is active — answers are generated by ${testResult.activeProvider === "openai" ? "OpenAI" : "Gemini"}.`}
+                    : `✅ AI is active — answers are generated by ${PROVIDER_LABEL[testResult.activeProvider]}.`}
                 </div>
-                {(["openai", "gemini"] as const).map((p) => {
+                {(["openai", "gemini", "anthropic"] as const).map((p) => {
                   const r = testResult[p];
                   return (
                     <div key={p} className="flex items-start gap-2 text-xs">
-                      <span className="font-medium w-16 shrink-0">{p === "openai" ? "OpenAI" : "Gemini"}:</span>
+                      <span className="font-medium w-16 shrink-0">{PROVIDER_LABEL[p]}:</span>
                       {!r.configured ? (
                         <span className="text-muted-foreground">No key saved</span>
                       ) : r.ok ? (

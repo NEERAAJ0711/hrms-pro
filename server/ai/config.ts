@@ -20,6 +20,7 @@ export const AI_CONFIG = {
   models: {
     openaiChat: process.env.AI_OPENAI_MODEL || "gpt-4o-mini",
     geminiChat: process.env.AI_GEMINI_MODEL || "gemini-2.0-flash",
+    anthropicChat: process.env.AI_ANTHROPIC_MODEL || "claude-3-5-sonnet-latest",
   },
   temperatures: {
     chat: 0.7,
@@ -106,4 +107,4 @@ export type AiFeature =
   | "leadership_report"
   | "hr_copilot";
 
-export type AiProvider = "openai" | "gemini" | "rule-based";
+export type AiProvider = "openai" | "gemini" | "anthropic" | "rule-based";

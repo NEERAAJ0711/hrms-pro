@@ -5,6 +5,7 @@ import type { EmployeeContext, KycStatus } from "../types";
 import { AI_CONFIG } from "../config";
 import { getOpenAI } from "../providers/openai";
 import { getGeminiKey, callGemini } from "../providers/gemini";
+import { getAnthropicKey, callAnthropic } from "../providers/anthropic";
 import { buildRuleBasedResponse } from "../providers/rule-engine";
 import { buildSystemPrompt } from "../prompts/hr-chat";
 import { recordUsage } from "../metrics/usage";
@@ -73,14 +74,28 @@ export async function generateAiReply(
       recordUsage({ feature: "hr_chat", provider: "gemini", model: AI_CONFIG.models.geminiChat });
       return geminiReply;
     }
-    console.warn("[AI] Gemini also failed — falling back to rule-based.");
+    console.warn("[AI] Gemini also failed — trying Anthropic.");
   }
 
-  // ── 3. Rule-based fallback ──────────────────────────────────────────────────
-  if (!getOpenAI() && !getGeminiKey()) {
+  // ── 3. Try Anthropic Claude ─────────────────────────────────────────────────
+  if (getAnthropicKey()) {
+    const claudeReply = await callAnthropic(
+      systemPrompt,
+      recentHistory.map((m) => ({ role: m.role, content: m.content })),
+      userMessage,
+    );
+    if (claudeReply) {
+      recordUsage({ feature: "hr_chat", provider: "anthropic", model: AI_CONFIG.models.anthropicChat });
+      return claudeReply;
+    }
+    console.warn("[AI] Anthropic also failed — falling back to rule-based.");
+  }
+
+  // ── 4. Rule-based fallback ──────────────────────────────────────────────────
+  if (!getOpenAI() && !getGeminiKey() && !getAnthropicKey()) {
     console.warn(
-      "[AI] No OpenAI/Gemini key configured — using rule-based fallback (replies will be generic). " +
-        "Set OPENAI_API_KEY or GOOGLE_GEMINI_API_KEY, or save a key under Settings → API Keys.",
+      "[AI] No OpenAI/Gemini/Anthropic key configured — using rule-based fallback (replies will be generic). " +
+        "Set OPENAI_API_KEY, GOOGLE_GEMINI_API_KEY or ANTHROPIC_API_KEY, or save a key under Settings → API Keys.",
     );
   } else {
     console.warn(

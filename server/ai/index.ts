@@ -15,6 +15,7 @@ export { AI_CONFIG } from "./config";
 // Providers — key management, status & diagnostics
 export { setOpenAIKeyOverride } from "./providers/openai";
 export { setGeminiKeyOverride } from "./providers/gemini";
+export { setAnthropicKeyOverride } from "./providers/anthropic";
 export {
   loadAllApiKeysFromDB,
   loadOpenAIKeyFromDB,

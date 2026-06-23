@@ -93,18 +93,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Register AI HR Assistant routes (async — creates tables on first boot)
   await registerAiHrRoutes(app, requireAuth);
 
-  // Load OpenAI + Gemini keys from DB (if admin saved them via Settings → API Keys)
+  // Load OpenAI + Gemini + Anthropic keys from DB (if admin saved them via Settings → API Keys)
   loadAllApiKeysFromDB()
     .then(() => {
       const s = getAiProviderStatus();
       console.log(
         `[AI] Provider status — OpenAI: ${s.openaiConfigured ? "configured" : "NOT configured"}, ` +
-          `Gemini: ${s.geminiConfigured ? "configured" : "NOT configured"}`,
+          `Gemini: ${s.geminiConfigured ? "configured" : "NOT configured"}, ` +
+          `Claude: ${s.anthropicConfigured ? "configured" : "NOT configured"}`,
       );
-      if (!s.openaiConfigured && !s.geminiConfigured) {
+      if (!s.openaiConfigured && !s.geminiConfigured && !s.anthropicConfigured) {
         console.warn(
           "[AI] No AI provider key found — the HR Assistant will use generic rule-based replies " +
-            "until a key is set (env OPENAI_API_KEY / GOOGLE_GEMINI_API_KEY, or Settings → API Keys).",
+            "until a key is set (env OPENAI_API_KEY / GOOGLE_GEMINI_API_KEY / ANTHROPIC_API_KEY, or Settings → API Keys).",
         );
       }
     })

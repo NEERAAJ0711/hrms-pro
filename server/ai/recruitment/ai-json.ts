@@ -1,5 +1,6 @@
 import { getOpenAI } from "../providers/openai";
 import { getGeminiKey, callGeminiJson } from "../providers/gemini";
+import { getAnthropicKey, callAnthropicJson } from "../providers/anthropic";
 import { AI_CONFIG, type AiFeature } from "../config";
 import { recordUsage } from "../metrics/usage";
 import { aiResponseCache, isCacheEnabled } from "../cache/ai-cache";
@@ -32,7 +33,8 @@ export async function callRecruitmentJson(opts: AiJsonOptions): Promise<AiJsonOu
 
   const openai = getOpenAI();
   const geminiAvailable = !!getGeminiKey();
-  if (!openai && !geminiAvailable) return { ok: false, reason: "no_ai_key" };
+  const anthropicAvailable = !!getAnthropicKey();
+  if (!openai && !geminiAvailable && !anthropicAvailable) return { ok: false, reason: "no_ai_key" };
 
   let parsed: Record<string, any> | null = null;
   let providerResponded = false;
@@ -80,6 +82,20 @@ export async function callRecruitmentJson(opts: AiJsonOptions): Promise<AiJsonOu
         feature,
         provider: "gemini",
         model: AI_CONFIG.models.geminiChat,
+        companyId: companyId ?? null,
+      });
+    }
+  }
+
+  // 4. Anthropic Claude fallback.
+  if (!parsed && anthropicAvailable) {
+    parsed = await callAnthropicJson(system, user, undefined, AI_CONFIG.maxTokens.recruitment);
+    if (parsed) {
+      providerResponded = true;
+      recordUsage({
+        feature,
+        provider: "anthropic",
+        model: AI_CONFIG.models.anthropicChat,
         companyId: companyId ?? null,
       });
     }

@@ -17,7 +17,7 @@ import { eq, and, desc, sql, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { createNotification, createNotificationForMany } from "../notifications";
 import { addSSEClient, removeSSEClient } from "../sse";
-import { setOpenAIKeyOverride, setGeminiKeyOverride, loadAllApiKeysFromDB, testAiProviders } from "../ai-service";
+import { setOpenAIKeyOverride, setGeminiKeyOverride, setAnthropicKeyOverride, loadAllApiKeysFromDB, testAiProviders } from "../ai-service";
 import { getAdmsActivityLog, getAdmsActivityLogFromDB, getAdmsServerStatus, processAttlog, processUserRecords } from "../adms";
 import * as dnsPromises from "dns/promises";
 import multer from "multer";
@@ -77,15 +77,18 @@ export async function registerSettingsRoutes(app: Express): Promise<void> {
     try {
       const user = (req as any).user;
       if (user.role !== "super_admin") return res.status(403).json({ error: "Forbidden" });
-      const [openaiRow, geminiRow] = await Promise.all([
+      const [openaiRow, geminiRow, anthropicRow] = await Promise.all([
         settingsService.getSettingByKey(null, "openai_api_key"),
         settingsService.getSettingByKey(null, "gemini_api_key"),
+        settingsService.getSettingByKey(null, "anthropic_api_key"),
       ]);
       const openaiVal = openaiRow?.value || "";
       const geminiVal = geminiRow?.value || "";
+      const anthropicVal = anthropicRow?.value || "";
       res.json({
         openai: { set: !!openaiVal, hint: maskKey(openaiVal) },
         gemini: { set: !!geminiVal, hint: maskKey(geminiVal) },
+        anthropic: { set: !!anthropicVal, hint: maskKey(anthropicVal) },
       });
     } catch {
       res.status(500).json({ error: "Failed to fetch API keys" });
@@ -96,7 +99,7 @@ export async function registerSettingsRoutes(app: Express): Promise<void> {
     try {
       const user = (req as any).user;
       if (user.role !== "super_admin") return res.status(403).json({ error: "Forbidden" });
-      const { openaiApiKey, geminiApiKey } = req.body as { openaiApiKey?: string; geminiApiKey?: string };
+      const { openaiApiKey, geminiApiKey, anthropicApiKey } = req.body as { openaiApiKey?: string; geminiApiKey?: string; anthropicApiKey?: string };
 
       const upsert = async (dbKey: string, rawValue: string) => {
         const key = rawValue.trim();
@@ -116,6 +119,10 @@ export async function registerSettingsRoutes(app: Express): Promise<void> {
       if (geminiApiKey !== undefined) {
         const key = await upsert("gemini_api_key", geminiApiKey);
         setGeminiKeyOverride(key || null);
+      }
+      if (anthropicApiKey !== undefined) {
+        const key = await upsert("anthropic_api_key", anthropicApiKey);
+        setAnthropicKeyOverride(key || null);
       }
       res.json({ success: true });
     } catch {
