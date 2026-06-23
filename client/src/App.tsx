@@ -51,6 +51,7 @@ const ComplianceAutomationPage = lazy(() => import("@/pages/compliance-automatio
 const MobilePreview = lazy(() => import("@/pages/mobile-preview"));
 const AiAssistantPage = lazy(() => import("@/pages/ai-assistant"));
 const AiHrDashboard = lazy(() => import("@/pages/ai-hr-dashboard"));
+const WorkforceIntelligencePage = lazy(() => import("@/pages/workforce-intelligence"));
 const HomePage = lazy(() => import("@/pages/website/home-page"));
 const ServicesPage = lazy(() => import("@/pages/website/services-page"));
 const CompliancePage = lazy(() => import("@/pages/website/compliance-page"));
@@ -161,6 +162,7 @@ function ProtectedRouter() {
       <Route path="/settings" component={SettingsPage} />
       <Route path="/ai-assistant" component={AiAssistantPage} />
       <Route path="/ai-hr-dashboard" component={AiHrDashboard} />
+      <Route path="/workforce-intelligence" component={WorkforceIntelligencePage} />
       <Route path="/login" component={RedirectToDashboard} />
       <Route path="/signup" component={RedirectToDashboard} />
       <Route component={NotFound} />

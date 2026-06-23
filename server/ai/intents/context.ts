@@ -100,6 +100,18 @@ const ADMIN_INTENT_ROLES: Record<string, string[]> = {
   team_insights: HR_MGR,
   payroll_insights: HR, // payroll-privileged only (company_admin/hr_admin + super)
   executive_summary: HR, // leadership-level, company-wide
+  // Phase 6 — Workforce decision support. Salary-sensitive engines (increment)
+  // and leadership-level engines stay HR-only; team-scoped engines allow manager.
+  performance_intelligence: HR_MGR,
+  promotion_readiness: HR_MGR,
+  increment_intelligence: HR, // exposes pay bands — payroll-privileged only
+  attrition_risk: HR_MGR,
+  succession_planning: HR,
+  learning_development: HR_MGR,
+  internal_mobility: HR_REC,
+  org_health: HR,
+  leadership_report: HR, // CEO/CHRO briefing, company-wide
+  hr_copilot: HR, // can route to salary-sensitive topics — HR only
 };
 
 // Cross-domain admin intents whose RESPONSE composes data from more than one
@@ -112,6 +124,22 @@ export const INTENT_REQUIRED_MODULES: Record<string, string[]> = {
   team_insights: ["attendance", "leave"], // computeManagerInsights = attendance + leave
   payroll_insights: ["payroll"], // company/department payroll aggregates
   executive_summary: ["attendance", "leave", "payroll"], // company-wide incl. payroll totals
+  // Phase 6 — these engines surface attendance + leave signals, so honor a
+  // per-user revoke on EITHER module (super_admin bypasses).
+  attrition_risk: ["attendance", "leave"],
+  org_health: ["attendance", "leave"],
+  // The leadership briefing composes employee-derived performance/promotion/
+  // succession (named individuals), so it must clear `employees` too.
+  leadership_report: ["employees", "attendance", "leave"],
+  // hr_copilot routes to salary-sensitive (increment → payroll) or
+  // recruitment-sensitive (mobility → job postings) topics at runtime, so this
+  // upfront check is only the baseline. The handler itself does a TOPIC-AWARE
+  // module check (strategyTopicModules) before computing, closing the gap where
+  // a user with revoked payroll/recruitment could read those via the copilot.
+  hr_copilot: ["attendance", "leave"],
+  increment_intelligence: ["payroll"], // suggested pay bands
+  // Internal mobility reads BOTH employee signals and open job postings.
+  internal_mobility: ["employees", "recruitment"],
 };
 
 export interface AuthResult {

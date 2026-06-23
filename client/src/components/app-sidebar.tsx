@@ -22,6 +22,7 @@ import {
   CreditCard,
   Target,
   Bot,
+  Brain,
   Activity,
   CalendarCheck,
 } from "lucide-react";
@@ -81,6 +82,7 @@ const MODULE_ACCESS: Record<string, UserRole[]> = {
   automation_jobs: ["super_admin", "company_admin", "hr_admin"],
   ai_assistant: ["employee", "manager"],
   ai_hr_dashboard: ["super_admin", "company_admin", "hr_admin"],
+  workforce_intelligence: ["super_admin", "company_admin", "hr_admin", "manager"],
 };
 
 const REQUIRES_COMPANY: string[] = [
@@ -254,6 +256,12 @@ const hrModulesItems = [
     url: "/ai-hr-dashboard",
     icon: Bot,
     module: "ai_hr_dashboard",
+  },
+  {
+    title: "Workforce Intelligence",
+    url: "/workforce-intelligence",
+    icon: Brain,
+    module: "workforce_intelligence",
   },
   {
     title: "Settings",

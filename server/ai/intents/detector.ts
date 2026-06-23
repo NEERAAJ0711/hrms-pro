@@ -85,6 +85,64 @@ const KW = {
 };
 
 const MATCHERS: Matcher[] = [
+  // ── Phase 6 — Workforce decision support (admin). Placed first so a salary/
+  // performance DECISION ask isn't grabbed by the self payslip/appraisal readers.
+  // Each requires an explicit decision-support keyword, so they never hijack the
+  // Phase 1–5 intents or plain self queries. ─────────────────────────────────
+  {
+    intent: "hr_copilot", module: "employees", kind: "read", scope: "admin",
+    // Explicit copilot/strategy framing wins over any topic keyword (e.g.
+    // "copilot, what about attrition?" → copilot, which classifies the topic
+    // itself). Carries the raw question for topic classification.
+    test: (l, raw) => has(l, "hr copilot", "copilot", "strategic hr", "strategy advice", "advise me", "what should i do about", "help me decide", "strategic question", "as a strategist") ? { query: raw } : null,
+  },
+  {
+    intent: "increment_intelligence", module: "payroll", kind: "read", scope: "admin",
+    test: (l) => has(l, "increment", "hike", "pay revision", "salary revision", "salary increment", "pay raise", "raise salary", "compensation revision", "appraisal increment", "merit increase", "pay hike", "salary hike") ? {} : null,
+  },
+  {
+    intent: "promotion_readiness", module: "employees", kind: "read", scope: "admin",
+    test: (l) => has(l, "promotion", "promotable", "promote", "ready for promotion", "next level", "elevation") ? {} : null,
+  },
+  {
+    intent: "attrition_risk", module: "employees", kind: "read", scope: "admin",
+    test: (l) => has(l, "attrition", "churn", "flight risk", "retention risk", "who might leave", "who may leave", "likely to leave", "turnover", "resignation risk") ? {} : null,
+  },
+  {
+    intent: "succession_planning", module: "employees", kind: "read", scope: "admin",
+    test: (l) => has(l, "succession", "successor", "high potential", "high-potential", "hipo", "bench strength", "leadership pipeline", "leadership bench", "backup for") ? {} : null,
+  },
+  {
+    intent: "learning_development", module: "employees", kind: "read", scope: "admin",
+    test: (l) => has(l, "learning and development", "l&d", "training need", "training needs", "skill gap", "skill gaps", "upskill", "reskill", "development need", "development needs", "learning recommendation", "training recommendation", "training plan") ? {} : null,
+  },
+  {
+    intent: "internal_mobility", module: "recruitment", kind: "read", scope: "admin",
+    test: (l) => has(l, "internal mobility", "internal candidate", "internal candidates", "internal fit", "internal hire", "internal hiring", "redeploy", "redeployment", "internal move", "fill internally") ? {} : null,
+  },
+  {
+    intent: "org_health", module: "employees", kind: "read", scope: "admin",
+    // Distinct from Phase 4 executive_summary (which owns "company/org health"):
+    // this engine is the per-department health SCORE view.
+    test: (l) => has(l, "organizational health", "organisational health", "health score", "department health", "team health", "org health score", "wellbeing score", "engagement health") ? {} : null,
+  },
+  {
+    intent: "performance_intelligence", module: "employees", kind: "read", scope: "admin",
+    test: (l) => {
+      const topic = has(l, "performance", "performer", "performers", "underperform", "under perform", "under-perform", "non performer", "non-performer");
+      if (!topic) return null;
+      // Only yield to the self appraisal reader for genuine self phrases; the
+      // possessive "my top performers"/"my team's performance" is an admin ask.
+      if (has(l, "my performance", "my appraisal", "my review", "my rating", "my kpi", "my kra", "my score", "meri performance", "mera performance")) return null;
+      const admin = has(l, "intelligence", "analysis", "analyse", "analyze", "insights", "insight", "top", "bottom", "best", "worst", "ranking", "rank", "team", "department", "dept", "company", "who", "report", "overview", "review of");
+      return admin ? {} : null;
+    },
+  },
+  {
+    intent: "leadership_report", module: "employees", kind: "read", scope: "admin",
+    test: (l) => has(l, "workforce strategy", "strategic workforce", "ceo report", "chro report", "board report", "leadership report", "workforce report", "decision support", "people strategy", "talent strategy") ? {} : null,
+  },
+
   // ── Natural-language ACTIONS (highest priority — they carry params) ─────────
   {
     intent: "approve_leave", module: "leave", kind: "action", scope: "admin",

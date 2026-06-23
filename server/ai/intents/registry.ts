@@ -7,6 +7,7 @@ import * as self from "./handlers/employee-self";
 import * as admin from "./handlers/hr-admin";
 import * as actions from "./handlers/actions";
 import * as analytics from "./handlers/analytics";
+import * as workforce from "./handlers/workforce";
 
 export const HANDLERS: Record<string, IntentHandler> = {
   // Employee self-service
@@ -63,6 +64,18 @@ export const HANDLERS: Record<string, IntentHandler> = {
   team_insights: analytics.teamInsights,
   payroll_insights: analytics.payrollInsights,
   executive_summary: analytics.executiveSummary,
+
+  // Phase 6 — Workforce decision support (read-only, explainable)
+  performance_intelligence: workforce.performanceIntelligence,
+  promotion_readiness: workforce.promotionReadiness,
+  increment_intelligence: workforce.incrementIntelligence,
+  attrition_risk: workforce.attritionRisk,
+  succession_planning: workforce.successionPlanning,
+  learning_development: workforce.learningDevelopment,
+  internal_mobility: workforce.internalMobility,
+  org_health: workforce.orgHealth,
+  leadership_report: workforce.leadershipReport,
+  hr_copilot: workforce.hrCopilot,
 
   // Actions
   find_employee: actions.findEmployee,

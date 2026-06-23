@@ -25,6 +25,7 @@ import { registerBiometricRoutes } from "./biometric-routes";
 import { registerRecruitmentRoutes } from "./recruitment-routes";
 import { registerRecruitmentAiRoutes } from "./recruitment-ai-routes";
 import { registerAnalyticsAiRoutes } from "./analytics-ai-routes";
+import { registerWorkforceAiRoutes } from "./workforce-ai-routes";
 import { registerEmployeeRoutes } from "./employee-routes";
 import { registerAttendanceRoutes } from "./attendance-routes";
 import { registerLeaveRoutes } from "./leave-routes";
@@ -64,6 +65,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   await registerRecruitmentRoutes(app);
   await registerRecruitmentAiRoutes(app);
   await registerAnalyticsAiRoutes(app);
+  await registerWorkforceAiRoutes(app);
   await registerEmployeeRoutes(app);
   await registerAttendanceRoutes(app);
   await registerLeaveRoutes(app);

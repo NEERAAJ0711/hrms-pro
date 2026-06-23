@@ -100,6 +100,44 @@ export type {
   AiResult,
 } from "./recruitment/types";
 
+// Phase 6 — Enterprise AI Intelligence, Decision Support & Strategic HR Copilot
+// (read-only, explainable). Importing prompts here registers the decision-support
+// narratives. Engines emit deterministic Decision[]; the LLM only phrases them.
+import "./workforce/prompts";
+export {
+  computeWorkforceSignals,
+  type WorkforceSignals,
+  type WorkforceScope,
+  type EmployeeSignal,
+  type DepartmentSignal,
+} from "./workforce/signals";
+export {
+  confidenceFrom,
+  completenessOf,
+  score100,
+  band,
+  type Decision,
+  type DecisionFacts,
+  type Confidence,
+} from "./decision/types";
+export { computePerformance, explainPerformance } from "./workforce/performance";
+export { computePromotion, explainPromotion } from "./workforce/promotion";
+export { computeIncrement, explainIncrement } from "./workforce/increment";
+export { computeAttrition, explainAttrition } from "./workforce/attrition";
+export { computeSuccession, explainSuccession } from "./workforce/succession";
+export { computeLearning, explainLearning } from "./workforce/learning";
+export { computeMobility, explainMobility } from "./workforce/mobility";
+export { computeOrgHealth, explainOrgHealth } from "./workforce/health";
+export { computeLeadershipReport, explainLeadershipReport } from "./workforce/executive";
+export {
+  classifyStrategicTopic,
+  computeStrategyFacts,
+  answerCopilot,
+  strategyTopicModules,
+  STRATEGY_TOPIC_MODULES,
+  type StrategyTopic,
+} from "./workforce/copilot";
+
 // Services
 export { generateAiReply } from "./services/chat-service";
 export { generateComplianceReply, analyzeJobError } from "./services/compliance-service";

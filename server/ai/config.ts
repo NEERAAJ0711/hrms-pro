@@ -93,6 +93,17 @@ export type AiFeature =
   | "payroll_explain"
   | "payroll_insight"
   | "manager_insight"
-  | "executive_summary";
+  | "executive_summary"
+  // Phase 6 — Enterprise AI Decision Support (read-only, explainable)
+  | "performance_insight"
+  | "promotion_readiness"
+  | "increment_reco"
+  | "attrition_risk"
+  | "succession_plan"
+  | "learning_reco"
+  | "internal_mobility"
+  | "org_health"
+  | "leadership_report"
+  | "hr_copilot";
 
 export type AiProvider = "openai" | "gemini" | "rule-based";
