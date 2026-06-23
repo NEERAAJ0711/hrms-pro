@@ -12,7 +12,7 @@ import type { Employee } from "@shared/schema";
 import type { AiActor, AiQueryResult } from "./types";
 import type { EmployeeContext, KycStatus } from "../types";
 import { detectIntent } from "./detector";
-import { authorizeIntent } from "./context";
+import { authorizeIntent, INTENT_REQUIRED_MODULES } from "./context";
 import { HANDLERS } from "./registry";
 import type { HandlerContext } from "./handlers/shared";
 import { t } from "./handlers/shared";
@@ -80,16 +80,23 @@ export async function handleAssistantQuery(input: AssistantQueryInput): Promise<
   // Second gate: defer to the app's real RBAC for covered modules so per-user
   // permission overrides (explicit revokes) block the AI path too — closing the
   // privilege-escalation gap vs. the rest of the app. super_admin already passed.
-  if (detected.scope === "admin" && actor.role !== "super_admin" && RBAC_COVERED_MODULES.has(detected.module)) {
-    let permitted = true;
-    try {
-      permitted = await userHasAccess(user, detected.module);
-    } catch {
-      permitted = false; // fail closed
-    }
-    if (!permitted) {
-      const text = t(lang, "You don't have permission to access this information.", "आपके पास यह जानकारी देखने की अनुमति नहीं है।");
-      return respond(text, { success: false, dataFound: false, error: "denied:module_revoked" });
+  // Cross-domain intents (e.g. team_insights = attendance + leave) must clear
+  // EVERY module they surface, not just the primary `detected.module`.
+  if (detected.scope === "admin" && actor.role !== "super_admin") {
+    const required =
+      INTENT_REQUIRED_MODULES[detected.intent] ??
+      (RBAC_COVERED_MODULES.has(detected.module) ? [detected.module] : []);
+    for (const mod of required) {
+      let permitted = true;
+      try {
+        permitted = await userHasAccess(user, mod);
+      } catch {
+        permitted = false; // fail closed
+      }
+      if (!permitted) {
+        const text = t(lang, "You don't have permission to access this information.", "आपके पास यह जानकारी देखने की अनुमति नहीं है।");
+        return respond(text, { success: false, dataFound: false, error: "denied:module_revoked" });
+      }
     }
   }
 

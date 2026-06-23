@@ -22,3 +22,4 @@
 - [Recruitment intent ordering](recruitment-intent-ordering.md) — generic recruitment_status/quick_summary must guard against dashboard/funnel terms so recruitment_dashboard (defined later in detector array) is reachable; explicit search verbs route to candidate_search not dashboard
 - [Recruitment AI tenant isolation](recruitment-ai-isolation.md) — body.jobId override in score/match/questions must verify posting.companyId === application.companyId; all AI fns gate on hasCandidateEvidence before any AI call
 - [pdf-parse v2 API](pdf-parse-v2-api.md) — pdf-parse@2.x is ESM-only PDFParse class (new PDFParse({data}).getText()), NOT the v1 default-function/lib/pdf-parse.js path
+- [AI insights composite RBAC](ai-insights-composite-rbac.md) — cross-domain insight gating must check EVERY surfaced module (route + orchestrator), not just primary; single-module check leaks sibling aggregates

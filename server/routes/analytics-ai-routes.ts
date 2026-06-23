@@ -144,7 +144,10 @@ export async function registerAnalyticsAiRoutes(app: Express): Promise<void> {
       const companyId = requireCompany(req, res);
       if (!companyId) return;
       if (!ANALYTICS_ADMIN_ROLES.includes(user.role)) return res.status(403).json({ error: "Access denied" });
-      if (!(await userHasAccess(user, "attendance"))) return res.status(403).json({ error: "Access denied" });
+      // Team insights compose attendance + leave — require BOTH modules.
+      if (!(await userHasAccess(user, "attendance")) || !(await userHasAccess(user, "leave"))) {
+        return res.status(403).json({ error: "Access denied" });
+      }
       const allowedEmployeeIds = user.role === "super_admin" ? null : await getAllowedEmployeeIdsForUser(user);
       const { month, year } = period(req);
       const facts = await computeManagerInsights({ companyId, allowedEmployeeIds, month, year });
@@ -163,6 +166,11 @@ export async function registerAnalyticsAiRoutes(app: Express): Promise<void> {
       // Company-wide leadership view — payroll-privileged roles only.
       const allowed = ["super_admin", "company_admin", "hr_admin"];
       if (!allowed.includes(user.role)) return res.status(403).json({ error: "Access denied" });
+      // Executive summary surfaces attendance + leave + payroll aggregates —
+      // require module access to EACH (honors per-user revokes; super_admin bypasses).
+      for (const mod of ["attendance", "leave", "payroll"]) {
+        if (!(await userHasAccess(user, mod))) return res.status(403).json({ error: "Access denied" });
+      }
       const { month, year } = period(req);
       const facts = await computeExecutiveSummary({ companyId, month, year });
       const ai = await explainExecutiveSummary(facts, companyId);

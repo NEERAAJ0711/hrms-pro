@@ -42,6 +42,12 @@ rather than fabricating.
   access is refused (super_admin excepted).
 - **Manager scoping** — team views use `getAllowedEmployeeIdsForUser` so a manager
   only ever sees their own reports.
+- **Composite (cross-domain) checks** — insights that combine domains require
+  module access to **every** domain they surface, honoring per-user revokes:
+  team insights need attendance **and** leave; the executive summary needs
+  attendance **and** leave **and** payroll. Enforced both at the HTTP routes and
+  in the assistant via `INTENT_REQUIRED_MODULES` (so a user with one module but a
+  revoked sibling module cannot read the other's aggregates through either path).
 - **Masking** — payroll explanation is owner-or-payroll-privileged only; the
   existing masking layer (`server/ai/security/masking.ts`) governs any sensitive
   field exposure. The LLM only receives already-computed facts.

@@ -101,6 +101,17 @@ const ADMIN_INTENT_ROLES: Record<string, string[]> = {
   executive_summary: HR, // leadership-level, company-wide
 };
 
+// Cross-domain admin intents whose RESPONSE composes data from more than one
+// module. The orchestrator must verify the caller has module access to EVERY
+// listed module (honoring per-user revokes), not just the intent's primary
+// `module`. Without this, e.g. a user with attendance access but a revoked leave
+// permission could still read leave aggregates via team_insights. Intents not
+// listed here fall back to a single-module check on `detected.module`.
+export const INTENT_REQUIRED_MODULES: Record<string, string[]> = {
+  team_insights: ["attendance", "leave"], // computeManagerInsights = attendance + leave
+  executive_summary: ["attendance", "leave", "payroll"], // company-wide incl. payroll totals
+};
+
 export interface AuthResult {
   ok: boolean;
   reason?: string;

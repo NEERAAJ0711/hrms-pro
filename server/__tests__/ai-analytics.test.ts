@@ -6,8 +6,21 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { detectIntent } from "../ai/intents/detector";
-import { authorizeIntent, buildActor } from "../ai/intents/context";
+import { authorizeIntent, buildActor, INTENT_REQUIRED_MODULES } from "../ai/intents/context";
 import { noKey, noData, aiError } from "../ai/analytics/types";
+
+// ── Composite RBAC: cross-domain intents must require EVERY surfaced module ────
+
+test("cross-domain insights declare all the modules they surface", () => {
+  // team_insights = attendance + leave; executive_summary = attendance + leave + payroll.
+  // The orchestrator checks each of these via userHasAccess, so a revoke on ANY
+  // one must block the whole response.
+  assert.deepEqual([...INTENT_REQUIRED_MODULES.team_insights].sort(), ["attendance", "leave"]);
+  assert.deepEqual(
+    [...INTENT_REQUIRED_MODULES.executive_summary].sort(),
+    ["attendance", "leave", "payroll"],
+  );
+});
 
 // ── Intent detection (self) ───────────────────────────────────────────────────
 
