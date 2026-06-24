@@ -113,18 +113,14 @@ export function safeUnlinkCompanyAsset(storedPath: string | null | undefined) {
     if (fs.existsSync(resolved)) fs.unlinkSync(resolved);
   } catch { /* best-effort cleanup */ }
 }
-export const companyAssetStorage = multer.diskStorage({
-  destination: (_req, _file, cb) => cb(null, COMPANY_ASSETS_DIR),
-  filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname);
-    const companyId = (req.params as any).id || "unknown";
-    const type = (req.params as any).type || "asset";
-    // Unique per upload so a replaced asset gets a new URL (avoids stale browser/proxy cache)
-    cb(null, `${companyId}-${type}-${Date.now()}${ext}`);
-  },
-});
+// Convert an uploaded image (held in memory) into a self-contained base64 data
+// URI so it can be stored directly in the DB. This makes logos/signatures/QR
+// survive deploys (server files under uploads/ are wiped on every deploy).
+export function fileToDataUri(file: { mimetype: string; buffer: Buffer }): string {
+  return `data:${file.mimetype};base64,${file.buffer.toString("base64")}`;
+}
 export const companyAssetUpload = multer({
-  storage: companyAssetStorage,
+  storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
     const allowed = ["image/jpeg", "image/png", "image/webp", "image/gif"];

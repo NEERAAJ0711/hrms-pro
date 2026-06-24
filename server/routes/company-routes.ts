@@ -31,7 +31,7 @@ import {
   userHasAccess, MODULE_ACCESS, formatAge, resolveEmployeeUserId, getHrAdminIds,
   resolveAllowedLocationNames, getAllowedEmployeeIdsForUser,
   validateBiometricDeviceAuth, validateBiometricNetwork,
-  upload, docUpload, companyAssetUpload, safeUnlinkCompanyAsset,
+  upload, docUpload, companyAssetUpload, safeUnlinkCompanyAsset, fileToDataUri,
   COMPANY_ASSETS_DIR, DOC_UPLOAD_DIR, daysInMonth,
 } from "./shared";
 
@@ -77,7 +77,7 @@ export async function registerCompanyRoutes(app: Express): Promise<void> {
         // Remove the previous file (if any) so old assets don't accumulate
         const prev = await companyService.getCompany(id);
         const oldPath = type === "logo" ? prev?.logo : (prev as any)?.signature;
-        const urlPath = `/uploads/company-assets/${req.file.filename}`;
+        const urlPath = fileToDataUri(req.file);
         if (type === "logo") {
           await companyService.setCompanyLogo(id as string, urlPath);
         } else {

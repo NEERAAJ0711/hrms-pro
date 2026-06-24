@@ -31,17 +31,14 @@ import {
   userHasAccess, MODULE_ACCESS, formatAge, resolveEmployeeUserId, getHrAdminIds,
   resolveAllowedLocationNames, getAllowedEmployeeIdsForUser,
   validateBiometricDeviceAuth, validateBiometricNetwork,
-  upload, docUpload, companyAssetUpload, safeUnlinkCompanyAsset,
+  upload, docUpload, companyAssetUpload, safeUnlinkCompanyAsset, fileToDataUri,
   COMPANY_ASSETS_DIR, DOC_UPLOAD_DIR, daysInMonth,
 } from "./shared";
 import { settingsService } from "../services";
 
 // Multer for the global payment QR image (super admin uploads one shared QR)
 const paymentQrUpload = multer({
-  storage: multer.diskStorage({
-    destination: (_req, _file, cb) => cb(null, COMPANY_ASSETS_DIR),
-    filename: (_req, file, cb) => cb(null, `payment-qr-${Date.now()}${path.extname(file.originalname)}`),
-  }),
+  storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
     const allowed = ["image/jpeg", "image/png", "image/webp", "image/gif"];
@@ -608,7 +605,7 @@ export async function registerBillingRoutes(app: Express): Promise<void> {
       if (req.file) {
         const prev = await settingsService.getSettingByKey(null, PAYMENT_QR_KEY);
         const oldPath = prev?.value || null;
-        const urlPath = `/uploads/company-assets/${req.file.filename}`;
+        const urlPath = fileToDataUri(req.file);
         await upsertGlobalSetting(PAYMENT_QR_KEY, urlPath);
         if (oldPath && oldPath !== urlPath) safeUnlinkCompanyAsset(oldPath);
       }
