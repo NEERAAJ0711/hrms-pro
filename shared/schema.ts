@@ -1137,6 +1137,25 @@ export const insertInvoiceSchema = createInsertSchema(invoices).omit({ id: true 
 export type InsertInvoice = z.infer<typeof insertInvoiceSchema>;
 export type Invoice = typeof invoices.$inferSelect;
 
+// ─── Payment Submissions (company-reported payments, reviewed by super admin) ──
+export const paymentSubmissions = pgTable("payment_submissions", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  companyId: varchar("company_id", { length: 36 }).notNull().references((): AnyPgColumn => companies.id, { onDelete: "cascade" }),
+  amount: numeric("amount", { precision: 14, scale: 2 }).notNull(),
+  paymentDate: text("payment_date").notNull(),         // YYYY-MM-DD
+  referenceNo: text("reference_no").notNull(),
+  note: text("note"),
+  status: text("status").notNull().default("pending"), // "pending" | "approved" | "rejected"
+  reviewNote: text("review_note"),
+  reviewedBy: varchar("reviewed_by", { length: 36 }).references((): AnyPgColumn => users.id, { onDelete: "set null" }),
+  reviewedAt: text("reviewed_at"),
+  submittedBy: varchar("submitted_by", { length: 36 }).references((): AnyPgColumn => users.id, { onDelete: "set null" }),
+  createdAt: text("created_at").notNull(),
+});
+export const insertPaymentSubmissionSchema = createInsertSchema(paymentSubmissions).omit({ id: true });
+export type InsertPaymentSubmission = z.infer<typeof insertPaymentSubmissionSchema>;
+export type PaymentSubmission = typeof paymentSubmissions.$inferSelect;
+
 // ─── Expenses ─────────────────────────────────────────────────────────────────
 export const expenseCategories = ["travel", "food", "accommodation", "medical", "office_supplies", "client_entertainment", "other"] as const;
 export type ExpenseCategory = typeof expenseCategories[number];

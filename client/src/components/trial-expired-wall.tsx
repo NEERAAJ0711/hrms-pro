@@ -1,14 +1,48 @@
-import { AlertTriangle, Phone, Mail, Clock, ArrowRight, QrCode } from "lucide-react";
-import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
+import { AlertTriangle, Phone, Mail, Clock, ArrowRight, QrCode, CreditCard, Loader2, CheckCircle2, XCircle } from "lucide-react";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { useToast } from "@/hooks/use-toast";
+import { apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth";
 
 type PaymentQr = { qrUrl: string | null; upiId: string | null; note: string | null };
 
+function todayStr() {
+  return new Date().toISOString().slice(0, 10);
+}
+
 export function TrialExpiredWall() {
-  const { user, logout } = useAuth();
+  const { user, logout, refreshUser } = useAuth();
+  const { toast } = useToast();
   const { data: payment } = useQuery<PaymentQr>({ queryKey: ["/api/billing/payment-qr"] });
   const hasPayment = !!(payment?.qrUrl || payment?.upiId);
+
+  const wasRejected = (user as { paymentStatus?: string | null })?.paymentStatus === "rejected";
+
+  const [showForm, setShowForm] = useState(false);
+  const [amount, setAmount] = useState("");
+  const [paymentDate, setPaymentDate] = useState(todayStr());
+  const [referenceNo, setReferenceNo] = useState("");
+
+  const submitMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/billing/payment-submission", {
+        amount,
+        paymentDate,
+        referenceNo,
+      });
+      return res.json();
+    },
+    onSuccess: async () => {
+      toast({ title: "Payment submitted", description: "Access restored. Our team will verify your payment shortly." });
+      await refreshUser();
+    },
+    onError: (e: Error) => toast({ title: "Could not submit", description: e.message, variant: "destructive" }),
+  });
+
+  const canSubmit = amount.trim() !== "" && Number(amount) > 0 && paymentDate.trim() !== "" && referenceNo.trim() !== "";
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center p-6">
@@ -24,6 +58,15 @@ export function TrialExpiredWall() {
           </p>
         </div>
 
+        {wasRejected && (
+          <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4 mb-6 flex items-start gap-3" data-testid="banner-payment-rejected">
+            <XCircle className="h-5 w-5 text-red-400 flex-shrink-0 mt-0.5" />
+            <p className="text-red-300 text-sm">
+              Your last payment could not be verified and was rejected. Please make the payment again and resubmit the details below.
+            </p>
+          </div>
+        )}
+
         <div className="bg-white/5 border border-white/10 rounded-2xl p-6 mb-6 space-y-4">
           <h2 className="text-white font-semibold text-sm uppercase tracking-wider">Contact Sales &amp; Support</h2>
           <div className="flex items-center gap-4 p-4 bg-blue-500/10 rounded-xl border border-blue-500/20">
@@ -32,7 +75,7 @@ export function TrialExpiredWall() {
             </div>
             <div>
               <p className="text-xs text-slate-400 mb-0.5">Phone / WhatsApp</p>
-              <p className="text-white font-semibold">+91 98765 43210</p>
+              <p className="text-white font-semibold" data-testid="text-support-phone">+91 99990 87409</p>
             </div>
           </div>
           <div className="flex items-center gap-4 p-4 bg-green-500/10 rounded-xl border border-green-500/20">
@@ -83,6 +126,72 @@ export function TrialExpiredWall() {
             )}
           </div>
         )}
+
+        {/* Update Payment — restores access immediately, pending admin verification */}
+        <div className="bg-white/5 border border-white/10 rounded-2xl p-6 mb-6">
+          <h2 className="text-white font-semibold text-sm uppercase tracking-wider mb-2 flex items-center gap-2">
+            <CreditCard className="h-4 w-4 text-emerald-400" /> Already Paid?
+          </h2>
+          <p className="text-slate-400 text-sm mb-4">
+            Enter your payment details to restore access right away. Our team will verify it shortly.
+          </p>
+
+          {!showForm ? (
+            <Button
+              onClick={() => setShowForm(true)}
+              className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-semibold"
+              data-testid="button-update-payment"
+            >
+              <CheckCircle2 className="h-4 w-4 mr-2" /> Update Payment
+            </Button>
+          ) : (
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs text-slate-400 mb-1 block">Amount (₹)</label>
+                <Input
+                  type="number"
+                  min="1"
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                  placeholder="e.g. 5000"
+                  className="bg-white/10 border-white/20 text-white placeholder:text-slate-500"
+                  data-testid="input-payment-amount"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-slate-400 mb-1 block">Payment Date</label>
+                <Input
+                  type="date"
+                  value={paymentDate}
+                  onChange={(e) => setPaymentDate(e.target.value)}
+                  className="bg-white/10 border-white/20 text-white"
+                  data-testid="input-payment-date"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-slate-400 mb-1 block">Reference / Transaction No.</label>
+                <Input
+                  value={referenceNo}
+                  onChange={(e) => setReferenceNo(e.target.value)}
+                  placeholder="UTR / UPI ref / transaction id"
+                  className="bg-white/10 border-white/20 text-white placeholder:text-slate-500"
+                  data-testid="input-payment-reference"
+                />
+              </div>
+              <Button
+                onClick={() => submitMutation.mutate()}
+                disabled={!canSubmit || submitMutation.isPending}
+                className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-semibold"
+                data-testid="button-submit-payment"
+              >
+                {submitMutation.isPending
+                  ? <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  : <CheckCircle2 className="h-4 w-4 mr-2" />}
+                Submit &amp; Restore Access
+              </Button>
+            </div>
+          )}
+        </div>
 
         <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-4 mb-6">
           <p className="text-amber-300 text-sm text-center">

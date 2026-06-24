@@ -644,4 +644,112 @@ export async function registerBillingRoutes(app: Express): Promise<void> {
       res.status(500).json({ error: "Failed to remove payment QR" });
     }
   });
+
+  // ===== Payment Submissions (company-reported payments, super admin reviews) =====
+
+  const paymentSubmissionSchema = z.object({
+    amount: z.coerce.number().positive("Amount must be greater than 0"),
+    paymentDate: z.string().min(1, "Payment date is required"),
+    referenceNo: z.string().min(1, "Reference number is required"),
+    note: z.string().optional(),
+  });
+
+  function mapSubmission(r: any) {
+    return {
+      id: r.id,
+      companyId: r.company_id,
+      companyName: r.company_name ?? null,
+      amount: r.amount,
+      paymentDate: r.payment_date,
+      referenceNo: r.reference_no,
+      note: r.note,
+      status: r.status,
+      reviewNote: r.review_note,
+      reviewedBy: r.reviewed_by,
+      reviewedAt: r.reviewed_at,
+      submittedBy: r.submitted_by,
+      createdAt: r.created_at,
+    };
+  }
+
+  // Company admin reports a payment from the trial-expired wall. Access is
+  // granted immediately (status 'pending') until a super admin decides.
+  app.post("/api/billing/payment-submission", requireAuth, requireRole("company_admin"), async (req, res) => {
+    try {
+      const user = (req as any).user;
+      if (!user?.companyId) return res.status(400).json({ error: "No company associated with this account" });
+      const parsed = paymentSubmissionSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: parsed.error.errors[0]?.message || "Invalid payment details" });
+      }
+      const { amount, paymentDate, referenceNo, note } = parsed.data;
+      const id = randomUUID();
+      const now = new Date().toISOString();
+      await db.execute(sql`
+        INSERT INTO payment_submissions
+          (id, company_id, amount, payment_date, reference_no, note, status, submitted_by, created_at)
+        VALUES
+          (${id}, ${user.companyId}, ${amount}, ${paymentDate}, ${referenceNo}, ${note || null}, 'pending', ${user.id}, ${now})
+      `);
+      const row = await db.execute(sql`SELECT * FROM payment_submissions WHERE id = ${id}`);
+      res.status(201).json(mapSubmission(row.rows[0]));
+    } catch (error) {
+      console.error("Payment submission error:", error);
+      res.status(500).json({ error: "Failed to submit payment" });
+    }
+  });
+
+  // Latest submission for the logged-in user's company (powers the wall status)
+  app.get("/api/billing/payment-submission/mine", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      if (!user?.companyId) return res.json(null);
+      const row = await db.execute(sql`
+        SELECT * FROM payment_submissions
+        WHERE company_id = ${user.companyId}
+        ORDER BY created_at DESC
+        LIMIT 1
+      `);
+      res.json(row.rows[0] ? mapSubmission(row.rows[0]) : null);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch payment submission" });
+    }
+  });
+
+  // All submissions for super admin review
+  app.get("/api/billing/payment-submissions", requireAuth, requireRole("super_admin"), async (_req, res) => {
+    try {
+      const rows = await db.execute(sql`
+        SELECT ps.*, c.company_name
+        FROM payment_submissions ps
+        LEFT JOIN companies c ON c.id = ps.company_id
+        ORDER BY ps.created_at DESC
+      `);
+      res.json(rows.rows.map(mapSubmission));
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch payment submissions" });
+    }
+  });
+
+  // Approve / reject a submission. Rejecting re-locks the company immediately.
+  app.patch("/api/billing/payment-submission/:id", requireAuth, requireRole("super_admin"), async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const { status, reviewNote } = req.body as { status?: string; reviewNote?: string };
+      if (status !== "approved" && status !== "rejected") {
+        return res.status(400).json({ error: "status must be 'approved' or 'rejected'" });
+      }
+      const now = new Date().toISOString();
+      await db.execute(sql`
+        UPDATE payment_submissions
+        SET status = ${status}, review_note = ${reviewNote || null}, reviewed_by = ${user.id}, reviewed_at = ${now}
+        WHERE id = ${req.params.id}
+      `);
+      const row = await db.execute(sql`SELECT * FROM payment_submissions WHERE id = ${req.params.id}`);
+      if (!row.rows[0]) return res.status(404).json({ error: "Submission not found" });
+      res.json(mapSubmission(row.rows[0]));
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update payment submission" });
+    }
+  });
 }

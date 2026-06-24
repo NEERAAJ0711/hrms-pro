@@ -156,6 +156,7 @@ export async function registerAuthRoutes(app: Express): Promise<void> {
       if (!user) return res.status(401).json({ message: "User not found" });
       let companyName: string | null = null;
       let trialInfo: { trialActive: boolean; trialExpired: boolean; trialDaysLeft: number; trialDaysTotal: number; trialStartDate: string | null } | null = null;
+      let paymentStatus: string | null = null;
       if (user.companyId) {
         const company = await companyService.getCompany(user.companyId);
         companyName = company?.companyName || null;
@@ -176,9 +177,25 @@ export async function registerAuthRoutes(app: Express): Promise<void> {
             trialDaysTotal: total,
             trialStartDate: company.trialStartDate,
           };
+
+          // If the trial has expired, a company-reported payment still grants
+          // access immediately while pending, and stays granted once approved.
+          // Only an explicit rejection (or no submission) keeps access locked.
+          if (trialInfo.trialExpired) {
+            const latest = await db.execute(sql`
+              SELECT status FROM payment_submissions
+              WHERE company_id = ${user.companyId}
+              ORDER BY created_at DESC
+              LIMIT 1
+            `);
+            paymentStatus = ((latest.rows[0] as { status?: string } | undefined)?.status) ?? null;
+            if (paymentStatus === "pending" || paymentStatus === "approved") {
+              trialInfo.trialExpired = false;
+            }
+          }
         }
       }
-      res.json({ ...user, companyName, ...(trialInfo ?? {}) });
+      res.json({ ...user, companyName, ...(trialInfo ?? {}), paymentStatus });
     } catch (error) {
       res.status(500).json({ message: "Internal server error" });
     }

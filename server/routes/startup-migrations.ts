@@ -423,4 +423,28 @@ export async function runStartupMigrations(): Promise<void> {
   await db.execute(sql`
     CREATE INDEX IF NOT EXISTS employees_master_employee_idx ON employees (master_employee_id)
   `).catch(() => {});
+
+  // Payment submissions: a company admin reports a payment (amount/date/ref no)
+  // from the trial-expired wall. Access is granted immediately (status pending);
+  // a super admin later approves or rejects. Rejection re-locks access.
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS payment_submissions (
+      id            VARCHAR(36)   PRIMARY KEY,
+      company_id    VARCHAR(36)   NOT NULL,
+      amount        NUMERIC(14,2) NOT NULL,
+      payment_date  TEXT          NOT NULL,
+      reference_no  TEXT          NOT NULL,
+      note          TEXT,
+      status        TEXT          NOT NULL DEFAULT 'pending',
+      review_note   TEXT,
+      reviewed_by   VARCHAR(36),
+      reviewed_at   TEXT,
+      submitted_by  VARCHAR(36),
+      created_at    TEXT          NOT NULL
+    )
+  `).catch((err) => console.error("[migrations] create payment_submissions failed:", err));
+  await db.execute(sql`
+    CREATE INDEX IF NOT EXISTS payment_submissions_company_idx
+      ON payment_submissions (company_id, created_at DESC)
+  `).catch(() => {});
 }

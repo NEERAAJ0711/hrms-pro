@@ -29,6 +29,8 @@ import {
   QrCode,
   Upload,
   Trash2,
+  CheckCircle2,
+  XCircle,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -1018,6 +1020,9 @@ export default function BillingPage() {
       {/* Payment QR Code */}
       <PaymentQrCard />
 
+      {/* Company-reported payment submissions */}
+      <PaymentSubmissionsCard />
+
       {/* Tabs: Accounts & Invoices */}
       <Tabs defaultValue="accounts">
         <TabsList className="mb-2">
@@ -1380,6 +1385,128 @@ function PaymentQrCard() {
               </div>
             </div>
           </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+interface PaymentSubmission {
+  id: string;
+  companyId: string;
+  companyName: string | null;
+  amount: string;
+  paymentDate: string;
+  referenceNo: string;
+  note: string | null;
+  status: string;
+  reviewNote: string | null;
+  reviewedAt: string | null;
+  createdAt: string;
+}
+
+function PaymentSubmissionsCard() {
+  const { toast } = useToast();
+  const { data: submissions = [], isLoading } = useQuery<PaymentSubmission[]>({
+    queryKey: ["/api/billing/payment-submissions"],
+  });
+
+  const reviewMutation = useMutation({
+    mutationFn: ({ id, status }: { id: string; status: "approved" | "rejected" }) =>
+      apiRequest("PATCH", `/api/billing/payment-submission/${id}`, { status }),
+    onSuccess: (_d, vars) => {
+      toast({
+        title: vars.status === "approved" ? "Payment approved" : "Payment rejected",
+        description: vars.status === "rejected"
+          ? "The company's access has been locked again."
+          : "The company's access stays active.",
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/billing/payment-submissions"] });
+    },
+    onError: (e: Error) => toast({ title: "Action failed", description: e.message, variant: "destructive" }),
+  });
+
+  const statusBadge = (status: string) => {
+    if (status === "approved") return <Badge className="bg-green-100 text-green-700 hover:bg-green-100">Approved</Badge>;
+    if (status === "rejected") return <Badge className="bg-red-100 text-red-700 hover:bg-red-100">Rejected</Badge>;
+    return <Badge className="bg-amber-100 text-amber-700 hover:bg-amber-100">Pending</Badge>;
+  };
+
+  return (
+    <Card className="mb-6" data-testid="card-payment-submissions">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <CreditCard className="h-5 w-5" /> Payment Submissions
+        </CardTitle>
+        <CardDescription>
+          Payments reported by companies from the trial-expired screen. Access is granted immediately; approve to confirm or reject to lock again.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <div className="flex items-center justify-center py-8 text-muted-foreground">
+            <Loader2 className="h-5 w-5 animate-spin mr-2" /> Loading…
+          </div>
+        ) : submissions.length === 0 ? (
+          <p className="text-sm text-muted-foreground py-6 text-center" data-testid="text-no-submissions">
+            No payment submissions yet.
+          </p>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Company</TableHead>
+                <TableHead>Amount</TableHead>
+                <TableHead>Payment Date</TableHead>
+                <TableHead>Reference No.</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {submissions.map((s) => (
+                <TableRow key={s.id} data-testid={`row-submission-${s.id}`}>
+                  <TableCell className="font-medium" data-testid={`text-submission-company-${s.id}`}>
+                    {s.companyName || s.companyId}
+                  </TableCell>
+                  <TableCell data-testid={`text-submission-amount-${s.id}`}>₹{Number(s.amount).toLocaleString("en-IN")}</TableCell>
+                  <TableCell>{s.paymentDate}</TableCell>
+                  <TableCell data-testid={`text-submission-reference-${s.id}`}>{s.referenceNo}</TableCell>
+                  <TableCell>{statusBadge(s.status)}</TableCell>
+                  <TableCell className="text-right">
+                    {s.status === "pending" ? (
+                      <div className="flex items-center justify-end gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="text-green-700 border-green-300 hover:bg-green-50"
+                          disabled={reviewMutation.isPending}
+                          onClick={() => reviewMutation.mutate({ id: s.id, status: "approved" })}
+                          data-testid={`button-approve-${s.id}`}
+                        >
+                          <CheckCircle2 className="h-4 w-4 mr-1" /> Approve
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="text-red-700 border-red-300 hover:bg-red-50"
+                          disabled={reviewMutation.isPending}
+                          onClick={() => reviewMutation.mutate({ id: s.id, status: "rejected" })}
+                          data-testid={`button-reject-${s.id}`}
+                        >
+                          <XCircle className="h-4 w-4 mr-1" /> Reject
+                        </Button>
+                      </div>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">
+                        {s.reviewedAt ? new Date(s.reviewedAt).toLocaleDateString("en-IN") : "—"}
+                      </span>
+                    )}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
         )}
       </CardContent>
     </Card>

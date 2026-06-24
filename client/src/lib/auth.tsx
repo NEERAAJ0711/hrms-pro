@@ -15,6 +15,7 @@ interface User {
   trialDaysLeft?: number;
   trialDaysTotal?: number;
   trialStartDate?: string | null;
+  paymentStatus?: string | null;
 }
 
 interface AuthContextType {
@@ -46,6 +47,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     checkAuth();
   }, []);
+
+  // Re-check access periodically so trial/payment status changes (e.g. a super
+  // admin rejecting a reported payment) take effect without a manual reload.
+  // When access is only provisionally granted by a still-pending payment, poll
+  // more often so a rejection re-locks the company almost immediately.
+  useEffect(() => {
+    if (!user) return;
+    const intervalMs = user.paymentStatus === "pending" ? 15000 : 60000;
+    const id = setInterval(() => {
+      void refreshUser();
+    }, intervalMs);
+    return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id, user?.paymentStatus]);
 
   const checkAuth = async () => {
     try {
