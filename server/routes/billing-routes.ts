@@ -740,13 +740,52 @@ export async function registerBillingRoutes(app: Express): Promise<void> {
         return res.status(400).json({ error: "status must be 'approved' or 'rejected'" });
       }
       const now = new Date().toISOString();
-      await db.execute(sql`
-        UPDATE payment_submissions
-        SET status = ${status}, review_note = ${reviewNote || null}, reviewed_by = ${user.id}, reviewed_at = ${now}
-        WHERE id = ${req.params.id}
-      `);
+
+      const existing = await db.execute(sql`SELECT id FROM payment_submissions WHERE id = ${req.params.id}`);
+      if (!existing.rows[0]) return res.status(404).json({ error: "Submission not found" });
+
+      // Whole approve/credit operation runs in one transaction so the status
+      // change, balance top-up and ledger entry either all commit or none do.
+      await db.transaction(async (tx) => {
+        await tx.execute(sql`
+          UPDATE payment_submissions
+          SET status = ${status}, review_note = ${reviewNote || null}, reviewed_by = ${user.id}, reviewed_at = ${now}
+          WHERE id = ${req.params.id}
+        `);
+
+        if (status === "approved") {
+          // Atomically claim crediting: only the request that flips credited_at
+          // from NULL proceeds, so the amount is added to the balance exactly
+          // once even under concurrent approvals.
+          const claim = await tx.execute(sql`
+            UPDATE payment_submissions SET credited_at = ${now}
+            WHERE id = ${req.params.id} AND credited_at IS NULL
+            RETURNING amount, company_id, payment_date, reference_no
+          `);
+          const c = claim.rows[0] as any;
+          if (c && Number(c.amount) > 0) {
+            const amt = Number(c.amount);
+            await tx.execute(sql`
+              INSERT INTO cd_accounts (id, company_id, credit_balance, cost_per_employee_per_day, rate_effective_from, low_balance_threshold, allow_negative, notes, created_at, updated_at)
+              VALUES (${randomUUID()}, ${c.company_id}, 0, 15, ${now.slice(0, 10)}, 1000, false, ${"Auto-created on payment approval"}, ${now}, ${now})
+              ON CONFLICT (company_id) DO NOTHING
+            `);
+            const balRow = await tx.execute(sql`
+              UPDATE cd_accounts SET credit_balance = credit_balance + ${amt}, updated_at = ${now}
+              WHERE company_id = ${c.company_id}
+              RETURNING credit_balance
+            `);
+            const balAfter = (balRow.rows[0] as any)?.credit_balance ?? 0;
+            await tx.execute(sql`
+              INSERT INTO cd_transactions (id, company_id, type, amount, balance_after, description, reference_no, created_by, created_at)
+              VALUES (${randomUUID()}, ${c.company_id}, 'credit', ${amt}, ${balAfter},
+                ${`Payment approved — ${c.payment_date}`}, ${c.reference_no || null}, ${user.id}, ${now})
+            `);
+          }
+        }
+      });
+
       const row = await db.execute(sql`SELECT * FROM payment_submissions WHERE id = ${req.params.id}`);
-      if (!row.rows[0]) return res.status(404).json({ error: "Submission not found" });
       res.json(mapSubmission(row.rows[0]));
     } catch (error) {
       res.status(500).json({ error: "Failed to update payment submission" });

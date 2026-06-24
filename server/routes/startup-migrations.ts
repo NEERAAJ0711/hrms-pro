@@ -1,6 +1,7 @@
 // HRMS Pro — idempotent startup schema migrations (run once at boot)
 import { db } from "../db";
 import { sql } from "drizzle-orm";
+import { randomUUID } from "crypto";
 
 export async function runStartupMigrations(): Promise<void> {
 
@@ -447,4 +448,56 @@ export async function runStartupMigrations(): Promise<void> {
     CREATE INDEX IF NOT EXISTS payment_submissions_company_idx
       ON payment_submissions (company_id, created_at DESC)
   `).catch(() => {});
+  // Idempotency marker: set once a submission's amount has been added to the
+  // company's credit balance, so approval never double-credits.
+  await db.execute(sql`ALTER TABLE payment_submissions ADD COLUMN IF NOT EXISTS credited_at TEXT`)
+    .catch((err) => console.error("[migrations] add payment_submissions.credited_at failed:", err));
+
+  // Backfill: credit any submission approved before crediting-on-approval
+  // existed (status 'approved' but never credited). Each row is processed in its
+  // own transaction with an atomic credited_at claim, so the backfill is safe to
+  // run on every boot and a single bad row never aborts the rest.
+  try {
+    const pending = await db.execute(sql`
+      SELECT id FROM payment_submissions WHERE status = 'approved' AND credited_at IS NULL
+    `);
+    for (const r of pending.rows as any[]) {
+      try {
+        await db.transaction(async (tx) => {
+          const ts = new Date().toISOString();
+          const claim = await tx.execute(sql`
+            UPDATE payment_submissions SET credited_at = ${ts}
+            WHERE id = ${r.id} AND credited_at IS NULL
+            RETURNING amount, company_id, payment_date, reference_no, reviewed_by
+          `);
+          const c = claim.rows[0] as any;
+          if (!c) return; // already credited by a concurrent path
+          const amt = Number(c.amount);
+          if (amt > 0) {
+            await tx.execute(sql`
+              INSERT INTO cd_accounts (id, company_id, credit_balance, cost_per_employee_per_day, rate_effective_from, low_balance_threshold, allow_negative, notes, created_at, updated_at)
+              VALUES (${randomUUID()}, ${c.company_id}, 0, 15, ${ts.slice(0, 10)}, 1000, false, 'Auto-created on payment approval backfill', ${ts}, ${ts})
+              ON CONFLICT (company_id) DO NOTHING
+            `);
+            const balRow = await tx.execute(sql`
+              UPDATE cd_accounts SET credit_balance = credit_balance + ${amt}, updated_at = ${ts}
+              WHERE company_id = ${c.company_id}
+              RETURNING credit_balance
+            `);
+            const balAfter = (balRow.rows[0] as any)?.credit_balance ?? 0;
+            await tx.execute(sql`
+              INSERT INTO cd_transactions (id, company_id, type, amount, balance_after, description, reference_no, created_by, created_at)
+              VALUES (${randomUUID()}, ${c.company_id}, 'credit', ${amt}, ${balAfter},
+                ${`Payment approved — ${c.payment_date}`}, ${c.reference_no || null}, ${c.reviewed_by || null}, ${ts})
+            `);
+          }
+          console.log(`[migrations] backfilled payment credit for submission ${r.id} (₹${amt})`);
+        });
+      } catch (rowErr) {
+        console.error(`[migrations] backfill failed for submission ${r.id}:`, rowErr);
+      }
+    }
+  } catch (err) {
+    console.error("[migrations] payment credit backfill failed:", err);
+  }
 }

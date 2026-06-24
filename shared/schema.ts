@@ -1149,6 +1149,7 @@ export const paymentSubmissions = pgTable("payment_submissions", {
   reviewNote: text("review_note"),
   reviewedBy: varchar("reviewed_by", { length: 36 }).references((): AnyPgColumn => users.id, { onDelete: "set null" }),
   reviewedAt: text("reviewed_at"),
+  creditedAt: text("credited_at"),
   submittedBy: varchar("submitted_by", { length: 36 }).references((): AnyPgColumn => users.id, { onDelete: "set null" }),
   createdAt: text("created_at").notNull(),
 });
