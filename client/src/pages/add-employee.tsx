@@ -381,6 +381,7 @@ export default function AddEmployee() {
       pan: searchParams.get("pan") || "",
       bankAccount: searchParams.get("bankAccount") || "",
       ifsc: searchParams.get("ifsc") || "",
+      paymentMode: "",
       presentAddress: "",
       presentState: "",
       presentDistrict: "",
@@ -456,6 +457,7 @@ export default function AddEmployee() {
       otRate: (existingEmployee as any).otRate || "2x",
       bankAccount: existingEmployee.bankAccount || "",
       ifsc: existingEmployee.ifsc || "",
+      paymentMode: existingEmployee.paymentMode || "",
       pan: existingEmployee.pan || "",
       aadhaar: existingEmployee.aadhaar || "",
       timeOfficePolicyId: existingEmployee.timeOfficePolicyId || "",
@@ -1566,6 +1568,28 @@ export default function AddEmployee() {
                           <FormControl>
                             <Input placeholder="SBIN0001234" {...field} data-testid="input-ifsc" />
                           </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="paymentMode"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Salary Payment Mode</FormLabel>
+                          <Select onValueChange={field.onChange} value={field.value || ""}>
+                            <FormControl>
+                              <SelectTrigger data-testid="select-payment-mode">
+                                <SelectValue placeholder="Select payment mode" />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              <SelectItem value="bank">Bank Transfer</SelectItem>
+                              <SelectItem value="cash">Cash</SelectItem>
+                              <SelectItem value="cheque">Cheque</SelectItem>
+                            </SelectContent>
+                          </Select>
                           <FormMessage />
                         </FormItem>
                       )}
