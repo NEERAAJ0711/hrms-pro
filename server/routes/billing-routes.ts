@@ -34,6 +34,33 @@ import {
   upload, docUpload, companyAssetUpload, safeUnlinkCompanyAsset,
   COMPANY_ASSETS_DIR, DOC_UPLOAD_DIR, daysInMonth,
 } from "./shared";
+import { settingsService } from "../services";
+
+// Multer for the global payment QR image (super admin uploads one shared QR)
+const paymentQrUpload = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, COMPANY_ASSETS_DIR),
+    filename: (_req, file, cb) => cb(null, `payment-qr-${Date.now()}${path.extname(file.originalname)}`),
+  }),
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const allowed = ["image/jpeg", "image/png", "image/webp", "image/gif"];
+    cb(null, allowed.includes(file.mimetype));
+  },
+});
+
+const PAYMENT_QR_KEY = "payment_qr_url";
+const PAYMENT_UPI_KEY = "payment_upi_id";
+const PAYMENT_NOTE_KEY = "payment_note";
+
+async function upsertGlobalSetting(key: string, value: string): Promise<void> {
+  const existing = await settingsService.getSettingByKey(null, key);
+  if (existing) {
+    await settingsService.updateSetting(existing.id, { value });
+  } else {
+    await settingsService.createSetting({ key, value, category: "payment", companyId: null });
+  }
+}
 
 export async function registerBillingRoutes(app: Express): Promise<void> {
   // ===== CD Accounts (Credits & Billing) =====
@@ -543,6 +570,78 @@ export async function registerBillingRoutes(app: Express): Promise<void> {
       res.json(txs);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch transactions" });
+    }
+  });
+
+  // ===== Payment QR (global, super admin managed) =====
+
+  // Get the payment QR + details — visible to any logged-in user (shown to blocked admins)
+  app.get("/api/billing/payment-qr", requireAuth, async (_req, res) => {
+    try {
+      const [qrRow, upiRow, noteRow] = await Promise.all([
+        settingsService.getSettingByKey(null, PAYMENT_QR_KEY),
+        settingsService.getSettingByKey(null, PAYMENT_UPI_KEY),
+        settingsService.getSettingByKey(null, PAYMENT_NOTE_KEY),
+      ]);
+      res.json({
+        qrUrl: qrRow?.value || null,
+        upiId: upiRow?.value || null,
+        note: noteRow?.value || null,
+      });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch payment QR" });
+    }
+  });
+
+  // Upload / update the payment QR + details (super admin only)
+  app.post("/api/billing/payment-qr", requireAuth, requireRole("super_admin"), (req, res, next) => {
+    paymentQrUpload.single("file")(req, res, (err: unknown) => {
+      if (err) {
+        const msg = err instanceof Error ? err.message : "Upload failed";
+        return res.status(400).json({ error: msg });
+      }
+      next();
+    });
+  }, async (req, res) => {
+    try {
+      const { upiId, note } = req.body as { upiId?: string; note?: string };
+      if (req.file) {
+        const prev = await settingsService.getSettingByKey(null, PAYMENT_QR_KEY);
+        const oldPath = prev?.value || null;
+        const urlPath = `/uploads/company-assets/${req.file.filename}`;
+        await upsertGlobalSetting(PAYMENT_QR_KEY, urlPath);
+        if (oldPath && oldPath !== urlPath) safeUnlinkCompanyAsset(oldPath);
+      }
+      if (typeof upiId === "string") await upsertGlobalSetting(PAYMENT_UPI_KEY, upiId.trim());
+      if (typeof note === "string") await upsertGlobalSetting(PAYMENT_NOTE_KEY, note.trim());
+
+      const [qrRow, upiRow, noteRow] = await Promise.all([
+        settingsService.getSettingByKey(null, PAYMENT_QR_KEY),
+        settingsService.getSettingByKey(null, PAYMENT_UPI_KEY),
+        settingsService.getSettingByKey(null, PAYMENT_NOTE_KEY),
+      ]);
+      res.json({
+        qrUrl: qrRow?.value || null,
+        upiId: upiRow?.value || null,
+        note: noteRow?.value || null,
+      });
+    } catch (error) {
+      console.error("Payment QR upload error:", error);
+      res.status(500).json({ error: "Failed to save payment QR" });
+    }
+  });
+
+  // Remove the payment QR image (super admin only)
+  app.delete("/api/billing/payment-qr", requireAuth, requireRole("super_admin"), async (_req, res) => {
+    try {
+      const prev = await settingsService.getSettingByKey(null, PAYMENT_QR_KEY);
+      if (prev?.value) {
+        safeUnlinkCompanyAsset(prev.value);
+        await settingsService.updateSetting(prev.id, { value: "" });
+      }
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to remove payment QR" });
     }
   });
 }

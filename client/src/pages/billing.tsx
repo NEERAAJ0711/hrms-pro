@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { format } from "date-fns";
@@ -26,6 +26,9 @@ import {
   Loader2,
   ChevronDown,
   ChevronUp,
+  QrCode,
+  Upload,
+  Trash2,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -1012,6 +1015,9 @@ export default function BillingPage() {
         </Card>
       </div>
 
+      {/* Payment QR Code */}
+      <PaymentQrCard />
+
       {/* Tabs: Accounts & Invoices */}
       <Tabs defaultValue="accounts">
         <TabsList className="mb-2">
@@ -1232,5 +1238,150 @@ function CompanyAdminLedger({ companyId }: { companyId: string }) {
         );
       })}
     </div>
+  );
+}
+
+// ── Payment QR Code (super admin) ───────────────────────────────────────────
+type PaymentQr = { qrUrl: string | null; upiId: string | null; note: string | null };
+
+function PaymentQrCard() {
+  const { toast } = useToast();
+  const [file, setFile] = useState<File | null>(null);
+  const [preview, setPreview] = useState<string | null>(null);
+  const [upiId, setUpiId] = useState("");
+  const [note, setNote] = useState("");
+  const [initialized, setInitialized] = useState(false);
+
+  const { data, isLoading } = useQuery<PaymentQr>({ queryKey: ["/api/billing/payment-qr"] });
+
+  useEffect(() => {
+    if (data && !initialized) {
+      setUpiId(data.upiId || "");
+      setNote(data.note || "");
+      setInitialized(true);
+    }
+  }, [data, initialized]);
+
+  const saveMutation = useMutation({
+    mutationFn: async () => {
+      const fd = new FormData();
+      if (file) fd.append("file", file);
+      fd.append("upiId", upiId);
+      fd.append("note", note);
+      const res = await fetch("/api/billing/payment-qr", {
+        method: "POST",
+        body: fd,
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error((await res.text()) || "Failed to save");
+      return res.json();
+    },
+    onSuccess: () => {
+      setFile(null);
+      setPreview(null);
+      queryClient.invalidateQueries({ queryKey: ["/api/billing/payment-qr"] });
+      toast({ title: "Saved", description: "Payment QR details updated." });
+    },
+    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const removeMutation = useMutation({
+    mutationFn: async () => {
+      await apiRequest("DELETE", "/api/billing/payment-qr");
+    },
+    onSuccess: () => {
+      setFile(null);
+      setPreview(null);
+      queryClient.invalidateQueries({ queryKey: ["/api/billing/payment-qr"] });
+      toast({ title: "Removed", description: "Payment QR image removed." });
+    },
+    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const onFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0] || null;
+    setFile(f);
+    setPreview(f ? URL.createObjectURL(f) : null);
+  };
+
+  const shownImage = preview || data?.qrUrl || null;
+
+  return (
+    <Card data-testid="card-payment-qr">
+      <CardHeader className="pb-4">
+        <CardTitle className="text-base flex items-center gap-2">
+          <QrCode className="h-4 w-4 text-primary" /> Payment QR Code
+        </CardTitle>
+        <CardDescription>
+          Upload a QR code so blocked companies can scan and pay directly to restore access.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <Skeleton className="h-40 w-full" />
+        ) : (
+          <div className="flex flex-col md:flex-row gap-6">
+            <div className="flex flex-col items-center gap-3">
+              <div className="h-44 w-44 rounded-lg border bg-muted/40 flex items-center justify-center overflow-hidden">
+                {shownImage ? (
+                  <img src={shownImage} alt="Payment QR" className="h-full w-full object-contain" data-testid="img-payment-qr" />
+                ) : (
+                  <div className="text-center text-muted-foreground text-sm px-4">
+                    <QrCode className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                    No QR uploaded
+                  </div>
+                )}
+              </div>
+              <label className="cursor-pointer">
+                <input type="file" accept="image/*" className="hidden" onChange={onFileChange} data-testid="input-payment-qr-file" />
+                <span className="inline-flex items-center gap-2 text-sm px-3 py-2 rounded-md border hover:bg-accent">
+                  <Upload className="h-4 w-4" /> Choose Image
+                </span>
+              </label>
+            </div>
+            <div className="flex-1 space-y-4">
+              <div>
+                <label className="text-sm font-medium">UPI ID (optional)</label>
+                <Input
+                  value={upiId}
+                  onChange={(e) => setUpiId(e.target.value)}
+                  placeholder="example@upi"
+                  className="mt-1"
+                  data-testid="input-payment-upi"
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium">Payment Note (optional)</label>
+                <Textarea
+                  value={note}
+                  onChange={(e) => setNote(e.target.value)}
+                  placeholder="e.g. Pay the pending amount and share the screenshot to support."
+                  className="mt-1"
+                  rows={3}
+                  data-testid="input-payment-note"
+                />
+              </div>
+              <div className="flex gap-2">
+                <Button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending} data-testid="button-save-payment-qr">
+                  {saveMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Upload className="h-4 w-4 mr-2" />}
+                  Save
+                </Button>
+                {data?.qrUrl && (
+                  <Button
+                    variant="outline"
+                    onClick={() => removeMutation.mutate()}
+                    disabled={removeMutation.isPending}
+                    data-testid="button-remove-payment-qr"
+                  >
+                    {removeMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Trash2 className="h-4 w-4 mr-2" />}
+                    Remove QR
+                  </Button>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }

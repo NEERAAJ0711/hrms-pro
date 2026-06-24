@@ -1,9 +1,14 @@
-import { AlertTriangle, Phone, Mail, Clock, ArrowRight } from "lucide-react";
+import { AlertTriangle, Phone, Mail, Clock, ArrowRight, QrCode } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth";
 
+type PaymentQr = { qrUrl: string | null; upiId: string | null; note: string | null };
+
 export function TrialExpiredWall() {
   const { user, logout } = useAuth();
+  const { data: payment } = useQuery<PaymentQr>({ queryKey: ["/api/billing/payment-qr"] });
+  const hasPayment = !!(payment?.qrUrl || payment?.upiId);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center p-6">
@@ -49,6 +54,35 @@ export function TrialExpiredWall() {
             </div>
           </div>
         </div>
+
+        {hasPayment && (
+          <div className="bg-white/5 border border-white/10 rounded-2xl p-6 mb-6" data-testid="section-payment-qr">
+            <h2 className="text-white font-semibold text-sm uppercase tracking-wider mb-4 flex items-center gap-2">
+              <QrCode className="h-4 w-4 text-emerald-400" /> Pay to Restore Access
+            </h2>
+            {payment?.qrUrl && (
+              <div className="flex justify-center mb-4">
+                <div className="bg-white rounded-xl p-3">
+                  <img
+                    src={payment.qrUrl}
+                    alt="Payment QR Code"
+                    className="h-52 w-52 object-contain"
+                    data-testid="img-trial-payment-qr"
+                  />
+                </div>
+              </div>
+            )}
+            {payment?.upiId && (
+              <div className="text-center mb-3">
+                <p className="text-xs text-slate-400 mb-0.5">UPI ID</p>
+                <p className="text-white font-semibold" data-testid="text-trial-upi-id">{payment.upiId}</p>
+              </div>
+            )}
+            {payment?.note && (
+              <p className="text-slate-300 text-sm text-center" data-testid="text-trial-payment-note">{payment.note}</p>
+            )}
+          </div>
+        )}
 
         <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-4 mb-6">
           <p className="text-amber-300 text-sm text-center">
