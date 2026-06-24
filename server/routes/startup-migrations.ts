@@ -246,6 +246,9 @@ export async function runStartupMigrations(): Promise<void> {
   await db.execute(sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS trial_start_date TEXT`).catch(() => {});
   await db.execute(sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS trial_days INTEGER NOT NULL DEFAULT 3`).catch(() => {});
   await db.execute(sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS trial_extended_days INTEGER NOT NULL DEFAULT 0`).catch(() => {});
+
+  // Ensure one daily-billing entry per company per day (enables ON CONFLICT dedupe).
+  await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS daily_billing_logs_company_id_date_unique ON daily_billing_logs (company_id, date)`).catch(() => {});
   // Backfill: any company without a trial_start_date gets today as their trial start
   // trial_days stays 3 (default) — billing kicks in after 3 days from today
   await db.execute(sql`

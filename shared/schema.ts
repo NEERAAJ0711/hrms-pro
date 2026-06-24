@@ -1,4 +1,4 @@
-import { pgTable, text, varchar, boolean, timestamp, integer, real, numeric, bigserial, json, jsonb, index } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, boolean, timestamp, integer, real, numeric, bigserial, json, jsonb, index, uniqueIndex } from "drizzle-orm/pg-core";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -1112,7 +1112,10 @@ export const dailyBillingLogs = pgTable("daily_billing_logs", {
   ratePerDay: numeric("rate_per_day", { precision: 10, scale: 4 }).notNull(),
   amount: numeric("amount", { precision: 14, scale: 4 }).notNull(),
   createdAt: text("created_at").notNull(),
-});
+}, (table) => [
+  // One billing entry per company per day (also enables ON CONFLICT dedupe).
+  uniqueIndex("daily_billing_logs_company_id_date_unique").on(table.companyId, table.date),
+]);
 export const insertDailyBillingLogSchema = createInsertSchema(dailyBillingLogs).omit({ id: true });
 export type InsertDailyBillingLog = z.infer<typeof insertDailyBillingLogSchema>;
 export type DailyBillingLog = typeof dailyBillingLogs.$inferSelect;
