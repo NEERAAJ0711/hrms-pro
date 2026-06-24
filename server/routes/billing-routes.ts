@@ -273,7 +273,22 @@ export async function registerBillingRoutes(app: Express): Promise<void> {
           WHERE a.company_id = ${user.companyId}
         `);
       }
-      res.json(rows.rows);
+      const accounts = (rows.rows as any[]).map((r) => ({
+        id: r.id,
+        companyId: r.company_id,
+        companyName: r.company_name,
+        companyStatus: r.company_status,
+        creditBalance: r.credit_balance,
+        costPerEmployeePerDay: r.cost_per_employee_per_day,
+        rateEffectiveFrom: r.rate_effective_from,
+        lowBalanceThreshold: r.low_balance_threshold,
+        allowNegative: r.allow_negative,
+        notes: r.notes,
+        activeEmployeeCount: r.active_employee_count,
+        createdAt: r.created_at,
+        updatedAt: r.updated_at,
+      }));
+      res.json(accounts);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch billing accounts" });
     }
@@ -428,7 +443,23 @@ export async function registerBillingRoutes(app: Express): Promise<void> {
           ORDER BY i.period_month DESC, i.created_at DESC
         `);
       }
-      res.json(rows.rows);
+      const invoices = (rows.rows as any[]).map((r) => ({
+        id: r.id,
+        invoiceNo: r.invoice_no,
+        companyId: r.company_id,
+        companyName: r.company_name,
+        periodMonth: r.period_month,
+        periodFrom: r.period_from,
+        periodTo: r.period_to,
+        employeeCount: r.employee_count,
+        ratePerDay: r.rate_per_day,
+        daysInPeriod: r.days_in_period,
+        totalAmount: r.total_amount,
+        status: r.status,
+        notes: r.notes,
+        createdAt: r.created_at,
+      }));
+      res.json(invoices);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch invoices" });
     }
@@ -458,7 +489,16 @@ export async function registerBillingRoutes(app: Express): Promise<void> {
         ORDER BY date DESC
         LIMIT 400
       `);
-      res.json(rows.rows);
+      const logs = (rows.rows as any[]).map((r) => ({
+        id: r.id,
+        companyId: r.company_id,
+        date: r.date,
+        employeeCount: r.employee_count,
+        ratePerDay: r.rate_per_day,
+        amount: r.amount,
+        createdAt: r.created_at,
+      }));
+      res.json(logs);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch daily billing logs" });
     }
@@ -488,7 +528,19 @@ export async function registerBillingRoutes(app: Express): Promise<void> {
         ORDER BY t.created_at DESC
         LIMIT 200
       `);
-      res.json(rows.rows);
+      const txs = (rows.rows as any[]).map((r) => ({
+        id: r.id,
+        companyId: r.company_id,
+        type: r.type,
+        amount: r.amount,
+        balanceAfter: r.balance_after,
+        description: r.description,
+        referenceNo: r.reference_no,
+        firstName: r.first_name,
+        lastName: r.last_name,
+        createdAt: r.created_at,
+      }));
+      res.json(txs);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch transactions" });
     }
