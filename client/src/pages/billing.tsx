@@ -975,6 +975,8 @@ export default function BillingPage() {
               );
             })()}
 
+            <CompanyTopUpCard />
+
             <Tabs defaultValue="transactions">
               <TabsList>
                 <TabsTrigger value="transactions" className="flex items-center gap-1">
@@ -1285,6 +1287,126 @@ function CompanyAdminLedger({ companyId }: { companyId: string }) {
         );
       })}
     </div>
+  );
+}
+
+// ── Top Up (company admin) ──────────────────────────────────────────────────
+type MySubmission = { id: string; amount: string; paymentDate: string; referenceNo: string; status: string; createdAt: string } | null;
+
+function CompanyTopUpCard() {
+  const { toast } = useToast();
+  const { data: payment } = useQuery<PaymentQr>({ queryKey: ["/api/billing/payment-qr"] });
+  const { data: mine } = useQuery<MySubmission>({ queryKey: ["/api/billing/payment-submission/mine"] });
+  const hasPayment = !!(payment?.qrUrl || payment?.upiId);
+
+  const [amount, setAmount] = useState("");
+  const [paymentDate, setPaymentDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [referenceNo, setReferenceNo] = useState("");
+
+  const submitMutation = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/billing/payment-submission", { amount, paymentDate, referenceNo }),
+    onSuccess: () => {
+      toast({ title: "Payment submitted", description: "Our team will verify it shortly and credit your balance." });
+      setAmount("");
+      setReferenceNo("");
+      queryClient.invalidateQueries({ queryKey: ["/api/billing/payment-submission/mine"] });
+    },
+    onError: (e: Error) => toast({ title: "Could not submit", description: e.message, variant: "destructive" }),
+  });
+
+  const canSubmit = amount.trim() !== "" && Number(amount) > 0 && paymentDate.trim() !== "" && referenceNo.trim() !== "";
+
+  return (
+    <Card data-testid="card-company-topup">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-lg">
+          <QrCode className="h-5 w-5 text-primary" /> Top Up Balance
+        </CardTitle>
+        <CardDescription>Scan the QR or pay to the UPI ID, then submit your payment details below.</CardDescription>
+      </CardHeader>
+      <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* Payment QR / UPI */}
+        <div className="space-y-3">
+          {hasPayment ? (
+            <>
+              {payment?.qrUrl && (
+                <div className="flex justify-center">
+                  <div className="bg-white rounded-xl p-3 border">
+                    <img src={payment.qrUrl} alt="Payment QR Code" className="h-52 w-52 object-contain" data-testid="img-company-topup-qr" />
+                  </div>
+                </div>
+              )}
+              {payment?.upiId && (
+                <div className="text-center">
+                  <p className="text-xs text-muted-foreground mb-0.5">UPI ID</p>
+                  <p className="font-semibold" data-testid="text-company-topup-upi">{payment.upiId}</p>
+                </div>
+              )}
+              {payment?.note && (
+                <p className="text-sm text-muted-foreground text-center" data-testid="text-company-topup-note">{payment.note}</p>
+              )}
+            </>
+          ) : (
+            <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground py-8">
+              <QrCode className="h-10 w-10 mb-2" />
+              <p className="text-sm">Payment details not configured yet. Please contact support to top up.</p>
+            </div>
+          )}
+        </div>
+
+        {/* Add entry form */}
+        <div className="space-y-3">
+          {mine && mine.status === "pending" && (
+            <div className="rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-950/20 p-3 text-sm text-amber-700 dark:text-amber-400" data-testid="banner-topup-pending">
+              Your last payment of ₹{fmt(mine.amount)} is awaiting verification.
+            </div>
+          )}
+          {mine && mine.status === "rejected" && (
+            <div className="rounded-lg border border-red-300 bg-red-50 dark:bg-red-950/20 p-3 text-sm text-red-700 dark:text-red-400" data-testid="banner-topup-rejected">
+              Your last payment could not be verified and was rejected. Please pay again and resubmit below.
+            </div>
+          )}
+          <div className="space-y-1.5">
+            <label className="text-sm font-medium">Amount (₹)</label>
+            <Input
+              type="number"
+              min="1"
+              value={amount}
+              onChange={e => setAmount(e.target.value)}
+              placeholder="e.g. 5000"
+              data-testid="input-topup-amount"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-sm font-medium">Payment Date</label>
+            <Input
+              type="date"
+              value={paymentDate}
+              onChange={e => setPaymentDate(e.target.value)}
+              data-testid="input-topup-date"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-sm font-medium">Reference / Transaction No.</label>
+            <Input
+              value={referenceNo}
+              onChange={e => setReferenceNo(e.target.value)}
+              placeholder="UTR / UPI ref / transaction id"
+              data-testid="input-topup-reference"
+            />
+          </div>
+          <Button
+            onClick={() => submitMutation.mutate()}
+            disabled={!canSubmit || submitMutation.isPending}
+            className="w-full"
+            data-testid="button-submit-topup"
+          >
+            {submitMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <CheckCircle2 className="h-4 w-4 mr-2" />}
+            Submit Payment
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
