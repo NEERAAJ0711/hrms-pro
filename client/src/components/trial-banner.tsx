@@ -21,8 +21,8 @@ export function TrialBanner() {
         {isUrgent ? <AlertTriangle className="h-4 w-4 shrink-0" /> : <Clock className="h-4 w-4 shrink-0" />}
         <span>
           {isUrgent
-            ? "Your free trial expires today! Contact Sales & Support to continue."
-            : `Free trial: ${daysLeft} day${daysLeft !== 1 ? "s" : ""} remaining. Contact sales@tbjvisionconnect.com to activate full access.`}
+            ? "Your free trial ends today — no charges during the trial. Daily billing begins tomorrow. Add credits or contact Sales & Support to avoid interruption."
+            : `Free trial: ${daysLeft} day${daysLeft !== 1 ? "s" : ""} remaining — no charges during the trial. Add credits before it ends to keep access. Contact sales@tbjvisionconnect.com.`}
         </span>
       </div>
       <button onClick={() => setDismissed(true)} className="ml-4 opacity-80 hover:opacity-100 shrink-0">

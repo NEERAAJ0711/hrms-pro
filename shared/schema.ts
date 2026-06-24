@@ -1079,6 +1079,7 @@ export const cdAccounts = pgTable("cd_accounts", {
   rateEffectiveFrom: text("rate_effective_from"),
   lowBalanceThreshold: numeric("low_balance_threshold", { precision: 14, scale: 4 }).notNull().default("1000"),
   allowNegative: boolean("allow_negative").notNull().default(false),
+  negativeLimit: numeric("negative_limit", { precision: 14, scale: 4 }).notNull().default("0"),
   notes: text("notes"),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),

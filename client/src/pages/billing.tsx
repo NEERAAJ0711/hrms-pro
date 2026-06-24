@@ -84,6 +84,7 @@ type BillingAccount = {
   rateEffectiveFrom: string | null;
   lowBalanceThreshold: string;
   allowNegative: boolean;
+  negativeLimit: string;
   notes: string | null;
   activeEmployeeCount: string;
   createdAt: string;
@@ -172,6 +173,7 @@ function SetupAccountDialog({ onClose }: { onClose: () => void }) {
   const [effectiveFrom, setEffectiveFrom] = useState(today());
   const [threshold, setThreshold] = useState(String(DEFAULT_THRESHOLD));
   const [allowNegative, setAllowNegative] = useState(false);
+  const [negativeLimit, setNegativeLimit] = useState("0");
   const [notes, setNotes] = useState("");
 
   const { data: unregistered = [] } = useQuery<UnregisteredCompany[]>({
@@ -185,6 +187,7 @@ function SetupAccountDialog({ onClose }: { onClose: () => void }) {
       rateEffectiveFrom: effectiveFrom,
       lowBalanceThreshold: Number(threshold) || DEFAULT_THRESHOLD,
       allowNegative,
+      negativeLimit: allowNegative ? Math.max(0, Number(negativeLimit) || 0) : 0,
       notes: notes || null,
     }),
     onSuccess: () => {
@@ -266,6 +269,19 @@ function SetupAccountDialog({ onClose }: { onClose: () => void }) {
               data-testid="switch-billing-allow-negative"
             />
           </div>
+          {allowNegative && (
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Negative Limit (₹)</label>
+              <Input
+                type="number"
+                min="0"
+                value={negativeLimit}
+                onChange={e => setNegativeLimit(e.target.value)}
+                data-testid="input-billing-negative-limit"
+              />
+              <p className="text-xs text-muted-foreground">Access is locked once the balance falls below −₹{fmt(Math.max(0, Number(negativeLimit) || 0))}. Use 0 to lock as soon as it goes negative.</p>
+            </div>
+          )}
           <div className="space-y-1.5">
             <label className="text-sm font-medium">Notes <span className="text-muted-foreground">(optional)</span></label>
             <Textarea
@@ -299,6 +315,7 @@ function EditAccountDialog({ account, onClose }: { account: BillingAccount; onCl
   const [effectiveFrom, setEffectiveFrom] = useState(account.rateEffectiveFrom || today());
   const [threshold, setThreshold] = useState(account.lowBalanceThreshold);
   const [allowNegative, setAllowNegative] = useState(account.allowNegative);
+  const [negativeLimit, setNegativeLimit] = useState(account.negativeLimit ?? "0");
   const [notes, setNotes] = useState(account.notes || "");
 
   const mutation = useMutation({
@@ -307,6 +324,7 @@ function EditAccountDialog({ account, onClose }: { account: BillingAccount; onCl
       rateEffectiveFrom: effectiveFrom || null,
       lowBalanceThreshold: Number(threshold) || DEFAULT_THRESHOLD,
       allowNegative,
+      negativeLimit: allowNegative ? Math.max(0, Number(negativeLimit) || 0) : 0,
       notes: notes || null,
     }),
     onSuccess: () => {
@@ -372,6 +390,19 @@ function EditAccountDialog({ account, onClose }: { account: BillingAccount; onCl
               data-testid="switch-edit-billing-allow-negative"
             />
           </div>
+          {allowNegative && (
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Negative Limit (₹)</label>
+              <Input
+                type="number"
+                min="0"
+                value={negativeLimit}
+                onChange={e => setNegativeLimit(e.target.value)}
+                data-testid="input-edit-billing-negative-limit"
+              />
+              <p className="text-xs text-muted-foreground">Access is locked once the balance falls below −₹{fmt(Math.max(0, Number(negativeLimit) || 0))}. Use 0 to lock as soon as it goes negative.</p>
+            </div>
+          )}
           <div className="space-y-1.5">
             <label className="text-sm font-medium">Notes</label>
             <Textarea
@@ -837,6 +868,7 @@ export default function BillingPage() {
   const { toast } = useToast();
   const isSuperAdmin = user?.role === "super_admin";
   const isCompanyAdmin = user?.role === "company_admin";
+  const isTrialActive = !!user?.trialActive && !user?.trialExpired;
 
   const [showSetup, setShowSetup] = useState(false);
   const [editAccount, setEditAccount] = useState<BillingAccount | null>(null);
@@ -897,7 +929,9 @@ export default function BillingPage() {
                     ₹ {fmt(acct.creditBalance)}
                   </p>
                   {acct.allowNegative && (
-                    <p className="text-xs text-muted-foreground mt-1">Negative balance allowed</p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Negative balance allowed up to −₹{fmt(acct.negativeLimit)}
+                    </p>
                   )}
                 </CardContent>
               </Card>
@@ -922,16 +956,24 @@ export default function BillingPage() {
               </Card>
             </div>
 
-            {Number(acct.creditBalance) <= (Number(acct.lowBalanceThreshold) || DEFAULT_THRESHOLD) && (
-              <Card className="border-amber-300 bg-amber-50 dark:bg-amber-950/20">
-                <CardContent className="pt-4 pb-4 flex items-center gap-3 text-amber-700 dark:text-amber-400">
-                  <AlertTriangle className="h-5 w-5 shrink-0" />
-                  <span className="text-sm font-medium">
-                    Low balance alert — balance is below ₹{fmt(acct.lowBalanceThreshold || DEFAULT_THRESHOLD)}. Please contact your administrator to top up.
-                  </span>
-                </CardContent>
-              </Card>
-            )}
+            {!isTrialActive && Number(acct.creditBalance) <= (Number(acct.lowBalanceThreshold) || DEFAULT_THRESHOLD) && (() => {
+              const bal = Number(acct.creditBalance);
+              const negLimit = Number(acct.negativeLimit) || 0;
+              const urgent = bal <= 0;
+              const lockMsg = acct.allowNegative
+                ? `Access will be locked once the balance falls below −₹${fmt(negLimit)}.`
+                : `Access will be locked once the balance reaches ₹0.`;
+              return (
+                <Card className={urgent ? "border-red-300 bg-red-50 dark:bg-red-950/20" : "border-amber-300 bg-amber-50 dark:bg-amber-950/20"}>
+                  <CardContent className={`pt-4 pb-4 flex items-center gap-3 ${urgent ? "text-red-700 dark:text-red-400" : "text-amber-700 dark:text-amber-400"}`}>
+                    <AlertTriangle className="h-5 w-5 shrink-0" />
+                    <span className="text-sm font-medium" data-testid="text-low-balance-alert">
+                      Low balance — ₹{fmt(acct.creditBalance)}. {lockMsg} Please contact your administrator to top up.
+                    </span>
+                  </CardContent>
+                </Card>
+              );
+            })()}
 
             <Tabs defaultValue="transactions">
               <TabsList>

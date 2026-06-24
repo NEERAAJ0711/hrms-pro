@@ -110,8 +110,10 @@ export async function registerBillingRoutes(app: Express): Promise<void> {
 
       const accounts = await db.execute(sql`
         SELECT a.company_id, a.cost_per_employee_per_day, a.created_at,
+          c.trial_start_date, c.trial_days, c.trial_extended_days,
           (SELECT COUNT(*) FROM employees e WHERE e.company_id = a.company_id AND e.status = 'active') as emp_count
         FROM cd_accounts a
+        JOIN companies c ON c.id = a.company_id
       `);
 
       let billedDays = 0;
@@ -120,14 +122,25 @@ export async function registerBillingRoutes(app: Express): Promise<void> {
         const rate = parseFloat(acct.cost_per_employee_per_day) || 0;
         const acctCreatedDate = acct.created_at.slice(0, 10);
 
-        // Find all dates from account creation to today that:
+        // No billing during the free-trial period. Billing starts the day AFTER
+        // the trial expires (trial_start + trial_days + extended, then +1 day).
+        let billStartDate = acctCreatedDate;
+        if (acct.trial_start_date) {
+          const total = (parseInt(acct.trial_days) || 3) + (parseInt(acct.trial_extended_days) || 0);
+          const firstBillable = new Date(acct.trial_start_date);
+          firstBillable.setDate(firstBillable.getDate() + total + 1);
+          const firstBillableStr = firstBillable.toISOString().slice(0, 10);
+          if (firstBillableStr > billStartDate) billStartDate = firstBillableStr;
+        }
+
+        // Find all dates from billing start to today that:
         // 1. Don't already have a daily_billing_log
         // 2. Don't belong to a month that already has a monthly invoice
         //    (prevents double-deduction if an invoice was already generated)
         const missingDates = await db.execute(sql`
           SELECT gs::date::text AS date
           FROM generate_series(
-            ${acctCreatedDate}::date,
+            ${billStartDate}::date,
             ${todayStr}::date,
             '1 day'::interval
           ) gs
@@ -307,6 +320,7 @@ export async function registerBillingRoutes(app: Express): Promise<void> {
         rateEffectiveFrom: r.rate_effective_from,
         lowBalanceThreshold: r.low_balance_threshold,
         allowNegative: r.allow_negative,
+        negativeLimit: r.negative_limit,
         notes: r.notes,
         activeEmployeeCount: r.active_employee_count,
         createdAt: r.created_at,
@@ -335,13 +349,13 @@ export async function registerBillingRoutes(app: Express): Promise<void> {
   // Create CD account for a company
   app.post("/api/billing/accounts", requireAuth, requireRole("super_admin"), async (req, res) => {
     try {
-      const { companyId, costPerEmployeePerDay, rateEffectiveFrom, lowBalanceThreshold, allowNegative, notes } = req.body;
+      const { companyId, costPerEmployeePerDay, rateEffectiveFrom, lowBalanceThreshold, allowNegative, negativeLimit, notes } = req.body;
       if (!companyId) return res.status(400).json({ error: "companyId is required" });
       const id = randomUUID();
       const now = new Date().toISOString();
       await db.execute(sql`
-        INSERT INTO cd_accounts (id, company_id, credit_balance, cost_per_employee_per_day, rate_effective_from, low_balance_threshold, allow_negative, notes, created_at, updated_at)
-        VALUES (${id}, ${companyId}, 0, ${Number(costPerEmployeePerDay) || 15}, ${rateEffectiveFrom || now.slice(0,10)}, ${Number(lowBalanceThreshold) || 1000}, ${allowNegative === true}, ${notes || null}, ${now}, ${now})
+        INSERT INTO cd_accounts (id, company_id, credit_balance, cost_per_employee_per_day, rate_effective_from, low_balance_threshold, allow_negative, negative_limit, notes, created_at, updated_at)
+        VALUES (${id}, ${companyId}, 0, ${Number(costPerEmployeePerDay) || 15}, ${rateEffectiveFrom || now.slice(0,10)}, ${Number(lowBalanceThreshold) || 1000}, ${allowNegative === true}, ${Math.max(0, Number(negativeLimit) || 0)}, ${notes || null}, ${now}, ${now})
       `);
       const row = await db.execute(sql`
         SELECT a.*, c.company_name, c.status as company_status,
@@ -359,7 +373,7 @@ export async function registerBillingRoutes(app: Express): Promise<void> {
   app.patch("/api/billing/accounts/:companyId", requireAuth, requireRole("super_admin"), async (req, res) => {
     try {
       const { companyId } = req.params;
-      const { costPerEmployeePerDay, lowBalanceThreshold, allowNegative, rateEffectiveFrom, notes } = req.body;
+      const { costPerEmployeePerDay, lowBalanceThreshold, allowNegative, negativeLimit, rateEffectiveFrom, notes } = req.body;
       const now = new Date().toISOString();
       await db.execute(sql`
         UPDATE cd_accounts
@@ -367,6 +381,7 @@ export async function registerBillingRoutes(app: Express): Promise<void> {
             rate_effective_from = ${rateEffectiveFrom ?? null},
             low_balance_threshold = ${Number(lowBalanceThreshold) ?? 1000},
             allow_negative = ${allowNegative === true},
+            negative_limit = ${Math.max(0, Number(negativeLimit) || 0)},
             notes = ${notes ?? null},
             updated_at = ${now}
         WHERE company_id = ${companyId}

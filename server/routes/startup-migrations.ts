@@ -249,6 +249,7 @@ export async function runStartupMigrations(): Promise<void> {
 
   // Ensure one daily-billing entry per company per day (enables ON CONFLICT dedupe).
   await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS daily_billing_logs_company_id_date_unique ON daily_billing_logs (company_id, date)`).catch(() => {});
+
   // Backfill: any company without a trial_start_date gets today as their trial start
   // trial_days stays 3 (default) — billing kicks in after 3 days from today
   await db.execute(sql`
@@ -272,12 +273,15 @@ export async function runStartupMigrations(): Promise<void> {
       rate_effective_from TEXT,
       low_balance_threshold NUMERIC(14,4) NOT NULL DEFAULT 1000,
       allow_negative BOOLEAN NOT NULL DEFAULT false,
+      negative_limit NUMERIC(14,4) NOT NULL DEFAULT 0,
       notes TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     )
   `).catch(() => {});
   await db.execute(sql`ALTER TABLE cd_accounts ADD COLUMN IF NOT EXISTS allow_negative BOOLEAN NOT NULL DEFAULT false`).catch(() => {});
+  // Max negative balance a company may run (when allow_negative is on) before access is locked.
+  await db.execute(sql`ALTER TABLE cd_accounts ADD COLUMN IF NOT EXISTS negative_limit NUMERIC(14,4) NOT NULL DEFAULT 0`).catch(() => {});
   await db.execute(sql`ALTER TABLE cd_accounts ADD COLUMN IF NOT EXISTS rate_effective_from TEXT`).catch(() => {});
   await db.execute(sql`ALTER TABLE cd_accounts ALTER COLUMN cost_per_employee_per_day SET DEFAULT 15`).catch(() => {});
   await db.execute(sql`ALTER TABLE cd_accounts ALTER COLUMN low_balance_threshold SET DEFAULT 1000`).catch(() => {});

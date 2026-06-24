@@ -230,9 +230,10 @@ function AppContent() {
     return <PublicRouter />;
   }
 
-  // Show trial expired wall for company admins whose trial has ended
-  if (user?.trialExpired && user.role === "company_admin") {
-    return <TrialExpiredWall />;
+  // Show the access wall for company admins when their trial has ended or their
+  // credit balance has crossed the allowed limit.
+  if ((user?.trialExpired || user?.billingBlocked) && user?.role === "company_admin") {
+    return <TrialExpiredWall reason={user?.trialExpired ? "trial" : "billing"} />;
   }
 
   const publicPages = ["/services", "/compliance", "/directors", "/contact"];

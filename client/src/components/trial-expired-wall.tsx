@@ -13,11 +13,12 @@ function todayStr() {
   return new Date().toISOString().slice(0, 10);
 }
 
-export function TrialExpiredWall() {
+export function TrialExpiredWall({ reason = "trial" }: { reason?: "trial" | "billing" }) {
   const { user, logout, refreshUser } = useAuth();
   const { toast } = useToast();
   const { data: payment } = useQuery<PaymentQr>({ queryKey: ["/api/billing/payment-qr"] });
   const hasPayment = !!(payment?.qrUrl || payment?.upiId);
+  const isBilling = reason === "billing";
 
   const wasRejected = (user as { paymentStatus?: string | null })?.paymentStatus === "rejected";
 
@@ -51,10 +52,21 @@ export function TrialExpiredWall() {
           <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-red-500/20 border-2 border-red-500/40 mb-6">
             <AlertTriangle className="h-10 w-10 text-red-400" />
           </div>
-          <h1 className="text-3xl font-bold text-white mb-3">Free Trial Expired</h1>
+          <h1 className="text-3xl font-bold text-white mb-3">
+            {isBilling ? "Account Access Suspended" : "Free Trial Expired"}
+          </h1>
           <p className="text-slate-400 text-base leading-relaxed">
-            Your 3-day free trial for <span className="text-white font-semibold">{user?.companyName || "your company"}</span> has ended.
-            Please contact our Sales &amp; Support team to continue using the platform.
+            {isBilling ? (
+              <>
+                The credit balance for <span className="text-white font-semibold">{user?.companyName || "your company"}</span> has
+                reached its allowed limit. Please add credits or contact our Sales &amp; Support team to restore access.
+              </>
+            ) : (
+              <>
+                Your 3-day free trial for <span className="text-white font-semibold">{user?.companyName || "your company"}</span> has ended.
+                Please contact our Sales &amp; Support team to continue using the platform.
+              </>
+            )}
           </p>
         </div>
 

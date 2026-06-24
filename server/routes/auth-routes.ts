@@ -157,9 +157,12 @@ export async function registerAuthRoutes(app: Express): Promise<void> {
       let companyName: string | null = null;
       let trialInfo: { trialActive: boolean; trialExpired: boolean; trialDaysLeft: number; trialDaysTotal: number; trialStartDate: string | null } | null = null;
       let paymentStatus: string | null = null;
+      let billingBlocked = false;
+      let negativeLimit = 0;
       if (user.companyId) {
         const company = await companyService.getCompany(user.companyId);
         companyName = company?.companyName || null;
+        let trialActiveNow = false; // inside a valid (not-yet-expired) trial window
         if (company && company.trialStartDate) {
           const start = new Date(company.trialStartDate);
           const total = (company.trialDays ?? 3) + (company.trialExtendedDays ?? 0);
@@ -177,25 +180,50 @@ export async function registerAuthRoutes(app: Express): Promise<void> {
             trialDaysTotal: total,
             trialStartDate: company.trialStartDate,
           };
+          trialActiveNow = !trialInfo.trialExpired;
+        }
 
-          // If the trial has expired, a company-reported payment still grants
-          // access immediately while pending, and stays granted once approved.
-          // Only an explicit rejection (or no submission) keeps access locked.
-          if (trialInfo.trialExpired) {
-            const latest = await db.execute(sql`
-              SELECT status FROM payment_submissions
-              WHERE company_id = ${user.companyId}
-              ORDER BY created_at DESC
-              LIMIT 1
-            `);
-            paymentStatus = ((latest.rows[0] as { status?: string } | undefined)?.status) ?? null;
-            if (paymentStatus === "pending" || paymentStatus === "approved") {
-              trialInfo.trialExpired = false;
-            }
+        // Credit-limit access gate. Only enforced once the trial window has
+        // passed (no billing happens during an active trial, so a ₹0 balance
+        // there must not lock the company out).
+        if (!trialActiveNow) {
+          const acctRes = await db.execute(sql`
+            SELECT credit_balance, allow_negative, negative_limit
+            FROM cd_accounts WHERE company_id = ${user.companyId}
+          `);
+          const acct = acctRes.rows[0] as { credit_balance?: string; allow_negative?: boolean; negative_limit?: string } | undefined;
+          if (acct) {
+            const bal = Number(acct.credit_balance) || 0;
+            const allowNeg = acct.allow_negative === true;
+            negativeLimit = Math.max(0, Number(acct.negative_limit) || 0);
+            billingBlocked = allowNeg ? bal < -negativeLimit : bal <= 0;
+          }
+        }
+
+        // A company-reported payment restores access immediately while we verify
+        // it — for both the expired-trial lock and the credit-limit lock.
+        if ((trialInfo && trialInfo.trialExpired) || billingBlocked) {
+          const latest = await db.execute(sql`
+            SELECT status FROM payment_submissions
+            WHERE company_id = ${user.companyId}
+            ORDER BY created_at DESC
+            LIMIT 1
+          `);
+          paymentStatus = ((latest.rows[0] as { status?: string } | undefined)?.status) ?? null;
+          // Trial lock: pending OR approved keeps access (existing behavior).
+          if (trialInfo && trialInfo.trialExpired && (paymentStatus === "pending" || paymentStatus === "approved")) {
+            trialInfo.trialExpired = false;
+          }
+          // Credit-limit lock: only a still-pending payment grants provisional
+          // access. An approved payment already topped up the balance, so the
+          // balance check above is the source of truth (avoids a stale approval
+          // unblocking a company that has since run its balance down again).
+          if (billingBlocked && paymentStatus === "pending") {
+            billingBlocked = false;
           }
         }
       }
-      res.json({ ...user, companyName, ...(trialInfo ?? {}), paymentStatus });
+      res.json({ ...user, companyName, ...(trialInfo ?? {}), paymentStatus, billingBlocked, negativeLimit });
     } catch (error) {
       res.status(500).json({ message: "Internal server error" });
     }

@@ -16,6 +16,8 @@ interface User {
   trialDaysTotal?: number;
   trialStartDate?: string | null;
   paymentStatus?: string | null;
+  billingBlocked?: boolean;
+  negativeLimit?: number;
 }
 
 interface AuthContextType {
