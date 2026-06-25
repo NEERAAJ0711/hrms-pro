@@ -308,6 +308,23 @@ export async function runStartupMigrations(): Promise<void> {
   await db.execute(sql`ALTER TABLE cd_accounts ALTER COLUMN cost_per_employee_per_day SET DEFAULT 15`).catch(() => {});
   await db.execute(sql`ALTER TABLE cd_accounts ALTER COLUMN low_balance_threshold SET DEFAULT 1000`).catch(() => {});
 
+  // Mirror of migrations/016–017: contractor_employees tagging columns. The
+  // numbered migrations created the table and added tagged_date, but tagged_by
+  // was only ever added to schema.ts — so prod is missing it (the cause of the
+  // "column tagged_by does not exist" tagging error). Add both idempotently.
+  await db.execute(sql`ALTER TABLE contractor_employees ADD COLUMN IF NOT EXISTS tagged_date TEXT`).catch(() => {});
+  await db.execute(sql`ALTER TABLE contractor_employees ADD COLUMN IF NOT EXISTS tagged_by TEXT`).catch(() => {});
+
+  // Contractor approval workflow: adding a company as a contractor must be
+  // approved by that contractor company's admin before tagging is allowed.
+  // Add the column nullable first, backfill PRE-EXISTING rows to 'approved' (so
+  // current relationships keep working), then enforce the 'pending' default +
+  // NOT NULL for new rows. All steps are idempotent and re-run safe.
+  await db.execute(sql`ALTER TABLE company_contractors ADD COLUMN IF NOT EXISTS status TEXT`).catch(() => {});
+  await db.execute(sql`UPDATE company_contractors SET status = 'approved' WHERE status IS NULL`).catch(() => {});
+  await db.execute(sql`ALTER TABLE company_contractors ALTER COLUMN status SET DEFAULT 'pending'`).catch(() => {});
+  await db.execute(sql`ALTER TABLE company_contractors ALTER COLUMN status SET NOT NULL`).catch(() => {});
+
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS cd_transactions (
       id VARCHAR(36) PRIMARY KEY,

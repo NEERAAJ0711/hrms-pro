@@ -150,6 +150,10 @@ export class CompanyService {
     return this.companyRepo.removeCompanyContractor(companyId, contractorId);
   }
 
+  async updateContractorStatus(companyId: string, contractorId: string, status: string): Promise<CompanyContractor | undefined> {
+    return this.companyRepo.updateContractorStatus(companyId, contractorId, status);
+  }
+
   async getPrincipalEmployers(contractorId: string): Promise<(CompanyContractor & { companyName: string })[]> {
     return this.companyRepo.getPrincipalEmployers(contractorId);
   }

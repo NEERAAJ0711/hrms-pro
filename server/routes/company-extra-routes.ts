@@ -1,6 +1,6 @@
 // HRMS Pro — API Routes (modularized)
 import type { Express, Request, Response, NextFunction } from "express";
-import { companyService, employeeService } from "../services";
+import { companyService, employeeService, userService } from "../services";
 import { storage } from "../storage";
 import { db } from "../db";
 import {
@@ -84,9 +84,30 @@ export async function registerCompanyExtraRoutes(app: Express): Promise<void> {
 
   app.post("/api/companies/:id/contractors", requireAuth, requireRole("super_admin", "company_admin"), async (req, res) => {
     try {
+      const user = (req as any).user;
+      if (user.role !== "super_admin" && user.companyId !== req.params.id) {
+        return res.status(403).json({ error: "You can only manage contractors for your own company" });
+      }
       const { contractorId, startDate } = req.body;
       if (!contractorId || !startDate) return res.status(400).json({ error: "contractorId and startDate are required" });
       const record = await companyService.addCompanyContractor({ companyId: req.params.id, contractorId, startDate });
+      // Notify the contractor company's admins that approval is needed.
+      try {
+        const principal = await companyService.getCompany(req.params.id);
+        const admins = (await userService.getUsersByRoles(["company_admin"]))
+          .filter(u => u.companyId === contractorId)
+          .map(u => u.id);
+        if (admins.length) {
+          await createNotificationForMany(admins, {
+            title: "Contractor request received",
+            message: `${principal?.companyName ?? "A company"} wants to add your company as a contractor. Review and approve the request.`,
+            type: "info",
+            link: `/companies/${contractorId}/contractors`,
+          });
+        }
+      } catch (notifyErr) {
+        console.error("[add-contractor] notify failed:", notifyErr);
+      }
       res.status(201).json(record);
     } catch (error: any) {
       if (String(error?.message || "").includes("unique")) {
@@ -96,8 +117,53 @@ export async function registerCompanyExtraRoutes(app: Express): Promise<void> {
     }
   });
 
+  // Contractor company's admin approves/rejects an incoming request. Here :id is
+  // the CONTRACTOR company (the one being asked), :principalId is the principal
+  // employer that sent the request.
+  app.patch("/api/companies/:id/principal-employers/:principalId/status", requireAuth, requireRole("super_admin", "company_admin"), async (req, res) => {
+    try {
+      const contractorId = req.params.id;
+      const principalId = req.params.principalId;
+      const { status } = req.body as { status?: string };
+      if (status !== "approved" && status !== "rejected") {
+        return res.status(400).json({ error: "status must be 'approved' or 'rejected'" });
+      }
+      const user = (req as any).user;
+      // Only the contractor company's own admin (or a super admin) may decide.
+      if (user.role !== "super_admin" && user.companyId !== contractorId) {
+        return res.status(403).json({ error: "Only the contractor company's admin can respond to this request" });
+      }
+      const updated = await companyService.updateContractorStatus(principalId, contractorId, status);
+      if (!updated) return res.status(404).json({ error: "Contractor request not found" });
+      // Notify the principal employer's admins of the decision.
+      try {
+        const contractorCo = await companyService.getCompany(contractorId);
+        const admins = (await userService.getUsersByRoles(["company_admin"]))
+          .filter(u => u.companyId === principalId)
+          .map(u => u.id);
+        if (admins.length) {
+          await createNotificationForMany(admins, {
+            title: `Contractor request ${status}`,
+            message: `${contractorCo?.companyName ?? "The contractor company"} has ${status} your request to add them as a contractor.`,
+            type: status === "approved" ? "success" : "warning",
+            link: `/companies/${principalId}/contractors`,
+          });
+        }
+      } catch (notifyErr) {
+        console.error("[contractor-status] notify failed:", notifyErr);
+      }
+      res.json(updated);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update contractor request" });
+    }
+  });
+
   app.delete("/api/companies/:id/contractors/:contractorId", requireAuth, requireRole("super_admin", "company_admin"), async (req, res) => {
     try {
+      const user = (req as any).user;
+      if (user.role !== "super_admin" && user.companyId !== req.params.id) {
+        return res.status(403).json({ error: "You can only manage contractors for your own company" });
+      }
       const success = await companyService.removeCompanyContractor(req.params.id, req.params.contractorId);
       if (!success) return res.status(404).json({ error: "Contractor association not found" });
       res.json({ success: true });
@@ -128,9 +194,12 @@ export async function registerCompanyExtraRoutes(app: Express): Promise<void> {
 
   app.post("/api/companies/:id/contractors/:contractorId/employees", requireAuth, requireRole("super_admin", "company_admin"), async (req, res) => {
     try {
+      const u = (req as any).user;
+      if (u.role !== "super_admin" && u.companyId !== req.params.id) {
+        return res.status(403).json({ error: "You can only manage contractors for your own company" });
+      }
       const { employeeId, taggedDate } = req.body;
       if (!employeeId) return res.status(400).json({ error: "employeeId is required" });
-      const u = (req as any).user;
       const taggedBy = u ? [u.firstName, u.lastName].filter(Boolean).join(" ").trim() || u.username : null;
       console.log("[tag-employee] companyId=%s contractorId=%s employeeId=%s taggedDate=%s", req.params.id, req.params.contractorId, employeeId, taggedDate);
       await companyService.addContractorEmployee(req.params.id, req.params.contractorId, employeeId, taggedDate, taggedBy);
@@ -146,6 +215,10 @@ export async function registerCompanyExtraRoutes(app: Express): Promise<void> {
 
   app.delete("/api/companies/:id/contractors/:contractorId/employees/:employeeId", requireAuth, requireRole("super_admin", "company_admin"), async (req, res) => {
     try {
+      const user = (req as any).user;
+      if (user.role !== "super_admin" && user.companyId !== req.params.id) {
+        return res.status(403).json({ error: "You can only manage contractors for your own company" });
+      }
       const success = await companyService.removeContractorEmployee(req.params.id, req.params.contractorId, req.params.employeeId);
       if (!success) return res.status(404).json({ error: "Tagged employee not found" });
       res.json({ success: true });

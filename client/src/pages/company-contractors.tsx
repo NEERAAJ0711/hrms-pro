@@ -15,9 +15,20 @@ import type { Company, Employee, CompanyContractor } from "@shared/schema";
 
 type ContractorRow = {
   id: string; companyId: string; contractorId: string;
-  startDate: string; contractorName: string;
+  startDate: string; status: string; contractorName: string;
 };
 type PrincipalEmployerRow = CompanyContractor & { companyName: string };
+
+function StatusBadge({ status }: { status?: string }) {
+  const s = status || "approved";
+  const map: Record<string, string> = {
+    approved: "bg-green-50 text-green-700 border-green-200 dark:bg-green-950/30 dark:text-green-400 dark:border-green-800",
+    pending: "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/30 dark:text-amber-400 dark:border-amber-800",
+    rejected: "bg-red-50 text-red-700 border-red-200 dark:bg-red-950/30 dark:text-red-400 dark:border-red-800",
+  };
+  const label = s === "approved" ? "Approved" : s === "pending" ? "Pending" : "Rejected";
+  return <Badge className={`text-xs ${map[s] ?? map.approved}`} data-testid={`status-${s}`}>{label}</Badge>;
+}
 type TaggedEmployee = Employee & { contractorEmployeeId: string; taggedDate: string | null; taggedBy: string | null };
 
 function fmt(d: string | null | undefined) {
@@ -193,10 +204,21 @@ function EmployeesPanel({ companyId, contractor }: { companyId: string; contract
 
   const taggedIds = new Set(tagged.map(e => e.id));
 
+  const isApproved = (contractor.status || "approved") === "approved";
+
   return (
     <div className="border-t bg-muted/20">
 
       {/* ── Tag New Employee Form ── */}
+      {!isApproved ? (
+        <div className="px-6 py-4 border-b bg-background">
+          <div className="rounded-lg border border-dashed bg-muted/30 px-4 py-3 text-sm text-muted-foreground" data-testid="tag-blocked-notice">
+            {contractor.status === "rejected"
+              ? "This contractor request was rejected. Employees cannot be tagged."
+              : "This contractor request is awaiting approval from the contractor company's admin. You can tag employees once it is approved."}
+          </div>
+        </div>
+      ) : (
       <div className="px-6 py-4 border-b bg-background">
         <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
           Tag Employee from {contractor.contractorName}
@@ -217,6 +239,7 @@ function EmployeesPanel({ companyId, contractor }: { companyId: string; contract
           </Button>
         </div>
       </div>
+      )}
 
       {/* ── Tagged Employees List ── */}
       <div className="px-6 py-4">
@@ -385,8 +408,11 @@ function ContractorsTab({ companyId }: { companyId: string }) {
             <p className="text-2xl font-bold">{contractors.length}</p>
           </div>
           <div className="rounded-lg border bg-card px-5 py-4">
-            <p className="text-xs text-muted-foreground uppercase tracking-wide font-semibold mb-1">Active</p>
-            <p className="text-2xl font-bold text-green-600">{contractors.length}</p>
+            <p className="text-xs text-muted-foreground uppercase tracking-wide font-semibold mb-1">Approved</p>
+            <p className="text-2xl font-bold text-green-600" data-testid="stat-approved-contractors">{contractors.filter(c => (c.status || "approved") === "approved").length}</p>
+            {contractors.some(c => (c.status || "approved") === "pending") && (
+              <p className="text-xs text-amber-600 mt-0.5">{contractors.filter(c => c.status === "pending").length} pending approval</p>
+            )}
           </div>
           <div className="rounded-lg border bg-card px-5 py-4">
             <p className="text-xs text-muted-foreground uppercase tracking-wide font-semibold mb-1">Tagged Employees</p>
@@ -502,9 +528,7 @@ function ContractorsTab({ companyId }: { companyId: string }) {
 
                     <span className="hidden sm:block text-sm text-muted-foreground">{fmt(c.startDate)}</span>
 
-                    <Badge className="hidden sm:inline-flex text-xs bg-green-50 text-green-700 border-green-200 dark:bg-green-950/30 dark:text-green-400 dark:border-green-800">
-                      Active
-                    </Badge>
+                    <span className="hidden sm:inline-flex"><StatusBadge status={c.status} /></span>
 
                     <div className="flex items-center gap-1">
                       <Button variant="outline" size="sm"
@@ -541,6 +565,7 @@ function ContractorsTab({ companyId }: { companyId: string }) {
 
 // ── Principal Employer Tab ────────────────────────────────────────────────────
 function PrincipalTab({ companyId, companyName }: { companyId: string; companyName: string }) {
+  const { toast } = useToast();
   const [expanded, setExpanded] = useState<string | null>(null);
 
   const { data: employers = [], isLoading } = useQuery<PrincipalEmployerRow[]>({
@@ -550,6 +575,18 @@ function PrincipalTab({ companyId, companyName }: { companyId: string; companyNa
       if (!res.ok) throw new Error("Failed");
       return res.json();
     },
+  });
+
+  const respondMut = useMutation({
+    mutationFn: async ({ principalId, status }: { principalId: string; status: "approved" | "rejected" }) => {
+      const res = await apiRequest("PATCH", `/api/companies/${companyId}/principal-employers/${principalId}/status`, { status });
+      if (!res.ok) { const e = await res.json(); throw new Error(e.error || "Failed"); }
+    },
+    onSuccess: (_d, vars) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/companies", companyId, "principal-employers"] });
+      toast({ title: vars.status === "approved" ? "Contractor request approved" : "Contractor request rejected" });
+    },
+    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
   return (
@@ -587,9 +624,11 @@ function PrincipalTab({ companyId, companyName }: { companyId: string; companyNa
         <div className="divide-y">
           {employers.map((emp, i) => {
             const isOpen = expanded === emp.id;
+            const status = (emp as any).status || "approved";
+            const isPending = status === "pending";
             const contractorRow: ContractorRow = {
               id: emp.id, companyId: emp.companyId,
-              contractorId: companyId, startDate: emp.startDate, contractorName: companyName,
+              contractorId: companyId, startDate: emp.startDate, status, contractorName: companyName,
             };
             return (
               <div key={emp.id} data-testid={`principal-employer-row-${emp.id}`}>
@@ -600,19 +639,34 @@ function PrincipalTab({ companyId, companyName }: { companyId: string; companyNa
                     <p className="text-xs text-muted-foreground mt-0.5 font-mono">ID: {emp.companyId.slice(0, 8)}…</p>
                   </div>
                   <span className="hidden sm:block text-sm text-muted-foreground">{fmt(emp.startDate)}</span>
-                  <Badge className="hidden sm:inline-flex text-xs bg-green-50 text-green-700 border-green-200 dark:bg-green-950/30 dark:text-green-400 dark:border-green-800">
-                    Active
-                  </Badge>
-                  <Button variant="outline" size="sm"
-                    onClick={() => setExpanded(p => p === emp.id ? null : emp.id)}
-                    className={`h-8 gap-1.5 text-xs ${isOpen ? "border-primary text-primary" : ""}`}
-                    data-testid={`button-view-employees-pe-${emp.id}`}>
-                    <Users className="h-3.5 w-3.5" />
-                    Employees
-                    {isOpen ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
-                  </Button>
+                  <span className="hidden sm:inline-flex"><StatusBadge status={status} /></span>
+                  {isPending ? (
+                    <div className="flex items-center gap-1.5">
+                      <Button size="sm" onClick={() => respondMut.mutate({ principalId: emp.companyId, status: "approved" })}
+                        disabled={respondMut.isPending}
+                        className="h-8 text-xs bg-green-600 hover:bg-green-700 text-white"
+                        data-testid={`button-approve-contractor-${emp.companyId}`}>
+                        Approve
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => respondMut.mutate({ principalId: emp.companyId, status: "rejected" })}
+                        disabled={respondMut.isPending}
+                        className="h-8 text-xs text-destructive border-destructive/40 hover:bg-destructive/10"
+                        data-testid={`button-reject-contractor-${emp.companyId}`}>
+                        Reject
+                      </Button>
+                    </div>
+                  ) : (
+                    <Button variant="outline" size="sm"
+                      onClick={() => setExpanded(p => p === emp.id ? null : emp.id)}
+                      className={`h-8 gap-1.5 text-xs ${isOpen ? "border-primary text-primary" : ""}`}
+                      data-testid={`button-view-employees-pe-${emp.id}`}>
+                      <Users className="h-3.5 w-3.5" />
+                      Employees
+                      {isOpen ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                    </Button>
+                  )}
                 </div>
-                {isOpen && <EmployeesPanel companyId={emp.companyId} contractor={contractorRow} />}
+                {isOpen && !isPending && <EmployeesPanel companyId={emp.companyId} contractor={contractorRow} />}
               </div>
             );
           })}

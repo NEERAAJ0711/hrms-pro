@@ -70,6 +70,9 @@ export const companyContractors = pgTable("company_contractors", {
   companyId: varchar("company_id", { length: 36 }).notNull().references((): AnyPgColumn => companies.id, { onDelete: "cascade" }),
   contractorId: varchar("contractor_id", { length: 36 }).notNull().references((): AnyPgColumn => companies.id, { onDelete: "cascade" }),
   startDate: text("start_date").notNull(),
+  // Approval workflow: a principal employer's request to add a company as a
+  // contractor stays "pending" until that contractor company's admin approves.
+  status: text("status").notNull().default("pending"),
 });
 
 export const insertCompanyContractorSchema = createInsertSchema(companyContractors).omit({ id: true });

@@ -174,6 +174,7 @@ export class CompanyRepository {
         companyId: companyContractors.companyId,
         contractorId: companyContractors.contractorId,
         startDate: companyContractors.startDate,
+        status: companyContractors.status,
         contractorName: companies.companyName,
       })
       .from(companyContractors)
@@ -184,7 +185,18 @@ export class CompanyRepository {
 
   async addCompanyContractor(data: InsertCompanyContractor): Promise<CompanyContractor> {
     const id = randomUUID();
-    const result = await db.insert(companyContractors).values({ ...data, id }).returning();
+    // New contractor links always start as pending — the contractor company's
+    // admin must approve before the relationship becomes active.
+    const result = await db.insert(companyContractors).values({ ...data, id, status: "pending" }).returning();
+    return result[0];
+  }
+
+  async updateContractorStatus(companyId: string, contractorId: string, status: string): Promise<CompanyContractor | undefined> {
+    const result = await db
+      .update(companyContractors)
+      .set({ status })
+      .where(and(eq(companyContractors.companyId, companyId), eq(companyContractors.contractorId, contractorId)))
+      .returning();
     return result[0];
   }
 
@@ -203,6 +215,7 @@ export class CompanyRepository {
         companyId: companyContractors.companyId,
         contractorId: companyContractors.contractorId,
         startDate: companyContractors.startDate,
+        status: companyContractors.status,
         companyName: companies.companyName,
       })
       .from(companyContractors)
@@ -229,6 +242,7 @@ export class CompanyRepository {
       .where(and(eq(companyContractors.companyId, companyId), eq(companyContractors.contractorId, contractorId)));
     console.log("[addContractorEmployee] companyId=%s contractorId=%s employeeId=%s junction.length=%d", companyId, contractorId, employeeId, junction.length);
     if (!junction.length) throw new Error(`No contractor link found: company=${companyId}, contractor=${contractorId}`);
+    if (junction[0].status !== "approved") throw new Error("Contractor relationship is pending approval — employees can be tagged only after the contractor company approves the request.");
     const id = randomUUID();
     await db.insert(contractorEmployees).values({ id, companyContractorId: junction[0].id, employeeId, taggedDate: taggedDate ?? null, taggedBy: taggedBy ?? null });
   }
