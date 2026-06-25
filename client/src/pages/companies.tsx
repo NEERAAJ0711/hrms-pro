@@ -603,6 +603,7 @@ export default function Companies() {
                 <TableHeader>
                   <TableRow>
                     <TableHead className="w-10 text-center">Sr.</TableHead>
+                    <TableHead>Company ID</TableHead>
                     <TableHead>Company</TableHead>
                     <TableHead>Legal Name</TableHead>
                     <TableHead>PAN</TableHead>
@@ -617,6 +618,11 @@ export default function Companies() {
                     <TableRow key={company.id} data-testid={`company-row-${company.id}`}>
                       <TableCell className="text-center text-muted-foreground font-medium text-sm">
                         {idx + 1}
+                      </TableCell>
+                      <TableCell>
+                        <span className="font-mono text-sm font-medium" data-testid={`text-company-code-${company.id}`}>
+                          {company.companyCode || <span className="text-muted-foreground">-</span>}
+                        </span>
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-3">

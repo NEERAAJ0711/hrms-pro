@@ -32,6 +32,7 @@ export const sessions = pgTable("session", {
 // Company Master
 export const companies = pgTable("companies", {
   id: varchar("id", { length: 36 }).primaryKey(),
+  companyCode: text("company_code"),               // Human-readable ID, e.g. HRMS001
   companyName: text("company_name").notNull(),
   legalName: text("legal_name").notNull(),
   cin: text("cin"),
@@ -55,7 +56,9 @@ export const companies = pgTable("companies", {
   trialStartDate: text("trial_start_date"),
   trialDays: integer("trial_days").default(3),
   trialExtendedDays: integer("trial_extended_days").default(0),
-});
+}, (table) => [
+  uniqueIndex("companies_company_code_unique").on(table.companyCode),
+]);
 
 export const insertCompanySchema = createInsertSchema(companies).omit({ id: true });
 export type InsertCompany = z.infer<typeof insertCompanySchema>;

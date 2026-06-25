@@ -121,10 +121,36 @@ export class CompanyRepository {
     return result[0];
   }
 
+  async nextCompanyCode(): Promise<string> {
+    const rows = await db.execute(sql`
+      SELECT COALESCE(MAX(CAST(SUBSTRING(company_code FROM 'HRMS([0-9]+)') AS INTEGER)), 0) + 1 AS next
+      FROM companies
+      WHERE company_code ~ '^HRMS[0-9]+$'
+    `);
+    const next = Number((rows.rows[0] as { next: number | string })?.next ?? 1);
+    return `HRMS${String(next).padStart(3, "0")}`;
+  }
+
   async createCompany(company: InsertCompany): Promise<Company> {
     const id = randomUUID();
-    const result = await db.insert(companies).values({ ...company, id }).returning();
-    return result[0];
+    // If the caller supplied a code, insert as-is. Otherwise auto-generate and
+    // retry on a unique-violation so concurrent creates don't fail on a duplicate.
+    if (company.companyCode) {
+      const result = await db.insert(companies).values({ ...company, id }).returning();
+      return result[0];
+    }
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const companyCode = await this.nextCompanyCode();
+      try {
+        const result = await db.insert(companies).values({ ...company, id, companyCode }).returning();
+        return result[0];
+      } catch (err: unknown) {
+        const code = (err as { code?: string })?.code;
+        if (code === "23505" && attempt < 4) continue; // unique violation — recompute & retry
+        throw err;
+      }
+    }
+    throw new Error("Could not generate a unique company code");
   }
 
   async updateCompany(id: string, company: Partial<InsertCompany>): Promise<Company | undefined> {

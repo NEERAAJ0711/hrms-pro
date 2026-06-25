@@ -263,6 +263,28 @@ export async function runStartupMigrations(): Promise<void> {
   // Logo & signature columns for companies
   await db.execute(sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS signature TEXT`).catch(() => {});
 
+  // Human-readable Company ID (e.g. HRMS001). Backfill existing rows sequentially
+  // and enforce uniqueness. Idempotent: only fills rows that don't have a code yet,
+  // and continues numbering after the current max so re-runs never collide.
+  await db.execute(sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS company_code TEXT`).catch(() => {});
+  await db.execute(sql`
+    WITH base AS (
+      SELECT COALESCE(MAX(CAST(SUBSTRING(company_code FROM 'HRMS([0-9]+)') AS INTEGER)), 0) AS maxnum
+      FROM companies
+      WHERE company_code ~ '^HRMS[0-9]+$'
+    ),
+    ordered AS (
+      SELECT id, ROW_NUMBER() OVER (ORDER BY ctid) AS rn
+      FROM companies
+      WHERE company_code IS NULL OR company_code = ''
+    )
+    UPDATE companies c
+    SET company_code = 'HRMS' || LPAD((o.rn + (SELECT maxnum FROM base))::text, 3, '0')
+    FROM ordered o
+    WHERE c.id = o.id
+  `).catch(() => {});
+  await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS companies_company_code_unique ON companies (company_code)`).catch(() => {});
+
   // CD Accounts (Credits & Billing)
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS cd_accounts (
