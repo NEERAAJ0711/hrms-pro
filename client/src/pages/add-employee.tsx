@@ -1281,11 +1281,11 @@ export default function AddEmployee() {
                       name="contractorMasterId"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Contractor</FormLabel>
+                          <FormLabel>Cost Center</FormLabel>
                           <Select onValueChange={(val) => field.onChange(val === "__none__" ? "" : val)} value={field.value || "__none__"}>
                             <FormControl>
                               <SelectTrigger data-testid="select-contractor-master">
-                                <SelectValue placeholder="Select contractor" />
+                                <SelectValue placeholder="Select cost center" />
                               </SelectTrigger>
                             </FormControl>
                             <SelectContent>
