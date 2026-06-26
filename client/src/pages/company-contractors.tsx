@@ -352,7 +352,7 @@ function ContractorsTab({ companyId }: { companyId: string }) {
   const [startDate, setStartDate] = useState("");
   const [expanded, setExpanded] = useState<string | null>(null);
 
-  const { data: allCompanies = [] } = useQuery<Company[]>({ queryKey: ["/api/companies"] });
+  const { data: allCompanies = [] } = useQuery<Company[]>({ queryKey: ["/api/companies/selectable"] });
   const { data: contractors = [], isLoading } = useQuery<ContractorRow[]>({
     queryKey: ["/api/companies", companyId, "contractors"],
     queryFn: async () => {

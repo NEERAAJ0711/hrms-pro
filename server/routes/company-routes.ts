@@ -184,6 +184,17 @@ export async function registerCompanyRoutes(app: Express): Promise<void> {
     }
   });
 
+  // Minimal list of all companies for selection (e.g. picking a contractor company).
+  // Exposes only id/name/status — does NOT leak full company details to non-super admins.
+  app.get("/api/companies/selectable", requireAuth, requireRole("super_admin", "company_admin"), async (req, res) => {
+    try {
+      const companies = await companyService.getAllCompanies();
+      res.json(companies.map(c => ({ id: c.id, companyName: c.companyName, status: c.status })));
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch companies" });
+    }
+  });
+
   app.get("/api/companies/:id", requireAuth, async (req, res) => {
     try {
       const company = await companyService.getCompany(req.params.id);
