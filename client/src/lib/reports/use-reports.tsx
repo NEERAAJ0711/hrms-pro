@@ -4902,7 +4902,7 @@ export function useReports() {
   // ─────────────────────────────────────────────────────────────────────────
   // Individual Attendance Sheet
   // ─────────────────────────────────────────────────────────────────────────
-  const generateIndividualAttendanceSheet = (_fileType: "excel" | "pdf") => {
+  const generateIndividualAttendanceSheet = (fileType: "excel" | "pdf") => {
     const empsToRun = docEmployee
       ? filteredEmployees.filter(e => e.id === docEmployee)
       : filteredEmployees;
@@ -4958,6 +4958,7 @@ export function useReports() {
     const periodLabel = `01 ${monthName.toUpperCase()} ${yearNum}  TO  ${daysInMonth} ${monthName.toUpperCase()} ${yearNum}`;
 
     let isFirst = true;
+    const excelRows: Record<string, string | number>[] = [];
 
     for (const emp of empsToRun) {
       if (!isFirst) doc.addPage();
@@ -5081,6 +5082,28 @@ export function useReports() {
       const ss = salaryStructures.find(s => s.employeeId === emp.id);
       const rate = ss?.grossSalary || emp.grossSalary || 0;
 
+      for (const r of dailyRows) {
+        excelRows.push({
+          "Employee Code": emp.employeeCode || "",
+          "Employee Name": empName,
+          "Designation": designation,
+          "Department": department,
+          "Date": r.date,
+          "Day": r.day,
+          "Shift": r.shift,
+          "In": r.inT,
+          "Out": r.outT,
+          "Arrival Early": r.arrE,
+          "Arrival Late": r.arrL,
+          "Departure Early": r.depE,
+          "Departure Late": r.depL,
+          "Work Hours": r.wh,
+          "OT Hours": r.ot,
+          "Status": r.status,
+          "Remark": r.remark,
+        });
+      }
+
       // ── SUMMARY BAR ──────────────────────────────────────────────
       autoTable(doc, {
         head: [["Present", "Off", "Holiday", "Leave", "Tour", "Absent", "Working Hours", "Overtime Hours", "Rate (₹)", "Days Payable"]],
@@ -5198,6 +5221,11 @@ export function useReports() {
     }
 
     const label = empsToRun.length === 1 ? empsToRun[0].employeeCode : "All";
+    if (fileType === "excel") {
+      downloadExcel(excelRows, `Individual_Attendance_Sheet_${label}_${selectedMonth}`, "Individual Attendance");
+      toast({ title: "Downloaded", description: `Individual Attendance Sheet Excel saved.` });
+      return;
+    }
     doc.save(`Individual_Attendance_Sheet_${label}_${selectedMonth}.pdf`);
     toast({ title: "Downloaded", description: `Individual Attendance Sheet saved.` });
   };
@@ -5234,7 +5262,7 @@ export function useReports() {
   // ─────────────────────────────────────────────────────────────────────────
   // Monthly Attendance Register (Grid)
   // ─────────────────────────────────────────────────────────────────────────
-  const generateMonthlyAttendanceRegister = (_fileType: "excel" | "pdf") => {
+  const generateMonthlyAttendanceRegister = (fileType: "excel" | "pdf") => {
     const emps = filteredEmployees;
     if (emps.length === 0) {
       toast({ title: "No Data", description: "No employees found for selected filters.", variant: "destructive" });
@@ -5317,6 +5345,7 @@ export function useReports() {
     ];
 
     const allRows: any[][] = [];
+    const excelRows: Record<string, string | number>[] = [];
     // Accumulate totals for a grand total row
     let grandPresent = 0, grandOff = 0, grandHol = 0, grandLeave = 0, grandTour = 0, grandAbsent = 0, grandOTMins = 0;
 
@@ -5386,6 +5415,26 @@ export function useReports() {
           summaryLines[ri],
         ]);
       }
+
+      const excelRow: Record<string, string | number> = {
+        "S.No": empIdx + 1,
+        "Employee Code": emp.employeeCode || "",
+        "Employee Name": empFullName,
+        "Designation": desig,
+        "Department": dept,
+        "Date of Joining": doj,
+      };
+      for (let d = 1; d <= daysInMonth; d++) excelRow[String(d)] = statusCells[d - 1] || "";
+      excelRow["Present"] = presentCount;
+      excelRow["Off"] = offCount;
+      excelRow["Holiday"] = holidayCount;
+      excelRow["Leave"] = leaveCount;
+      excelRow["Tour"] = tourCount;
+      excelRow["Absent"] = absentCount;
+      excelRow["Pay Days"] = payDays;
+      excelRow["Work Hours"] = minsStr(totalWorkMins);
+      excelRow["OT Hours"] = minsStr(totalOTMins);
+      excelRows.push(excelRow);
     });
 
     // Grand total row
@@ -5396,6 +5445,12 @@ export function useReports() {
       ...Array.from({ length: daysInMonth }, () => ({ content: "", styles: { fillColor: [220, 232, 255] } })),
       { content: `P:${grandPresent} Off:${grandOff} Hol:${grandHol}\nLv:${grandLeave} Ab:${grandAbsent}\nOT:${minsStr(grandOTMins)}`, styles: { fontStyle: "bold", fillColor: [220, 232, 255], fontSize: 6 } },
     ]);
+
+    if (fileType === "excel") {
+      downloadExcel(excelRows, `Monthly_Attendance_Register_${selectedMonth}`, "Monthly Register");
+      toast({ title: "Downloaded", description: `Monthly Attendance Register Excel saved.` });
+      return;
+    }
 
     // ── COLUMN WIDTHS ────────────────────────────────────────────────
     // Usable: 420 - 12 = 408; fixed cols: SNo=7, Info=36, Type=9, Summary=42 = 94; days fill rest
@@ -5545,7 +5600,6 @@ export function useReports() {
       bgColor: "bg-violet-50 dark:bg-violet-950",
       generate: generateMonthlyAttendanceRegister,
       view: viewMonthlyAttendanceRegister,
-      pdfOnly: true,
     },
     {
       title: "Attendance Punch Report",
@@ -5707,7 +5761,7 @@ export function useReports() {
 
   // Employee-wise cards
   const employeeWiseCards = [
-    { title: "Individual Attendance Sheet", description: "Per-employee detailed attendance register with daily shift, punch times, arrival/departure variance, working hours, OT, and status for the selected month", icon: ClipboardList, color: "text-violet-600", bgColor: "bg-violet-50 dark:bg-violet-950", generate: generateIndividualAttendanceSheet, view: viewIndividualAttendanceSheet, pdfOnly: true },
+    { title: "Individual Attendance Sheet", description: "Per-employee detailed attendance register with daily shift, punch times, arrival/departure variance, working hours, OT, and status for the selected month", icon: ClipboardList, color: "text-violet-600", bgColor: "bg-violet-50 dark:bg-violet-950", generate: generateIndividualAttendanceSheet, view: viewIndividualAttendanceSheet },
     { title: "Employee List", description: "Complete employee directory with personal details, department, designation, and contact info", icon: Users, color: "text-teal-600", bgColor: "bg-teal-50 dark:bg-teal-950", generate: generateEmployeeList, view: viewEmployeeList },
     { title: "Employee Personal File", description: "Complete personal and employment profile of each employee including salary, statutory details, bank info, and address", icon: FileUser, color: "text-indigo-600", bgColor: "bg-indigo-50 dark:bg-indigo-950", generate: generateEmployeePersonalFile, view: viewEmployeePersonalFile },
     { title: "Employee Pay Structure", description: "Salary component breakdown for each employee including basic, allowances, and statutory applicability", icon: ClipboardList, color: "text-blue-600", bgColor: "bg-blue-50 dark:bg-blue-950", generate: generateEmployeePayStructure, view: viewEmployeePayStructure },
@@ -5731,7 +5785,7 @@ export function useReports() {
   type CtrlFilter = "company" | "month" | "period" | "employee" | "contractor";
   const ctrlAllReports: Array<{ key: string; title: string; category: string; filters: CtrlFilter[]; icon: React.ElementType; color: string; bgColor: string; generate: (ft: "excel" | "pdf") => void; view: () => void; pdfOnly?: boolean }> = [
     { key: "att",      category: "Monthly",       title: "Attendance Sheet",             icon: Calendar,      color: "text-blue-600",   bgColor: "bg-blue-50 dark:bg-blue-950",    filters: ["company","month"],             generate: generateAttendanceSheet,              view: viewAttendanceSheet },
-    { key: "mth_reg",  category: "Monthly",       title: "Monthly Attendance Register",  icon: CalendarRange, color: "text-violet-600", bgColor: "bg-violet-50 dark:bg-violet-950",filters: ["company","month"],             generate: generateMonthlyAttendanceRegister,    view: viewMonthlyAttendanceRegister, pdfOnly: true },
+    { key: "mth_reg",  category: "Monthly",       title: "Monthly Attendance Register",  icon: CalendarRange, color: "text-violet-600", bgColor: "bg-violet-50 dark:bg-violet-950",filters: ["company","month"],             generate: generateMonthlyAttendanceRegister,    view: viewMonthlyAttendanceRegister },
     { key: "punch",    category: "Monthly",       title: "Attendance Punch",             icon: Clock,         color: "text-sky-600",    bgColor: "bg-sky-50 dark:bg-sky-950",      filters: ["company","month"],             generate: generateAttendancePunchReport,        view: viewAttendancePunchReport },
     { key: "sal",      category: "Monthly",       title: "Salary Sheet",                 icon: CreditCard,    color: "text-green-600",  bgColor: "bg-green-50 dark:bg-green-950",  filters: ["company","month"],             generate: generateSalarySheet,           view: viewSalarySheet },
     { key: "jl",       category: "Monthly",       title: "Joining & Leaving Summary",    icon: Users,         color: "text-indigo-600", bgColor: "bg-indigo-50 dark:bg-indigo-950",filters: ["company","month"],             generate: (_ft) => generateSalarySheet("pdf"), view: viewJoiningLeaving },
@@ -5748,7 +5802,7 @@ export function useReports() {
     { key: "ypf",      category: "Annual",        title: "Yearly PF Summary",            icon: Shield,        color: "text-purple-600", bgColor: "bg-purple-50 dark:bg-purple-950",filters: ["company","period"],            generate: generateYearlyPFSummary,       view: viewYearlyPFSummary },
     { key: "yesic",    category: "Annual",        title: "Yearly ESIC Summary",          icon: Receipt,       color: "text-orange-600", bgColor: "bg-orange-50 dark:bg-orange-950",filters: ["company","period"],            generate: generateYearlyESICSummary,     view: viewYearlyESICSummary },
     { key: "ysal",     category: "Annual",        title: "Yearly Salary Detail",         icon: TrendingUp,    color: "text-green-600",  bgColor: "bg-green-50 dark:bg-green-950",  filters: ["company","period"],            generate: generateYearlySalaryDetail,    view: viewYearlySalaryDetail },
-    { key: "ind_att",  category: "Employee Wise", title: "Individual Attendance Sheet",   icon: ClipboardList, color: "text-violet-600", bgColor: "bg-violet-50 dark:bg-violet-950",filters: ["company","employee","month"],  generate: generateIndividualAttendanceSheet, view: viewIndividualAttendanceSheet, pdfOnly: true },
+    { key: "ind_att",  category: "Employee Wise", title: "Individual Attendance Sheet",   icon: ClipboardList, color: "text-violet-600", bgColor: "bg-violet-50 dark:bg-violet-950",filters: ["company","employee","month"],  generate: generateIndividualAttendanceSheet, view: viewIndividualAttendanceSheet },
     { key: "emplist",  category: "Employee Wise", title: "Employee List",                icon: Users,         color: "text-teal-600",   bgColor: "bg-teal-50 dark:bg-teal-950",    filters: ["company","employee","period"], generate: generateEmployeeList,          view: viewEmployeeList },
     { key: "empfile",  category: "Employee Wise", title: "Employee Personal File",       icon: FileUser,      color: "text-indigo-600", bgColor: "bg-indigo-50 dark:bg-indigo-950",filters: ["company","employee","period"], generate: generateEmployeePersonalFile,  view: viewEmployeePersonalFile },
     { key: "emppay",   category: "Employee Wise", title: "Employee Pay Structure",       icon: ClipboardList, color: "text-blue-600",   bgColor: "bg-blue-50 dark:bg-blue-950",    filters: ["company","employee","period"], generate: generateEmployeePayStructure,  view: viewEmployeePayStructure },
@@ -5765,9 +5819,9 @@ export function useReports() {
   // ─── Categorized report definitions ─────────────────────────────────────────
   const attendanceReports = [
     { title: "Attendance Sheet", description: "Monthly attendance record with day-wise status, present/absent counts and OT hours", icon: Calendar, color: "text-blue-600", bgColor: "bg-blue-50 dark:bg-blue-950", generate: generateAttendanceSheet, view: viewAttendanceSheet },
-    { title: "Monthly Attendance Register", description: "Grid-format register with daily shift, punch in/out, working hours, OT and status for the full month", icon: CalendarRange, color: "text-violet-600", bgColor: "bg-violet-50 dark:bg-violet-950", generate: generateMonthlyAttendanceRegister, view: viewMonthlyAttendanceRegister, pdfOnly: true },
+    { title: "Monthly Attendance Register", description: "Grid-format register with daily shift, punch in/out, working hours, OT and status for the full month", icon: CalendarRange, color: "text-violet-600", bgColor: "bg-violet-50 dark:bg-violet-950", generate: generateMonthlyAttendanceRegister, view: viewMonthlyAttendanceRegister },
     { title: "Attendance Punch Report", description: "Daily in/out punch times for all employees with timings based on duty schedule", icon: Clock, color: "text-sky-600", bgColor: "bg-sky-50 dark:bg-sky-950", generate: generateAttendancePunchReport, view: viewAttendancePunchReport },
-    { title: "Individual Attendance Sheet", description: "Per-employee detailed attendance with daily shift, punch times, working hours, OT and status for selected month", icon: ClipboardList, color: "text-indigo-600", bgColor: "bg-indigo-50 dark:bg-indigo-950", generate: generateIndividualAttendanceSheet, view: viewIndividualAttendanceSheet, pdfOnly: true },
+    { title: "Individual Attendance Sheet", description: "Per-employee detailed attendance with daily shift, punch times, working hours, OT and status for selected month", icon: ClipboardList, color: "text-indigo-600", bgColor: "bg-indigo-50 dark:bg-indigo-950", generate: generateIndividualAttendanceSheet, view: viewIndividualAttendanceSheet },
     { title: "Date-wise Attendance", description: "All employees' attendance for a specific date — shows In Time, Out Time, Working Hours and Status (use the Date filter above)", icon: CalendarRange, color: "text-emerald-600", bgColor: "bg-emerald-50 dark:bg-emerald-950", generate: generateDatewiseAttendance, view: viewDatewiseAttendance, loading: dwLoading },
     { title: "Leave Report", description: "Employee-wise leave application history with leave type, dates, duration, reason and approval status", icon: CalendarX, color: "text-purple-600", bgColor: "bg-purple-50 dark:bg-purple-950", generate: generateLeaveReport, view: viewLeaveReport },
   ];
