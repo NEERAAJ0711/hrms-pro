@@ -5838,42 +5838,44 @@ export function useReports() {
       <div
         key={report.title}
         data-testid={`report-card-${slug}`}
-        className="group relative flex flex-col rounded-xl border bg-card overflow-hidden transition-all duration-200 hover:shadow-lg hover:-translate-y-0.5 hover:border-primary/30"
+        className="group relative flex items-center gap-4 rounded-lg border bg-card px-4 py-3 transition-all duration-200 hover:shadow-sm hover:border-primary/30 hover:bg-accent/30"
       >
-        {/* Accent strip — revealed on hover (theme token, purge-safe) */}
-        <div className="absolute inset-x-0 top-0 h-0.5 bg-primary opacity-0 group-hover:opacity-100 transition-opacity duration-200" />
+        {/* Accent bar — revealed on hover (theme token, purge-safe) */}
+        <div className="absolute inset-y-0 left-0 w-0.5 bg-primary opacity-0 group-hover:opacity-100 transition-opacity duration-200 rounded-l-lg" />
 
-        <div className="flex-1 p-4">
-          <div className="flex items-start gap-3">
-            <div className={`p-2.5 rounded-xl ${report.bgColor} shrink-0 ring-1 ring-inset ring-black/5 dark:ring-white/10 group-hover:scale-105 transition-transform duration-200`}>
-              <report.icon className={`h-5 w-5 ${report.color}`} />
-            </div>
-            <div className="flex-1 min-w-0">
-              <h3 className="text-sm font-semibold leading-tight mb-1 text-foreground">{report.title}</h3>
-              <p className="text-xs leading-relaxed line-clamp-2 text-muted-foreground">{report.description}</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-1.5 mt-3 flex-wrap">
-            {report.loading
-              ? <span className="inline-flex items-center gap-1 text-[10px] font-medium bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300 px-2 py-0.5 rounded-full"><Loader2 className="h-2.5 w-2.5 animate-spin" />Loading data…</span>
-              : !report.pdfOnly
-                ? <><span className="inline-flex items-center gap-1 text-[10px] font-medium bg-green-100 dark:bg-green-950 text-green-700 dark:text-green-300 px-2 py-0.5 rounded-full"><FileSpreadsheet className="h-2.5 w-2.5" />Excel</span><span className="inline-flex items-center gap-1 text-[10px] font-medium bg-red-100 dark:bg-red-950 text-red-700 dark:text-red-300 px-2 py-0.5 rounded-full"><Download className="h-2.5 w-2.5" />PDF</span></>
-                : <span className="inline-flex items-center gap-1 text-[10px] font-medium bg-red-100 dark:bg-red-950 text-red-700 dark:text-red-300 px-2 py-0.5 rounded-full"><Download className="h-2.5 w-2.5" />PDF Only</span>
-            }
-          </div>
+        {/* Icon */}
+        <div className={`p-2.5 rounded-xl ${report.bgColor} shrink-0 ring-1 ring-inset ring-black/5 dark:ring-white/10`}>
+          <report.icon className={`h-5 w-5 ${report.color}`} />
         </div>
 
-        <div className="flex items-center gap-1.5 px-4 py-3 border-t bg-muted/30">
-          <Button variant="outline" size="sm" className="flex-none px-3 bg-background" onClick={() => report.view()} disabled={!!report.loading} data-testid={`view-${slug}`}>
-            {report.loading ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Eye className="h-3.5 w-3.5 mr-1 text-blue-500" />}View
+        {/* Title + description */}
+        <div className="flex-1 min-w-0">
+          <h3 className="text-sm font-semibold leading-tight text-foreground truncate">{report.title}</h3>
+          <p className="text-xs leading-relaxed line-clamp-1 text-muted-foreground mt-0.5">{report.description}</p>
+        </div>
+
+        {/* Format badges */}
+        <div className="hidden md:flex items-center gap-1.5 shrink-0">
+          {report.loading
+            ? <span className="inline-flex items-center gap-1 text-[10px] font-medium bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300 px-2 py-0.5 rounded-full"><Loader2 className="h-2.5 w-2.5 animate-spin" />Loading…</span>
+            : !report.pdfOnly
+              ? <><span className="inline-flex items-center gap-1 text-[10px] font-medium bg-green-100 dark:bg-green-950 text-green-700 dark:text-green-300 px-2 py-0.5 rounded-full"><FileSpreadsheet className="h-2.5 w-2.5" />Excel</span><span className="inline-flex items-center gap-1 text-[10px] font-medium bg-red-100 dark:bg-red-950 text-red-700 dark:text-red-300 px-2 py-0.5 rounded-full"><Download className="h-2.5 w-2.5" />PDF</span></>
+              : <span className="inline-flex items-center gap-1 text-[10px] font-medium bg-red-100 dark:bg-red-950 text-red-700 dark:text-red-300 px-2 py-0.5 rounded-full"><Download className="h-2.5 w-2.5" />PDF Only</span>
+          }
+        </div>
+
+        {/* Actions */}
+        <div className="flex items-center gap-1.5 shrink-0">
+          <Button variant="outline" size="sm" className="px-2.5 bg-background" onClick={() => report.view()} disabled={!!report.loading} data-testid={`view-${slug}`}>
+            {report.loading ? <Loader2 className="h-3.5 w-3.5 sm:mr-1 animate-spin" /> : <Eye className="h-3.5 w-3.5 sm:mr-1 text-blue-500" />}<span className="hidden sm:inline">View</span>
           </Button>
           {!report.pdfOnly && (
-            <Button variant="outline" size="sm" className="flex-1 bg-background" onClick={() => report.generate("excel")} disabled={!!report.loading} data-testid={`excel-${slug}`}>
-              {report.loading ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <FileSpreadsheet className="h-3.5 w-3.5 mr-1 text-green-600" />}Excel
+            <Button variant="outline" size="sm" className="px-2.5 bg-background" onClick={() => report.generate("excel")} disabled={!!report.loading} data-testid={`excel-${slug}`}>
+              {report.loading ? <Loader2 className="h-3.5 w-3.5 sm:mr-1 animate-spin" /> : <FileSpreadsheet className="h-3.5 w-3.5 sm:mr-1 text-green-600" />}<span className="hidden sm:inline">Excel</span>
             </Button>
           )}
-          <Button variant="outline" size="sm" className="flex-1 bg-background" onClick={() => report.generate("pdf")} disabled={!!report.loading} data-testid={`pdf-${slug}`}>
-            {report.loading ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Download className="h-3.5 w-3.5 mr-1 text-red-500" />}PDF
+          <Button variant="outline" size="sm" className="px-2.5 bg-background" onClick={() => report.generate("pdf")} disabled={!!report.loading} data-testid={`pdf-${slug}`}>
+            {report.loading ? <Loader2 className="h-3.5 w-3.5 sm:mr-1 animate-spin" /> : <Download className="h-3.5 w-3.5 sm:mr-1 text-red-500" />}<span className="hidden sm:inline">PDF</span>
           </Button>
         </div>
       </div>
@@ -5896,7 +5898,7 @@ export function useReports() {
           <div className="flex-1 h-px bg-border ml-1" />
         </div>
         {filterNote && <p className="text-xs text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 rounded-lg px-3 py-2 mb-3">{filterNote}</p>}
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+        <div className="space-y-2">
           {reports.map(r => renderEnhancedCard(r))}
         </div>
       </div>

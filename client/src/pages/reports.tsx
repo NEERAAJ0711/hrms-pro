@@ -389,7 +389,7 @@ export default function ReportsPage() {
                   {noteMap[activeTab]}
                 </p>
               )}
-              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+              <div className="space-y-2">
                 {activeReports.map(r => renderEnhancedCard(r))}
               </div>
             </>
@@ -417,7 +417,7 @@ export default function ReportsPage() {
                   Showing <span className="font-semibold text-foreground">{contractorTaggedEmpList.length}</span> employee(s) for contractor: <span className="font-semibold text-foreground">{companyContractors.find(c => c.contractorId === selectedContractorId)?.contractorName}</span>
                 </p>
               )}
-              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+              <div className="space-y-2">
                 {contractorCards.map(r => renderEnhancedCard(r))}
               </div>
             </>
