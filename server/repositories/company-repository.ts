@@ -243,6 +243,10 @@ export class CompanyRepository {
     console.log("[addContractorEmployee] companyId=%s contractorId=%s employeeId=%s junction.length=%d", companyId, contractorId, employeeId, junction.length);
     if (!junction.length) throw new Error(`No contractor link found: company=${companyId}, contractor=${contractorId}`);
     if (junction[0].status !== "approved") throw new Error("Contractor relationship is pending approval — employees can be tagged only after the contractor company approves the request.");
+    // The employee must actually belong to the contractor company being tagged.
+    const emp = await db.select({ companyId: employees.companyId }).from(employees).where(eq(employees.id, employeeId)).limit(1);
+    if (!emp.length) throw new Error("Employee not found");
+    if (emp[0].companyId !== contractorId) throw new Error("Employee does not belong to this contractor company");
     const id = randomUUID();
     await db.insert(contractorEmployees).values({ id, companyContractorId: junction[0].id, employeeId, taggedDate: taggedDate ?? null, taggedBy: taggedBy ?? null });
   }

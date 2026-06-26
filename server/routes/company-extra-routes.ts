@@ -176,7 +176,16 @@ export async function registerCompanyExtraRoutes(app: Express): Promise<void> {
 
   app.get("/api/companies/:companyId/employees", requireAuth, async (req, res) => {
     try {
-      const emps = await employeeService.getEmployeesByCompany(req.params.companyId);
+      const u = (req as any).user;
+      const target = req.params.companyId;
+      // Only super admins, the owning company, or a principal employer with an APPROVED
+      // contractor link to this company may list its employees (used by the tag picker).
+      if (u.role !== "super_admin" && u.companyId !== target) {
+        const links = await companyService.getCompanyContractors(u.companyId);
+        const allowed = links.some((l: any) => l.contractorId === target && (l.status || "approved") === "approved");
+        if (!allowed) return res.status(403).json({ error: "Access denied" });
+      }
+      const emps = await employeeService.getEmployeesByCompany(target);
       res.json(emps);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch employees" });
@@ -198,16 +207,35 @@ export async function registerCompanyExtraRoutes(app: Express): Promise<void> {
       if (u.role !== "super_admin" && u.companyId !== req.params.id) {
         return res.status(403).json({ error: "You can only manage contractors for your own company" });
       }
-      const { employeeId, taggedDate } = req.body;
-      if (!employeeId) return res.status(400).json({ error: "employeeId is required" });
+      const { employeeId, employeeIds, taggedDate } = req.body;
+      const ids: string[] = Array.isArray(employeeIds)
+        ? Array.from(new Set(employeeIds.filter(Boolean)))
+        : (employeeId ? [employeeId] : []);
+      if (ids.length === 0) return res.status(400).json({ error: "employeeId or employeeIds is required" });
       const taggedBy = u ? [u.firstName, u.lastName].filter(Boolean).join(" ").trim() || u.username : null;
-      console.log("[tag-employee] companyId=%s contractorId=%s employeeId=%s taggedDate=%s", req.params.id, req.params.contractorId, employeeId, taggedDate);
-      await companyService.addContractorEmployee(req.params.id, req.params.contractorId, employeeId, taggedDate, taggedBy);
-      res.status(201).json({ success: true });
-    } catch (error: any) {
-      if (String(error?.message || "").includes("unique")) {
-        return res.status(409).json({ error: "Employee is already tagged to this contractor" });
+      console.log("[tag-employee] companyId=%s contractorId=%s ids=%d taggedDate=%s", req.params.id, req.params.contractorId, ids.length, taggedDate);
+
+      let tagged = 0;
+      let skipped = 0;
+      const failures: string[] = [];
+      for (const empId of ids) {
+        try {
+          await companyService.addContractorEmployee(req.params.id, req.params.contractorId, empId, taggedDate, taggedBy);
+          tagged++;
+        } catch (error: any) {
+          const msg = String(error?.message || "");
+          if (msg.includes("unique")) { skipped++; continue; }
+          failures.push(msg || "Failed to tag employee");
+        }
       }
+
+      // Nothing tagged and at least one hard failure → surface it.
+      if (tagged === 0 && failures.length > 0) {
+        const approvalIssue = failures.some(m => m.toLowerCase().includes("approv"));
+        return res.status(approvalIssue ? 400 : 500).json({ error: failures[0], tagged, skipped });
+      }
+      res.status(201).json({ success: true, tagged, skipped, failed: failures.length });
+    } catch (error: any) {
       console.error("[tag-employee] error:", error?.message, error?.stack);
       res.status(500).json({ error: error?.message || "Failed to tag employee" });
     }

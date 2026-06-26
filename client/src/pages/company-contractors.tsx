@@ -89,39 +89,55 @@ function CompanyPicker({ companies, excludeIds, value, onChange }: {
   );
 }
 
-// ── Employee Search Dropdown ──────────────────────────────────────────────────
-function EmployeePicker({ employees, excludeIds, value, onChange }: {
+// ── Employee Multi-Select Dropdown ────────────────────────────────────────────
+function EmployeePicker({ employees, excludeIds, selected, onToggle }: {
   employees: Employee[]; excludeIds: Set<string>;
-  value: Employee | null; onChange: (e: Employee | null) => void;
+  selected: Employee[]; onToggle: (e: Employee) => void;
 }) {
-  const [text, setText] = useState(value ? `${value.firstName} ${value.lastName}` : "");
+  const [text, setText] = useState("");
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
-  useEffect(() => { setText(value ? `${value.firstName} ${value.lastName}` : ""); }, [value]);
   useEffect(() => {
     const h = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
     document.addEventListener("mousedown", h);
     return () => document.removeEventListener("mousedown", h);
   }, []);
 
-  const list = employees.filter(e => {
+  const selectedIds = new Set(selected.map(s => s.id));
+  const matches = employees.filter(e => {
     const name = `${e.firstName} ${e.lastName}`.toLowerCase();
     const code = (e.employeeCode || "").toLowerCase();
     const q = text.toLowerCase();
-    return !excludeIds.has(e.id) && (name.includes(q) || code.includes(q));
-  }).slice(0, 10);
+    return !excludeIds.has(e.id) && !selectedIds.has(e.id) && (name.includes(q) || code.includes(q));
+  });
+  const list = matches.slice(0, 20);
 
   return (
     <div className="relative" ref={ref}>
+      {selected.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 mb-2" data-testid="selected-employees">
+          {selected.map(e => (
+            <span key={e.id}
+              className="inline-flex items-center gap-1 rounded-full bg-primary/10 text-primary text-xs font-medium pl-2.5 pr-1 py-1"
+              data-testid={`selected-employee-${e.id}`}>
+              {e.firstName} {e.lastName}
+              <button type="button" onClick={() => onToggle(e)}
+                className="hover:bg-primary/20 rounded-full p-0.5" data-testid={`remove-selected-${e.id}`}>
+                <X className="h-3 w-3" />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
       <div className="relative">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
         <Input placeholder="Search by name or code…" value={text}
-          onChange={e => { setText(e.target.value); onChange(null); setOpen(e.target.value.length > 0); }}
-          onFocus={() => text.length > 0 && !value && setOpen(true)}
+          onChange={e => { setText(e.target.value); setOpen(true); }}
+          onFocus={() => setOpen(true)}
           className="pl-9 pr-8" data-testid="input-employee-tag-search" />
         {text && (
-          <button type="button" onClick={() => { setText(""); onChange(null); setOpen(false); }}
+          <button type="button" onClick={() => setText("")}
             className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
             <X className="h-3.5 w-3.5" />
           </button>
@@ -129,13 +145,20 @@ function EmployeePicker({ employees, excludeIds, value, onChange }: {
       </div>
       {open && (
         <div className="absolute z-50 mt-1 w-full rounded-lg border bg-popover shadow-lg max-h-52 overflow-y-auto">
+          {list.length > 1 && (
+            <button type="button" onClick={() => list.forEach(onToggle)}
+              className="w-full text-left px-3 py-2 text-xs font-semibold text-primary hover:bg-accent border-b"
+              data-testid="select-all-employees">
+              Select all {list.length} shown
+            </button>
+          )}
           {list.length === 0
             ? <p className="px-3 py-3 text-sm text-muted-foreground">
-                {employees.length === 0 ? "No employees in this company" : "No match found"}
+                {employees.length === 0 ? "No employees in this company" : selected.length > 0 ? "No more matches" : "No match found"}
               </p>
             : list.map(e => (
               <button key={e.id} type="button"
-                onClick={() => { onChange(e); setText(`${e.firstName} ${e.lastName}`); setOpen(false); }}
+                onClick={() => { onToggle(e); setText(""); }}
                 className="w-full flex items-center gap-3 px-3 py-2.5 text-left text-sm hover:bg-accent transition-colors"
                 data-testid={`employee-option-${e.id}`}>
                 <div className="h-7 w-7 rounded-full bg-primary/10 flex items-center justify-center text-[10px] font-bold text-primary shrink-0">
@@ -156,8 +179,10 @@ function EmployeePicker({ employees, excludeIds, value, onChange }: {
 // ── Tagged Employees Panel ────────────────────────────────────────────────────
 function EmployeesPanel({ companyId, contractor }: { companyId: string; contractor: ContractorRow }) {
   const { toast } = useToast();
-  const [selEmp, setSelEmp] = useState<Employee | null>(null);
+  const [selEmps, setSelEmps] = useState<Employee[]>([]);
   const [tagDate, setTagDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const toggleEmp = (e: Employee) =>
+    setSelEmps(prev => prev.some(x => x.id === e.id) ? prev.filter(x => x.id !== e.id) : [...prev, e]);
 
   const { data: tagged = [], isLoading } = useQuery<TaggedEmployee[]>({
     queryKey: ["/api/companies", companyId, "contractors", contractor.contractorId, "employees"],
@@ -179,13 +204,22 @@ function EmployeesPanel({ companyId, contractor }: { companyId: string; contract
 
   const tagMut = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest("POST", `/api/companies/${companyId}/contractors/${contractor.contractorId}/employees`, { employeeId: selEmp!.id, taggedDate: tagDate });
+      const res = await apiRequest("POST", `/api/companies/${companyId}/contractors/${contractor.contractorId}/employees`, { employeeIds: selEmps.map(e => e.id), taggedDate: tagDate });
       if (!res.ok) { const e = await res.json(); throw new Error(e.error || "Failed"); }
+      return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (data: { tagged?: number; skipped?: number }) => {
       queryClient.invalidateQueries({ queryKey: ["/api/companies", companyId, "contractors", contractor.contractorId, "employees"] });
-      setSelEmp(null);
-      toast({ title: "Employee tagged successfully" });
+      setSelEmps([]);
+      const tagged = data?.tagged ?? 0;
+      const skipped = data?.skipped ?? 0;
+      const parts: string[] = [];
+      if (tagged) parts.push(`${tagged} tagged`);
+      if (skipped) parts.push(`${skipped} already tagged`);
+      const title = tagged === 0 && skipped > 0
+        ? "No new employees tagged"
+        : tagged > 1 ? "Employees tagged" : "Employee tagged successfully";
+      toast({ title, description: parts.join(" · ") || undefined });
     },
     onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
@@ -221,21 +255,21 @@ function EmployeesPanel({ companyId, contractor }: { companyId: string; contract
       ) : (
       <div className="px-6 py-4 border-b bg-background">
         <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
-          Tag Employee from {contractor.contractorName}
+          Tag Employees from {contractor.contractorName}
         </p>
-        <div className="flex flex-wrap items-end gap-3">
+        <div className="flex flex-wrap items-start gap-3">
           <div className="flex-1 min-w-[200px]">
-            <label className="block text-xs text-muted-foreground mb-1">Select Employee</label>
-            <EmployeePicker employees={contractorEmps} excludeIds={taggedIds} value={selEmp} onChange={setSelEmp} />
+            <label className="block text-xs text-muted-foreground mb-1">Select Employees</label>
+            <EmployeePicker employees={contractorEmps} excludeIds={taggedIds} selected={selEmps} onToggle={toggleEmp} />
           </div>
           <div className="w-40 shrink-0">
             <label className="block text-xs text-muted-foreground mb-1">Tagging Date</label>
             <Input type="date" value={tagDate} onChange={e => setTagDate(e.target.value)} data-testid="input-tag-date" />
           </div>
-          <Button onClick={() => tagMut.mutate()} disabled={!selEmp || !tagDate || tagMut.isPending}
-            className="shrink-0" data-testid="button-tag-employee">
+          <Button onClick={() => tagMut.mutate()} disabled={selEmps.length === 0 || !tagDate || tagMut.isPending}
+            className="shrink-0 mt-[18px]" data-testid="button-tag-employee">
             <UserPlus className="h-4 w-4 mr-2" />
-            {tagMut.isPending ? "Tagging…" : "Tag Employee"}
+            {tagMut.isPending ? "Tagging…" : selEmps.length > 1 ? `Tag ${selEmps.length} Employees` : "Tag Employee"}
           </Button>
         </div>
       </div>
