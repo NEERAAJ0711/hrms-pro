@@ -703,6 +703,45 @@ export function registerMobileRoutes(app: Express) {
     }
   });
 
+  // Build a payslip response enriched with the same employee/company/custom-head
+  // details the web payslip PDF uses, so the mobile PDF can match it exactly.
+  const buildPayslipResponse = async (payroll: any, employee: any, companyId: string) => {
+    const company = await companyService.getCompany(companyId);
+    const [earningHeads, deductionHeads] = await Promise.all([
+      settingsService.getEarningHeadsByCompany(companyId).catch(() => []),
+      settingsService.getDeductionHeadsByCompany(companyId).catch(() => []),
+    ]);
+    const resolveHeads = (map: Record<string, number> | null | undefined, heads: any[]) => {
+      const out: Record<string, number> = {};
+      Object.entries(map || {}).forEach(([headId, amt]) => {
+        if (!amt) return;
+        const head = heads.find((h: any) => h.id === headId);
+        if (head) out[head.name] = Number(amt) || 0;
+      });
+      return out;
+    };
+    return {
+      ...payroll,
+      employeeName: `${employee.firstName} ${employee.lastName}`,
+      employeeCode: employee.employeeCode,
+      department: employee.department,
+      designation: employee.designation,
+      uan: employee.uan || "",
+      pan: employee.pan || "",
+      bankName: employee.bankName || "",
+      bankAccount: employee.bankAccount || "",
+      location: employee.location || "",
+      companyName: company?.companyName || "",
+      companyAddress: (company as any)?.registeredAddress || (company as any)?.address || "",
+      companyCity: (company as any)?.city || "",
+      companyState: (company as any)?.state || "",
+      companyLogo: (company as any)?.logo || "",
+      companySignature: (company as any)?.signature || "",
+      customEarningsResolved: resolveHeads(payroll.customEarnings, earningHeads),
+      customDeductionsResolved: resolveHeads(payroll.customDeductions, deductionHeads),
+    };
+  };
+
   app.get("/api/mobile/payslips/:id", requireJwtAuth, async (req: Request, res: Response) => {
     try {
       const user = (req as any).user;
@@ -713,8 +752,7 @@ export function registerMobileRoutes(app: Express) {
       const payrolls = await payrollService.getPayrollByEmployee(employee.id);
       const payroll = (payrolls as any[]).find((p: any) => p.id === req.params.id);
       if (!payroll) return res.status(404).json({ error: "Payslip not found" });
-      const company = await companyService.getCompany(user.companyId);
-      res.json({ ...payroll, employeeName: `${employee.firstName} ${employee.lastName}`, employeeCode: employee.employeeCode, department: employee.department, designation: employee.designation, companyName: company?.companyName || "" });
+      res.json(await buildPayslipResponse(payroll, employee, user.companyId));
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch payslip" });
     }
@@ -729,8 +767,7 @@ export function registerMobileRoutes(app: Express) {
       if (!employee) return res.status(404).json({ error: "Employee record not found" });
       const payroll = await payrollService.getPayrollByEmployeeMonth(employee.id, req.params.month as string, parseInt(req.params.year as string));
       if (!payroll) return res.status(404).json({ error: "No payslip found for this month" });
-      const company = await companyService.getCompany(user.companyId);
-      res.json({ ...payroll, employeeName: `${employee.firstName} ${employee.lastName}`, employeeCode: employee.employeeCode, department: employee.department, designation: employee.designation, companyName: company?.companyName || "" });
+      res.json(await buildPayslipResponse(payroll, employee, user.companyId));
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch payslip" });
     }

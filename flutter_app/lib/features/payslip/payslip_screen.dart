@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'dart:typed_data';
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
@@ -62,216 +63,320 @@ class _PayslipScreenState extends State<PayslipScreen> {
     }
   }
 
-  // ─── PDF Generation ────────────────────────────────────────────────────────
+  // ─── Helpers ─────────────────────────────────────────────────────────────────
+  num _num(dynamic v) {
+    if (v == null) return 0;
+    if (v is num) return v;
+    return num.tryParse(v.toString()) ?? 0;
+  }
+
+  // Indian-grouped amount with two decimals — matches the web payslip's fmt().
+  String _inr(dynamic v) => NumberFormat('#,##,##0.00', 'en_IN').format(_num(v).toDouble());
+
+  // Number-to-words in the Indian system, mirroring the web payslip's toWords().
+  String _toWords(int n) {
+    if (n <= 0) return 'Zero';
+    const ones = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen'];
+    const tens = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
+    String convert(int num) {
+      if (num < 20) return ones[num];
+      if (num < 100) return tens[num ~/ 10] + (num % 10 != 0 ? ' ${ones[num % 10]}' : '');
+      if (num < 1000) return '${ones[num ~/ 100]} Hundred${num % 100 != 0 ? ' ${convert(num % 100)}' : ''}';
+      if (num < 100000) return '${convert(num ~/ 1000)} Thousand${num % 1000 != 0 ? ' ${convert(num % 1000)}' : ''}';
+      if (num < 10000000) return '${convert(num ~/ 100000)} Lakh${num % 100000 != 0 ? ' ${convert(num % 100000)}' : ''}';
+      return '${convert(num ~/ 10000000)} Crore${num % 10000000 != 0 ? ' ${convert(num % 10000000)}' : ''}';
+    }
+    return convert(n);
+  }
+
+  // Best-effort image fetch for the company logo / signature (skipped on failure,
+  // exactly like the web payslip which try/catches missing assets).
+  Future<Uint8List?> _fetchImageBytes(String? path) async {
+    if (path == null || path.isEmpty) return null;
+    try {
+      final url = path.startsWith('http')
+          ? path
+          : '${_api.baseUrl}${path.startsWith('/') ? '' : '/'}$path';
+      final res = await _api.dio.get<List<int>>(
+        url,
+        options: Options(responseType: ResponseType.bytes),
+      );
+      final data = res.data;
+      if (data == null || data.isEmpty) return null;
+      return Uint8List.fromList(data);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  // ─── PDF Generation (mirrors the web Pay Slip report) ────────────────────────
   Future<Uint8List> _generatePdf(Map<String, dynamic> p) async {
     final pdf = pw.Document();
     final font = pw.Font.helvetica();
     final fontBold = pw.Font.helveticaBold();
-    final primaryColor = PdfColor.fromHex('1a56db');
-    final accentColor = PdfColor.fromHex('0694a2');
-    final errorColor = PdfColor.fromHex('e02424');
-    final bgLight = PdfColor.fromHex('f0f4ff');
+    final fontItalic = pw.Font.helveticaOblique();
+    const mm = PdfPageFormat.mm;
+    const headFill = PdfColor.fromInt(0xFFD2D2D2);
+    const footFill = PdfColor.fromInt(0xFFF0F0F0);
 
-    pw.Widget sectionTitle(String text, PdfColor color) => pw.Padding(
-      padding: const pw.EdgeInsets.only(bottom: 6),
-      child: pw.Text(text, style: pw.TextStyle(font: fontBold, fontSize: 11, color: color)),
-    );
+    final logoBytes = await _fetchImageBytes(p['companyLogo'] as String?);
+    final sigBytes = await _fetchImageBytes(p['companySignature'] as String?);
+    final logoImage = logoBytes != null ? pw.MemoryImage(logoBytes) : null;
+    final sigImage = sigBytes != null ? pw.MemoryImage(sigBytes) : null;
 
-    pw.Widget row(String label, String value, {bool bold = false, PdfColor? valueColor}) => pw.Padding(
-      padding: const pw.EdgeInsets.symmetric(vertical: 2.5),
-      child: pw.Row(
-        mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-        children: [
-          pw.Text(label, style: pw.TextStyle(font: font, fontSize: 10, color: PdfColors.grey700)),
-          pw.Text(value, style: pw.TextStyle(
-            font: bold ? fontBold : font,
-            fontSize: 10,
-            color: valueColor ?? PdfColors.black,
-          )),
-        ],
-      ),
-    );
+    final companyName = (p['companyName'] ?? 'Company').toString();
+    final address = (p['companyAddress'] ?? '').toString();
+    final cityState = [p['companyCity'], p['companyState']]
+        .where((e) => e != null && e.toString().isNotEmpty)
+        .map((e) => e.toString())
+        .join(' - ');
+    final monthName = (p['month'] ?? '').toString();
+    final yearNum = _num(p['year']).toInt();
 
-    pw.Widget divider() => pw.Divider(color: PdfColors.grey300, thickness: 0.5);
+    final salDays = _num(p['workingDays']);
+    final presDays = _num(p['presentDays']);
+    final lvDays = _num(p['leaveDays']);
+    final payDaysRaw = _num(p['payDays']);
+    final payDaysVal = payDaysRaw > 0 ? payDaysRaw : presDays + lvDays;
+    final absDays = (salDays - payDaysVal) < 0 ? 0.0 : (salDays - payDaysVal).toDouble();
+    final offCalc = payDaysVal - presDays - lvDays;
+    final offDays = offCalc < 0 ? 0.0 : offCalc.toDouble();
+    final otHrs = _num(p['otHours']);
+    final otAmt = _num(p['otAmount']);
+    String days(num v) => v.toStringAsFixed(2);
 
-    String fmt(dynamic v) {
-      if (v == null) return '0';
-      final num n = v is num ? v : num.tryParse(v.toString()) ?? 0;
-      return '₹${NumberFormat('#,##,###', 'en_IN').format(n)}';
+    // ── Earnings rows ──
+    final earnRows = <List<String>>[];
+    void addEarn(String label, dynamic val) {
+      if (_num(val) > 0) earnRows.add([label, _inr(val)]);
+    }
+    addEarn('Basic Salary', p['basicSalary']);
+    addEarn('House Rent Allowance', p['hra']);
+    addEarn('Conveyance Allowances', p['conveyance']);
+    addEarn('Special Allowance', p['specialAllowance']);
+    final rawCustomEarn = (p['customEarnings'] as Map?) ?? {};
+    num customEarnSum = 0;
+    rawCustomEarn.forEach((_, v) => customEarnSum += _num(v));
+    final customEarn = (p['customEarningsResolved'] as Map?) ?? {};
+    customEarn.forEach((name, amt) {
+      if (_num(amt) != 0) earnRows.add([name.toString(), _inr(amt)]);
+    });
+    final residualOther = _num(p['otherAllowances']) - customEarnSum;
+    if (residualOther > 0) earnRows.add(['Other Allowances', _inr(residualOther)]);
+    addEarn('Bonus', p['bonus']);
+    if (otAmt > 0) earnRows.add(['OT Amount (${otHrs.toStringAsFixed(2)} hrs)', _inr(otAmt)]);
+
+    // ── Deduction rows ──
+    final dedRows = <List<String>>[];
+    void addDed(String label, dynamic val) {
+      if (_num(val) > 0) dedRows.add([label, _inr(val)]);
+    }
+    addDed('Employee PF (EPF)', p['pfEmployee']);
+    addDed('VPF (Voluntary PF)', p['vpfAmount']);
+    addDed('ESI Deduction', p['esi']);
+    addDed('Professional Tax', p['professionalTax']);
+    addDed('LWF', p['lwfEmployee']);
+    addDed('TDS', p['tds']);
+    addDed('Other Deductions', p['otherDeductions']);
+    addDed('Loan / Advance', p['loanDeduction']);
+    final customDed = (p['customDeductionsResolved'] as Map?) ?? {};
+    customDed.forEach((name, amt) {
+      if (_num(amt) != 0) dedRows.add([name.toString(), _inr(amt)]);
+    });
+
+    var maxR = earnRows.length > dedRows.length ? earnRows.length : dedRows.length;
+    if (maxR < 1) maxR = 1;
+    while (earnRows.length < maxR) earnRows.add(['', '']);
+    while (dedRows.length < maxR) dedRows.add(['', '']);
+
+    // ── Cell builder ──
+    pw.Widget cell(String text, {bool bold = false, bool right = false, double size = 8.2, double padV = 1.6, double padH = 2}) {
+      return pw.Container(
+        alignment: right ? pw.Alignment.centerRight : pw.Alignment.centerLeft,
+        padding: pw.EdgeInsets.symmetric(horizontal: padH, vertical: padV),
+        child: pw.Text(text, style: pw.TextStyle(font: bold ? fontBold : font, fontSize: size)),
+      );
     }
 
-    pdf.addPage(
-      pw.Page(
-        pageFormat: PdfPageFormat.a4,
-        margin: const pw.EdgeInsets.all(30),
-        build: (ctx) => pw.Column(
-          crossAxisAlignment: pw.CrossAxisAlignment.start,
+    // ── Employee info rows ──
+    String orDash(dynamic v) => (v != null && v.toString().isNotEmpty) ? v.toString() : '-';
+    final leftInfo = <List<String>>[
+      ['Code', orDash(p['employeeCode'])],
+      ['Name', orDash(p['employeeName'])],
+      ['Designation', orDash(p['designation'])],
+      ['Office', (p['location'] != null && p['location'].toString().isNotEmpty) ? p['location'].toString() : companyName],
+      ['Department', orDash(p['department'])],
+      ['UAN No', orDash(p['uan'])],
+    ];
+    final rightInfo = <List<String>>[
+      ['Salary Days', days(salDays), 'PAN No', orDash(p['pan'])],
+      ['Pay Days', days(payDaysVal), 'Bank Name', orDash(p['bankName'])],
+      ['Present Days', days(presDays), 'Bank A/c', orDash(p['bankAccount'])],
+      ['Absent Days', days(absDays), 'Late Days', '0.00'],
+      ['Off Days', days(offDays), 'Holiday', '0.00'],
+      ['Leave Days', days(lvDays), 'Encashed Days', '0.00'],
+      ['OT Hours', otHrs.toStringAsFixed(2), 'OT Amount', _inr(otAmt)],
+    ];
+    final infoRows = leftInfo.length > rightInfo.length ? leftInfo.length : rightInfo.length;
+    final infoTableRows = <pw.TableRow>[];
+    for (var i = 0; i < infoRows; i++) {
+      final l = i < leftInfo.length ? leftInfo[i] : ['', ''];
+      final r = i < rightInfo.length ? rightInfo[i] : ['', '', '', ''];
+      infoTableRows.add(pw.TableRow(children: [
+        cell(l[0], bold: true),
+        cell(l[1]),
+        cell(r[0], bold: true),
+        cell(r[1], right: true),
+        cell(r[2], bold: true),
+        cell(r[3], right: true),
+      ]));
+    }
+
+    // ── Earnings / Deductions table rows ──
+    final edRows = <pw.TableRow>[];
+    edRows.add(pw.TableRow(
+      decoration: const pw.BoxDecoration(color: headFill),
+      children: [
+        cell('Earnings', bold: true, size: 9, padV: 2.2, padH: 2.5),
+        cell('Amt. (Rs.)', bold: true, right: true, size: 9, padV: 2.2, padH: 2.5),
+        cell('Deductions', bold: true, size: 9, padV: 2.2, padH: 2.5),
+        cell('Amt. (Rs.)', bold: true, right: true, size: 9, padV: 2.2, padH: 2.5),
+      ],
+    ));
+    for (var i = 0; i < maxR; i++) {
+      edRows.add(pw.TableRow(children: [
+        cell(earnRows[i][0], size: 9, padV: 2.2, padH: 2.5),
+        cell(earnRows[i][1], right: true, size: 9, padV: 2.2, padH: 2.5),
+        cell(dedRows[i][0], size: 9, padV: 2.2, padH: 2.5),
+        cell(dedRows[i][1], right: true, size: 9, padV: 2.2, padH: 2.5),
+      ]));
+    }
+    edRows.add(pw.TableRow(
+      decoration: const pw.BoxDecoration(color: footFill),
+      children: [
+        cell('Gross Pay :', bold: true, right: true, size: 9.5, padV: 2.2, padH: 2.5),
+        cell(_inr(p['totalEarnings']), bold: true, right: true, size: 9.5, padV: 2.2, padH: 2.5),
+        cell('Deductions :', bold: true, right: true, size: 9.5, padV: 2.2, padH: 2.5),
+        cell(_inr(p['totalDeductions']), bold: true, right: true, size: 9.5, padV: 2.2, padH: 2.5),
+      ],
+    ));
+    edRows.add(pw.TableRow(
+      decoration: const pw.BoxDecoration(color: footFill),
+      children: [
+        cell('', size: 9.5, padV: 2.2, padH: 2.5),
+        cell('', size: 9.5, padV: 2.2, padH: 2.5),
+        cell('Net pay :', bold: true, right: true, size: 9.5, padV: 2.2, padH: 2.5),
+        cell(_inr(p['netSalary']), bold: true, right: true, size: 9.5, padV: 2.2, padH: 2.5),
+      ],
+    ));
+
+    pdf.addPage(pw.Page(
+      pageFormat: PdfPageFormat.a4,
+      margin: pw.EdgeInsets.all(14 * mm),
+      build: (ctx) {
+        return pw.Column(
+          crossAxisAlignment: pw.CrossAxisAlignment.stretch,
           children: [
-            // ── Header bar ─────────────────────────────────────
-            pw.Container(
-              width: double.infinity,
-              padding: const pw.EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-              decoration: pw.BoxDecoration(
-                color: primaryColor,
-                borderRadius: pw.BorderRadius.circular(8),
-              ),
-              child: pw.Row(
-                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                children: [
-                  pw.Column(
-                    crossAxisAlignment: pw.CrossAxisAlignment.start,
-                    children: [
-                      pw.Text(
-                        p['companyName'] ?? 'Company',
-                        style: pw.TextStyle(font: fontBold, fontSize: 15, color: PdfColors.white),
-                      ),
-                      pw.SizedBox(height: 4),
-                      pw.Text(
-                        'Pay Slip — ${p['month']} ${p['year']}',
-                        style: pw.TextStyle(font: font, fontSize: 11, color: PdfColors.white),
-                      ),
-                    ],
-                  ),
-                  pw.Container(
-                    padding: const pw.EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                    decoration: pw.BoxDecoration(
-                      color: PdfColors.white,
-                      borderRadius: pw.BorderRadius.circular(6),
-                    ),
-                    child: pw.Text(
-                      'PAYSLIP',
-                      style: pw.TextStyle(font: fontBold, fontSize: 10, color: primaryColor),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            pw.SizedBox(height: 16),
-
-            // ── Employee Details ────────────────────────────────
-            pw.Container(
-              width: double.infinity,
-              padding: const pw.EdgeInsets.all(12),
-              decoration: pw.BoxDecoration(
-                color: bgLight,
-                borderRadius: pw.BorderRadius.circular(6),
-                border: pw.Border.all(color: PdfColor.fromHex('d1d9ff'), width: 0.5),
-              ),
-              child: pw.Column(
-                crossAxisAlignment: pw.CrossAxisAlignment.start,
-                children: [
-                  sectionTitle('Employee Details', primaryColor),
-                  pw.Row(
-                    children: [
-                      pw.Expanded(child: pw.Column(children: [
-                        row('Name', p['employeeName'] ?? '-'),
-                        row('Employee Code', p['employeeCode'] ?? '-'),
-                        row('Department', p['department'] ?? '-'),
-                      ])),
-                      pw.SizedBox(width: 24),
-                      pw.Expanded(child: pw.Column(children: [
-                        row('Designation', p['designation'] ?? '-'),
-                        row('Pay Period', '${p['month']} ${p['year']}'),
-                        row('Company', p['companyName'] ?? '-'),
-                      ])),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-            pw.SizedBox(height: 12),
-
-            // ── Earnings & Deductions side by side ──────────────
-            pw.Row(
-              crossAxisAlignment: pw.CrossAxisAlignment.start,
+            // ── Header: centered company block, logo top-right ──
+            pw.Stack(
               children: [
-                // Earnings
-                pw.Expanded(
-                  child: pw.Container(
-                    padding: const pw.EdgeInsets.all(12),
-                    decoration: pw.BoxDecoration(
-                      border: pw.Border.all(color: PdfColors.grey300, width: 0.5),
-                      borderRadius: pw.BorderRadius.circular(6),
-                    ),
-                    child: pw.Column(
-                      crossAxisAlignment: pw.CrossAxisAlignment.start,
-                      children: [
-                        sectionTitle('Earnings', accentColor),
-                        row('Basic Salary', fmt(p['basicSalary'])),
-                        if ((p['hra'] ?? 0) != 0) row('HRA', fmt(p['hra'])),
-                        if ((p['da'] ?? 0) != 0) row('DA', fmt(p['da'])),
-                        if ((p['conveyance'] ?? 0) != 0) row('Conveyance', fmt(p['conveyance'])),
-                        if ((p['medicalAllowance'] ?? 0) != 0) row('Medical', fmt(p['medicalAllowance'])),
-                        if ((p['specialAllowance'] ?? 0) != 0) row('Special Allowance', fmt(p['specialAllowance'])),
-                        if ((p['otherEarnings'] ?? 0) != 0) row('Other Earnings', fmt(p['otherEarnings'])),
-                        if ((p['monthlyBonus'] ?? 0) != 0) row('Monthly Bonus', fmt(p['monthlyBonus'])),
-                        divider(),
-                        row('Gross Earnings', fmt(p['grossSalary'] ?? p['grossEarnings']), bold: true, valueColor: accentColor),
-                      ],
-                    ),
+                pw.Container(
+                  width: double.infinity,
+                  child: pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.center,
+                    children: [
+                      pw.Container(
+                        decoration: pw.BoxDecoration(
+                          border: pw.Border(bottom: pw.BorderSide(width: 0.5, color: PdfColors.black)),
+                        ),
+                        child: pw.Text(companyName, style: pw.TextStyle(font: fontBold, fontSize: 15)),
+                      ),
+                      if (address.isNotEmpty)
+                        pw.Padding(padding: const pw.EdgeInsets.only(top: 3), child: pw.Text(address, style: pw.TextStyle(font: font, fontSize: 8.5))),
+                      if (cityState.isNotEmpty)
+                        pw.Padding(padding: const pw.EdgeInsets.only(top: 2), child: pw.Text(cityState, style: pw.TextStyle(font: font, fontSize: 8.5))),
+                    ],
                   ),
                 ),
-                pw.SizedBox(width: 10),
-                // Deductions
-                pw.Expanded(
-                  child: pw.Container(
-                    padding: const pw.EdgeInsets.all(12),
-                    decoration: pw.BoxDecoration(
-                      border: pw.Border.all(color: PdfColors.grey300, width: 0.5),
-                      borderRadius: pw.BorderRadius.circular(6),
-                    ),
-                    child: pw.Column(
-                      crossAxisAlignment: pw.CrossAxisAlignment.start,
-                      children: [
-                        sectionTitle('Deductions', errorColor),
-                        if ((p['pfEmployee'] ?? 0) != 0) row('PF (Employee)', fmt(p['pfEmployee'])),
-                        if ((p['esicEmployee'] ?? 0) != 0) row('ESIC (Employee)', fmt(p['esicEmployee'])),
-                        if ((p['professionalTax'] ?? 0) != 0) row('Professional Tax', fmt(p['professionalTax'])),
-                        if ((p['tds'] ?? 0) != 0) row('TDS', fmt(p['tds'])),
-                        if ((p['lwf'] ?? 0) != 0) row('LWF', fmt(p['lwf'])),
-                        if ((p['otherDeductions'] ?? 0) != 0) row('Other Deductions', fmt(p['otherDeductions'])),
-                        divider(),
-                        row('Total Deductions', fmt(p['totalDeductions']), bold: true, valueColor: errorColor),
-                      ],
-                    ),
-                  ),
-                ),
+                if (logoImage != null)
+                  pw.Positioned(right: 0, top: 0, child: pw.Image(logoImage, height: 16 * mm, fit: pw.BoxFit.contain)),
               ],
             ),
-            pw.SizedBox(height: 12),
-
-            // ── Net Pay ─────────────────────────────────────────
+            pw.SizedBox(height: 9),
+            // ── Title ──
+            pw.Center(
+              child: pw.Container(
+                decoration: pw.BoxDecoration(
+                  border: pw.Border(bottom: pw.BorderSide(width: 0.4, color: PdfColors.black)),
+                ),
+                child: pw.Text('PaySlip For $monthName-$yearNum', style: pw.TextStyle(font: fontBold, fontSize: 11)),
+              ),
+            ),
+            pw.SizedBox(height: 9),
+            // ── Employee info grid ──
+            pw.Table(
+              border: pw.TableBorder.all(width: 0.25, color: PdfColors.black),
+              columnWidths: const {
+                0: pw.FlexColumnWidth(24),
+                1: pw.FlexColumnWidth(57),
+                2: pw.FlexColumnWidth(25),
+                3: pw.FlexColumnWidth(22),
+                4: pw.FlexColumnWidth(28),
+                5: pw.FlexColumnWidth(26),
+              },
+              children: infoTableRows,
+            ),
+            pw.SizedBox(height: 5),
+            // ── Earnings / Deductions ──
+            pw.Table(
+              border: pw.TableBorder.all(width: 0.25, color: PdfColors.black),
+              columnWidths: const {
+                0: pw.FlexColumnWidth(62),
+                1: pw.FlexColumnWidth(29),
+                2: pw.FlexColumnWidth(62),
+                3: pw.FlexColumnWidth(29),
+              },
+              children: edRows,
+            ),
+            pw.SizedBox(height: 5),
+            // ── Amount in words ──
             pw.Container(
               width: double.infinity,
-              padding: const pw.EdgeInsets.all(14),
-              decoration: pw.BoxDecoration(
-                color: primaryColor,
-                borderRadius: pw.BorderRadius.circular(6),
-              ),
-              child: pw.Row(
-                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              decoration: pw.BoxDecoration(border: pw.Border.all(width: 0.25, color: PdfColors.black)),
+              padding: const pw.EdgeInsets.symmetric(horizontal: 3, vertical: 3),
+              child: pw.Text('Rupees ${_toWords(_num(p['netSalary']).round())} Only', style: pw.TextStyle(font: font, fontSize: 9)),
+            ),
+            pw.SizedBox(height: 5),
+            // ── Signature space ──
+            pw.Container(
+              width: double.infinity,
+              height: 20 * mm,
+              decoration: pw.BoxDecoration(border: pw.Border.all(width: 0.25, color: PdfColors.black)),
+              padding: const pw.EdgeInsets.all(2),
+              child: pw.Stack(
                 children: [
-                  pw.Text('Net Pay (Take Home)', style: pw.TextStyle(font: fontBold, fontSize: 12, color: PdfColors.white)),
-                  pw.Text(
-                    fmt(p['netPay'] ?? p['netSalary']),
-                    style: pw.TextStyle(font: fontBold, fontSize: 18, color: PdfColors.white),
+                  if (sigImage != null)
+                    pw.Positioned(right: 2, top: 2, child: pw.Image(sigImage, height: 14 * mm, fit: pw.BoxFit.contain)),
+                  pw.Positioned(
+                    right: 2,
+                    bottom: 2,
+                    child: pw.Text('Authorized Signatory', style: pw.TextStyle(font: font, fontSize: 7.5, color: PdfColors.grey800)),
                   ),
                 ],
               ),
             ),
-            pw.SizedBox(height: 16),
-
-            // ── Footer ──────────────────────────────────────────
-            divider(),
             pw.SizedBox(height: 6),
-            pw.Text(
-              'This is a system-generated payslip and does not require a signature.',
-              style: pw.TextStyle(font: font, fontSize: 8, color: PdfColors.grey600),
-            ),
+            if (sigImage == null)
+              pw.Center(
+                child: pw.Text(
+                  'This is a system generated document does not require Signature',
+                  style: pw.TextStyle(font: fontItalic, fontSize: 8, color: PdfColors.grey800),
+                ),
+              ),
           ],
-        ),
-      ),
-    );
+        );
+      },
+    ));
 
     return pdf.save();
   }
@@ -360,8 +465,8 @@ class _PayslipScreenState extends State<PayslipScreen> {
           final p = _payslips[index];
           final month = p['month'] ?? '';
           final year = p['year'] ?? 0;
-          final netPay = p['netPay'] ?? p['netSalary'] ?? 0;
-          final grossPay = p['grossSalary'] ?? p['grossEarnings'] ?? 0;
+          final netPay = p['netSalary'] ?? 0;
+          final grossPay = p['totalEarnings'] ?? 0;
 
           return Card(
             margin: const EdgeInsets.only(bottom: 10),
@@ -372,7 +477,7 @@ class _PayslipScreenState extends State<PayslipScreen> {
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Text(month.toString().substring(0, 3).toUpperCase(), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: AppTheme.primaryColor)),
+                    Text(month.toString().substring(0, month.toString().length >= 3 ? 3 : month.toString().length).toUpperCase(), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: AppTheme.primaryColor)),
                     Text('$year', style: const TextStyle(fontSize: 10, color: AppTheme.primaryColor)),
                   ],
                 ),
@@ -455,15 +560,14 @@ class _PayslipScreenState extends State<PayslipScreen> {
                   const Text('Earnings', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppTheme.accentColor)),
                   const SizedBox(height: 8),
                   _detailRow('Basic Salary', '₹${_formatAmount(p['basicSalary'])}'),
-                  if (p['hra'] != null && p['hra'] != 0) _detailRow('HRA', '₹${_formatAmount(p['hra'])}'),
-                  if (p['da'] != null && p['da'] != 0) _detailRow('DA', '₹${_formatAmount(p['da'])}'),
-                  if (p['conveyance'] != null && p['conveyance'] != 0) _detailRow('Conveyance', '₹${_formatAmount(p['conveyance'])}'),
-                  if (p['medicalAllowance'] != null && p['medicalAllowance'] != 0) _detailRow('Medical', '₹${_formatAmount(p['medicalAllowance'])}'),
-                  if (p['specialAllowance'] != null && p['specialAllowance'] != 0) _detailRow('Special Allowance', '₹${_formatAmount(p['specialAllowance'])}'),
-                  if (p['otherEarnings'] != null && p['otherEarnings'] != 0) _detailRow('Other Earnings', '₹${_formatAmount(p['otherEarnings'])}'),
-                  if (p['monthlyBonus'] != null && p['monthlyBonus'] != 0) _detailRow('Monthly Bonus', '₹${_formatAmount(p['monthlyBonus'])}'),
+                  if (_num(p['hra']) != 0) _detailRow('House Rent Allowance', '₹${_formatAmount(p['hra'])}'),
+                  if (_num(p['conveyance']) != 0) _detailRow('Conveyance', '₹${_formatAmount(p['conveyance'])}'),
+                  if (_num(p['specialAllowance']) != 0) _detailRow('Special Allowance', '₹${_formatAmount(p['specialAllowance'])}'),
+                  if (_num(p['otherAllowances']) != 0) _detailRow('Other Allowances', '₹${_formatAmount(p['otherAllowances'])}'),
+                  if (_num(p['bonus']) != 0) _detailRow('Bonus', '₹${_formatAmount(p['bonus'])}'),
+                  if (_num(p['otAmount']) != 0) _detailRow('OT Amount', '₹${_formatAmount(p['otAmount'])}'),
                   const Divider(),
-                  _detailRow('Gross Earnings', '₹${_formatAmount(p['grossSalary'] ?? p['grossEarnings'])}', isBold: true),
+                  _detailRow('Gross Earnings', '₹${_formatAmount(p['totalEarnings'])}', isBold: true),
                 ],
               ),
             ),
@@ -479,12 +583,14 @@ class _PayslipScreenState extends State<PayslipScreen> {
                 children: [
                   const Text('Deductions', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppTheme.errorColor)),
                   const SizedBox(height: 8),
-                  if (p['pfEmployee'] != null && p['pfEmployee'] != 0) _detailRow('PF (Employee)', '₹${_formatAmount(p['pfEmployee'])}'),
-                  if (p['esicEmployee'] != null && p['esicEmployee'] != 0) _detailRow('ESIC (Employee)', '₹${_formatAmount(p['esicEmployee'])}'),
-                  if (p['professionalTax'] != null && p['professionalTax'] != 0) _detailRow('Professional Tax', '₹${_formatAmount(p['professionalTax'])}'),
-                  if (p['tds'] != null && p['tds'] != 0) _detailRow('TDS', '₹${_formatAmount(p['tds'])}'),
-                  if (p['lwf'] != null && p['lwf'] != 0) _detailRow('LWF', '₹${_formatAmount(p['lwf'])}'),
-                  if (p['otherDeductions'] != null && p['otherDeductions'] != 0) _detailRow('Other Deductions', '₹${_formatAmount(p['otherDeductions'])}'),
+                  if (_num(p['pfEmployee']) != 0) _detailRow('Employee PF (EPF)', '₹${_formatAmount(p['pfEmployee'])}'),
+                  if (_num(p['vpfAmount']) != 0) _detailRow('VPF (Voluntary PF)', '₹${_formatAmount(p['vpfAmount'])}'),
+                  if (_num(p['esi']) != 0) _detailRow('ESI Deduction', '₹${_formatAmount(p['esi'])}'),
+                  if (_num(p['professionalTax']) != 0) _detailRow('Professional Tax', '₹${_formatAmount(p['professionalTax'])}'),
+                  if (_num(p['lwfEmployee']) != 0) _detailRow('LWF', '₹${_formatAmount(p['lwfEmployee'])}'),
+                  if (_num(p['tds']) != 0) _detailRow('TDS', '₹${_formatAmount(p['tds'])}'),
+                  if (_num(p['otherDeductions']) != 0) _detailRow('Other Deductions', '₹${_formatAmount(p['otherDeductions'])}'),
+                  if (_num(p['loanDeduction']) != 0) _detailRow('Loan / Advance', '₹${_formatAmount(p['loanDeduction'])}'),
                   const Divider(),
                   _detailRow('Total Deductions', '₹${_formatAmount(p['totalDeductions'])}', isBold: true),
                 ],
@@ -502,7 +608,7 @@ class _PayslipScreenState extends State<PayslipScreen> {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   const Text('Net Pay', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                  Text('₹${_formatAmount(p['netPay'] ?? p['netSalary'])}',
+                  Text('₹${_formatAmount(p['netSalary'])}',
                       style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: AppTheme.primaryColor)),
                 ],
               ),
@@ -528,8 +634,7 @@ class _PayslipScreenState extends State<PayslipScreen> {
   }
 
   String _formatAmount(dynamic amount) {
-    if (amount == null) return '0';
-    final num val = amount is num ? amount : num.tryParse(amount.toString()) ?? 0;
-    return NumberFormat('#,##,###', 'en_IN').format(val);
+    final num val = _num(amount);
+    return NumberFormat('#,##,##0.00', 'en_IN').format(val.toDouble());
   }
 }
