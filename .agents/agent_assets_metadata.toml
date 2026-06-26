@@ -12,3 +12,9 @@ id = "O-EfI25VCe_hvEtB8lUDf"
 uri = "file://AI_AUDIT_REPORT.md"
 type = "text"
 title = "HRMS AI Implementation Audit"
+
+[[outputs]]
+id = "0zeMuqTfhCpQ4aF6inZl1"
+uri = "file://flutter_app/APK_SIZE_AUDIT_REPORT.md"
+type = "text"
+title = "Flutter APK Size Optimization Audit Report"
