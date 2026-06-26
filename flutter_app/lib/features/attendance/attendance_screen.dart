@@ -29,7 +29,7 @@ class AttendanceScreen extends StatefulWidget {
   State<AttendanceScreen> createState() => _AttendanceScreenState();
 }
 
-class _AttendanceScreenState extends State<AttendanceScreen> with SingleTickerProviderStateMixin {
+class _AttendanceScreenState extends State<AttendanceScreen> {
   final ApiClient _api = ApiClient();
 
   Map<String, dynamic>? _todayAttendance;
@@ -39,21 +39,10 @@ class _AttendanceScreenState extends State<AttendanceScreen> with SingleTickerPr
   bool _isLoading = true;
   bool _isPunching = false;
 
-  late AnimationController _pulseCtrl;
-  late Animation<double> _pulseAnim;
-
   @override
   void initState() {
     super.initState();
-    _pulseCtrl = AnimationController(vsync: this, duration: const Duration(seconds: 2))..repeat(reverse: true);
-    _pulseAnim = Tween<double>(begin: 1.0, end: 1.08).animate(CurvedAnimation(parent: _pulseCtrl, curve: Curves.easeInOut));
     _loadAll();
-  }
-
-  @override
-  void dispose() {
-    _pulseCtrl.dispose();
-    super.dispose();
   }
 
   // ── Data loading ─────────────────────────────────────────────────────────
@@ -109,15 +98,14 @@ class _AttendanceScreenState extends State<AttendanceScreen> with SingleTickerPr
   // ═══════════════════════════════════════════════════════════════════════════
   Future<void> _oneTapPunch() async {
     if (!_canPunch) return;
-    final isFirstPunch = _todayAttendance?['clockIn'] == null;
-    final label = isFirstPunch ? 'Punch In' : 'Punch Out';
+    const label = 'Log Time';
 
     // Build step list based on what's enabled
     final steps = [
       if (_gpsVerificationRequired) _PunchStep('Getting GPS location', Icons.location_on),
       if (_faceVerificationRequired) _PunchStep('Opening camera', Icons.camera_alt),
       if (_faceVerificationRequired) _PunchStep('Verifying face', Icons.face),
-      _PunchStep('Recording punch', Icons.how_to_reg),
+      _PunchStep('Logging time', Icons.how_to_reg),
     ];
 
     Position? position;
@@ -266,7 +254,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> with SingleTickerPr
             );
 
             final punchType = res.data?['punchType'] ?? 'clock_in';
-            updateStep(stepIdx, PunchStepState.done, punchType == 'clock_in' ? 'Punched in successfully ✓' : 'Punched out successfully ✓');
+            updateStep(stepIdx, PunchStepState.done, punchType == 'clock_in' ? 'Time logged — clock-in ✓' : 'Time logged — clock-out ✓');
             await Future.delayed(const Duration(milliseconds: 600));
 
             if (sheetCtx.mounted) Navigator.pop(sheetCtx);
@@ -381,81 +369,73 @@ class _AttendanceScreenState extends State<AttendanceScreen> with SingleTickerPr
 
   // ── Punch section ──────────────────────────────────────────────────────────
   Widget _punchSection() {
-    final isFirstPunch = _todayAttendance?['clockIn'] == null;
-    final label = isFirstPunch ? 'PUNCH IN' : 'PUNCH OUT';
-    final color = isFirstPunch ? AppTheme.primaryColor : AppTheme.accentColor;
-    final icon  = isFirstPunch ? Icons.login : Icons.logout;
+    final color = AppTheme.primaryColor;
 
     final chips = <Widget>[];
     if (_gpsVerificationRequired) chips.add(_reqChip(Icons.location_on, 'GPS', color));
     if (_faceVerificationRequired) chips.add(_reqChip(Icons.face, 'Face', color));
 
-    return Column(children: [
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       if (chips.isNotEmpty) ...[
         Row(mainAxisAlignment: MainAxisAlignment.center, children: [
           Text('Auto-verifies: ', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
           ...chips.map((c) => Padding(padding: const EdgeInsets.only(left: 6), child: c)).toList(),
         ]),
-        const SizedBox(height: 20),
+        const SizedBox(height: 16),
       ],
 
-      // Punch count indicator
+      // Log status indicator
       if (_punchCount > 0) ...[
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-          margin: const EdgeInsets.only(bottom: 14),
-          decoration: BoxDecoration(
-            color: Colors.orange.shade50,
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: Colors.orange.shade200),
-          ),
-          child: Text(
-            'Punches today: $_punchCount  •  Last punch = clock-out',
-            style: TextStyle(fontSize: 12, color: Colors.orange.shade800, fontWeight: FontWeight.w500),
+        Center(
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+            margin: const EdgeInsets.only(bottom: 14),
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.08),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: color.withOpacity(0.25)),
+            ),
+            child: Text(
+              _punchCount == 1
+                  ? 'Clock-in logged • log again to set clock-out'
+                  : 'Clock-in & clock-out logged • best 2 used',
+              style: TextStyle(fontSize: 12, color: color, fontWeight: FontWeight.w600),
+            ),
           ),
         ),
       ],
 
-      // The big punch button
-      Center(
-        child: AnimatedBuilder(
-          animation: _pulseAnim,
-          builder: (_, child) => Transform.scale(
-            scale: _canPunch ? _pulseAnim.value : 1.0,
-            child: child,
+      // Compact, professional "Log Time" button
+      SizedBox(
+        height: 54,
+        child: ElevatedButton.icon(
+          onPressed: _canPunch ? _oneTapPunch : null,
+          icon: _isPunching
+              ? const SizedBox(
+                  width: 18, height: 18,
+                  child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.4),
+                )
+              : const Icon(Icons.access_time_rounded, size: 22),
+          label: Text(
+            _isPunching ? 'Logging…' : 'Log Time',
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700, letterSpacing: 0.3),
           ),
-          child: GestureDetector(
-            onTap: _canPunch ? _oneTapPunch : null,
-            child: Container(
-              width: 180,
-              height: 180,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: RadialGradient(colors: [color.withOpacity(0.9), color]),
-                boxShadow: [
-                  BoxShadow(color: color.withOpacity(0.45), blurRadius: 30, spreadRadius: 4),
-                  BoxShadow(color: color.withOpacity(0.2),  blurRadius: 60, spreadRadius: 10),
-                ],
-              ),
-              child: _isPunching
-                  ? const Center(child: CircularProgressIndicator(color: Colors.white, strokeWidth: 3))
-                  : Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-                      Icon(icon, color: Colors.white, size: 48),
-                      const SizedBox(height: 6),
-                      Text(label, style: const TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.w800, letterSpacing: 1.2)),
-                    ]),
-            ),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: color,
+            foregroundColor: Colors.white,
+            disabledBackgroundColor: Colors.grey.shade300,
+            disabledForegroundColor: Colors.white,
+            elevation: 1.5,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
           ),
         ),
       ),
 
-      const SizedBox(height: 16),
+      const SizedBox(height: 12),
       Text(
-        isFirstPunch
-            ? 'First punch = clock in. Each subsequent punch = clock out.'
-            : 'Punch again to update your clock-out time.',
+        'Log your time anytime. You can log multiple times — the system uses your best 2 (first as clock-in, last as clock-out).',
         textAlign: TextAlign.center,
-        style: TextStyle(fontSize: 12, color: Colors.grey[500]),
+        style: TextStyle(fontSize: 12, color: Colors.grey[500], height: 1.4),
       ),
     ]);
   }
