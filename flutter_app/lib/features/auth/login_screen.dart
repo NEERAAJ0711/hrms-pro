@@ -139,43 +139,49 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [Color(0xFF1A56DB), Color(0xFF0A3A8A), Color(0xFF061D56)],
-            stops: [0.0, 0.5, 1.0],
-          ),
-        ),
-        child: SafeArea(
-          child: SingleChildScrollView(
-            child: ConstrainedBox(
-              constraints: BoxConstraints(minHeight: MediaQuery.of(context).size.height - MediaQuery.of(context).padding.top - MediaQuery.of(context).padding.bottom),
+      backgroundColor: Colors.white,
+      body: Column(
+        children: [
+          // ── Branded gradient header ──────────────────────────────────────
+          Container(
+            width: double.infinity,
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [Color(0xFF1A56DB), Color(0xFF0A3A8A), Color(0xFF061D56)],
+                stops: [0.0, 0.5, 1.0],
+              ),
+            ),
+            child: SafeArea(
+              bottom: false,
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
-                child: FadeTransition(
-                  opacity: _fadeAnim,
+                padding: const EdgeInsets.fromLTRB(28, 32, 28, 44),
+                child: FadeTransition(opacity: _fadeAnim, child: _buildHeader()),
+              ),
+            ),
+          ),
+
+          // ── Form panel fills the rest of the screen ──────────────────────
+          Expanded(
+            child: Transform.translate(
+              offset: const Offset(0, -28),
+              child: Container(
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+                ),
+                child: SingleChildScrollView(
+                  padding: EdgeInsets.fromLTRB(28, 34, 28, 28 + MediaQuery.of(context).padding.bottom),
                   child: SlideTransition(
                     position: _slideAnim,
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const SizedBox(height: 30),
-                        _buildHeader(),
-                        const SizedBox(height: 40),
-                        _buildLoginCard(),
-                        const SizedBox(height: 24),
-                        _buildFooter(context),
-                        const SizedBox(height: 20),
-                      ],
-                    ),
+                    child: _buildForm(context),
                   ),
                 ),
               ),
             ),
           ),
-        ),
+        ],
       ),
     );
   }
@@ -227,68 +233,70 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
     ]);
   }
 
-  Widget _buildLoginCard() {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(24),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.2), blurRadius: 30, offset: const Offset(0, 10))],
-      ),
-      padding: const EdgeInsets.all(28),
-      child: Form(
-        key: _formKey,
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Row(children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(color: AppTheme.primaryColor.withOpacity(0.1), borderRadius: BorderRadius.circular(10)),
-              child: const Icon(Icons.login, color: AppTheme.primaryColor, size: 20),
+  Widget _buildForm(BuildContext context) {
+    return Form(
+      key: _formKey,
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const Text('Sign In', style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: AppTheme.textPrimary)),
+        const SizedBox(height: 6),
+        const Text('Welcome back! Please sign in to continue.', style: TextStyle(fontSize: 14, color: AppTheme.textSecondary)),
+        const SizedBox(height: 28),
+        _buildField(
+          controller: _usernameController,
+          label: 'Username',
+          hint: 'Enter your username',
+          icon: Icons.person_outline,
+          validator: (v) => v == null || v.trim().isEmpty ? 'Username is required' : null,
+          textInputAction: TextInputAction.next,
+        ),
+        const SizedBox(height: 16),
+        _buildPasswordField(),
+        const SizedBox(height: 28),
+        SizedBox(
+          width: double.infinity,
+          height: 54,
+          child: ElevatedButton(
+            onPressed: _isLoading ? null : _handleLogin,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppTheme.primaryColor,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+              elevation: 2,
+              shadowColor: AppTheme.primaryColor.withOpacity(0.4),
             ),
-            const SizedBox(width: 12),
-            const Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text('Sign In', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: AppTheme.textPrimary)),
-              Text('Welcome back! Please sign in to continue.', style: TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
-            ]),
-          ]),
-          const SizedBox(height: 24),
-          _buildField(
-            controller: _usernameController,
-            label: 'Username',
-            hint: 'Enter your username',
-            icon: Icons.person_outline,
-            validator: (v) => v == null || v.trim().isEmpty ? 'Username is required' : null,
-            textInputAction: TextInputAction.next,
+            child: _isLoading
+                ? const Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                    SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)),
+                    SizedBox(width: 12),
+                    Text('Signing in...', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                  ])
+                : const Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                    Icon(Icons.login, size: 20),
+                    SizedBox(width: 8),
+                    Text('Sign In', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+                  ]),
           ),
-          const SizedBox(height: 16),
-          _buildPasswordField(),
-          const SizedBox(height: 28),
-          SizedBox(
-            width: double.infinity,
-            height: 52,
-            child: ElevatedButton(
-              onPressed: _isLoading ? null : _handleLogin,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppTheme.primaryColor,
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                elevation: 4,
-                shadowColor: AppTheme.primaryColor.withOpacity(0.5),
-              ),
-              child: _isLoading
-                  ? const Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                      SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)),
-                      SizedBox(width: 12),
-                      Text('Signing in...', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-                    ])
-                  : const Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                      Icon(Icons.login, size: 20),
-                      SizedBox(width: 8),
-                      Text('Sign In', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
-                    ]),
-            ),
+        ),
+        const SizedBox(height: 24),
+        Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+          const Text("Don't have an account?", style: TextStyle(color: AppTheme.textSecondary, fontSize: 14)),
+          TextButton(
+            onPressed: () => Navigator.pushNamed(context, '/signup'),
+            child: const Text('Sign Up', style: TextStyle(color: AppTheme.primaryColor, fontWeight: FontWeight.w700, fontSize: 14)),
           ),
         ]),
-      ),
+        const SizedBox(height: 4),
+        Center(
+          child: GestureDetector(
+            onTap: _showServerConfig,
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              Icon(Icons.settings, color: Colors.grey.shade400, size: 13),
+              const SizedBox(width: 5),
+              Text('Server Config · HRMS Pro v1.0', style: TextStyle(color: Colors.grey.shade500, fontSize: 12)),
+            ]),
+          ),
+        ),
+      ]),
     );
   }
 
@@ -352,31 +360,4 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
     ]);
   }
 
-  Widget _buildFooter(BuildContext context) {
-    return Column(children: [
-      Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-        const Text("Don't have an account?", style: TextStyle(color: Colors.white70, fontSize: 14)),
-        TextButton(
-          onPressed: () => Navigator.pushNamed(context, '/signup'),
-          child: const Text('Sign Up', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 14, decoration: TextDecoration.underline, decorationColor: Colors.white)),
-        ),
-      ]),
-      const SizedBox(height: 12),
-      GestureDetector(
-        onTap: _showServerConfig,
-        child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-          Container(width: 30, height: 1, color: Colors.white24),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10),
-            child: Row(children: [
-              const Icon(Icons.settings, color: Colors.white38, size: 11),
-              const SizedBox(width: 4),
-              const Text('Server Config · HRMS Pro v1.0', style: TextStyle(color: Colors.white38, fontSize: 11)),
-            ]),
-          ),
-          Container(width: 30, height: 1, color: Colors.white24),
-        ]),
-      ),
-    ]);
-  }
 }
