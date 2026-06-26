@@ -5832,59 +5832,76 @@ export function useReports() {
   };
 
   // ─── Enhanced card renderer ───────────────────────────────────────────────
-  const renderEnhancedCard = (report: { title: string; description: string; icon: React.ElementType; color: string; bgColor: string; generate: (f: "excel" | "pdf") => void; view: () => void; pdfOnly?: boolean; loading?: boolean }) => (
-    <Card key={report.title} className="group hover:shadow-md transition-all duration-200 border hover:border-primary/20 flex flex-col">
-      <CardHeader className="pb-3 flex-1">
-        <div className="flex items-start gap-3">
-          <div className={`p-2.5 rounded-xl ${report.bgColor} shrink-0 group-hover:scale-105 transition-transform`}>
-            <report.icon className={`h-5 w-5 ${report.color}`} />
+  const renderEnhancedCard = (report: { title: string; description: string; icon: React.ElementType; color: string; bgColor: string; generate: (f: "excel" | "pdf") => void; view: () => void; pdfOnly?: boolean; loading?: boolean }) => {
+    const slug = report.title.toLowerCase().replace(/\s+/g, "-");
+    return (
+      <div
+        key={report.title}
+        data-testid={`report-card-${slug}`}
+        className="group relative flex flex-col rounded-xl border bg-card overflow-hidden transition-all duration-200 hover:shadow-lg hover:-translate-y-0.5 hover:border-primary/30"
+      >
+        {/* Accent strip — revealed on hover (theme token, purge-safe) */}
+        <div className="absolute inset-x-0 top-0 h-0.5 bg-primary opacity-0 group-hover:opacity-100 transition-opacity duration-200" />
+
+        <div className="flex-1 p-4">
+          <div className="flex items-start gap-3">
+            <div className={`p-2.5 rounded-xl ${report.bgColor} shrink-0 ring-1 ring-inset ring-black/5 dark:ring-white/10 group-hover:scale-105 transition-transform duration-200`}>
+              <report.icon className={`h-5 w-5 ${report.color}`} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <h3 className="text-sm font-semibold leading-tight mb-1 text-foreground">{report.title}</h3>
+              <p className="text-xs leading-relaxed line-clamp-2 text-muted-foreground">{report.description}</p>
+            </div>
           </div>
-          <div className="flex-1 min-w-0">
-            <CardTitle className="text-sm font-semibold leading-tight mb-1">{report.title}</CardTitle>
-            <CardDescription className="text-xs leading-relaxed line-clamp-2">{report.description}</CardDescription>
+          <div className="flex items-center gap-1.5 mt-3 flex-wrap">
+            {report.loading
+              ? <span className="inline-flex items-center gap-1 text-[10px] font-medium bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300 px-2 py-0.5 rounded-full"><Loader2 className="h-2.5 w-2.5 animate-spin" />Loading data…</span>
+              : !report.pdfOnly
+                ? <><span className="inline-flex items-center gap-1 text-[10px] font-medium bg-green-100 dark:bg-green-950 text-green-700 dark:text-green-300 px-2 py-0.5 rounded-full"><FileSpreadsheet className="h-2.5 w-2.5" />Excel</span><span className="inline-flex items-center gap-1 text-[10px] font-medium bg-red-100 dark:bg-red-950 text-red-700 dark:text-red-300 px-2 py-0.5 rounded-full"><Download className="h-2.5 w-2.5" />PDF</span></>
+                : <span className="inline-flex items-center gap-1 text-[10px] font-medium bg-red-100 dark:bg-red-950 text-red-700 dark:text-red-300 px-2 py-0.5 rounded-full"><Download className="h-2.5 w-2.5" />PDF Only</span>
+            }
           </div>
         </div>
-        <div className="flex items-center gap-1.5 mt-2 flex-wrap">
-          {report.loading
-            ? <span className="inline-flex items-center gap-1 text-[10px] font-medium bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300 px-2 py-0.5 rounded-full"><Loader2 className="h-2.5 w-2.5 animate-spin" />Loading data…</span>
-            : !report.pdfOnly
-              ? <><span className="inline-flex items-center gap-1 text-[10px] font-medium bg-green-100 dark:bg-green-950 text-green-700 dark:text-green-300 px-2 py-0.5 rounded-full"><FileSpreadsheet className="h-2.5 w-2.5" />Excel</span><span className="inline-flex items-center gap-1 text-[10px] font-medium bg-red-100 dark:bg-red-950 text-red-700 dark:text-red-300 px-2 py-0.5 rounded-full"><Download className="h-2.5 w-2.5" />PDF</span></>
-              : <span className="inline-flex items-center gap-1 text-[10px] font-medium bg-red-100 dark:bg-red-950 text-red-700 dark:text-red-300 px-2 py-0.5 rounded-full"><Download className="h-2.5 w-2.5" />PDF Only</span>
-          }
-        </div>
-      </CardHeader>
-      <CardContent className="pt-0">
-        <div className="flex items-center gap-1.5">
-          <Button variant="outline" size="sm" className="flex-none px-3" onClick={() => report.view()} disabled={!!report.loading} data-testid={`view-${report.title.toLowerCase().replace(/\s+/g,"-")}`}>
+
+        <div className="flex items-center gap-1.5 px-4 py-3 border-t bg-muted/30">
+          <Button variant="outline" size="sm" className="flex-none px-3 bg-background" onClick={() => report.view()} disabled={!!report.loading} data-testid={`view-${slug}`}>
             {report.loading ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Eye className="h-3.5 w-3.5 mr-1 text-blue-500" />}View
           </Button>
           {!report.pdfOnly && (
-            <Button variant="outline" size="sm" className="flex-1" onClick={() => report.generate("excel")} disabled={!!report.loading} data-testid={`excel-${report.title.toLowerCase().replace(/\s+/g,"-")}`}>
+            <Button variant="outline" size="sm" className="flex-1 bg-background" onClick={() => report.generate("excel")} disabled={!!report.loading} data-testid={`excel-${slug}`}>
               {report.loading ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <FileSpreadsheet className="h-3.5 w-3.5 mr-1 text-green-600" />}Excel
             </Button>
           )}
-          <Button variant="outline" size="sm" className="flex-1" onClick={() => report.generate("pdf")} disabled={!!report.loading} data-testid={`pdf-${report.title.toLowerCase().replace(/\s+/g,"-")}`}>
+          <Button variant="outline" size="sm" className="flex-1 bg-background" onClick={() => report.generate("pdf")} disabled={!!report.loading} data-testid={`pdf-${slug}`}>
             {report.loading ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Download className="h-3.5 w-3.5 mr-1 text-red-500" />}PDF
           </Button>
         </div>
-      </CardContent>
-    </Card>
-  );
+      </div>
+    );
+  };
 
   // ─── Section renderer for "All Reports" view ─────────────────────────────
-  const renderSection = (title: string, icon: React.ElementType, color: string, bgColor: string, reports: typeof attendanceReports, filterNote?: string) => (
-    <div key={title} className="mb-8">
-      <div className={`flex items-center gap-2 px-3 py-2 rounded-lg ${bgColor} mb-3`}>
-        {(() => { const Icon = icon; return <Icon className={`h-4 w-4 ${color}`} />; })()}
-        <h2 className={`text-sm font-semibold ${color}`}>{title}</h2>
-        <span className="ml-auto text-xs font-medium text-muted-foreground">{reports.length} report{reports.length !== 1 ? "s" : ""}</span>
+  const renderSection = (title: string, icon: React.ElementType, color: string, bgColor: string, reports: typeof attendanceReports, filterNote?: string) => {
+    const Icon = icon;
+    return (
+      <div key={title} className="mb-8">
+        <div className="flex items-center gap-3 mb-4">
+          <div className={`flex items-center justify-center h-9 w-9 rounded-xl ${bgColor} shrink-0`}>
+            <Icon className={`h-4 w-4 ${color}`} />
+          </div>
+          <div className="min-w-0">
+            <h2 className="text-sm font-bold text-foreground leading-tight">{title}</h2>
+            <p className="text-[11px] text-muted-foreground">{reports.length} report{reports.length !== 1 ? "s" : ""}</p>
+          </div>
+          <div className="flex-1 h-px bg-border ml-1" />
+        </div>
+        {filterNote && <p className="text-xs text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 rounded-lg px-3 py-2 mb-3">{filterNote}</p>}
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+          {reports.map(r => renderEnhancedCard(r))}
+        </div>
       </div>
-      {filterNote && <p className="text-xs text-amber-600 bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 rounded-md px-3 py-1.5 mb-3">{filterNote}</p>}
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-        {reports.map(r => renderEnhancedCard(r))}
-      </div>
-    </div>
-  );
+    );
+  };
 
 
   return {
