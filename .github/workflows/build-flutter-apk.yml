@@ -62,8 +62,6 @@ jobs:
         run: |
           flutter build apk --release \
             --dart-define=BASE_URL=${{ secrets.HOSTINGER_APP_URL }} \
-            --split-debug-info=build/symbols \
-            --tree-shake-icons \
             2>&1 | tee /tmp/flutter-build.log
           BUILD_EXIT=${PIPESTATUS[0]}
           if [ $BUILD_EXIT -ne 0 ]; then
