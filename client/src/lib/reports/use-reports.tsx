@@ -5854,15 +5854,12 @@ export function useReports() {
           <p className="text-xs leading-relaxed line-clamp-1 text-muted-foreground mt-0.5">{report.description}</p>
         </div>
 
-        {/* Format badges */}
-        <div className="hidden md:flex items-center gap-1.5 shrink-0">
-          {report.loading
-            ? <span className="inline-flex items-center gap-1 text-[10px] font-medium bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300 px-2 py-0.5 rounded-full"><Loader2 className="h-2.5 w-2.5 animate-spin" />Loading…</span>
-            : !report.pdfOnly
-              ? <><span className="inline-flex items-center gap-1 text-[10px] font-medium bg-green-100 dark:bg-green-950 text-green-700 dark:text-green-300 px-2 py-0.5 rounded-full"><FileSpreadsheet className="h-2.5 w-2.5" />Excel</span><span className="inline-flex items-center gap-1 text-[10px] font-medium bg-red-100 dark:bg-red-950 text-red-700 dark:text-red-300 px-2 py-0.5 rounded-full"><Download className="h-2.5 w-2.5" />PDF</span></>
-              : <span className="inline-flex items-center gap-1 text-[10px] font-medium bg-red-100 dark:bg-red-950 text-red-700 dark:text-red-300 px-2 py-0.5 rounded-full"><Download className="h-2.5 w-2.5" />PDF Only</span>
-          }
-        </div>
+        {/* Loading indicator (format badges removed — actions below convey Excel/PDF) */}
+        {report.loading && (
+          <div className="hidden md:flex items-center gap-1.5 shrink-0">
+            <span className="inline-flex items-center gap-1 text-[10px] font-medium bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300 px-2 py-0.5 rounded-full"><Loader2 className="h-2.5 w-2.5 animate-spin" />Loading…</span>
+          </div>
+        )}
 
         {/* Actions */}
         <div className="flex items-center gap-1.5 shrink-0">
