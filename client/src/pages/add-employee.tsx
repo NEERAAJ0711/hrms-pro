@@ -340,6 +340,10 @@ export default function AddEmployee() {
     enabled: isEditing,
   });
 
+  // This employee belongs to a contractor company (tagged to the viewer's company).
+  // Principal employers may view but not edit another company's employee records.
+  const isContractorEmployee = isEditing && !isSuperAdmin && !!existingEmployee && existingEmployee.companyId !== user?.companyId;
+
   const prefillCompanyId = searchParams.get("companyId") || "";
 
   const form = useForm<EmployeeFormValues>({
@@ -576,6 +580,10 @@ export default function AddEmployee() {
   });
 
   const onSubmit = (data: EmployeeFormValues) => {
+    if (isContractorEmployee) {
+      toast({ title: "View only", description: "This employee belongs to a contractor company and cannot be edited here.", variant: "destructive" });
+      return;
+    }
     const nameParts = data.fullName.trim().split(/\s+/);
     const firstName = nameParts[0];
     const lastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : '';
@@ -631,6 +639,11 @@ export default function AddEmployee() {
 
       <Form {...form}>
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+          {isContractorEmployee && (
+            <div className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800" data-testid="banner-contractor-readonly">
+              This employee belongs to a contractor company and is shown for viewing only. You cannot edit another company's records.
+            </div>
+          )}
           <Tabs defaultValue="basic" className="w-full">
             <TabsList className="grid w-full grid-cols-6 mb-6">
               <TabsTrigger value="basic" className="flex items-center gap-2" data-testid="tab-basic">
@@ -714,7 +727,7 @@ export default function AddEmployee() {
                     ) : (
                       <FormItem>
                         <FormLabel>Company *</FormLabel>
-                        <p className="text-sm font-medium pt-2">{companies.find(c => c.id === user?.companyId)?.companyName || "—"}</p>
+                        <p className="text-sm font-medium pt-2" data-testid="text-company-name">{(existingEmployee as any)?.companyName || companies.find(c => c.id === (existingEmployee?.companyId || user?.companyId))?.companyName || "—"}</p>
                       </FormItem>
                     )}
                     <FormField
@@ -1823,10 +1836,12 @@ export default function AddEmployee() {
             >
               Cancel
             </Button>
-            <Button type="submit" disabled={isLoading || companies.length === 0} data-testid="button-submit-employee">
-              <Save className="h-4 w-4 mr-2" />
-              {isLoading ? "Saving..." : isEditing ? "Update Employee" : "Add Employee"}
-            </Button>
+            {!isContractorEmployee && (
+              <Button type="submit" disabled={isLoading || companies.length === 0} data-testid="button-submit-employee">
+                <Save className="h-4 w-4 mr-2" />
+                {isLoading ? "Saving..." : isEditing ? "Update Employee" : "Add Employee"}
+              </Button>
+            )}
           </div>
         </form>
       </Form>

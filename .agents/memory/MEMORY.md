@@ -17,7 +17,8 @@
 - [Automation register payloads](automation-enqueue-payload.md) — queue worker does NO employee hydration; enqueue full payload at route layer; bulk uses {employees:[...]} not {employeeIds}
 - [JWT secret handling](jwt-secret-handling.md) — no managed JWT_SECRET in Replit (set on VPS); jwt-auth fail-closed except NODE_ENV dev/test ephemeral fallback; .replit env vars edited via secrets tooling only
 - [Statutory field fills](automation-statutory-fields.md) — best-effort EPFO/ESIC portal fields use fillStatutoryField (logs filled/not-found per field); only confirmable via real-portal run
-- [AI extraction provider-agnostic](ai-extraction-provider-agnostic.md) — KYC/profile extraction must try OpenAI then Gemini (was OpenAI-only); Gemini-only key gave empty KYC modal
+- [AI extraction provider-agnostic](ai-extraction-provider-agnostic.md) — KYC/profile extraction tries OpenAI→Gemini→Anthropic→rule-based (was OpenAI-only); Gemini-only key gave empty KYC modal
+- [Contractor cross-company read](contractor-cross-company-read.md) — principal employer may VIEW (not edit) employees tagged to its approved contractors; GET /api/employees/:id allows scoped cross-tenant read
 - [Tenant isolation on company routes](tenant-isolation-company-routes.md) — requireRole does NOT check tenant; /api/companies/:id/* mutations need user.companyId===:id (or super_admin) guard
 - [Cross-company employee linking](cross-company-employee-linking.md) — one person ≤2 companies, On-Roll in only one (rest Contractual); single rule in employee-link.ts wired into all 4 create/update paths
 - [AI intent layer](ai-intent-layer.md) — recognized intents stay deterministic (only null detection falls to LLM); AI path must honor userHasAccess revokes + scope summary counts

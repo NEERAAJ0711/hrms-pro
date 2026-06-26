@@ -5,7 +5,7 @@ import { storage } from "../storage";
 import { db } from "../db";
 import {
   notifications, profileUpdateRequests, users as usersTable,
-  contractorEmployees as contractorEmployeesTable, employees,
+  contractorEmployees as contractorEmployeesTable, companyContractors, employees,
   insertUserSchema, insertCompanySchema, insertEmployeeSchema, insertAttendanceSchema,
   insertLeaveTypeSchema, insertLeaveRequestSchema, insertSalaryStructureSchema, insertPayrollSchema,
   insertSettingSchema, insertMasterDepartmentSchema, insertMasterDesignationSchema, insertMasterLocationSchema,
@@ -152,8 +152,27 @@ export async function registerEmployeeRoutes(app: Express): Promise<void> {
       const user = (req as any).user;
       const employee = await employeeService.getEmployee(req.params.id);
       if (!employee) return res.status(404).json({ error: "Employee not found" });
+      let crossCompany = false;
       if (user.role !== "super_admin" && employee.companyId !== user.companyId) {
-        return res.status(403).json({ error: "Access denied" });
+        // A principal employer may view employees tagged to one of its contractors.
+        const tagged = await db
+          .select({ id: contractorEmployeesTable.id })
+          .from(contractorEmployeesTable)
+          .innerJoin(companyContractors, eq(companyContractors.id, contractorEmployeesTable.companyContractorId))
+          .where(and(
+            eq(contractorEmployeesTable.employeeId, employee.id),
+            eq(companyContractors.companyId, user.companyId),
+            eq(companyContractors.status, "approved"),
+          ))
+          .limit(1);
+        if (!tagged.length) return res.status(403).json({ error: "Access denied" });
+        crossCompany = true;
+      }
+      // For a cross-company (contractor) employee, attach the owning company name so
+      // the UI can show the correct company instead of falling back to the viewer's own.
+      if (crossCompany) {
+        const company = await storage.getCompany(employee.companyId);
+        return res.json({ ...employee, companyName: company?.companyName, isContractorEmployee: true });
       }
       res.json(employee);
     } catch (error) {
