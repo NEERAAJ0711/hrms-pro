@@ -157,6 +157,9 @@ class _SignupScreenState extends State<SignupScreen> {
                         label: 'Username',
                         hint: 'Choose a username',
                         icon: Icons.alternate_email,
+                        keyboardType: TextInputType.text,
+                        autocorrect: false,
+                        enableSuggestions: false,
                         validator: (v) {
                           if (v == null || v.trim().isEmpty) return 'Username is required';
                           if (v.trim().length < 3) return 'At least 3 characters';
@@ -233,6 +236,8 @@ class _SignupScreenState extends State<SignupScreen> {
     String? Function(String?)? validator,
     TextInputAction? textInputAction,
     TextInputType? keyboardType,
+    bool autocorrect = true,
+    bool enableSuggestions = true,
   }) {
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Text(label, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppTheme.textPrimary)),
@@ -241,6 +246,9 @@ class _SignupScreenState extends State<SignupScreen> {
         controller: controller,
         textInputAction: textInputAction,
         keyboardType: keyboardType,
+        autocorrect: autocorrect,
+        enableSuggestions: enableSuggestions,
+        textCapitalization: TextCapitalization.none,
         validator: validator,
         decoration: InputDecoration(
           hintText: hint,

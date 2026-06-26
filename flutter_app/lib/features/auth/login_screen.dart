@@ -315,6 +315,10 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
         controller: controller,
         textInputAction: textInputAction,
         validator: validator,
+        autocorrect: false,
+        enableSuggestions: false,
+        textCapitalization: TextCapitalization.none,
+        keyboardType: TextInputType.text,
         decoration: InputDecoration(
           hintText: hint,
           hintStyle: const TextStyle(color: AppTheme.textSecondary, fontSize: 14),
