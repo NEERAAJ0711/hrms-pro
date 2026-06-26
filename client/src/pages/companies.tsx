@@ -690,7 +690,7 @@ export default function Companies() {
                               <Clock className="h-4 w-4" />
                             </Button>
                           )}
-                          {isSuperAdmin && (
+                          {(isSuperAdmin || isCompanyAdmin) && (
                             <Button
                               variant="ghost"
                               size="icon"
