@@ -41,6 +41,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useToast } from "@/hooks/use-toast";
 import * as XLSX from "xlsx";
 import { jsPDF, autoTable } from "@/lib/jspdf-shim";
@@ -5885,9 +5886,64 @@ export function useReports() {
     contractor: contractorCards as typeof attendanceReports,
   };
 
+  // ─── Per-report filter sets ───────────────────────────────────────────────
+  // Each report only shows the filters that actually affect its output.
+  type ReportFilterKey = "company" | "month" | "date" | "period" | "employee" | "groupby";
+  const reportFilterMap: Record<string, ReportFilterKey[]> = {
+    // Attendance & Time
+    "Attendance Sheet": ["company", "month", "groupby"],
+    "Monthly Attendance Register": ["company", "month", "groupby"],
+    "Attendance Punch Report": ["company", "month", "groupby"],
+    "Individual Attendance Sheet": ["company", "employee", "month"],
+    "Date-wise Attendance": ["company", "date", "groupby"],
+    "Leave Report": ["company", "month", "employee"],
+    // Payroll & Salary
+    "Salary Sheet": ["company", "month", "groupby"],
+    "Joining & Leaving Summary": ["company", "month"],
+    "Pay Slip": ["company", "month", "employee"],
+    "CTC Register": ["company", "groupby"],
+    "Full & Final Settlement": ["company", "month"],
+    "Advance & Loan Report": ["company", "employee"],
+    // Statutory Compliance
+    "PF Statement (ECR)": ["company", "month"],
+    "ESIC Statement": ["company", "month"],
+    "LWF Report": ["company", "month"],
+    "Bonus Report": ["company", "month"],
+    // Annual
+    "Yearly PF Summary": ["company", "period"],
+    "Yearly ESIC Summary": ["company", "period"],
+    "Yearly Salary Detail": ["company", "period"],
+    // Employee Records
+    "Employee List": ["company", "employee", "groupby"],
+    "Employee Personal File": ["company", "employee"],
+    "Employee Pay Structure": ["company", "employee"],
+    // HR Documents
+    "Offer Letter": ["company", "employee"],
+    "Appointment Letter": ["company", "employee"],
+    "Employee Leave Register": ["company", "employee", "period"],
+    // Contractor (principal/contractor chosen via the top selector)
+    "Attendance Sheet (Contractor)": ["month"],
+    "Salary Sheet (Contractor)": ["month"],
+    "PF Statement (Contractor)": ["month"],
+    "ESIC Statement (Contractor)": ["month"],
+  };
+
   // ─── Enhanced card renderer ───────────────────────────────────────────────
   const renderEnhancedCard = (report: { title: string; description: string; icon: React.ElementType; color: string; bgColor: string; generate: (f: "excel" | "pdf") => void; view: () => void; pdfOnly?: boolean; loading?: boolean }) => {
     const slug = report.title.toLowerCase().replace(/\s+/g, "-");
+    const filterKeys = reportFilterMap[report.title] ?? [];
+    const showCompany = filterKeys.includes("company") && isSuperAdmin;
+    const hasFilters = filterKeys.length > 0 && (showCompany || filterKeys.some(k => k !== "company"));
+    const reportHasActiveFilter =
+      (showCompany && selectedCompany && selectedCompany !== "__all__") ||
+      (filterKeys.includes("employee") && !!docEmployee) ||
+      (filterKeys.includes("groupby") && (!!dwDept || !!dwDesig || !!dwLoc || !!dwCont));
+    const selectedEmpObj = filteredEmployees.find(e => e.id === docEmployee) ?? baseEmployees.find(e => e.id === docEmployee);
+    const empLabel = selectedEmpObj ? `${selectedEmpObj.firstName} ${selectedEmpObj.lastName} (${selectedEmpObj.employeeCode})` : "";
+    const empMatches = baseEmployees.filter(e => {
+      const q = empSearchQuery.toLowerCase();
+      return !q || `${e.firstName} ${e.lastName}`.toLowerCase().includes(q) || e.employeeCode.toLowerCase().includes(q);
+    });
     return (
       <div
         key={report.title}
@@ -5917,6 +5973,181 @@ export function useReports() {
 
         {/* Actions */}
         <div className="flex items-center gap-1.5 shrink-0">
+          {hasFilters && (
+            <Popover onOpenChange={(open) => { if (!open) { setEmpSearchOpen(false); setEmpSearchQuery(""); } }}>
+              <PopoverTrigger asChild>
+                <Button variant="outline" size="sm" className="px-2.5 bg-background relative" data-testid={`filter-${slug}`} title="Filters for this report">
+                  <Filter className={`h-3.5 w-3.5 ${reportHasActiveFilter ? "text-primary" : "text-muted-foreground"}`} />
+                  {reportHasActiveFilter && <span className="absolute -top-1 -right-1 h-2 w-2 rounded-full bg-primary" />}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-[min(92vw,360px)] p-0" data-testid={`filter-popover-${slug}`}>
+                <div className="flex items-center gap-2 px-3 py-2 border-b bg-muted/40">
+                  <Filter className="h-3.5 w-3.5 text-primary shrink-0" />
+                  <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground truncate">{report.title} — Filters</span>
+                </div>
+                <div className="p-3 space-y-2.5 max-h-[60vh] overflow-y-auto">
+                  {showCompany && (
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium text-muted-foreground">Company</label>
+                      <Select value={selectedCompany || "__all__"} onValueChange={setSelectedCompany}>
+                        <SelectTrigger className="h-8 w-full text-xs" data-testid={`filter-company-${slug}`}><SelectValue placeholder="All Companies" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__all__">All Companies</SelectItem>
+                          {companies.map(c => <SelectItem key={c.id} value={c.id}>{c.companyName}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+                  {filterKeys.includes("month") && (
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium text-muted-foreground">Month</label>
+                      <Input type="month" value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)} className="h-8 w-full text-xs" data-testid={`filter-month-${slug}`} />
+                    </div>
+                  )}
+                  {filterKeys.includes("date") && (
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium text-muted-foreground">Date</label>
+                      <Input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)} className="h-8 w-full text-xs" data-testid={`filter-date-${slug}`} />
+                    </div>
+                  )}
+                  {filterKeys.includes("period") && (
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-medium text-muted-foreground">Period</label>
+                      <div className="flex items-center gap-1 rounded-md border bg-muted/40 p-0.5">
+                        {(["calendar", "financial", "custom"] as const).map(t => (
+                          <button key={t} onClick={() => setYearType(t)}
+                            className={`flex-1 px-2 py-1 text-[11px] font-medium rounded transition-colors ${yearType === t ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}>
+                            {t === "calendar" ? "Calendar" : t === "financial" ? "Financial" : "Custom"}
+                          </button>
+                        ))}
+                      </div>
+                      {yearType === "calendar" && (
+                        <Input type="number" value={selectedYear} onChange={e => setSelectedYear(e.target.value)} className="h-8 w-full text-xs" min={2020} max={2099} placeholder="Year" />
+                      )}
+                      {yearType === "financial" && (
+                        <div className="flex items-center gap-1.5">
+                          <Input type="number" value={selectedYear} onChange={e => setSelectedYear(e.target.value)} className="h-8 w-24 text-xs" min={2020} max={2099} />
+                          <span className="text-xs text-muted-foreground">→ {selectedYear}-{String(parseInt(selectedYear) + 1).slice(-2)}</span>
+                        </div>
+                      )}
+                      {yearType === "custom" && (
+                        <div className="flex items-center gap-1.5">
+                          <Input type="month" value={customFromMonth} onChange={e => setCustomFromMonth(e.target.value)} className="h-8 flex-1 text-xs" />
+                          <span className="text-xs text-muted-foreground">to</span>
+                          <Input type="month" value={customToMonth} onChange={e => setCustomToMonth(e.target.value)} className="h-8 flex-1 text-xs" />
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {filterKeys.includes("employee") && (
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium text-muted-foreground">Employee</label>
+                      <div className="relative">
+                        <Input
+                          data-testid={`filter-emp-${slug}`}
+                          placeholder="Search employee…"
+                          className="h-8 w-full text-xs"
+                          value={empSearchOpen ? empSearchQuery : empLabel}
+                          onFocus={() => { setEmpSearchOpen(true); setEmpSearchQuery(""); }}
+                          onChange={e => setEmpSearchQuery(e.target.value)}
+                          onBlur={() => setTimeout(() => setEmpSearchOpen(false), 150)}
+                          autoComplete="off"
+                        />
+                        {empSearchOpen && (
+                          <div className="absolute z-50 w-full mt-1 bg-popover border rounded-md shadow-lg max-h-52 overflow-y-auto">
+                            <div className="cursor-pointer px-3 py-1.5 text-xs hover:bg-accent text-muted-foreground" onMouseDown={() => { setDocEmployee(""); setEmpSearchOpen(false); setEmpSearchQuery(""); }}>All Employees</div>
+                            {empMatches.map(e => (
+                              <div key={e.id} className={`cursor-pointer px-3 py-1.5 text-xs hover:bg-accent flex items-center justify-between ${docEmployee === e.id ? "bg-accent/60 font-medium" : ""}`}
+                                onMouseDown={() => { setDocEmployee(e.id); setEmpSearchOpen(false); setEmpSearchQuery(""); }}>
+                                <span>{e.firstName} {e.lastName}</span>
+                                <span className="text-[10px] text-muted-foreground ml-2">{e.employeeCode}</span>
+                              </div>
+                            ))}
+                            {empMatches.length === 0 && <div className="px-3 py-1.5 text-xs text-muted-foreground">No employees found</div>}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                  {filterKeys.includes("groupby") && (
+                    <div className="space-y-2 pt-1 border-t">
+                      {globalDepts.length > 0 && (
+                        <div className="space-y-1">
+                          <label className="text-xs font-medium text-muted-foreground">Department</label>
+                          <Select value={dwDept || "__all__"} onValueChange={v => setDwDept(v === "__all__" ? "" : v)}>
+                            <SelectTrigger className="h-8 w-full text-xs" data-testid={`filter-dept-${slug}`}><SelectValue placeholder="All Departments" /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="__all__">All Departments</SelectItem>
+                              {globalDepts.map(d => <SelectItem key={d} value={d}>{d}</SelectItem>)}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      )}
+                      {globalDesigs.length > 0 && (
+                        <div className="space-y-1">
+                          <label className="text-xs font-medium text-muted-foreground">Designation</label>
+                          <Select value={dwDesig || "__all__"} onValueChange={v => setDwDesig(v === "__all__" ? "" : v)}>
+                            <SelectTrigger className="h-8 w-full text-xs" data-testid={`filter-desig-${slug}`}><SelectValue placeholder="All Designations" /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="__all__">All Designations</SelectItem>
+                              {globalDesigs.map(d => <SelectItem key={d} value={d}>{d}</SelectItem>)}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      )}
+                      {globalLocs.length > 0 && (
+                        <div className="space-y-1">
+                          <label className="text-xs font-medium text-muted-foreground">Location</label>
+                          <Select value={dwLoc || "__all__"} onValueChange={v => setDwLoc(v === "__all__" ? "" : v)}>
+                            <SelectTrigger className="h-8 w-full text-xs" data-testid={`filter-loc-${slug}`}><SelectValue placeholder="All Locations" /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="__all__">All Locations</SelectItem>
+                              {globalLocs.map(l => <SelectItem key={l} value={l}>{l}</SelectItem>)}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      )}
+                      {contractorMastersList.length > 0 && (
+                        <div className="space-y-1">
+                          <label className="text-xs font-medium text-muted-foreground">Contractor</label>
+                          <Select value={dwCont || "__all__"} onValueChange={v => setDwCont(v === "__all__" ? "" : v)}>
+                            <SelectTrigger className="h-8 w-full text-xs" data-testid={`filter-cont-${slug}`}><SelectValue placeholder="All Contractors" /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="__all__">All Contractors</SelectItem>
+                              {globalContractors.map(c => <SelectItem key={c.id} value={c.id}>{c.contractorName}</SelectItem>)}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      )}
+                      <div className="space-y-1">
+                        <label className="text-xs font-medium text-muted-foreground">Subtotal By</label>
+                        <Select value={dwSubtotalBy} onValueChange={setDwSubtotalBy}>
+                          <SelectTrigger className="h-8 w-full text-xs" data-testid={`filter-subtotal-${slug}`}><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="department">Department</SelectItem>
+                            <SelectItem value="designation">Designation</SelectItem>
+                            <SelectItem value="location">Location</SelectItem>
+                            <SelectItem value="contractor">Contractor</SelectItem>
+                            <SelectItem value="none">None</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                  )}
+                  {reportHasActiveFilter && (
+                    <button
+                      onClick={() => { if (showCompany) setSelectedCompany(isSuperAdmin ? "" : (user?.companyId || "")); if (filterKeys.includes("employee")) setDocEmployee(""); if (filterKeys.includes("groupby")) { setDwDept(""); setDwDesig(""); setDwLoc(""); setDwCont(""); } }}
+                      className="flex items-center gap-1 text-xs text-muted-foreground hover:text-destructive transition-colors pt-1"
+                      data-testid={`filter-clear-${slug}`}
+                    >
+                      <X className="h-3 w-3" />Clear filters
+                    </button>
+                  )}
+                </div>
+              </PopoverContent>
+            </Popover>
+          )}
           <Button variant="outline" size="sm" className="px-2.5 bg-background" onClick={() => report.view()} disabled={!!report.loading} data-testid={`view-${slug}`}>
             {report.loading ? <Loader2 className="h-3.5 w-3.5 sm:mr-1 animate-spin" /> : <Eye className="h-3.5 w-3.5 sm:mr-1 text-blue-500" />}<span className="hidden sm:inline">View</span>
           </Button>
