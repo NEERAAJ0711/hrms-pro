@@ -61,7 +61,7 @@ export function fmtDate(d: string) {
 const WR_TD: React.CSSProperties = { border: "1px solid #222", padding: "5px 6px", verticalAlign: "top", fontSize: "10px" };
 const WR_TH: React.CSSProperties = { border: "1px solid #222", padding: "5px 4px", textAlign: "center", verticalAlign: "middle", fontSize: "10px", fontWeight: 700, background: "#f0f0f0", whiteSpace: "pre-wrap", lineHeight: "1.35" };
 
-export function WorkmenRegisterView({ data, state }: { data: WorkmenRegisterData; state?: string }) {
+export function WorkmenRegisterView({ data, month, year, state }: { data: WorkmenRegisterData; month?: string; year?: string; state?: string }) {
   const c = data.client;
   const f = clraForm(state, "workmen");
   const val = (...parts: (string | null | undefined)[]) => parts.filter(Boolean).join(", ") || "—";
@@ -155,7 +155,10 @@ export function WorkmenRegisterView({ data, state }: { data: WorkmenRegisterData
 
       {/* Footer */}
       <div style={{ display: "flex", justifyContent: "space-between", marginTop: "32px", fontSize: "11px", alignItems: "flex-end" }}>
-        <div><strong>Place : </strong>{c?.location_of_work || "—"}</div>
+        <div>
+          <strong>Place : </strong>{c?.location_of_work || "—"}
+          {(month || year) && <><br /><strong>Date : </strong>{CL_SIGN_DATE(month, year)}</>}
+        </div>
         <div style={{ minWidth: "180px", textAlign: "center" }}>
           {(data.company as any).signature && <img src={(data.company as any).signature} alt="Authorized Signature" style={{ display: "block", maxHeight: "44px", maxWidth: "170px", objectFit: "contain", margin: "0 auto 2px" }} />}
           <div style={{ fontWeight: 700, borderTop: "1px solid #333", paddingTop: "4px" }}>
@@ -204,9 +207,12 @@ const CL_SIGN_DATE = (month?: string, year?: string) => {
   const d = (idx >= 0 && !isNaN(y)) ? new Date(y, idx + 1, 7) : new Date();
   return d.toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" });
 };
-const CL_FOOTER = (c: ClientInfo, sig?: string | null) => (
+const CL_FOOTER = (c: ClientInfo, sig?: string | null, dateStr?: string) => (
   <div style={{ display: "flex", justifyContent: "space-between", marginTop: "28px", fontSize: "10.5px", alignItems: "flex-end" }}>
-    <div><strong>Place : </strong>{c?.location_of_work || "—"}</div>
+    <div>
+      <strong>Place : </strong>{c?.location_of_work || "—"}
+      {dateStr && <><br /><strong>Date : </strong>{dateStr}</>}
+    </div>
     <div style={{ minWidth: "180px", textAlign: "center" }}>
       {sig && <img src={sig} alt="Authorized Signature" style={{ display: "block", maxHeight: "44px", maxWidth: "170px", objectFit: "contain", margin: "0 auto 2px" }} />}
       <div style={{ fontWeight: 700, borderTop: "1px solid #333", paddingTop: "4px" }}>Signature of the Contractor</div>
@@ -333,7 +339,7 @@ export function FormVIIIView({ data, state }: { data: FormVIIIData; state?: stri
         </tr>
       </tbody>
     </table>
-    {CL_FOOTER(c, (company as any).signature)}
+    {CL_FOOTER(c, (company as any).signature, CL_SIGN_DATE(month, year))}
   </>);
 }
 
@@ -385,7 +391,7 @@ export function MusterRollView({ data, state }: { data: MusterRollData; state?: 
         </tbody>
       </table>
     </div>
-    {CL_FOOTER(c, (company as any).signature)}
+    {CL_FOOTER(c, (company as any).signature, CL_SIGN_DATE(month, year))}
   </>);
 }
 
@@ -511,7 +517,7 @@ export function WagesRegisterView({ data, state }: { data: WagesRegisterData; st
         })()}
       </tbody>
     </table>
-    {CL_FOOTER(c, (company as any).signature)}
+    {CL_FOOTER(c, (company as any).signature, CL_SIGN_DATE(month, year))}
   </>);
 }
 
@@ -629,7 +635,7 @@ export function DeductionsRegisterView({ data, month, year, state }: { data: Wor
         ))}
       </tbody>
     </table>
-    {CL_FOOTER(c as ClientInfo, (company as any).signature)}
+    {CL_FOOTER(c as ClientInfo, (company as any).signature, CL_SIGN_DATE(month, year))}
   </>);
 }
 
@@ -672,7 +678,7 @@ export function FinesRegisterView({ data, month, year, state }: { data: WorkmenR
         ))}
       </tbody>
     </table>
-    {CL_FOOTER(c as ClientInfo, (company as any).signature)}
+    {CL_FOOTER(c as ClientInfo, (company as any).signature, CL_SIGN_DATE(month, year))}
   </>);
 }
 
@@ -728,7 +734,7 @@ export function AdvancesRegisterView({ data, state }: { data: WagesRegisterData;
           </>}
       </tbody>
     </table>
-    {CL_FOOTER(c, (company as any).signature)}
+    {CL_FOOTER(c, (company as any).signature, CL_SIGN_DATE(month, year))}
   </>);
 }
 
@@ -796,7 +802,7 @@ export function OTRegisterView({ data, state }: { data: OTRegisterData; state?: 
           </>}
       </tbody>
     </table>
-    {CL_FOOTER(c, (company as any).signature)}
+    {CL_FOOTER(c, (company as any).signature, CL_SIGN_DATE(month, year))}
   </>);
 }
 
@@ -1026,7 +1032,7 @@ export function CLRAPackageView({ data, state }: { data: ClraPackageData; state?
     <div style={{ background: "#fff" }}>
       <FormVIIIView data={data.viii} state={state} />
       {SEP}
-      <WorkmenRegisterView data={data.ix} state={state} />
+      <WorkmenRegisterView data={data.ix} month={data.xiii.month} year={data.xiii.year} state={state} />
       {SEP}
       <EmploymentCardView data={data.ix} month={data.xiii.month} year={data.xiii.year} state={state} />
       {SEP}

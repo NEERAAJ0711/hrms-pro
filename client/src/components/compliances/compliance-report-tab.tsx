@@ -1174,7 +1174,7 @@ export function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
         <Card className="overflow-hidden">
           <div id="report-print-area">
             {isCLRAPackage                                            && clraData     && <CLRAPackageView data={clraData} state={selectedState} />}
-            {isWorkmenRegister && workmenData && <WorkmenRegisterView data={workmenData} state={selectedState} />}
+            {isWorkmenRegister && workmenData && <WorkmenRegisterView data={workmenData} month={toMonth} year={toYear} state={selectedState} />}
             {selectedReport === "Form VIII – Contractor Particulars"  && formVIIIData && <FormVIIIView data={formVIIIData} state={selectedState} />}
             {selectedReport === "Form XII – Muster Roll"              && musterData   && <MusterRollView data={musterData} state={selectedState} />}
             {selectedReport === "Form XIII – Wages Register"          && wagesData    && <WagesRegisterView data={wagesData} state={selectedState} />}
