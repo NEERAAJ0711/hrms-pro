@@ -1219,19 +1219,19 @@ export function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "11px" }}>
                   <thead>
                     <tr style={{ background: "#f0f0f0" }}>
-                      <th style={{ border: "1px solid #333", padding: "6px 8px", width: "60px", textAlign: "center" }}>S.N.</th>
-                      <th style={{ border: "1px solid #333", padding: "6px 8px", textAlign: "left" }}>Employee Name</th>
-                      <th style={{ border: "1px solid #333", padding: "6px 8px", textAlign: "left" }}>Tagged Project</th>
+                      <th style={{ border: "1px solid #333", padding: "10px 10px", width: "60px", textAlign: "center" }}>S.N.</th>
+                      <th style={{ border: "1px solid #333", padding: "10px 10px", textAlign: "left" }}>Employee Name</th>
+                      <th style={{ border: "1px solid #333", padding: "10px 10px", textAlign: "left" }}>Tagged Project</th>
                     </tr>
                   </thead>
                   <tbody>
                     {taggedData.length === 0 ? (
-                      <tr><td colSpan={3} style={{ border: "1px solid #333", padding: "12px", textAlign: "center", fontStyle: "italic" }}>No tagged employees found for the selected month.</td></tr>
+                      <tr><td colSpan={3} style={{ border: "1px solid #333", padding: "16px", textAlign: "center", fontStyle: "italic" }}>No employees found.</td></tr>
                     ) : taggedData.map((row, i) => (
                       <tr key={`${row.code}-${row.project}-${i}`} data-testid={`row-tagged-${i}`}>
-                        <td style={{ border: "1px solid #333", padding: "5px 8px", textAlign: "center" }}>{i + 1}</td>
-                        <td style={{ border: "1px solid #333", padding: "5px 8px" }} data-testid={`text-tagged-name-${i}`}>{row.name}{row.code ? ` (${row.code})` : ""}</td>
-                        <td style={{ border: "1px solid #333", padding: "5px 8px" }} data-testid={`text-tagged-project-${i}`}>{row.project}</td>
+                        <td style={{ border: "1px solid #333", padding: "11px 10px", height: "34px", textAlign: "center" }}>{i + 1}</td>
+                        <td style={{ border: "1px solid #333", padding: "11px 10px", height: "34px" }} data-testid={`text-tagged-name-${i}`}>{row.name}{row.code ? ` (${row.code})` : ""}</td>
+                        <td style={{ border: "1px solid #333", padding: "11px 10px", height: "34px" }} data-testid={`text-tagged-project-${i}`}>{row.project || "—"}</td>
                       </tr>
                     ))}
                   </tbody>

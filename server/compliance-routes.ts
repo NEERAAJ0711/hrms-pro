@@ -1054,18 +1054,23 @@ export function registerComplianceRoutes(app: Express) {
         monthEnd = `${yNum}-${mm}-${String(lastDay).padStart(2, "0")}`;
       }
 
+      // List EVERY employee of the company (complete list). Untagged employees
+      // appear too — their project column stays empty. LEFT JOIN so the tagging
+      // filters (project / month window) never drop an employee from the list.
       const rows = await db.execute(sql`
         SELECT
           e.id AS employee_id,
           TRIM(COALESCE(e.first_name, '') || ' ' || COALESCE(e.last_name, '')) AS employee_name,
           e.employee_code,
           STRING_AGG(DISTINCT cl.project_name, ', ' ORDER BY cl.project_name) AS projects
-        FROM compliance_client_employees ce
-        JOIN employees e ON e.id = ce.employee_id
-        JOIN compliance_clients cl ON cl.id = ce.client_id
-        WHERE ce.company_id = ${companyId}
+        FROM employees e
+        LEFT JOIN compliance_client_employees ce
+          ON ce.employee_id = e.id
+          AND ce.company_id = ${companyId}
           ${projectId ? sql`AND ce.client_id = ${projectId}` : sql``}
           ${monthStart && monthEnd ? sql`AND ce.assigned_date <= ${monthEnd} AND (ce.deassigned_date IS NULL OR ce.deassigned_date >= ${monthStart})` : sql``}
+        LEFT JOIN compliance_clients cl ON cl.id = ce.client_id
+        WHERE e.company_id = ${companyId}
         GROUP BY e.id, employee_name, e.employee_code
         ORDER BY employee_name
       `);
@@ -1073,7 +1078,7 @@ export function registerComplianceRoutes(app: Express) {
       return res.json(rows.rows.map((r: any) => ({
         name: r.employee_name || "—",
         code: r.employee_code || "",
-        project: r.projects || "—",
+        project: r.projects || "",
       })));
     } catch (err: any) {
       return res.status(500).json({ error: err.message });
