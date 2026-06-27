@@ -166,31 +166,34 @@ export function AdjustmentsTab({ companyId, isSuperAdmin, user, toast }: {
     setDirty(prev => new Set(prev).add(empId));
   };
 
+  // Build the persistable adjustment payload for one employee row.
+  const buildAdjustment = (empId: string) => {
+    const row = rows.find(r => r.employeeId === empId)!;
+    const e = edits[empId];
+    return {
+      employeeId: empId,
+      employeeName: row.employeeName,
+      employeeCode: row.employeeCode,
+      originalAttendance:   row.originalAttendance,
+      originalOtHours:      row.originalOtHours,
+      originalBasicSalary:  row.originalBasicSalary,
+      originalGrossSalary:  row.originalGrossSalary,
+      originalNetSalary:    row.originalNetSalary,
+      adjustedAttendance:   e.adjustedAttendance  !== "" ? parseInt(e.adjustedAttendance)  : null,
+      adjustedOtHours:      e.adjustedOtHours     || null,
+      adjustedBasicSalary:  e.adjustedBasicSalary !== "" ? parseInt(e.adjustedBasicSalary)  : null,
+      adjustedGrossSalary:  e.adjustedGrossSalary !== "" ? parseInt(e.adjustedGrossSalary)  : null,
+      adjustedNetSalary:    e.adjustedNetSalary   !== "" ? parseInt(e.adjustedNetSalary)    : null,
+      remarks: e.remarks || null,
+      status: "draft",
+    };
+  };
+
   const saveAll = async () => {
     if (!companyId || dirty.size === 0) return;
     setSaving(true);
     try {
-      const adjustments = Array.from(dirty).map(empId => {
-        const row = rows.find(r => r.employeeId === empId)!;
-        const e = edits[empId];
-        return {
-          employeeId: empId,
-          employeeName: row.employeeName,
-          employeeCode: row.employeeCode,
-          originalAttendance:   row.originalAttendance,
-          originalOtHours:      row.originalOtHours,
-          originalBasicSalary:  row.originalBasicSalary,
-          originalGrossSalary:  row.originalGrossSalary,
-          originalNetSalary:    row.originalNetSalary,
-          adjustedAttendance:   e.adjustedAttendance  !== "" ? parseInt(e.adjustedAttendance)  : null,
-          adjustedOtHours:      e.adjustedOtHours     || null,
-          adjustedBasicSalary:  e.adjustedBasicSalary !== "" ? parseInt(e.adjustedBasicSalary)  : null,
-          adjustedGrossSalary:  e.adjustedGrossSalary !== "" ? parseInt(e.adjustedGrossSalary)  : null,
-          adjustedNetSalary:    e.adjustedNetSalary   !== "" ? parseInt(e.adjustedNetSalary)    : null,
-          remarks: e.remarks || null,
-          status: "draft",
-        };
-      });
+      const adjustments = Array.from(dirty).map(buildAdjustment);
       const result = await mutateJson<{ saved: number }>("POST", "/api/compliance/adjustments/bulk", { companyId, month: selectedMonth, year: parseInt(selectedYear), complianceType, partyName: partyName || null, adjustments });
       toast({ title: "Saved", description: `${result.saved} record(s) saved.` });
       setDirty(new Set());
@@ -203,16 +206,29 @@ export function AdjustmentsTab({ companyId, isSuperAdmin, user, toast }: {
 
   const finalizeSelected = async () => {
     if (!companyId || selected.size === 0) return;
-    // Only finalize selected rows that are saved drafts (have an id, not yet finalized).
-    const ids = rows
-      .filter(r => selected.has(r.employeeId) && r.adjustment?.status === "draft")
-      .map(r => r.adjustment!.id);
-    if (ids.length === 0) {
-      toast({ title: "Nothing to finalize", description: "Save the selected rows first, then finalize.", variant: "destructive" });
+    // Finalize any selected row that isn't already finalized.
+    const targetEmpIds = rows
+      .filter(r => selected.has(r.employeeId) && r.adjustment?.status !== "finalized")
+      .map(r => r.employeeId);
+    if (targetEmpIds.length === 0) {
+      toast({ title: "Nothing to finalize", description: "Selected rows are already finalized.", variant: "destructive" });
       return;
     }
     setSaving(true);
     try {
+      // 1) Persist selected rows (create/update as draft) so each has a DB record.
+      const adjustments = targetEmpIds.map(buildAdjustment);
+      await mutateJson("POST", "/api/compliance/adjustments/bulk", { companyId, month: selectedMonth, year: parseInt(selectedYear), complianceType, partyName: partyName || null, adjustments });
+      setDirty(new Set());
+      // 2) Re-fetch to get fresh adjustment ids for the just-saved rows.
+      const fresh = await fetchJson<EmployeeRow[]>(
+        `/api/compliance/employees?companyId=${companyId}&month=${selectedMonth}&year=${selectedYear}`
+      );
+      const idByEmp = new Map(fresh.map(r => [r.employeeId, r.adjustment?.id]));
+      const ids = targetEmpIds
+        .map(emp => idByEmp.get(emp))
+        .filter((id): id is string => !!id);
+      // 3) Finalize each.
       const results = await Promise.all(ids.map(id =>
         fetch(`/api/compliance/adjustments/${id}/finalize`, { method: "PATCH", credentials: "include" })
       ));
@@ -450,8 +466,8 @@ export function AdjustmentsTab({ companyId, isSuperAdmin, user, toast }: {
   const hasDraft = rows.some(r => r.adjustment?.status === "draft");
   const hasFinalized = rows.some(r => r.adjustment?.status === "finalized");
 
-  // Rows that can be selected for finalize = saved drafts only.
-  const selectableIds = filtered.filter(r => r.adjustment?.status === "draft").map(r => r.employeeId);
+  // Rows that can be selected for finalize = any row not yet finalized.
+  const selectableIds = filtered.filter(r => r.adjustment?.status !== "finalized").map(r => r.employeeId);
   const allSelectableChecked = selectableIds.length > 0 && selectableIds.every(id => selected.has(id));
   const isLocked = (r: EmployeeRow) => r.adjustment?.status === "finalized";
   const toggleRow = (empId: string) => {
@@ -670,7 +686,7 @@ export function AdjustmentsTab({ companyId, isSuperAdmin, user, toast }: {
                     diff = 0;
                   }
                   const locked = isLocked(row);
-                  const selectable = row.adjustment?.status === "draft";
+                  const selectable = !locked;
                   return (
                     <TableRow key={row.employeeId} className={`text-xs hover:bg-gray-50 ${locked ? "bg-green-50/60" : ""}`}>
                       <TableCell className={`text-center sticky left-0 z-10 ${locked ? "bg-green-50" : "bg-white"}`}>
