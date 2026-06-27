@@ -36,14 +36,14 @@ import {
 
 import {
   MONTHS, MONTHS_SHORT, COMPLIANCE_TYPES, CURRENT_YEAR, YEARS,
-  REPORT_STATES, REPORT_ACTS, REPORT_TYPES, TAGGED_EMP_REPORT, WEEKLY_OFF_OPTIONS, OT_TYPE_OPTIONS,
+  REPORT_STATES, REPORT_ACTS, REPORT_TYPES, TAGGED_EMP_REPORT, EPF_FORM11_REPORT, WEEKLY_OFF_OPTIONS, OT_TYPE_OPTIONS,
   PAYMENT_MODE_OPTIONS, DIFF_ADJ_OPTIONS, STATUTORY_OPTIONS, BONUS_OPTIONS,
   DEFAULT_CLIENT_FORM, fmt, diff,
 } from "./types";
 import type {
   EmployeeSetup, EmployeeRow, EditState, WorkmenEmployee, WorkmenRegisterData,
   ClientInfo, FormVIIIData, MusterEmp, MusterRollData, WagesEmp, WagesRegisterData,
-  OTEmp, OTRegisterData, ClraPackageData, ComplianceClient, ClientAssignment, TaggedEmployeeRow,
+  OTEmp, OTRegisterData, ClraPackageData, ComplianceClient, ClientAssignment, TaggedEmployeeRow, EpfForm11Row,
 } from "./types";
 import {
   WorkmenRegisterView, FormVIIIView, MusterRollView, WagesRegisterView, WageSlipView,
@@ -71,6 +71,7 @@ export function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
   const [otData,        setOtData]        = useState<OTRegisterData | null>(null);
   const [clraData,      setClraData]      = useState<ClraPackageData | null>(null);
   const [taggedData,    setTaggedData]    = useState<TaggedEmployeeRow[] | null>(null);
+  const [form11Data,    setForm11Data]    = useState<EpfForm11Row[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [loaded,  setLoaded]  = useState(false);
 
@@ -89,16 +90,17 @@ export function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
   const loadReport = async () => {
     if (!companyId) return;
     const isTaggedReport = selectedReport === TAGGED_EMP_REPORT;
+    const isForm11Report = selectedReport === EPF_FORM11_REPORT;
     if (!selectedReport) {
       toast({ title: "Select a report", description: "Please choose a report type to generate.", variant: "destructive" });
       return;
     }
-    if (!isTaggedReport && !selectedState) {
+    if (!isTaggedReport && !isForm11Report && !selectedState) {
       toast({ title: "Select a state", description: "Please choose a state before generating the CLRA report. Form numbering depends on the state.", variant: "destructive" });
       return;
     }
-    // Tagged-employees report works at company level — no auto-pick of a project.
-    const needsProject = REPORT_TYPES.includes(selectedReport) && !isTaggedReport;
+    // Tagged-employees & EPF Form 11 work at company level — no auto-pick of a project.
+    const needsProject = REPORT_TYPES.includes(selectedReport) && !isTaggedReport && !isForm11Report;
     let effectiveProject = selectedProject;
     if (needsProject && selectedProject === "company") {
       if (projects.length > 0) {
@@ -110,7 +112,7 @@ export function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
       }
     }
     setLoading(true);
-    setWorkmenData(null); setFormVIIIData(null); setMusterData(null); setWagesData(null); setOtData(null); setClraData(null); setTaggedData(null);
+    setWorkmenData(null); setFormVIIIData(null); setMusterData(null); setWagesData(null); setOtData(null); setClraData(null); setTaggedData(null); setForm11Data(null);
     setLoaded(false);
     const qp = new URLSearchParams({
       projectId: effectiveProject,
@@ -152,6 +154,14 @@ export function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
         });
         setTaggedData(await safeJson(await fetch(`/api/compliance/tagged-employees?${params}`, { credentials: "include" })));
 
+      } else if (isForm11Report) {
+        const params = new URLSearchParams({
+          month: toMonth, year: toYear,
+          ...(selectedProject !== "company" ? { projectId: selectedProject } : {}),
+          ...(isSuperAdmin ? { companyId } : {}),
+        });
+        setForm11Data(await safeJson(await fetch(`/api/compliance/epf-form11?${params}`, { credentials: "include" })));
+
       } else if (selectedReport === "CLRA Full Package – Forms VIII + IX + XII + XIII") {
         const ixParams = new URLSearchParams({ projectId: effectiveProject, ...(isSuperAdmin ? { companyId } : {}) });
         const [viii, ix, xii, xiii, xviii] = await Promise.all([
@@ -174,7 +184,8 @@ export function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
   const isWorkmenRegister = selectedReport === "Form IX – Workmen Register";
   const isCLRAPackage    = selectedReport === "CLRA Full Package – Forms VIII + IX + XII + XIII";
   const isTagged         = selectedReport === TAGGED_EMP_REPORT;
-  const hasReport = !!(workmenData || formVIIIData || musterData || wagesData || otData || clraData || taggedData);
+  const isForm11         = selectedReport === EPF_FORM11_REPORT;
+  const hasReport = !!(workmenData || formVIIIData || musterData || wagesData || otData || clraData || taggedData || form11Data);
 
   const printReport = async () => {
     const printDiv = document.getElementById("report-print-area");
@@ -1134,7 +1145,7 @@ export function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
                 </SelectContent>
               </Select>
             </div>
-            {!isTagged && (
+            {!isTagged && !isForm11 && (
               <div className="space-y-1">
                 <Label className="text-xs text-gray-500">Select State</Label>
                 <Select value={selectedState} onValueChange={setSelectedState}>
@@ -1143,7 +1154,7 @@ export function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
                 </Select>
               </div>
             )}
-            {!isTagged && (
+            {!isTagged && !isForm11 && (
               <div className="space-y-1">
                 <Label className="text-xs text-gray-500">Select Act</Label>
                 <Select value={selectedAct} onValueChange={setSelectedAct}>
@@ -1238,6 +1249,57 @@ export function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
                         <td style={{ border: "1px solid #999", padding: "11px 10px", height: "34px" }} data-testid={`text-tagged-costcenter-${i}`}>{row.costCenter || "—"}</td>
                         <td style={{ border: "1px solid #999", padding: "11px 10px", height: "34px" }} data-testid={`text-tagged-wagegrade-${i}`}>{row.wageGrade || "—"}</td>
                         <td style={{ border: "1px solid #999", padding: "11px 10px", height: "34px", textAlign: "right" }} data-testid={`text-tagged-allowances-${i}`}>{row.allowances ? `₹${row.allowances.toLocaleString("en-IN")}` : "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            {isForm11 && form11Data && (
+              <div style={{ padding: "28px 32px", background: "#fff", color: "#000", fontFamily: "'Times New Roman', serif" }} data-testid="view-epf-form11">
+                <h2 style={{ textAlign: "center", fontSize: "16px", fontWeight: 700, margin: 0 }}>EPF Form 11 – Self Declaration</h2>
+                <div style={{ textAlign: "center", fontSize: "11px", marginTop: "2px" }}>(Declaration by a person taking up employment in an establishment covered under EPF Scheme 1952 & EPS 1995)</div>
+                <div style={{ textAlign: "center", fontSize: "11px", marginTop: "4px", marginBottom: "16px" }}>
+                  {companyName}
+                  {" — "}
+                  {selectedProject === "company" ? "All Projects" : (projects.find(p => p.id === selectedProject)?.project_name || "Project")}
+                  {" — "}
+                  {(MONTHS[MONTHS_SHORT.indexOf(toMonth)] || toMonth)} {toYear}
+                </div>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "10px", color: "#000" }}>
+                  <thead>
+                    <tr style={{ background: "#f5f5f5" }}>
+                      <th style={{ border: "1px solid #999", padding: "8px 6px", width: "36px", textAlign: "center" }}>S.N.</th>
+                      <th style={{ border: "1px solid #999", padding: "8px 6px", textAlign: "left" }}>Member Name</th>
+                      <th style={{ border: "1px solid #999", padding: "8px 6px", textAlign: "left" }}>Father / Husband Name</th>
+                      <th style={{ border: "1px solid #999", padding: "8px 6px", textAlign: "center" }}>DOB</th>
+                      <th style={{ border: "1px solid #999", padding: "8px 6px", textAlign: "center" }}>Gender</th>
+                      <th style={{ border: "1px solid #999", padding: "8px 6px", textAlign: "center" }}>Marital Status</th>
+                      <th style={{ border: "1px solid #999", padding: "8px 6px", textAlign: "center" }}>Date of Joining</th>
+                      <th style={{ border: "1px solid #999", padding: "8px 6px", textAlign: "left" }}>Mobile / Email</th>
+                      <th style={{ border: "1px solid #999", padding: "8px 6px", textAlign: "center" }}>UAN</th>
+                      <th style={{ border: "1px solid #999", padding: "8px 6px", textAlign: "center" }}>Aadhaar</th>
+                      <th style={{ border: "1px solid #999", padding: "8px 6px", textAlign: "center" }}>PAN</th>
+                      <th style={{ border: "1px solid #999", padding: "8px 6px", textAlign: "left" }}>Bank A/C — IFSC</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {form11Data.length === 0 ? (
+                      <tr><td colSpan={12} style={{ border: "1px solid #999", padding: "16px", textAlign: "center", fontStyle: "italic" }}>No employees found.</td></tr>
+                    ) : form11Data.map((row, i) => (
+                      <tr key={`${row.code}-${i}`} data-testid={`row-form11-${i}`}>
+                        <td style={{ border: "1px solid #999", padding: "9px 6px", textAlign: "center" }}>{i + 1}</td>
+                        <td style={{ border: "1px solid #999", padding: "9px 6px" }} data-testid={`text-form11-name-${i}`}>{row.name}{row.code ? ` (${row.code})` : ""}</td>
+                        <td style={{ border: "1px solid #999", padding: "9px 6px" }} data-testid={`text-form11-father-${i}`}>{row.fatherHusbandName || "—"}</td>
+                        <td style={{ border: "1px solid #999", padding: "9px 6px", textAlign: "center" }} data-testid={`text-form11-dob-${i}`}>{row.dob || "—"}</td>
+                        <td style={{ border: "1px solid #999", padding: "9px 6px", textAlign: "center" }} data-testid={`text-form11-gender-${i}`}>{row.gender || "—"}</td>
+                        <td style={{ border: "1px solid #999", padding: "9px 6px", textAlign: "center" }} data-testid={`text-form11-marital-${i}`}>{row.maritalStatus || "—"}</td>
+                        <td style={{ border: "1px solid #999", padding: "9px 6px", textAlign: "center" }} data-testid={`text-form11-doj-${i}`}>{row.doj || "—"}</td>
+                        <td style={{ border: "1px solid #999", padding: "9px 6px" }} data-testid={`text-form11-contact-${i}`}>{[row.mobile, row.email].filter(Boolean).join(" / ") || "—"}</td>
+                        <td style={{ border: "1px solid #999", padding: "9px 6px", textAlign: "center" }} data-testid={`text-form11-uan-${i}`}>{row.uan || "—"}</td>
+                        <td style={{ border: "1px solid #999", padding: "9px 6px", textAlign: "center" }} data-testid={`text-form11-aadhaar-${i}`}>{row.aadhaar || "—"}</td>
+                        <td style={{ border: "1px solid #999", padding: "9px 6px", textAlign: "center" }} data-testid={`text-form11-pan-${i}`}>{row.pan || "—"}</td>
+                        <td style={{ border: "1px solid #999", padding: "9px 6px" }} data-testid={`text-form11-bank-${i}`}>{[row.bankAccount, row.ifsc].filter(Boolean).join(" — ") || "—"}</td>
                       </tr>
                     ))}
                   </tbody>

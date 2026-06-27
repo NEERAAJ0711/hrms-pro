@@ -1132,6 +1132,82 @@ export function registerComplianceRoutes(app: Express) {
     }
   });
 
+  // ── GET /api/compliance/epf-form11 — EPF Form 11 self-declaration list for a company/month
+  app.get("/api/compliance/epf-form11", requireAuth, attachUser, requireAdminRole, async (req: Request, res: Response) => {
+    try {
+      const user = (req as any).user;
+      const companyId = user.role === "super_admin" ? (req.query.companyId as string) : user.company_id;
+      if (!companyId) return res.status(400).json({ error: "Company ID required" });
+      const { projectId, month, year } = req.query as { projectId?: string; month?: string; year?: string };
+
+      // Optional month window — keep only taggings active during the selected month
+      const MONTHS_SHORT = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+      let monthStart: string | null = null;
+      let monthEnd: string | null = null;
+      const mIdx = month ? MONTHS_SHORT.indexOf(month) : -1;
+      const yNum = year ? parseInt(year) : NaN;
+      if (mIdx >= 0 && !isNaN(yNum)) {
+        const mm = String(mIdx + 1).padStart(2, "0");
+        const lastDay = new Date(yNum, mIdx + 1, 0).getDate();
+        monthStart = `${yNum}-${mm}-01`;
+        monthEnd = `${yNum}-${mm}-${String(lastDay).padStart(2, "0")}`;
+      }
+
+      // List employees of the company. When a project is supplied, restrict to
+      // employees tagged to it (active during the month window). Without a
+      // project, list every employee of the company.
+      const rows = await db.execute(sql`
+        SELECT DISTINCT
+          e.id AS employee_id,
+          TRIM(COALESCE(e.first_name, '') || ' ' || COALESCE(e.last_name, '')) AS employee_name,
+          e.employee_code,
+          e.father_husband_name,
+          e.date_of_birth,
+          e.gender,
+          e.marital_status,
+          e.mobile_number,
+          e.official_email,
+          e.date_of_joining,
+          e.uan,
+          e.aadhaar,
+          e.pan,
+          e.bank_account,
+          e.ifsc,
+          e.pf_applicable
+        FROM employees e
+        ${projectId ? sql`
+        JOIN compliance_client_employees ce
+          ON ce.employee_id = e.id
+          AND ce.company_id = ${companyId}
+          AND ce.client_id = ${projectId}
+          ${monthStart && monthEnd ? sql`AND ce.assigned_date <= ${monthEnd} AND (ce.deassigned_date IS NULL OR ce.deassigned_date >= ${monthStart})` : sql``}
+        ` : sql``}
+        WHERE e.company_id = ${companyId}
+        ORDER BY employee_name
+      `);
+
+      return res.json(rows.rows.map((r: any) => ({
+        name: r.employee_name || "—",
+        code: r.employee_code || "",
+        fatherHusbandName: r.father_husband_name || "",
+        dob: r.date_of_birth || "",
+        gender: r.gender || "",
+        maritalStatus: r.marital_status || "",
+        mobile: r.mobile_number || "",
+        email: r.official_email || "",
+        doj: r.date_of_joining || "",
+        uan: r.uan || "",
+        aadhaar: r.aadhaar || "",
+        pan: r.pan || "",
+        bankAccount: r.bank_account || "",
+        ifsc: r.ifsc || "",
+        pfApplicable: !!r.pf_applicable,
+      })));
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
   // ── POST /api/compliance/clients/:id/assign — assign employee
   app.post("/api/compliance/clients/:id/assign", requireAuth, attachUser, requireAdminRole, async (req: Request, res: Response) => {
     try {

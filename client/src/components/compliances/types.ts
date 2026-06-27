@@ -20,6 +20,7 @@ export const REPORT_TYPES  = [
   "Form XVIII – OT Register",
   "Form XIX – Annual Return",
   "Tagged Employees – Project Mapping",
+  "EPF Form 11 – Self Declaration (EPFO)",
 ];
 
 // Report that lists each employee and the project they are tagged to.
@@ -33,6 +34,28 @@ export interface TaggedEmployeeRow {
   costCenter: string;
   wageGrade: string;
   allowances: number;
+}
+
+// EPF Form 11 — composite self-declaration filed by each member at the time of
+// joining. Works at company level (project dropdown optional) — no state / act.
+export const EPF_FORM11_REPORT = "EPF Form 11 – Self Declaration (EPFO)";
+
+export interface EpfForm11Row {
+  name: string;
+  code: string;
+  fatherHusbandName: string;
+  dob: string;
+  gender: string;
+  maritalStatus: string;
+  mobile: string;
+  email: string;
+  doj: string;
+  uan: string;
+  aadhaar: string;
+  pan: string;
+  bankAccount: string;
+  ifsc: string;
+  pfApplicable: boolean;
 }
 
 export const WEEKLY_OFF_OPTIONS = [
