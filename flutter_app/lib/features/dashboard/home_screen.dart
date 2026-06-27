@@ -68,7 +68,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final auth = Provider.of<AuthProvider>(context);
     final role = auth.user?.role ?? '';
     final isSuperAdmin = role == 'super_admin';
-    final isCompanyAdmin = ['company_admin', 'hr_admin', 'admin'].contains(role);
+    final isCompanyAdmin = ['company_admin', 'hr_admin'].contains(role);
     final hasCompany = auth.user?.hasCompany ?? false;
 
     final List<Widget> screens;

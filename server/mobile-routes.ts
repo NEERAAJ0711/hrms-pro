@@ -957,6 +957,80 @@ export function registerMobileRoutes(app: Express) {
     }
   });
 
+  // ===== AADHAAR VERIFICATION (admins) =====
+  app.post("/api/mobile/employees/verify-aadhaar", requireJwtAuth, async (req: Request, res: Response) => {
+    try {
+      const user = (req as any).user;
+      const allowedRoles = ["super_admin", "company_admin", "hr_admin"];
+      if (!allowedRoles.includes(user.role)) return res.status(403).json({ error: "Not authorized" });
+
+      const aadhaar = String(req.body?.aadhaar ?? "").replace(/\s/g, "");
+      const companyId = user.role === "super_admin" ? (req.body?.companyId || user.companyId) : user.companyId;
+
+      // Verhoeff checksum + format validation (mirrors web).
+      const d = [
+        [0,1,2,3,4,5,6,7,8,9],[1,2,3,4,0,6,7,8,9,5],[2,3,4,0,1,7,8,9,5,6],[3,4,0,1,2,8,9,5,6,7],
+        [4,0,1,2,3,9,5,6,7,8],[5,9,8,7,6,0,4,3,2,1],[6,5,9,8,7,1,0,4,3,2],[7,6,5,9,8,2,1,0,4,3],
+        [8,7,6,5,9,3,2,1,0,4],[9,8,7,6,5,4,3,2,1,0],
+      ];
+      const p = [
+        [0,1,2,3,4,5,6,7,8,9],[1,5,7,6,2,8,3,0,9,4],[5,8,0,3,7,9,6,1,4,2],[8,9,1,6,0,4,3,5,2,7],
+        [9,4,5,3,1,2,6,8,7,0],[4,2,8,6,5,7,3,9,0,1],[2,7,9,3,8,0,6,4,1,5],[7,0,4,6,9,1,3,2,5,8],
+      ];
+      const verhoeff = (num: string): boolean => {
+        let c = 0;
+        const digits = num.split("").map(Number).reverse();
+        for (let i = 0; i < digits.length; i++) c = d[c][p[i % 8][digits[i]]];
+        return c === 0;
+      };
+      if (!/^\d{12}$/.test(aadhaar)) return res.status(400).json({ error: "Aadhaar must be exactly 12 digits" });
+      if (/^[01]/.test(aadhaar)) return res.status(400).json({ error: "Aadhaar cannot start with 0 or 1" });
+      if (!verhoeff(aadhaar)) return res.status(400).json({ error: "Invalid Aadhaar number (checksum failed)" });
+
+      const allEmployees = await employeeService.getAllEmployees();
+      const matched = allEmployees.filter((e: any) => e.aadhaar === aadhaar);
+      if (matched.length === 0) {
+        return res.json({ exists: false, status: "not_found", message: "No employee found with this Aadhaar number. You can proceed." });
+      }
+
+      const sameCompany = matched.find((e: any) => e.companyId === companyId);
+      if (sameCompany) {
+        if (sameCompany.status === "active") {
+          return res.json({
+            exists: true,
+            status: "active_same_company",
+            message: `${sameCompany.firstName} ${sameCompany.lastName} (${sameCompany.employeeCode}) is already active in this company.`,
+          });
+        }
+        return res.json({
+          exists: true,
+          status: "exited_same_company",
+          message: `${sameCompany.firstName} ${sameCompany.lastName} (${sameCompany.employeeCode}) was previously in this company but has exited. Please reinstate them from the web portal.`,
+        });
+      }
+
+      const other = matched[0] as any;
+      return res.json({
+        exists: true,
+        status: "other_company",
+        message: "This Aadhaar belongs to an employee at another company. Their details have been pre-filled — you may add them to your company.",
+        employeeInfo: {
+          firstName: other.firstName,
+          lastName: other.lastName,
+          gender: other.gender,
+          dateOfBirth: other.dateOfBirth,
+          mobileNumber: other.mobileNumber,
+          officialEmail: other.officialEmail,
+          pan: other.pan,
+          bankAccount: other.bankAccount,
+          ifsc: other.ifsc,
+        },
+      });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to verify Aadhaar" });
+    }
+  });
+
   // ===== EMPLOYEE REGISTRATION (admins) =====
   app.post("/api/mobile/employees", requireJwtAuth, async (req: Request, res: Response) => {
     try {
