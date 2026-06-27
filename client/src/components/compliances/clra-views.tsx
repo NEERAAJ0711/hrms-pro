@@ -195,6 +195,15 @@ const MONTH_FULL = (m?: string) => {
   const f = ["January","February","March","April","May","June","July","August","September","October","November","December"];
   return m && s.includes(m) ? f[s.indexOf(m)] : (m || "");
 };
+// CLRA forms are dated the 7th of the month AFTER the package month
+// (e.g. an April package is dated 7 May). Falls back to today if month/year invalid.
+const CL_SIGN_DATE = (month?: string, year?: string) => {
+  const s = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const idx = month ? s.indexOf(month) : -1;
+  const y = year ? parseInt(year) : NaN;
+  const d = (idx >= 0 && !isNaN(y)) ? new Date(y, idx + 1, 7) : new Date();
+  return d.toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" });
+};
 const CL_FOOTER = (c: ClientInfo, sig?: string | null) => (
   <div style={{ display: "flex", justifyContent: "space-between", marginTop: "28px", fontSize: "10.5px", alignItems: "flex-end" }}>
     <div><strong>Place : </strong>{c?.location_of_work || "—"}</div>
@@ -512,7 +521,7 @@ export function WageSlipView({ data, state }: { data: WagesRegisterData; state?:
   const f = clraForm(state, "wageSlip");
   const monthIdx = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"].indexOf(month);
   const monthFull = monthIdx >= 0 ? ["January","February","March","April","May","June","July","August","September","October","November","December"][monthIdx] : month;
-  const today = new Date().toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" });
+  const today = CL_SIGN_DATE(month, year);
   const v = (...p: (string | null | undefined)[]) => p.filter(Boolean).join(", ") || "—";
   const ROW = (label: string, val: React.ReactNode) => (
     <div key={label} style={{ marginBottom: "5px", fontSize: "9px" }}>
@@ -866,7 +875,7 @@ export function EmploymentCardView({ data, month, year, state }: { data: Workmen
   };
   const employees = data.employees.filter(isJoiningMonth);
   const v = (...p: (string | null | undefined)[]) => p.filter(Boolean).join(", ") || "—";
-  const today = new Date().toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" });
+  const today = CL_SIGN_DATE(month, year);
   const HDR_ROW = (label: string, val: string) => (
     <div key={label} style={{ marginBottom: "3px", fontSize: "8.5px" }}>
       <b>{label} :</b> {val}
@@ -924,7 +933,7 @@ export function ServiceCertificateView({ workmen, wages, state }: { workmen: Wor
   const { month, year } = wages;
   const monthIdx = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"].indexOf(month);
   const monthFull = monthIdx >= 0 ? ["January","February","March","April","May","June","July","August","September","October","November","December"][monthIdx] : month;
-  const today = new Date().toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" });
+  const today = CL_SIGN_DATE(month, year);
   const v = (...p: (string | null | undefined)[]) => p.filter(Boolean).join(", ") || "—";
   const wMap = new Map(wages.employees.map(e => [e.name, e]));
   const isLeavingMonth = (e: any) => {
