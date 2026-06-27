@@ -65,7 +65,7 @@ function requireHR(req: Request, res: Response, next: Function) {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-async function getOrCreateKycStatus(employeeId: string, companyId: string) {
+export async function getOrCreateKycStatus(employeeId: string, companyId: string) {
   const existing = await db
     .select()
     .from(kycSubmissionStatus)
@@ -98,7 +98,7 @@ async function getOrCreateKycStatus(employeeId: string, companyId: string) {
 }
 
 // ─── Fetch live employee data for AI context ──────────────────────────────────
-async function fetchEmployeeContext(employeeId: string, companyId: string): Promise<EmployeeContext> {
+export async function fetchEmployeeContext(employeeId: string, companyId: string): Promise<EmployeeContext> {
   const now = new Date();
   const currentYear = now.getFullYear();
   const currentMonth = now.toLocaleString("en-IN", { month: "long", year: "numeric" });
@@ -337,7 +337,7 @@ async function fetchEmployeeContext(employeeId: string, companyId: string): Prom
   };
 }
 
-async function getEmployeeForUser(userId: string, companyId: string | null) {
+export async function getEmployeeForUser(userId: string, companyId: string | null) {
   if (!companyId) return null;
 
   // Primary lookup: by userId field directly on the employee record

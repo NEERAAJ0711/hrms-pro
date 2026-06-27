@@ -15,6 +15,7 @@ import fs from "fs";
 // needs it so the heavy TF runtime + model weights only load on first face match.
 import { makeFileFilter, IMAGE_EXTENSIONS } from "./upload-security";
 import { resolveCrossCompanyLink, backfillMasterLink } from "./services/employee-link";
+import { registerMobileAiRoutes } from "./routes/mobile-ai-routes";
 
 const faceUpload = multer({
   storage: multer.diskStorage({
@@ -32,6 +33,7 @@ const faceUpload = multer({
 });
 
 export function registerMobileRoutes(app: Express) {
+  registerMobileAiRoutes(app, requireJwtAuth);
   app.post("/api/mobile/auth/login", async (req: Request, res: Response) => {
     try {
       const { username, password } = req.body;
