@@ -19,7 +19,18 @@ export const REPORT_TYPES  = [
   "Form XVII – Advances Register",
   "Form XVIII – OT Register",
   "Form XIX – Annual Return",
+  "Tagged Employees – Project Mapping",
 ];
+
+// Report that lists each employee and the project they are tagged to.
+// Needs only company (project dropdown) + month — no state / act.
+export const TAGGED_EMP_REPORT = "Tagged Employees – Project Mapping";
+
+export interface TaggedEmployeeRow {
+  name: string;
+  code: string;
+  project: string;
+}
 
 export const WEEKLY_OFF_OPTIONS = [
   { value: "sunday",           label: "Sunday" },

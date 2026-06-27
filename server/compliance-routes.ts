@@ -1033,6 +1033,51 @@ export function registerComplianceRoutes(app: Express) {
     }
   });
 
+  // ── GET /api/compliance/tagged-employees — employee → project mapping for a company/month
+  app.get("/api/compliance/tagged-employees", requireAuth, attachUser, requireAdminRole, async (req: Request, res: Response) => {
+    try {
+      const user = (req as any).user;
+      const companyId = user.role === "super_admin" ? (req.query.companyId as string) : user.company_id;
+      if (!companyId) return res.status(400).json({ error: "Company ID required" });
+      const { projectId, month, year } = req.query as { projectId?: string; month?: string; year?: string };
+
+      // Optional month window — keep only taggings active during the selected month
+      const MONTHS_SHORT = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+      let monthStart: string | null = null;
+      let monthEnd: string | null = null;
+      const mIdx = month ? MONTHS_SHORT.indexOf(month) : -1;
+      const yNum = year ? parseInt(year) : NaN;
+      if (mIdx >= 0 && !isNaN(yNum)) {
+        const mm = String(mIdx + 1).padStart(2, "0");
+        const lastDay = new Date(yNum, mIdx + 1, 0).getDate();
+        monthStart = `${yNum}-${mm}-01`;
+        monthEnd = `${yNum}-${mm}-${String(lastDay).padStart(2, "0")}`;
+      }
+
+      const rows = await db.execute(sql`
+        SELECT
+          TRIM(COALESCE(e.first_name, '') || ' ' || COALESCE(e.last_name, '')) AS employee_name,
+          e.employee_code,
+          cl.project_name
+        FROM compliance_client_employees ce
+        JOIN employees e ON e.id = ce.employee_id
+        JOIN compliance_clients cl ON cl.id = ce.client_id
+        WHERE ce.company_id = ${companyId}
+          ${projectId ? sql`AND ce.client_id = ${projectId}` : sql``}
+          ${monthStart && monthEnd ? sql`AND ce.assigned_date <= ${monthEnd} AND (ce.deassigned_date IS NULL OR ce.deassigned_date >= ${monthStart})` : sql``}
+        ORDER BY employee_name, cl.project_name
+      `);
+
+      return res.json(rows.rows.map((r: any) => ({
+        name: r.employee_name || "—",
+        code: r.employee_code || "",
+        project: r.project_name || "—",
+      })));
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
   // ── POST /api/compliance/clients/:id/assign — assign employee
   app.post("/api/compliance/clients/:id/assign", requireAuth, attachUser, requireAdminRole, async (req: Request, res: Response) => {
     try {

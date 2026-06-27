@@ -36,14 +36,14 @@ import {
 
 import {
   MONTHS, MONTHS_SHORT, COMPLIANCE_TYPES, CURRENT_YEAR, YEARS,
-  REPORT_STATES, REPORT_ACTS, REPORT_TYPES, WEEKLY_OFF_OPTIONS, OT_TYPE_OPTIONS,
+  REPORT_STATES, REPORT_ACTS, REPORT_TYPES, TAGGED_EMP_REPORT, WEEKLY_OFF_OPTIONS, OT_TYPE_OPTIONS,
   PAYMENT_MODE_OPTIONS, DIFF_ADJ_OPTIONS, STATUTORY_OPTIONS, BONUS_OPTIONS,
   DEFAULT_CLIENT_FORM, fmt, diff,
 } from "./types";
 import type {
   EmployeeSetup, EmployeeRow, EditState, WorkmenEmployee, WorkmenRegisterData,
   ClientInfo, FormVIIIData, MusterEmp, MusterRollData, WagesEmp, WagesRegisterData,
-  OTEmp, OTRegisterData, ClraPackageData, ComplianceClient, ClientAssignment,
+  OTEmp, OTRegisterData, ClraPackageData, ComplianceClient, ClientAssignment, TaggedEmployeeRow,
 } from "./types";
 import {
   WorkmenRegisterView, FormVIIIView, MusterRollView, WagesRegisterView, WageSlipView,
@@ -70,6 +70,7 @@ export function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
   const [wagesData,     setWagesData]     = useState<WagesRegisterData | null>(null);
   const [otData,        setOtData]        = useState<OTRegisterData | null>(null);
   const [clraData,      setClraData]      = useState<ClraPackageData | null>(null);
+  const [taggedData,    setTaggedData]    = useState<TaggedEmployeeRow[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [loaded,  setLoaded]  = useState(false);
 
@@ -87,12 +88,17 @@ export function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
 
   const loadReport = async () => {
     if (!companyId) return;
-    if (!selectedState) {
+    const isTaggedReport = selectedReport === TAGGED_EMP_REPORT;
+    if (!selectedReport) {
+      toast({ title: "Select a report", description: "Please choose a report type to generate.", variant: "destructive" });
+      return;
+    }
+    if (!isTaggedReport && !selectedState) {
       toast({ title: "Select a state", description: "Please choose a state before generating the CLRA report. Form numbering depends on the state.", variant: "destructive" });
       return;
     }
-    const allContractForms = REPORT_TYPES; // all 10 forms require a project
-    const needsProject = allContractForms.includes(selectedReport);
+    // Tagged-employees report works at company level — no auto-pick of a project.
+    const needsProject = REPORT_TYPES.includes(selectedReport) && !isTaggedReport;
     let effectiveProject = selectedProject;
     if (needsProject && selectedProject === "company") {
       if (projects.length > 0) {
@@ -104,7 +110,7 @@ export function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
       }
     }
     setLoading(true);
-    setWorkmenData(null); setFormVIIIData(null); setMusterData(null); setWagesData(null); setOtData(null); setClraData(null);
+    setWorkmenData(null); setFormVIIIData(null); setMusterData(null); setWagesData(null); setOtData(null); setClraData(null); setTaggedData(null);
     setLoaded(false);
     const qp = new URLSearchParams({
       projectId: effectiveProject,
@@ -138,6 +144,14 @@ export function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
       } else if (selectedReport === "Form XVIII – OT Register") {
         setOtData(await safeJson(await fetch(`/api/compliance/ot-register?${qp}`, { credentials: "include" })));
 
+      } else if (isTaggedReport) {
+        const params = new URLSearchParams({
+          month: toMonth, year: toYear,
+          ...(selectedProject !== "company" ? { projectId: selectedProject } : {}),
+          ...(isSuperAdmin ? { companyId } : {}),
+        });
+        setTaggedData(await safeJson(await fetch(`/api/compliance/tagged-employees?${params}`, { credentials: "include" })));
+
       } else if (selectedReport === "CLRA Full Package – Forms VIII + IX + XII + XIII") {
         const ixParams = new URLSearchParams({ projectId: effectiveProject, ...(isSuperAdmin ? { companyId } : {}) });
         const [viii, ix, xii, xiii, xviii] = await Promise.all([
@@ -159,7 +173,8 @@ export function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
 
   const isWorkmenRegister = selectedReport === "Form IX – Workmen Register";
   const isCLRAPackage    = selectedReport === "CLRA Full Package – Forms VIII + IX + XII + XIII";
-  const hasReport = !!(workmenData || formVIIIData || musterData || wagesData || otData || clraData);
+  const isTagged         = selectedReport === TAGGED_EMP_REPORT;
+  const hasReport = !!(workmenData || formVIIIData || musterData || wagesData || otData || clraData || taggedData);
 
   const printReport = async () => {
     const printDiv = document.getElementById("report-print-area");
@@ -1119,20 +1134,24 @@ export function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-1">
-              <Label className="text-xs text-gray-500">Select State</Label>
-              <Select value={selectedState} onValueChange={setSelectedState}>
-                <SelectTrigger className="h-9"><SelectValue placeholder="Select state..." /></SelectTrigger>
-                <SelectContent>{REPORT_STATES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs text-gray-500">Select Act</Label>
-              <Select value={selectedAct} onValueChange={setSelectedAct}>
-                <SelectTrigger className="h-9"><SelectValue placeholder="Select act..." /></SelectTrigger>
-                <SelectContent>{REPORT_ACTS.map(a => <SelectItem key={a} value={a}>{a}</SelectItem>)}</SelectContent>
-              </Select>
-            </div>
+            {!isTagged && (
+              <div className="space-y-1">
+                <Label className="text-xs text-gray-500">Select State</Label>
+                <Select value={selectedState} onValueChange={setSelectedState}>
+                  <SelectTrigger className="h-9"><SelectValue placeholder="Select state..." /></SelectTrigger>
+                  <SelectContent>{REPORT_STATES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+            )}
+            {!isTagged && (
+              <div className="space-y-1">
+                <Label className="text-xs text-gray-500">Select Act</Label>
+                <Select value={selectedAct} onValueChange={setSelectedAct}>
+                  <SelectTrigger className="h-9"><SelectValue placeholder="Select act..." /></SelectTrigger>
+                  <SelectContent>{REPORT_ACTS.map(a => <SelectItem key={a} value={a}>{a}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+            )}
           </div>
           {/* Row 2: Report | From | To | Buttons */}
           <div className="flex flex-wrap items-end gap-3">
@@ -1187,6 +1206,38 @@ export function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
             {selectedReport === "Form XVII – Advances Register"       && wagesData    && <AdvancesRegisterView data={wagesData} state={selectedState} />}
             {selectedReport === "Form XVIII – OT Register"            && otData       && <OTRegisterView data={otData} state={selectedState} />}
             {selectedReport === "Form XIX – Annual Return"            && workmenData  && <AnnualReturnView data={workmenData} fromYear={toYear} toYear={toYear} state={selectedState} />}
+            {isTagged && taggedData && (
+              <div style={{ padding: "28px 32px", background: "#fff", color: "#000", fontFamily: "'Times New Roman', serif" }} data-testid="view-tagged-employees">
+                <h2 style={{ textAlign: "center", fontSize: "16px", fontWeight: 700, margin: 0 }}>Tagged Employees – Project Mapping</h2>
+                <div style={{ textAlign: "center", fontSize: "11px", marginTop: "4px", marginBottom: "16px" }}>
+                  {companyName}
+                  {" — "}
+                  {selectedProject === "company" ? "All Projects" : (projects.find(p => p.id === selectedProject)?.project_name || "Project")}
+                  {" — "}
+                  {(MONTHS[MONTHS_SHORT.indexOf(toMonth)] || toMonth)} {toYear}
+                </div>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "11px" }}>
+                  <thead>
+                    <tr style={{ background: "#f0f0f0" }}>
+                      <th style={{ border: "1px solid #333", padding: "6px 8px", width: "60px", textAlign: "center" }}>S.N.</th>
+                      <th style={{ border: "1px solid #333", padding: "6px 8px", textAlign: "left" }}>Employee Name</th>
+                      <th style={{ border: "1px solid #333", padding: "6px 8px", textAlign: "left" }}>Tagged Project</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {taggedData.length === 0 ? (
+                      <tr><td colSpan={3} style={{ border: "1px solid #333", padding: "12px", textAlign: "center", fontStyle: "italic" }}>No tagged employees found for the selected month.</td></tr>
+                    ) : taggedData.map((row, i) => (
+                      <tr key={`${row.code}-${row.project}-${i}`} data-testid={`row-tagged-${i}`}>
+                        <td style={{ border: "1px solid #333", padding: "5px 8px", textAlign: "center" }}>{i + 1}</td>
+                        <td style={{ border: "1px solid #333", padding: "5px 8px" }} data-testid={`text-tagged-name-${i}`}>{row.name}{row.code ? ` (${row.code})` : ""}</td>
+                        <td style={{ border: "1px solid #333", padding: "5px 8px" }} data-testid={`text-tagged-project-${i}`}>{row.project}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         </Card>
       )}
