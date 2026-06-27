@@ -4901,6 +4901,137 @@ export function useReports() {
   };
 
   // ─────────────────────────────────────────────────────────────────────────
+  // EPF Form 11 (New) — pre-filled per-employee declaration (official format)
+  // ─────────────────────────────────────────────────────────────────────────
+  const generateForm11 = (_fileType: "excel" | "pdf") => {
+    const emp = employees.find(e => e.id === docEmployee);
+    if (!emp) { toast({ title: "Select Employee", description: "Please select an employee first to generate the pre-filled Form 11.", variant: "destructive" }); return; }
+    const company = companies.find(c => c.id === emp.companyId);
+    const e: any = emp;
+
+    const doc = new jsPDF();
+    const PW = 210, ML = 14, MR = 14, UW = PW - ML - MR;
+    const fmt = (d?: string | null) => {
+      if (!d) return "";
+      const dt = new Date(`${d}T00:00:00`);
+      return isNaN(dt.getTime()) ? "" : format(dt, "dd/MM/yyyy");
+    };
+    const cityStr = (company as any)?.city || "";
+    const empName = `${e.firstName || ""} ${e.lastName || ""}`.trim().toUpperCase();
+    const doj = fmt(e.dateOfJoining);
+
+    let y = 14;
+
+    // ── Header ──
+    doc.setFont("helvetica", "bold"); doc.setFontSize(11);
+    doc.text("EMPLOYEES' PROVIDENT FUND ORGANISATION", PW / 2, y, { align: "center" }); y += 5;
+    doc.setFont("helvetica", "normal"); doc.setFontSize(8);
+    doc.text("The Employees' Provident Funds Scheme, 1952 (Paragraph 34 & 57) &", PW / 2, y, { align: "center" }); y += 4;
+    doc.text("The Employees' Pension Scheme, 1995 (Paragraph 24)", PW / 2, y, { align: "center" }); y += 6;
+
+    doc.setFont("helvetica", "bold"); doc.setFontSize(11);
+    doc.text("FORM No. 11 (New)", PW / 2, y, { align: "center" }); y += 5;
+    doc.setFont("helvetica", "normal"); doc.setFontSize(8);
+    doc.text("Declaration Form (To be retained by the Employer for future reference)", PW / 2, y, { align: "center" }); y += 6;
+
+    const form11Intro = "Declaration by a person taking up employment in an establishment in which the Employees' Provident Fund Scheme, 1952 and/or Employees' Pension Scheme, 1995 is applicable.";
+    doc.setFontSize(8.5);
+    doc.text(doc.splitTextToSize(form11Intro, UW), PW / 2, y, { align: "center" });
+    y += doc.splitTextToSize(form11Intro, UW).length * 4 + 4;
+
+    // ── Establishment line ──
+    doc.setFont("helvetica", "bold"); doc.setFontSize(9);
+    doc.text(`Establishment : ${(company?.companyName || "").toUpperCase()}`, ML, y); y += 5;
+
+    // ── Pre-filled particulars table ──
+    const marital = (e.maritalStatus || "").toString();
+    // Earlier EPF/EPS membership: presence of a UAN strongly implies prior membership.
+    // Leave blank when unknown so HR can tick manually rather than asserting a wrong value.
+    const earlierMember = e.uan ? "Yes" : "";
+    const form11Rows: [string, string][] = [
+      ["1   Name of the member", empName],
+      ["2   Father's Name / Spouse's Name", e.fatherHusbandName || ""],
+      ["3   Date of Birth (DD/MM/YYYY)", fmt(e.dateOfBirth)],
+      ["4   Gender (Male / Female / Transgender)", e.gender || ""],
+      ["5   Marital Status (Married / Unmarried / Widow / Widower / Divorcee)", marital],
+      ["6   (a) Email ID", e.officialEmail || ""],
+      ["    (b) Mobile No.", e.mobileNumber || ""],
+      ["7   Whether earlier a member of Employees' Provident Fund Scheme, 1952 (Yes / No)", earlierMember],
+      ["8   Whether earlier a member of Employees' Pension Scheme, 1995 (Yes / No)", earlierMember],
+      ["9   Previous employment details (if 7 / 8 is 'Yes'):", ""],
+      ["    (a) Universal Account Number (UAN)", e.uan || ""],
+      ["    (b) Previous PF Account Number", ""],
+      ["    (c) Date of exit from previous employment (DD/MM/YYYY)", ""],
+      ["    (d) Scheme Certificate No. (if issued)", ""],
+      ["    (e) Pension Payment Order (PPO) No. (if issued)", ""],
+      ["10  (a) International Worker (Yes / No)", ""],
+      ["    (b) If yes, state country of origin", ""],
+      ["    (c) Passport No.", ""],
+      ["    (d) Validity of passport (DD/MM/YYYY to DD/MM/YYYY)", ""],
+      ["11  KYC details: (attach self-attested copies)", ""],
+      ["    (a) Bank Account No. & IFSC", `${e.bankAccount || ""}${e.ifsc ? "   " + e.ifsc : ""}`.trim()],
+      ["    (b) Aadhaar Number", e.aadhaar || ""],
+      ["    (c) Permanent Account Number (PAN), if available", e.pan || ""],
+    ];
+    autoTable(doc, {
+      body: form11Rows,
+      startY: y,
+      styles: { fontSize: 8, cellPadding: 2, lineColor: [0, 0, 0], lineWidth: 0.2, textColor: [0, 0, 0] },
+      columnStyles: { 0: { fontStyle: "bold", cellWidth: 110, fillColor: [248, 248, 248] }, 1: { cellWidth: UW - 110 } },
+      margin: { left: ML },
+    });
+    y = (doc as any).lastAutoTable.finalY + 6;
+    if (y > 235) { doc.addPage(); y = 16; }
+
+    // ── Undertaking ──
+    doc.setFont("helvetica", "bold"); doc.setFontSize(9);
+    doc.text("UNDERTAKING", ML, y); y += 5;
+    const undertakingItems = [
+      "1) Certified that the particulars are true to the best of my knowledge.",
+      "2) I authorise EPFO to use my Aadhaar for verification / authentication / e-KYC purpose for service delivery.",
+      "3) Kindly transfer the funds and service details, if applicable, from the previous PF account as declared above to the present PF account. (The transfer would be possible only if the KYC details have been approved by the previous employer and verified by the present employer using the Digital Signature Certificate.)",
+      "4) In case of any change in the above details, the same will be intimated to the employer at the earliest.",
+    ];
+    doc.setFont("helvetica", "normal"); doc.setFontSize(8.5);
+    undertakingItems.forEach(u => {
+      const lines = doc.splitTextToSize(u, UW);
+      doc.text(lines, ML, y); y += lines.length * 5 + 2;
+    });
+    y += 6;
+    if (y > 255) { doc.addPage(); y = 16; }
+    doc.text(`Date : ${doj}`, ML, y);
+    doc.text("Signature of Member : ___________________", PW - MR, y, { align: "right" }); y += 6;
+    doc.text(`Place : ${cityStr}`, ML, y); y += 10;
+
+    // ── Declaration by present employer (page 2) ──
+    if (y > 215) { doc.addPage(); y = 16; }
+    doc.setFont("helvetica", "bold"); doc.setFontSize(9);
+    doc.text("DECLARATION BY THE PRESENT EMPLOYER", ML, y); y += 6;
+    doc.setFont("helvetica", "normal"); doc.setFontSize(8.5);
+    const empDecl = [
+      `A.  The member ${empName || "____________"} has been allotted PF Member ID ____________________ and has joined on ${doj || "____________"}.`,
+      "B.  In case the person was earlier NOT a member of EPF Scheme, 1952 and EPS, 1995 (post allotment of UAN), the UAN allotted for the member is ____________________.",
+      "     (Please tick the appropriate option)",
+      "     [ ] The KYC details of the above member in the UAN database have NOT been uploaded.",
+      "     [ ] Have been uploaded but NOT approved.",
+      "     [ ] Have been uploaded and approved with DSC.",
+      "C.  In case the person was earlier a member of EPF Scheme, 1952 and EPS, 1995, the above Member ID has been tagged with his/her previous Member ID as declared by the member.",
+    ];
+    empDecl.forEach(t => {
+      const lines = doc.splitTextToSize(t, UW);
+      doc.text(lines, ML, y); y += lines.length * 5 + 2;
+    });
+    y += 8;
+    if (y > 260) { doc.addPage(); y = 16; }
+    doc.text(`Date : ${doj}`, ML, y);
+    doc.text("Signature of Employer with Establishment Seal", PW - MR, y, { align: "right" });
+
+    const fileName = `Form_11_${e.employeeCode || empName.replace(/\s+/g, "_")}.pdf`;
+    doc.save(fileName);
+    toast({ title: "Downloaded", description: `${fileName} has been downloaded.` });
+  };
+
+  // ─────────────────────────────────────────────────────────────────────────
   // Individual Attendance Sheet
   // ─────────────────────────────────────────────────────────────────────────
   const generateIndividualAttendanceSheet = (fileType: "excel" | "pdf") => {
@@ -5841,6 +5972,7 @@ export function useReports() {
     { title: "ESIC Statement", description: "Monthly ESIC contribution statement with IP and employer contribution breakdowns", icon: Receipt, color: "text-orange-600", bgColor: "bg-orange-50 dark:bg-orange-950", generate: generateESICStatement, view: viewESICStatement },
     { title: "LWF Report", description: "Labour Welfare Fund statement with employee and employer contribution breakdowns", icon: Scale, color: "text-cyan-600", bgColor: "bg-cyan-50 dark:bg-cyan-950", generate: generateLWFReport, view: viewLWFReport },
     { title: "Bonus Report", description: "Statutory bonus statement for all bonus-applicable employees with calculation details", icon: Landmark, color: "text-amber-600", bgColor: "bg-amber-50 dark:bg-amber-950", generate: generateBonusReport, view: viewBonusReport },
+    { title: "EPF Form 11 (Pre-filled)", description: "Official EPFO Form 11 (New) declaration pre-filled per employee — name, DOB, UAN, KYC (Aadhaar/PAN/Bank) and employer declaration, ready to print", icon: FilePen, color: "text-purple-600", bgColor: "bg-purple-50 dark:bg-purple-950", generate: generateForm11, view: () => toast({ title: "PDF Only", description: "EPF Form 11 is available as a pre-filled PDF download only." }), pdfOnly: true },
   ];
 
   const annualReports = [
@@ -5909,6 +6041,7 @@ export function useReports() {
     "ESIC Statement": ["company", "month"],
     "LWF Report": ["company", "month"],
     "Bonus Report": ["company", "month"],
+    "EPF Form 11 (Pre-filled)": ["company", "employee"],
     // Annual
     "Yearly PF Summary": ["company", "period"],
     "Yearly ESIC Summary": ["company", "period"],
