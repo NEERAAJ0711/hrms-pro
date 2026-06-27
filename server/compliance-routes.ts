@@ -1065,7 +1065,7 @@ export function registerComplianceRoutes(app: Express) {
           cm.contractor_name AS cost_center,
           wg.name AS wage_grade,
           wg.state AS wage_grade_state,
-          wg.effective_from AS wage_grade_effective,
+          wg.minimum_wage AS wage_grade_amount,
           cs.allowances AS allowances,
           STRING_AGG(DISTINCT cl.project_name, ', ' ORDER BY cl.project_name) AS projects
         FROM employees e
@@ -1081,25 +1081,15 @@ export function registerComplianceRoutes(app: Express) {
         LEFT JOIN wage_grades wg
           ON wg.id = COALESCE(cs.wage_grade_id, e.wage_grade_id) AND wg.company_id = ${companyId}
         WHERE e.company_id = ${companyId}
-        GROUP BY e.id, employee_name, e.employee_code, cm.contractor_name, wg.name, wg.state, wg.effective_from, cs.allowances
+        GROUP BY e.id, employee_name, e.employee_code, cm.contractor_name, wg.name, wg.state, wg.minimum_wage, cs.allowances
         ORDER BY employee_name
       `);
-
-      const MONTHS_FMT = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-      const fmtEffMonth = (d: any): string => {
-        if (!d) return "";
-        const m = String(d).match(/^(\d{4})-(\d{2})/);
-        if (!m) return "";
-        const idx = parseInt(m[2], 10) - 1;
-        return idx >= 0 && idx < 12 ? `${MONTHS_FMT[idx]} ${m[1]}` : "";
-      };
 
       return res.json(rows.rows.map((r: any) => {
         const parts: string[] = [];
         if (r.wage_grade) parts.push(r.wage_grade);
         if (r.wage_grade_state) parts.push(r.wage_grade_state);
-        const effM = fmtEffMonth(r.wage_grade_effective);
-        if (effM) parts.push(effM);
+        if (r.wage_grade_amount != null) parts.push(`₹${Number(r.wage_grade_amount).toLocaleString("en-IN")}`);
         return {
           name: r.employee_name || "—",
           code: r.employee_code || "",
