@@ -8,13 +8,16 @@ class ApiClient {
   factory ApiClient() => _instance;
 
   late Dio dio;
-  final FlutterSecureStorage _storage = const FlutterSecureStorage();
+  final FlutterSecureStorage _storage = const FlutterSecureStorage(
+    aOptions: AndroidOptions(encryptedSharedPreferences: true),
+    iOptions: IOSOptions(accessibility: KeychainAccessibility.first_unlock),
+  );
   String baseUrl = const String.fromEnvironment(
     'BASE_URL',
     defaultValue: 'https://tbjvisionconnect.com',
   );
   bool _isRefreshing = false;
-  final List<Function(String)> _refreshCallbacks = [];
+  final List<Completer<String>> _refreshWaiters = [];
   Function()? onAuthFailure;
 
   ApiClient._internal() {
@@ -39,7 +42,7 @@ class ApiClient {
           if (_isRefreshing) {
             try {
               final comp = Completer<String>();
-              _refreshCallbacks.add(comp.complete);
+              _refreshWaiters.add(comp);
               final newToken = await comp.future;
               error.requestOptions.headers['Authorization'] = 'Bearer $newToken';
               final response = await Dio(BaseOptions(baseUrl: baseUrl))
@@ -110,21 +113,31 @@ class ApiClient {
         if (response.data['refreshToken'] != null) {
           await _storage.write(key: 'refresh_token', value: response.data['refreshToken']);
         }
-        for (final callback in _refreshCallbacks) {
-          callback(newAccessToken);
+        for (final waiter in _refreshWaiters) {
+          if (!waiter.isCompleted) waiter.complete(newAccessToken);
         }
-        _refreshCallbacks.clear();
+        _refreshWaiters.clear();
         _isRefreshing = false;
         return true;
       }
+      _failPendingWaiters();
       _isRefreshing = false;
       return false;
     } catch (e) {
-      _refreshCallbacks.clear();
+      _failPendingWaiters();
       _isRefreshing = false;
       await clearTokens();
       return false;
     }
+  }
+
+  void _failPendingWaiters() {
+    for (final waiter in _refreshWaiters) {
+      if (!waiter.isCompleted) {
+        waiter.completeError(StateError('Token refresh failed'));
+      }
+    }
+    _refreshWaiters.clear();
   }
 
   Future<void> saveTokens(String accessToken, String refreshToken) async {
@@ -135,10 +148,27 @@ class ApiClient {
   Future<void> clearTokens() async {
     await _storage.delete(key: 'access_token');
     await _storage.delete(key: 'refresh_token');
+    await _storage.delete(key: 'user_data');
   }
 
   Future<String?> getAccessToken() async {
-    return await _storage.read(key: 'access_token');
+    try {
+      return await _storage.read(key: 'access_token');
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> saveUserData(String json) async {
+    await _storage.write(key: 'user_data', value: json);
+  }
+
+  Future<String?> getUserData() async {
+    try {
+      return await _storage.read(key: 'user_data');
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<Response> get(String path, {Map<String, dynamic>? queryParameters}) async {

@@ -30,3 +30,4 @@
 - [Mobile payslip parity](mobile-payslip-parity.md) — mobile payslip PDF must mirror web buildPaySlipPDF; mobile endpoint enriches payroll with emp/company/custom-head fields; watch payroll field-name drift
 - [Flutter APK size](flutter-apk-size.md) — universal APK + R8-off drove size; safe=minify/shrink+dep cleanup; risky=split-per-abi/AAB (direct .apk distribution, no Play Store)
 - [Mobile login wrong id/pwd](mobile-login-username.md) — case-sensitive username + mobile keyboard auto-capitalize/autocorrect = 401 while web works; harden username TextField
+- [Mobile keep-login persistence](mobile-session-persistence.md) — logout-on-close is client-side: never wipe tokens on transient errors, cache user, encryptedSharedPreferences, complete refresh-queue waiters
