@@ -22,6 +22,7 @@ import '../quick_attendance/quick_attendance_screen.dart';
 import '../employees/employee_registration_screen.dart';
 import '../attendance/face_registration_screen.dart';
 import '../admin/super_admin_screen.dart';
+import '../admin/company_admin_screen.dart';
 import '../geofence/geo_fence_screen.dart';
 import '../leave/advance_request_screen.dart';
 import '../notifications/notification_screen.dart';
@@ -67,6 +68,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final auth = Provider.of<AuthProvider>(context);
     final role = auth.user?.role ?? '';
     final isSuperAdmin = role == 'super_admin';
+    final isCompanyAdmin = ['company_admin', 'hr_admin', 'admin'].contains(role);
     final hasCompany = auth.user?.hasCompany ?? false;
 
     final List<Widget> screens;
@@ -82,6 +84,19 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         BottomNavigationBarItem(icon: Icon(Icons.admin_panel_settings), label: 'Admin'),
         BottomNavigationBarItem(icon: Icon(Icons.apps), label: 'Tools'),
         BottomNavigationBarItem(icon: Icon(Icons.person), label: 'Profile'),
+      ];
+    } else if (isCompanyAdmin && hasCompany) {
+      screens = [
+        const CompanyAdminScreen(),
+        const AttendanceScreen(),
+        const LeaveApprovalScreen(),
+        const _MoreScreen(),
+      ];
+      navItems = const [
+        BottomNavigationBarItem(icon: Icon(Icons.dashboard), label: 'Dashboard'),
+        BottomNavigationBarItem(icon: Icon(Icons.access_time), label: 'Attendance'),
+        BottomNavigationBarItem(icon: Icon(Icons.approval), label: 'Approvals'),
+        BottomNavigationBarItem(icon: Icon(Icons.apps), label: 'More'),
       ];
     } else if (hasCompany) {
       screens = [
