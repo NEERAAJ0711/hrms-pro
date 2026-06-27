@@ -1056,22 +1056,24 @@ export function registerComplianceRoutes(app: Express) {
 
       const rows = await db.execute(sql`
         SELECT
+          e.id AS employee_id,
           TRIM(COALESCE(e.first_name, '') || ' ' || COALESCE(e.last_name, '')) AS employee_name,
           e.employee_code,
-          cl.project_name
+          STRING_AGG(DISTINCT cl.project_name, ', ' ORDER BY cl.project_name) AS projects
         FROM compliance_client_employees ce
         JOIN employees e ON e.id = ce.employee_id
         JOIN compliance_clients cl ON cl.id = ce.client_id
         WHERE ce.company_id = ${companyId}
           ${projectId ? sql`AND ce.client_id = ${projectId}` : sql``}
           ${monthStart && monthEnd ? sql`AND ce.assigned_date <= ${monthEnd} AND (ce.deassigned_date IS NULL OR ce.deassigned_date >= ${monthStart})` : sql``}
-        ORDER BY employee_name, cl.project_name
+        GROUP BY e.id, employee_name, e.employee_code
+        ORDER BY employee_name
       `);
 
       return res.json(rows.rows.map((r: any) => ({
         name: r.employee_name || "—",
         code: r.employee_code || "",
-        project: r.project_name || "—",
+        project: r.projects || "—",
       })));
     } catch (err: any) {
       return res.status(500).json({ error: err.message });
