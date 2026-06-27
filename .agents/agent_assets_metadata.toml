@@ -24,3 +24,9 @@ id = "-3fDaqe1hT-bkCoIDqb_m"
 uri = "file://PROJECT_SYSTEM_ANALYSIS.md"
 type = "text"
 title = "Project System Analysis Report"
+
+[[outputs]]
+id = "V0IjWfWsr_HNGW2CqM2eT"
+uri = "file://ENTERPRISE_PROJECT_AUDIT.md"
+type = "text"
+title = "Enterprise Project Audit Report"
