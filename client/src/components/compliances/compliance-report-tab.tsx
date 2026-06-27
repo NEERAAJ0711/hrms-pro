@@ -305,8 +305,11 @@ export function ComplianceReportTab({ companyId, isSuperAdmin, user, toast }: {
         return cy + 4;
       };
 
-      // Format current date as "7 April 2026"
-      const todayFmt = new Date().toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" });
+      // CLRA package signing date = 7th of the month AFTER the package month
+      // (e.g. an April package is dated 7 May). Mirrors the on-screen views.
+      const signYear = parseInt(toYear);
+      const signDate = (monthIdx >= 0 && !isNaN(signYear)) ? new Date(signYear, monthIdx + 1, 7) : new Date();
+      const todayFmt = signDate.toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" });
 
       const addFooter = (y: number) => {
         // `y` is the table bottom + small gap. The signature image is drawn
