@@ -45,6 +45,7 @@ import type {
   ClientInfo, FormVIIIData, MusterEmp, MusterRollData, WagesEmp, WagesRegisterData,
   OTEmp, OTRegisterData, ClraPackageData, ComplianceClient, ClientAssignment,
 } from "./types";
+import type { MasterDesignation } from "@shared/schema";
 
 export function ClientSetupTab({ companyId, isSuperAdmin, toast }: {
   companyId: string; isSuperAdmin: boolean; toast: any;
@@ -105,6 +106,23 @@ export function ClientSetupTab({ companyId, isSuperAdmin, toast }: {
 
   // All employees for assignment dropdown
   const [allEmployees, setAllEmployees] = useState<{ id: string; name: string; code: string; designation: string; presentAddress: string }[]>([]);
+
+  // Designations master — populate the designation dropdowns from the configured list
+  const { data: masterDesignations = [] } = useQuery<MasterDesignation[]>({
+    queryKey: [`/api/master-designations?companyId=${companyId}`],
+    queryFn: () => fetchJson<MasterDesignation[]>(`/api/master-designations${companyId ? `?companyId=${companyId}` : ""}`),
+    enabled: !!companyId,
+  });
+  const designationNames = masterDesignations
+    .filter(d => d.status !== "inactive")
+    .map(d => d.name)
+    .filter(Boolean);
+  // Keep an already-saved value selectable even if it is no longer in the master list
+  const desigOptions = (current?: string) => {
+    const list = [...designationNames];
+    if (current && !list.includes(current)) list.unshift(current);
+    return list;
+  };
 
   const loadClients = useCallback(async () => {
     if (!companyId) return;
@@ -661,7 +679,9 @@ export function ClientSetupTab({ companyId, isSuperAdmin, toast }: {
                   <Select value={assignDesignation} onValueChange={setAssignDesignation}>
                     <SelectTrigger className="h-9 bg-white"><SelectValue placeholder="Select designation..." /></SelectTrigger>
                     <SelectContent>
-                      {["LABOUR","HELPER","SUPERVISOR","MANAGER","EXECUTIVE","OFFICER","ENGINEER","TECHNICIAN","DRIVER","SECURITY GUARD","HOUSE KEEPING","ACCOUNTANT","CLERK","PEON","SWEEPER","ELECTRICIAN","PLUMBER","MECHANIC","OPERATOR"].map(d => (
+                      {desigOptions(assignDesignation).length === 0 ? (
+                        <div className="px-2 py-1.5 text-xs text-gray-400">No designations configured. Add them under Masters → Designations.</div>
+                      ) : desigOptions(assignDesignation).map(d => (
                         <SelectItem key={d} value={d}>{d}</SelectItem>
                       ))}
                     </SelectContent>
@@ -812,7 +832,9 @@ export function ClientSetupTab({ companyId, isSuperAdmin, toast }: {
               <Select value={editDesignation} onValueChange={setEditDesignation}>
                 <SelectTrigger className="h-9"><SelectValue placeholder="Select designation..." /></SelectTrigger>
                 <SelectContent>
-                  {["LABOUR","HELPER","SUPERVISOR","MANAGER","EXECUTIVE","OFFICER","ENGINEER","TECHNICIAN","DRIVER","SECURITY GUARD","HOUSE KEEPING","ACCOUNTANT","CLERK","PEON","SWEEPER","ELECTRICIAN","PLUMBER","MECHANIC","OPERATOR"].map(d => (
+                  {desigOptions(editDesignation).length === 0 ? (
+                    <div className="px-2 py-1.5 text-xs text-gray-400">No designations configured. Add them under Masters → Designations.</div>
+                  ) : desigOptions(editDesignation).map(d => (
                     <SelectItem key={d} value={d}>{d}</SelectItem>
                   ))}
                 </SelectContent>
