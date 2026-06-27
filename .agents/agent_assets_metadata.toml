@@ -18,3 +18,9 @@ id = "0zeMuqTfhCpQ4aF6inZl1"
 uri = "file://flutter_app/APK_SIZE_AUDIT_REPORT.md"
 type = "text"
 title = "Flutter APK Size Optimization Audit Report"
+
+[[outputs]]
+id = "-3fDaqe1hT-bkCoIDqb_m"
+uri = "file://PROJECT_SYSTEM_ANALYSIS.md"
+type = "text"
+title = "Project System Analysis Report"
