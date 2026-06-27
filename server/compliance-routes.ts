@@ -1062,6 +1062,15 @@ export function registerComplianceRoutes(app: Express) {
           e.id AS employee_id,
           TRIM(COALESCE(e.first_name, '') || ' ' || COALESCE(e.last_name, '')) AS employee_name,
           e.employee_code,
+          cm.contractor_name AS cost_center,
+          wg.name AS wage_grade,
+          COALESCE((
+            SELECT ss.hra + ss.conveyance + ss.medical_allowance + ss.special_allowance + ss.other_allowances
+            FROM salary_structures ss
+            WHERE ss.employee_id = e.id AND ss.status = 'active'
+            ORDER BY ss.effective_from DESC
+            LIMIT 1
+          ), 0) AS allowances,
           STRING_AGG(DISTINCT cl.project_name, ', ' ORDER BY cl.project_name) AS projects
         FROM employees e
         LEFT JOIN compliance_client_employees ce
@@ -1070,8 +1079,10 @@ export function registerComplianceRoutes(app: Express) {
           ${projectId ? sql`AND ce.client_id = ${projectId}` : sql``}
           ${monthStart && monthEnd ? sql`AND ce.assigned_date <= ${monthEnd} AND (ce.deassigned_date IS NULL OR ce.deassigned_date >= ${monthStart})` : sql``}
         LEFT JOIN compliance_clients cl ON cl.id = ce.client_id
+        LEFT JOIN contractor_masters cm ON cm.id = e.contractor_master_id
+        LEFT JOIN wage_grades wg ON wg.id = e.wage_grade_id
         WHERE e.company_id = ${companyId}
-        GROUP BY e.id, employee_name, e.employee_code
+        GROUP BY e.id, employee_name, e.employee_code, cm.contractor_name, wg.name
         ORDER BY employee_name
       `);
 
@@ -1079,6 +1090,9 @@ export function registerComplianceRoutes(app: Express) {
         name: r.employee_name || "—",
         code: r.employee_code || "",
         project: r.projects || "",
+        costCenter: r.cost_center || "",
+        wageGrade: r.wage_grade || "",
+        allowances: Number(r.allowances) || 0,
       })));
     } catch (err: any) {
       return res.status(500).json({ error: err.message });

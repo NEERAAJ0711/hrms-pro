@@ -30,6 +30,9 @@ export interface TaggedEmployeeRow {
   name: string;
   code: string;
   project: string;
+  costCenter: string;
+  wageGrade: string;
+  allowances: number;
 }
 
 export const WEEKLY_OFF_OPTIONS = [
