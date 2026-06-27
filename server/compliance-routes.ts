@@ -474,7 +474,7 @@ export function registerComplianceRoutes(app: Express) {
 
       // Check if adjustment already exists for this employee+month+year+companyId
       const existing = await db.execute(sql`
-        SELECT id FROM compliance_adjustments
+        SELECT id, status FROM compliance_adjustments
         WHERE company_id = ${targetCompanyId}
           AND employee_id = ${employeeId}
           AND month = ${month}
@@ -483,6 +483,10 @@ export function registerComplianceRoutes(app: Express) {
       `);
 
       if (existing.rows.length > 0) {
+        // Finalized records are locked — never overwrite or downgrade them.
+        if ((existing.rows[0].status as string) === "finalized") {
+          return res.status(409).json({ error: "Record is finalized and locked. Cannot edit." });
+        }
         // Update
         const id = existing.rows[0].id as string;
         await db.execute(sql`
@@ -550,7 +554,7 @@ export function registerComplianceRoutes(app: Express) {
 
       for (const adj of adjustments) {
         const existing = await db.execute(sql`
-          SELECT id FROM compliance_adjustments
+          SELECT id, status FROM compliance_adjustments
           WHERE company_id = ${targetCompanyId}
             AND employee_id = ${adj.employeeId}
             AND month = ${month}
@@ -559,6 +563,10 @@ export function registerComplianceRoutes(app: Express) {
         `);
 
         if (existing.rows.length > 0) {
+          // Finalized records are locked — never overwrite or downgrade them.
+          if ((existing.rows[0].status as string) === "finalized") {
+            continue;
+          }
           const id = existing.rows[0].id as string;
           await db.execute(sql`
             UPDATE compliance_adjustments SET
@@ -611,8 +619,17 @@ export function registerComplianceRoutes(app: Express) {
   // ── PATCH /api/compliance/adjustments/:id/finalize — mark as finalized
   app.patch("/api/compliance/adjustments/:id/finalize", requireAuth, attachUser, requireAdminRole, async (req: Request, res: Response) => {
     try {
+      const user = (req as any).user;
       const { id } = req.params;
       const now = new Date().toISOString();
+      // Scope by tenant: non-super_admins may only finalize their own company's records.
+      const existing = await db.execute(sql`SELECT company_id FROM compliance_adjustments WHERE id = ${id} LIMIT 1`);
+      if (existing.rows.length === 0) {
+        return res.status(404).json({ error: "Record not found" });
+      }
+      if (user.role !== "super_admin" && (existing.rows[0].company_id as string) !== user.company_id) {
+        return res.status(403).json({ error: "Not allowed" });
+      }
       await db.execute(sql`
         UPDATE compliance_adjustments SET status = 'finalized', updated_at = ${now} WHERE id = ${id}
       `);
@@ -625,7 +642,18 @@ export function registerComplianceRoutes(app: Express) {
   // ── DELETE /api/compliance/adjustments/:id — delete one adjustment
   app.delete("/api/compliance/adjustments/:id", requireAuth, attachUser, requireAdminRole, async (req: Request, res: Response) => {
     try {
+      const user = (req as any).user;
       const { id } = req.params;
+      const existing = await db.execute(sql`SELECT company_id, status FROM compliance_adjustments WHERE id = ${id} LIMIT 1`);
+      if (existing.rows.length === 0) {
+        return res.status(404).json({ error: "Record not found" });
+      }
+      if (user.role !== "super_admin" && (existing.rows[0].company_id as string) !== user.company_id) {
+        return res.status(403).json({ error: "Not allowed" });
+      }
+      if ((existing.rows[0].status as string) === "finalized") {
+        return res.status(409).json({ error: "Record is finalized and locked. Cannot delete." });
+      }
       await db.execute(sql`DELETE FROM compliance_adjustments WHERE id = ${id}`);
       return res.json({ message: "Deleted" });
     } catch (err: any) {

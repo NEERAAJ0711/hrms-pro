@@ -67,6 +67,7 @@ export function AdjustmentsTab({ companyId, isSuperAdmin, user, toast }: {
   const [loaded, setLoaded] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [deleteEmpName, setDeleteEmpName] = useState("");
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const { sort: adjSort, toggle: adjToggle } = useSort("employeeName", "asc");
 
   const loadEmployees = useCallback(async () => {
@@ -75,6 +76,7 @@ export function AdjustmentsTab({ companyId, isSuperAdmin, user, toast }: {
     setLoaded(false);
     setEdits({});
     setDirty(new Set());
+    setSelected(new Set());
     try {
       const data = await fetchJson<EmployeeRow[]>(
         `/api/compliance/employees?companyId=${companyId}&month=${selectedMonth}&year=${selectedYear}`
@@ -199,16 +201,33 @@ export function AdjustmentsTab({ companyId, isSuperAdmin, user, toast }: {
     setSaving(false);
   };
 
-  const finalizeAll = async () => {
-    if (!companyId) return;
-    if (dirty.size > 0) await saveAll();
+  const finalizeSelected = async () => {
+    if (!companyId || selected.size === 0) return;
+    // Only finalize selected rows that are saved drafts (have an id, not yet finalized).
+    const ids = rows
+      .filter(r => selected.has(r.employeeId) && r.adjustment?.status === "draft")
+      .map(r => r.adjustment!.id);
+    if (ids.length === 0) {
+      toast({ title: "Nothing to finalize", description: "Save the selected rows first, then finalize.", variant: "destructive" });
+      return;
+    }
     setSaving(true);
     try {
-      const draftIds = rows.filter(r => r.adjustment?.status === "draft").map(r => r.adjustment!.id);
-      await Promise.all(draftIds.map(id =>
+      const results = await Promise.all(ids.map(id =>
         fetch(`/api/compliance/adjustments/${id}/finalize`, { method: "PATCH", credentials: "include" })
       ));
-      toast({ title: "Finalized", description: `${draftIds.length} record(s) finalized.` });
+      const okCount = results.filter(r => r.ok).length;
+      const failCount = results.length - okCount;
+      if (failCount > 0) {
+        toast({
+          title: okCount > 0 ? "Partially finalized" : "Finalize failed",
+          description: `${okCount} finalized, ${failCount} failed.`,
+          variant: "destructive",
+        });
+      } else {
+        toast({ title: "Finalized", description: `${okCount} record(s) finalized & locked.` });
+      }
+      setSelected(new Set());
       await loadEmployees();
     } catch (e: any) {
       toast({ title: "Error", description: e.message, variant: "destructive" });
@@ -431,6 +450,24 @@ export function AdjustmentsTab({ companyId, isSuperAdmin, user, toast }: {
   const hasDraft = rows.some(r => r.adjustment?.status === "draft");
   const hasFinalized = rows.some(r => r.adjustment?.status === "finalized");
 
+  // Rows that can be selected for finalize = saved drafts only.
+  const selectableIds = filtered.filter(r => r.adjustment?.status === "draft").map(r => r.employeeId);
+  const allSelectableChecked = selectableIds.length > 0 && selectableIds.every(id => selected.has(id));
+  const isLocked = (r: EmployeeRow) => r.adjustment?.status === "finalized";
+  const toggleRow = (empId: string) => {
+    setSelected(prev => {
+      const s = new Set(prev);
+      if (s.has(empId)) s.delete(empId); else s.add(empId);
+      return s;
+    });
+  };
+  const toggleAll = () => {
+    setSelected(prev => {
+      if (selectableIds.every(id => prev.has(id))) return new Set();
+      return new Set(selectableIds);
+    });
+  };
+
   return (
     <div className="space-y-4">
       {/* Filter bar */}
@@ -481,7 +518,10 @@ export function AdjustmentsTab({ companyId, isSuperAdmin, user, toast }: {
               </Badge>
             )}
             {hasDraft && <Badge className="bg-blue-100 text-blue-700">Has draft records</Badge>}
-            {hasFinalized && <Badge className="bg-green-100 text-green-700">Has finalized records</Badge>}
+            {hasFinalized && <Badge className="bg-green-100 text-green-700">Has finalized (locked) records</Badge>}
+            {selected.size > 0 && (
+              <Badge className="bg-emerald-100 text-emerald-700">{selected.size} selected</Badge>
+            )}
           </div>
           <div className="flex gap-2">
             <Button variant="outline" size="sm" onClick={exportCSV}>
@@ -494,8 +534,8 @@ export function AdjustmentsTab({ companyId, isSuperAdmin, user, toast }: {
               <Save className="h-4 w-4 mr-1" />
               {saving ? "Saving..." : `Save (${dirty.size})`}
             </Button>
-            <Button size="sm" onClick={finalizeAll} disabled={saving} className="bg-green-600 hover:bg-green-700 text-white">
-              <CheckCircle2 className="h-4 w-4 mr-1" /> Finalize All
+            <Button size="sm" onClick={finalizeSelected} disabled={saving || selected.size === 0} className="bg-green-600 hover:bg-green-700 text-white">
+              <CheckCircle2 className="h-4 w-4 mr-1" /> Finalize Selected{selected.size > 0 ? ` (${selected.size})` : ""}
             </Button>
           </div>
         </div>
@@ -508,8 +548,18 @@ export function AdjustmentsTab({ companyId, isSuperAdmin, user, toast }: {
             <Table>
               <TableHeader>
                 <TableRow className="bg-gray-50 text-xs">
+                  {/* Select */}
+                  <TableHead className="w-10 text-center sticky left-0 bg-gray-50 z-20">
+                    <Checkbox
+                      checked={allSelectableChecked}
+                      onCheckedChange={toggleAll}
+                      disabled={selectableIds.length === 0}
+                      aria-label="Select all draft rows"
+                      data-testid="checkbox-finalize-all"
+                    />
+                  </TableHead>
                   {/* Identity */}
-                  <SortableHead col="employeeCode" sort={adjSort} onToggle={adjToggle} className="font-semibold text-xs sticky left-0 bg-gray-50 z-10 min-w-[70px]">Code</SortableHead>
+                  <SortableHead col="employeeCode" sort={adjSort} onToggle={adjToggle} className="font-semibold text-xs sticky left-10 bg-gray-50 z-10 min-w-[70px]">Code</SortableHead>
                   <SortableHead col="employeeName" sort={adjSort} onToggle={adjToggle} className="font-semibold text-xs min-w-[140px]">Name</SortableHead>
                   <SortableHead col="grossSalary"  sort={adjSort} onToggle={adjToggle} className="font-semibold text-xs text-center min-w-[100px]">Gross Salary</SortableHead>
                   <SortableHead col="monDays"      sort={adjSort} onToggle={adjToggle} className="font-semibold text-xs text-center">Mon.Days</SortableHead>
@@ -540,7 +590,7 @@ export function AdjustmentsTab({ companyId, isSuperAdmin, user, toast }: {
               </TableHeader>
               <TableBody>
                 {filtered.length === 0 && (
-                  <TableRow><TableCell colSpan={25} className="text-center py-10 text-gray-400">No employees match your search</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={26} className="text-center py-10 text-gray-400">No employees match your search</TableCell></TableRow>
                 )}
                 {filtered.map(row => {
                   const n = (v: number) => v > 0 ? v.toLocaleString("en-IN") : "0";
@@ -619,9 +669,24 @@ export function AdjustmentsTab({ companyId, isSuperAdmin, user, toast }: {
                     }
                     diff = 0;
                   }
+                  const locked = isLocked(row);
+                  const selectable = row.adjustment?.status === "draft";
                   return (
-                    <TableRow key={row.employeeId} className="text-xs hover:bg-gray-50">
-                      <TableCell className="font-mono text-gray-500 sticky left-0 bg-white">{row.employeeCode}</TableCell>
+                    <TableRow key={row.employeeId} className={`text-xs hover:bg-gray-50 ${locked ? "bg-green-50/60" : ""}`}>
+                      <TableCell className={`text-center sticky left-0 z-10 ${locked ? "bg-green-50" : "bg-white"}`}>
+                        {locked ? (
+                          <Lock className="h-3.5 w-3.5 text-green-600 mx-auto" data-testid={`icon-locked-${row.employeeId}`} />
+                        ) : (
+                          <Checkbox
+                            checked={selected.has(row.employeeId)}
+                            onCheckedChange={() => toggleRow(row.employeeId)}
+                            disabled={!selectable}
+                            aria-label="Select row for finalize"
+                            data-testid={`checkbox-finalize-${row.employeeId}`}
+                          />
+                        )}
+                      </TableCell>
+                      <TableCell className={`font-mono text-gray-500 sticky left-10 ${locked ? "bg-green-50" : "bg-white"}`}>{row.employeeCode}</TableCell>
                       <TableCell className="font-medium text-gray-800 whitespace-nowrap">{row.employeeName}</TableCell>
                       <TableCell className="text-center font-medium text-gray-800">{n(row.structureGross)}</TableCell>
                       <TableCell className="text-center text-gray-700">{row.monDays}</TableCell>
@@ -737,7 +802,7 @@ export function AdjustmentsTab({ companyId, isSuperAdmin, user, toast }: {
                   const totDiff     = rowCalcs.reduce((a, c) => a + c.diff2, 0);
                   return (
                     <TableRow className="bg-gray-100 font-bold text-xs border-t-2 border-gray-300">
-                      <TableCell className="sticky left-0 bg-gray-100" colSpan={4}>TOTAL</TableCell>
+                      <TableCell className="sticky left-0 bg-gray-100" colSpan={5}>TOTAL</TableCell>
                       <TableCell className="text-center">{sum("monDays")}</TableCell>
                       <TableCell className="text-center font-medium">{totPayDays}</TableCell>
                       <TableCell className="text-center bg-blue-50">{n(sum("rBasic"))}</TableCell>
