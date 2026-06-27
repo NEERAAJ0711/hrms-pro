@@ -32,3 +32,4 @@
 - [Mobile login wrong id/pwd](mobile-login-username.md) — case-sensitive username + mobile keyboard auto-capitalize/autocorrect = 401 while web works; harden username TextField
 - [Mobile keep-login persistence](mobile-session-persistence.md) — logout-on-close is client-side: never wipe tokens on transient errors, cache user, encryptedSharedPreferences, complete refresh-queue waiters
 - [AI intent caller context](ai-intent-caller-context.md) — any new caller of handleAssistantQuery must build empCtx (via exported ai-hr-routes helpers) or self-service intents silently return "no data"; companyId from auth only
+- [Payment approval (web + mobile)](payment-approval-mobile.md) — payment_submissions reviewed by super admin; shared service powers web (session) + mobile (JWT); credit logic single-source

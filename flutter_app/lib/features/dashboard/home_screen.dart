@@ -28,6 +28,7 @@ import '../leave/advance_request_screen.dart';
 import '../notifications/notification_screen.dart';
 import '../locations/locations_screen.dart';
 import '../ai/ai_assistant_screen.dart';
+import '../billing/payment_approval_screen.dart';
 import '../../core/update_service.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -251,6 +252,7 @@ class _SuperAdminMoreScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final tools = [
       _MenuItem(icon: Icons.auto_awesome, title: 'AI Assistant', subtitle: 'Ask HR & compliance', color: const Color(0xFF7C3AED), onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AiAssistantScreen()))),
+      _MenuItem(icon: Icons.payments, title: 'Payment Approvals', subtitle: 'Review company payments', color: const Color(0xFF00897B), onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PaymentApprovalScreen()))),
       _MenuItem(icon: Icons.person_add_alt_1, title: 'Register Employee', subtitle: 'Add new employee', color: const Color(0xFF3F51B5), onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const EmployeeRegistrationScreen()))),
       _MenuItem(icon: Icons.face_retouching_natural, title: 'Face Registration', subtitle: 'Register employee faces', color: const Color(0xFF6366F1), onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const FaceRegistrationScreen()))),
       _MenuItem(icon: Icons.radar, title: 'Geo-Fence Setup', subtitle: 'Office location & radius', color: const Color(0xFF0288D1), onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const GeoFenceScreen()))),

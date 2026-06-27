@@ -16,6 +16,7 @@ import fs from "fs";
 import { makeFileFilter, IMAGE_EXTENSIONS } from "./upload-security";
 import { resolveCrossCompanyLink, backfillMasterLink } from "./services/employee-link";
 import { registerMobileAiRoutes } from "./routes/mobile-ai-routes";
+import { registerMobileBillingRoutes } from "./routes/mobile-billing-routes";
 
 const faceUpload = multer({
   storage: multer.diskStorage({
@@ -34,6 +35,7 @@ const faceUpload = multer({
 
 export function registerMobileRoutes(app: Express) {
   registerMobileAiRoutes(app, requireJwtAuth);
+  registerMobileBillingRoutes(app, requireJwtAuth);
   app.post("/api/mobile/auth/login", async (req: Request, res: Response) => {
     try {
       const { username, password } = req.body;

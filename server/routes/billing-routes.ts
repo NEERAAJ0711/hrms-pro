@@ -23,6 +23,7 @@ import multer from "multer";
 import { makeFileFilter, DOCUMENT_EXTENSIONS, DATA_EXTENSIONS, APK_EXTENSIONS } from "../upload-security";
 import * as XLSX from "xlsx";
 import { randomUUID } from "crypto";
+import { listPaymentSubmissions, reviewPaymentSubmission, mapPaymentSubmission as mapSubmission } from "../services/payment-submission-service";
 import * as fs from "fs";
 import * as path from "path";
 import * as net from "net";
@@ -666,24 +667,6 @@ export async function registerBillingRoutes(app: Express): Promise<void> {
     note: z.string().optional(),
   });
 
-  function mapSubmission(r: any) {
-    return {
-      id: r.id,
-      companyId: r.company_id,
-      companyName: r.company_name ?? null,
-      amount: r.amount,
-      paymentDate: r.payment_date,
-      referenceNo: r.reference_no,
-      note: r.note,
-      status: r.status,
-      reviewNote: r.review_note,
-      reviewedBy: r.reviewed_by,
-      reviewedAt: r.reviewed_at,
-      submittedBy: r.submitted_by,
-      createdAt: r.created_at,
-    };
-  }
-
   // Company admin reports a payment from the trial-expired wall. Access is
   // granted immediately (status 'pending') until a super admin decides.
   app.post("/api/billing/payment-submission", requireAuth, requireRole("company_admin"), async (req, res) => {
@@ -731,13 +714,7 @@ export async function registerBillingRoutes(app: Express): Promise<void> {
   // All submissions for super admin review
   app.get("/api/billing/payment-submissions", requireAuth, requireRole("super_admin"), async (_req, res) => {
     try {
-      const rows = await db.execute(sql`
-        SELECT ps.*, c.company_name
-        FROM payment_submissions ps
-        LEFT JOIN companies c ON c.id = ps.company_id
-        ORDER BY ps.created_at DESC
-      `);
-      res.json(rows.rows.map(mapSubmission));
+      res.json(await listPaymentSubmissions());
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch payment submissions" });
     }
@@ -751,54 +728,14 @@ export async function registerBillingRoutes(app: Express): Promise<void> {
       if (status !== "approved" && status !== "rejected") {
         return res.status(400).json({ error: "status must be 'approved' or 'rejected'" });
       }
-      const now = new Date().toISOString();
-
-      const existing = await db.execute(sql`SELECT id FROM payment_submissions WHERE id = ${req.params.id}`);
-      if (!existing.rows[0]) return res.status(404).json({ error: "Submission not found" });
-
-      // Whole approve/credit operation runs in one transaction so the status
-      // change, balance top-up and ledger entry either all commit or none do.
-      await db.transaction(async (tx) => {
-        await tx.execute(sql`
-          UPDATE payment_submissions
-          SET status = ${status}, review_note = ${reviewNote || null}, reviewed_by = ${user.id}, reviewed_at = ${now}
-          WHERE id = ${req.params.id}
-        `);
-
-        if (status === "approved") {
-          // Atomically claim crediting: only the request that flips credited_at
-          // from NULL proceeds, so the amount is added to the balance exactly
-          // once even under concurrent approvals.
-          const claim = await tx.execute(sql`
-            UPDATE payment_submissions SET credited_at = ${now}
-            WHERE id = ${req.params.id} AND credited_at IS NULL
-            RETURNING amount, company_id, payment_date, reference_no
-          `);
-          const c = claim.rows[0] as any;
-          if (c && Number(c.amount) > 0) {
-            const amt = Number(c.amount);
-            await tx.execute(sql`
-              INSERT INTO cd_accounts (id, company_id, credit_balance, cost_per_employee_per_day, rate_effective_from, low_balance_threshold, allow_negative, notes, created_at, updated_at)
-              VALUES (${randomUUID()}, ${c.company_id}, 0, 15, ${now.slice(0, 10)}, 1000, false, ${"Auto-created on payment approval"}, ${now}, ${now})
-              ON CONFLICT (company_id) DO NOTHING
-            `);
-            const balRow = await tx.execute(sql`
-              UPDATE cd_accounts SET credit_balance = credit_balance + ${amt}, updated_at = ${now}
-              WHERE company_id = ${c.company_id}
-              RETURNING credit_balance
-            `);
-            const balAfter = (balRow.rows[0] as any)?.credit_balance ?? 0;
-            await tx.execute(sql`
-              INSERT INTO cd_transactions (id, company_id, type, amount, balance_after, description, reference_no, created_by, created_at)
-              VALUES (${randomUUID()}, ${c.company_id}, 'credit', ${amt}, ${balAfter},
-                ${`Payment approved — ${c.payment_date}`}, ${c.reference_no || null}, ${user.id}, ${now})
-            `);
-          }
-        }
+      const result = await reviewPaymentSubmission({
+        id: req.params.id,
+        status,
+        reviewNote: reviewNote ?? null,
+        reviewerUserId: user.id,
       });
-
-      const row = await db.execute(sql`SELECT * FROM payment_submissions WHERE id = ${req.params.id}`);
-      res.json(mapSubmission(row.rows[0]));
+      if (!result) return res.status(404).json({ error: "Submission not found" });
+      res.json(result);
     } catch (error) {
       res.status(500).json({ error: "Failed to update payment submission" });
     }

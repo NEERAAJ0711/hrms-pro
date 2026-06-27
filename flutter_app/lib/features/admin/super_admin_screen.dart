@@ -12,6 +12,7 @@ import '../leave_approval/leave_approval_screen.dart';
 import '../salary/salary_structure_form_screen.dart';
 import '../jobs/job_posting_screen.dart';
 import '../geofence/geo_fence_screen.dart';
+import '../billing/payment_approval_screen.dart';
 
 class SuperAdminScreen extends StatefulWidget {
   const SuperAdminScreen({super.key});
@@ -179,6 +180,7 @@ class _SuperAdminScreenState extends State<SuperAdminScreen> {
       _ActionItem(Icons.calendar_view_month, 'Monthly\nAttendance', const Color(0xFF607D8B), () => Navigator.push(context, MaterialPageRoute(builder: (_) => const MonthlyAttendanceScreen()))),
       _ActionItem(Icons.account_balance_wallet_outlined, 'Salary\nSetup', const Color(0xFF009688), () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SalaryStructureFormScreen()))),
       _ActionItem(Icons.post_add, 'Job\nPostings', const Color(0xFFE91E63), () => Navigator.push(context, MaterialPageRoute(builder: (_) => const JobPostingManageScreen()))),
+      _ActionItem(Icons.payments, 'Payment\nApprovals', const Color(0xFF00897B), () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PaymentApprovalScreen()))),
       _ActionItem(Icons.group, 'All\nEmployees', AppTheme.primaryColor, () => Navigator.push(context, MaterialPageRoute(builder: (_) => const _AllEmployeesScreen()))),
     ];
     return GridView.count(
